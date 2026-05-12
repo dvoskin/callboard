@@ -1,0 +1,11 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+*.log
+*.bak
+resolved_calls.json
+test_*.py
