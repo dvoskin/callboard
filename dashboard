@@ -1,23 +1,6 @@
-echo "# callboard" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/dvoskin/callboard.git
-git push -u origin main
-  cd "/Users/danielvoskin/Code Learn/call-tracker"
-
-# (git init already done)
+cd "/Users/danielvoskin/Code Learn/call-tracker"
 git add .
 git commit -m "Initial deploy"
-
-# Then ONE of these two — depending on which auth you use with GitHub:
-
-# Option A: HTTPS (you'll be prompted for username + a personal access token)
-git remote add origin https://github.com/YOUR_USERNAME/call-tracker.git
-
-# Option B: SSH (if you have SSH keys set up — paste output of `cat ~/.ssh/id_*.pub` into github.com/settings/keys)
-git remote add origin git@github.com:YOUR_USERNAME/call-tracker.git
-
+git remote add origin https://github.com/dvoskin/callboard.git
 git branch -M main
 git push -u origin main
