@@ -1,6 +1,0 @@
-cd "/Users/danielvoskin/Code Learn/call-tracker"
-git add .
-git commit -m "Initial deploy"
-git remote add origin https://github.com/dvoskin/callboard.git
-git branch -M main
-git push -u origin main
