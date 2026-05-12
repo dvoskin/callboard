@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Call Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #eef0f5;
+      --bg-grad:   radial-gradient(ellipse at top left, #eaecf7 0%, #eef0f5 35%, #f0f1f6 100%);
+      --surface:   #ffffff;
+      --surface2:  #f7f8fc;
+      --border:    rgba(15,23,42,0.13);
+      --sep:       rgba(15,23,42,0.07);
+      --text:      #0b0e1a;
+      --secondary: #5b6478;
+      --tertiary:  #94a0b8;
+
+      --blue:      #2563eb;
+      --blue-dk:   #1d4ed8;
+      --blue-glow: rgba(37,99,235,.35);
+      --green:     #10b981;
+      --green-dk:  #047857;
+      --red:       #ef4444;
+      --red-dk:    #b91c1c;
+      --orange:    #f59e0b;
+      --orange-dk: #b45309;
+      --yellow:    #eab308;
+      --yellow-dk: #854d0e;
+      --purple:    #8b5cf6;
+      --purple-dk: #6d28d9;
+      --teal:      #06b6d4;
+      --teal-dk:   #0e7490;
+      --ai-grad:   linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+
+      --radius-sm: 8px;
+      --radius:    12px;
+      --radius-lg: 18px;
+
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+      --shadow:    0 4px 24px rgba(15,23,42,.08), 0 1px 4px rgba(15,23,42,.06);
+      --shadow-lg: 0 12px 40px rgba(15,23,42,.12), 0 4px 12px rgba(15,23,42,.08);
+      --glow-blue: 0 0 0 1px rgba(37,99,235,.2), 0 6px 20px rgba(37,99,235,.18);
+    }
+
+    body {
+      background: var(--bg);
+      background-image: var(--bg-grad);
+      color: var(--text);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      letter-spacing: -0.005em;
+    }
+
+    /* Subtle dot grid texture in the background */
+    body::before {
+      content:"";
+      position: fixed; inset: 0;
+      background-image: radial-gradient(rgba(99,102,241,.06) 1px, transparent 1px);
+      background-size: 24px 24px;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* ══════════════ HEADER ══════════════ */
+    header {
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: saturate(180%) blur(28px);
+      -webkit-backdrop-filter: saturate(180%) blur(28px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      box-shadow: 0 1px 0 rgba(15,23,42,.04);
+    }
+    header::after {
+      content:""; position: absolute; bottom: -1px; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--blue) 30%, var(--purple) 70%, transparent);
+      opacity: 0.4;
+    }
+    .header-icon {
+      width: 32px; height: 32px;
+      background: var(--ai-grad);
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0;
+      box-shadow: 0 2px 10px rgba(139,92,246,.45), inset 0 1px 0 rgba(255,255,255,.3);
+    }
+    header h1 {
+      font-size: 16px; font-weight: 700; flex: 1; letter-spacing: -.3px;
+      background: linear-gradient(135deg, #0b0e1a, #4c5979);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    #last-updated { color: var(--secondary); font-size: 12px; font-weight: 500; }
+    .header-dot-wrap { display:flex; align-items:center; gap:5px; }
+    #status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--green); flex-shrink: 0;
+    }
+    #status-dot.loading { background: var(--orange); animation: pulse 1.2s ease-in-out infinite; }
+    #status-dot.error   { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+    #refresh-btn {
+      background: linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%);
+      color: #fff; border: none;
+      border-radius: var(--radius-sm); padding: 7px 14px;
+      cursor: pointer; font-size: 12px; font-weight: 600;
+      font-family: inherit; letter-spacing: -.1px;
+      transition: all .15s;
+      box-shadow: 0 2px 10px rgba(37,99,235,.4), inset 0 1px 0 rgba(255,255,255,.2);
+    }
+    #refresh-btn:hover   { box-shadow: 0 4px 16px rgba(37,99,235,.55), inset 0 1px 0 rgba(255,255,255,.2); transform: translateY(-1px); }
+    #refresh-btn:active  { transform: translateY(0) scale(.97); }
+    #refresh-btn:disabled{ opacity: .5; cursor: default; transform: none; }
+
+    /* ══════════════ LAYOUT ══════════════ */
+    main { padding: 24px 28px; max-width: 1760px; margin: 0 auto; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+      overflow: hidden;
+      position: relative;
+    }
+    /* (top accent removed for cleaner modern look) */
+    .card-header {
+      padding: 20px 24px 0;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .card-header h2 {
+      font-size: 17px; font-weight: 700; letter-spacing: -.3px; flex:1;
+      color: var(--text);
+    }
+    .card-sub { font-size: 12px; color: var(--secondary); font-weight: 500; }
+    .card-body { padding: 16px 24px 24px; }
+
+    #error-banner {
+      background: rgba(255,59,48,.07);
+      border: 1px solid rgba(255,59,48,.18);
+      color: var(--red-dk);
+      border-radius: var(--radius);
+      padding: 11px 15px;
+      margin-bottom: 18px;
+      font-size: 13px; font-weight: 500;
+      display: none;
+    }
+
+    /* ══════════════ STAT STRIP ══════════════ */
+    .stat-strip {
+      display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0;
+    }
+    .stat-pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 7px 15px;
+      display: flex; align-items: baseline; gap: 7px;
+      font-size: 12px; font-weight: 500;
+      box-shadow: var(--shadow-sm);
+      transition: transform .12s, box-shadow .12s;
+    }
+    .stat-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+    .stat-pill .val { font-size: 20px; font-weight: 800; line-height: 1.1; font-feature-settings: "tnum"; }
+    .stat-pill .lbl { color: var(--secondary); font-weight: 600; }
+    .stat-pill .rate{ color: var(--text); font-weight: 700; }
+    .stat-pill.green  .val { color: var(--green-dk); }
+    .stat-pill.red    .val { color: var(--red-dk); }
+    .stat-pill.orange .val { color: var(--orange-dk); }
+    .stat-pill.blue   .val { color: var(--blue-dk); }
+    .stat-pill.purple .val { color: var(--purple-dk); }
+    .stat-pill.teal   .val { color: var(--teal-dk); }
+    .stat-pill.yellow .val { color: var(--yellow-dk); }
+
+    /* ══════════════ FILTER BAR ══════════════ */
+    .filter-bar {
+      display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
+      margin-bottom: 12px;
+    }
+    .filter-bar input,
+    .filter-bar select {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text);
+      font-size: 13px; font-family: inherit; font-weight: 500;
+      padding: 6px 10px; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .filter-bar input:focus,
+    .filter-bar select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(0,122,255,.1);
+    }
+    .filter-bar input { min-width: 190px; }
+    .filter-clear {
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      color: var(--secondary); cursor: pointer;
+      padding: 6px 9px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: none;
+      transition: color .15s, border-color .15s;
+    }
+    .filter-clear:hover { color: var(--red); border-color: rgba(255,59,48,.4); }
+
+    /* ══════════════ TABLE ══════════════ */
+    .table-wrap {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: auto; background: var(--surface);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left; font-size: 10.5px; font-weight: 800;
+      color: var(--secondary); text-transform: uppercase;
+      letter-spacing: .09em; padding: 11px 13px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      background: linear-gradient(180deg, #fafbff, var(--surface2));
+    }
+    th.sortable { cursor: pointer; user-select: none; transition: color .12s; }
+    th.sortable:hover { color: var(--blue); }
+    th.sort-asc::after  { content: " ↑"; color: var(--blue); }
+    th.sort-desc::after { content: " ↓"; color: var(--blue); }
+    td {
+      padding: 10px 13px; border-bottom: 1px solid var(--sep);
+      vertical-align: middle; font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(37,99,235,.035); }
+
+    tr.row-completed td:first-child  { box-shadow: inset 3px 0 0 var(--green);   padding-left: 10px; }
+    tr.row-early     td:first-child  { box-shadow: inset 3px 0 0 var(--teal);    padding-left: 10px; }
+    tr.row-via-deal  td:first-child  { box-shadow: inset 3px 0 0 var(--purple);  padding-left: 10px; }
+    tr.row-missed    td:first-child { box-shadow: inset 3px 0 0 var(--red);     padding-left: 10px; }
+    tr.row-late      td:first-child { box-shadow: inset 3px 0 0 var(--orange);  padding-left: 10px; }
+    tr.row-overdue   td:first-child { box-shadow: inset 3px 0 0 #ff3b30;        padding-left: 10px; }
+
+    .name-cell  { max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+    .name-link  { color: var(--text); text-decoration: none; font-weight: 600; }
+    .name-link:hover { color: var(--blue); text-decoration: underline; }
+    .phone-cell { font-family: "SF Mono","Fira Code",monospace; font-size: 12px; color: var(--secondary); }
+    .dim        { font-size: 12px; color: var(--secondary); }
+    .empty-state{ padding: 32px; text-align:center; color:var(--tertiary); font-size:13px; font-weight:500; }
+
+    /* ══════════════ BADGES ══════════════ */
+    .badge {
+      display: inline-flex; align-items: center;
+      border-radius: 6px; padding: 3px 9px;
+      font-size: 11px; font-weight: 700;
+      white-space: nowrap; letter-spacing: .01em;
+    }
+    .badge-green  { background: rgba(52,199,89,.12);  color: var(--green-dk);  }
+    .badge-red    { background: rgba(255,59,48,.1);   color: var(--red-dk);    }
+    .badge-orange { background: rgba(255,159,10,.12); color: var(--orange-dk); }
+    .badge-yellow { background: rgba(255,204,0,.15);  color: var(--yellow-dk); }
+    .badge-blue   { background: rgba(0,122,255,.1);   color: var(--blue-dk);   }
+    .badge-teal   { background: rgba(50,173,230,.12); color: var(--teal-dk);   }
+    .badge-purple { background: rgba(175,82,222,.1);  color: var(--purple-dk); }
+    .badge-gray   { background: rgba(142,142,147,.1); color: var(--secondary); }
+
+    /* stage tag on long-overdue */
+    .stage-tag {
+      display: inline-flex; align-items: center;
+      font-size: 10px; font-weight: 700;
+      background: rgba(175,82,222,.1); color: var(--purple-dk);
+      border-radius: 4px; padding: 2px 6px; margin-left: 5px;
+      white-space: nowrap; vertical-align: middle;
+    }
+    .stage-tag.neutral { background: rgba(142,142,147,.1); color: var(--secondary); }
+
+    /* ══════════════ NEXT-CALL CHIP ══════════════ */
+    #sc-next-chip {
+      display: none; align-items: center; gap: 5px;
+      background: rgba(0,122,255,.07); border: 1px solid rgba(0,122,255,.16);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; font-weight: 600; color: var(--blue);
+    }
+    #sc-next-chip .chip-cd { font-variant-numeric: tabular-nums; }
+
+    /* ══════════════ SC LAYOUT ══════════════ */
+    .sc-layout {
+      display: grid; grid-template-columns: 1fr 280px;
+      gap: 16px; align-items: start;
+    }
+    .sub-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .sub-header .title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .sub-header .chip  {
+      font-size: 11px; font-weight: 700;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1px 8px; color: var(--secondary);
+    }
+    .overdue-zone { margin-top: 22px; }
+    .overdue-zone .title { color: var(--red); }
+    .overdue-zone .chip  {
+      background: rgba(255,59,48,.07);
+      border-color: rgba(255,59,48,.18);
+      color: var(--red-dk);
+    }
+    .overdue-toolbar {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 8px; font-size: 12px;
+    }
+    .overdue-toolbar .resolved-count { color: var(--secondary); font-weight: 500; }
+    .overdue-toolbar .toggle-resolved {
+      background: none; border: 1px solid var(--border);
+      color: var(--secondary); font-size: 11px; font-weight: 600;
+      padding: 4px 10px; border-radius: 14px;
+      cursor: pointer; font-family: inherit;
+      transition: color .12s, border-color .12s;
+    }
+    .overdue-toolbar .toggle-resolved:hover { color: var(--blue); border-color: var(--blue); }
+
+    .resolve-btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--green-dk); font-size: 11px; font-weight: 700;
+      padding: 3px 9px; border-radius: 12px;
+      cursor: pointer; font-family: inherit;
+      transition: background .12s, border-color .12s;
+      white-space: nowrap;
+    }
+    .resolve-btn:hover {
+      background: rgba(16,185,129,.08); border-color: var(--green);
+    }
+    .unresolve-btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--secondary); font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 12px;
+      cursor: pointer; font-family: inherit;
+      transition: color .12s, border-color .12s;
+      white-space: nowrap;
+    }
+    .unresolve-btn:hover { color: var(--red); border-color: var(--red); }
+
+    tr.is-resolved td {
+      opacity: 0.55;
+      background: rgba(16,185,129,.03);
+    }
+    tr.is-resolved td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+
+    /* ══════════════ UPCOMING PANEL ══════════════ */
+    .upcoming-panel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+      position: sticky; top: 66px;
+      box-shadow: var(--shadow-sm);
+    }
+    .up-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 14px; border-bottom: 1px solid var(--sep);
+      background: rgba(0,122,255,.04);
+    }
+    .up-head .label { font-size: 11px; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .07em; }
+    .up-count {
+      background: var(--blue); color: #fff;
+      font-size: 11px; font-weight: 700; border-radius: 10px;
+      padding: 1px 7px; min-width: 22px; text-align: center;
+    }
+    .up-list { max-height: 560px; overflow-y: auto; }
+    .up-item {
+      padding: 9px 14px; border-bottom: 1px solid var(--sep);
+      display: flex; flex-direction: column; gap: 3px;
+      transition: background .1s;
+    }
+    .up-item:last-child { border-bottom: none; }
+    .up-item:hover { background: rgba(0,122,255,.03); }
+    .up-item.is-next { background: rgba(0,122,255,.055); border-left: 3px solid var(--blue); }
+    .up-row1 { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+    .up-name { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:var(--text); }
+    .up-item.is-next .up-name { color: var(--blue); }
+    .up-cd   { font-size:12px; font-weight:700; color:var(--blue); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .up-item.overdue .up-cd { color: var(--orange); }
+    .up-meta { display:flex; gap:10px; align-items:center; }
+    .up-time  { font-size:11px; color:var(--secondary); font-weight:500; }
+    .up-phone { font-size:11px; color:var(--tertiary); font-family:monospace; }
+    .up-dialed{ font-size:11px; font-weight:600; color:var(--orange-dk); }
+    .up-empty { padding:22px 14px; text-align:center; color:var(--tertiary); font-size:12px; font-weight:500; }
+
+    /* ══════════════ AI ICONS — subtle, modern ══════════════ */
+    .summary-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; border-radius: 4px;
+      background: transparent; border: none;
+      color: var(--tertiary); cursor: pointer; font-size: 11px;
+      margin-left: 3px; vertical-align: middle; flex-shrink: 0;
+      transition: color .12s, background .12s;
+      font-family: inherit; opacity: 0.6;
+    }
+    .summary-btn:hover {
+      opacity: 1; color: var(--purple);
+      background: rgba(139,92,246,.08);
+    }
+    .summary-btn:active { transform: scale(.94); }
+
+    .expand-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 3px;
+      background: transparent; border: none;
+      color: var(--tertiary); cursor: pointer; font-size: 9px;
+      margin-right: 2px; vertical-align: middle; flex-shrink: 0;
+      transition: color .12s, background .12s, transform .15s;
+      font-family: inherit;
+    }
+    .expand-btn:hover { color: var(--text); background: rgba(15,23,42,.05); }
+    .expand-btn.open  { transform: rotate(90deg); color: var(--purple); background: rgba(139,92,246,.08); }
+
+    tr.insights-row td {
+      background: linear-gradient(135deg, rgba(99,102,241,.04), rgba(139,92,246,.04), rgba(217,70,239,.04));
+      border-bottom: 1px solid var(--sep);
+      padding: 0;
+    }
+    .insights-cell-inner {
+      padding: 14px 18px 16px;
+      border-left: 3px solid var(--purple);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .insights-ai-mark {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+      background: var(--ai-grad);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .insights-text {
+      font-size: 13px; line-height: 1.6; color: var(--text);
+      font-weight: 500; max-width: 760px;
+    }
+    .insights-stats {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .insights-stat {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 3px 11px;
+      font-size: 11px; font-weight: 600; color: var(--text);
+    }
+    .insights-stat .num { font-weight: 800; color: var(--blue-dk); font-feature-settings: "tnum"; }
+    .insights-stat .lbl { color: var(--secondary); }
+    .insights-stat.warn .num { color: var(--orange-dk); }
+    .insights-stat.dim  .num { color: var(--tertiary); }
+    .insights-loading {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--secondary);
+    }
+    .mini-spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(139,92,246,.18);
+      border-top-color: var(--purple);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    /* ══════════════ HERO KPI GRID ══════════════ */
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px 16px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+    .kpi-card::after {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: var(--blue);
+    }
+    .kpi-card.green::after  { background: var(--green); }
+    .kpi-card.red::after    { background: var(--red); }
+    .kpi-card.orange::after { background: var(--orange); }
+    .kpi-card.purple::after { background: var(--purple); }
+    .kpi-card .kpi-lbl {
+      font-size: 11px; font-weight: 700; color: var(--secondary);
+      text-transform: uppercase; letter-spacing: .08em;
+    }
+    .kpi-card .kpi-val {
+      font-size: 38px; font-weight: 800; line-height: 1.05;
+      margin-top: 6px; font-feature-settings: "tnum";
+      color: var(--text);
+    }
+    .kpi-card.green .kpi-val  { color: var(--green-dk); }
+    .kpi-card.red   .kpi-val  { color: var(--red-dk); }
+    .kpi-card.orange .kpi-val { color: var(--orange-dk); }
+    .kpi-card.purple .kpi-val { color: var(--purple-dk); }
+    .kpi-card .kpi-sub {
+      font-size: 12px; color: var(--secondary); margin-top: 6px; font-weight: 500;
+    }
+    .kpi-card .kpi-sub strong { color: var(--text); font-weight: 700; }
+
+    /* ══════════════ UPCOMING STRIP ══════════════ */
+    .up-strip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 22px;
+      overflow: hidden;
+    }
+    .up-strip-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--sep);
+      background: linear-gradient(90deg, rgba(37,99,235,.04), transparent);
+    }
+    .up-strip-label {
+      font-size: 11px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .08em;
+      color: var(--blue-dk);
+    }
+    .up-strip-count {
+      background: var(--blue); color: #fff;
+      font-size: 10px; font-weight: 800; border-radius: 10px;
+      padding: 1px 7px; min-width: 20px; text-align: center;
+    }
+    .up-strip-divider {
+      width: 1px; height: 14px; background: var(--border);
+      margin: 0 6px;
+    }
+    .up-strip-next-label {
+      font-size: 12px; color: var(--secondary); font-weight: 600;
+    }
+    .up-strip-next-name {
+      font-size: 12px; font-weight: 700; color: var(--text);
+      max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .up-strip-next-cd {
+      font-size: 12px; font-weight: 800; color: var(--blue-dk);
+      font-variant-numeric: tabular-nums;
+      background: rgba(37,99,235,.08);
+      padding: 2px 9px; border-radius: 10px;
+      margin-left: auto;
+    }
+    .up-strip-track {
+      display: flex; gap: 10px; padding: 12px 16px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .up-strip-track::-webkit-scrollbar { height: 6px; }
+    .up-strip-track::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .up-card {
+      min-width: 200px; max-width: 240px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 11px 14px;
+      display: flex; flex-direction: column; gap: 4px;
+      flex-shrink: 0;
+      transition: border-color .12s, transform .1s, box-shadow .12s;
+    }
+    .up-card:hover { border-color: var(--blue); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+    .up-card.is-next {
+      background: linear-gradient(135deg, rgba(37,99,235,.06), rgba(139,92,246,.04));
+      border-color: rgba(37,99,235,.3);
+      box-shadow: 0 2px 12px rgba(37,99,235,.1);
+    }
+    .up-card.overdue { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.04); }
+    .up-card-row1 {
+      display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    }
+    .up-card-name {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+    }
+    .up-card.is-next .up-card-name { color: var(--blue-dk); }
+    .up-card-cd {
+      font-size: 12px; font-weight: 800; color: var(--blue-dk);
+      font-variant-numeric: tabular-nums;
+      background: rgba(37,99,235,.1);
+      padding: 1px 8px; border-radius: 8px;
+      white-space: nowrap;
+    }
+    .up-card.overdue .up-card-cd { color: var(--orange-dk); background: rgba(245,158,11,.12); }
+    .up-card-meta {
+      display: flex; gap: 8px; align-items: center;
+      font-size: 11px; color: var(--secondary); font-weight: 500;
+    }
+    .up-card-phone { font-family: "SF Mono",monospace; color: var(--tertiary); }
+    .up-card-dialed { color: var(--orange-dk); font-weight: 700; }
+
+    .up-strip-empty {
+      padding: 18px 16px; text-align: center;
+      color: var(--tertiary); font-size: 12px; font-weight: 500;
+    }
+
+    /* ══════════════ CRITICAL ALERT BANNER ══════════════ */
+    .alert-banner {
+      display: none;
+      background: linear-gradient(135deg, rgba(239,68,68,.08), rgba(239,68,68,.04));
+      border: 1px solid rgba(239,68,68,.25);
+      border-left: 4px solid var(--red);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin-bottom: 22px;
+      display: flex; align-items: center; gap: 14px;
+      box-shadow: 0 2px 10px rgba(239,68,68,.08);
+    }
+    .alert-banner.show { display: flex; }
+    .alert-icon {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--red); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; flex-shrink: 0;
+      animation: alert-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes alert-pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
+      50%     { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+    }
+    .alert-text { flex: 1; }
+    .alert-text h3 { font-size: 14px; font-weight: 700; color: var(--red-dk); }
+    .alert-text p  { font-size: 12px; color: var(--secondary); margin-top: 2px; font-weight: 500; }
+    .alert-cta {
+      background: var(--red); color: #fff; border: none;
+      border-radius: var(--radius-sm); padding: 7px 14px;
+      cursor: pointer; font-size: 12px; font-weight: 700;
+      font-family: inherit;
+      box-shadow: 0 2px 8px rgba(239,68,68,.4);
+      transition: opacity .15s, transform .1s;
+    }
+    .alert-cta:hover  { opacity: .9; }
+    .alert-cta:active { transform: scale(.97); }
+
+    /* ══════════════ MANAGER PANELS (hourly + leaderboard) ══════════════ */
+    .mgr-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--sep);
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface2);
+    }
+    .panel-head h3 {
+      font-size: 13px; font-weight: 700; letter-spacing: -.1px;
+      color: var(--text); flex: 1;
+    }
+    .panel-head .panel-sub {
+      font-size: 11px; color: var(--secondary); font-weight: 500;
+    }
+    .panel-body { padding: 16px 18px; }
+    .panel-body canvas { max-height: 220px; }
+
+    /* leaderboard */
+    .lb-table { width: 100%; border-collapse: collapse; }
+    .lb-table th {
+      font-size: 10px; font-weight: 800; color: var(--secondary);
+      text-transform: uppercase; letter-spacing: .07em;
+      padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--sep);
+      background: transparent;
+    }
+    .lb-table td {
+      padding: 8px 10px; font-size: 13px;
+      border-bottom: 1px solid var(--sep);
+    }
+    .lb-table tr:last-child td { border-bottom: none; }
+    .lb-rep {
+      display: flex; align-items: center; gap: 8px; font-weight: 600;
+    }
+    .lb-avatar {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: var(--ai-grad);
+      color: #fff; font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .lb-rate-bar {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-weight: 700; font-feature-settings: "tnum";
+    }
+    .lb-bar {
+      width: 60px; height: 6px; background: var(--bg);
+      border-radius: 3px; overflow: hidden;
+    }
+    .lb-bar-fill {
+      height: 100%; border-radius: 3px;
+      transition: width .3s ease;
+    }
+    .lb-bar-fill.good { background: var(--green); }
+    .lb-bar-fill.mid  { background: var(--orange); }
+    .lb-bar-fill.bad  { background: var(--red); }
+
+    /* ══════════════ SUMMARY DRAWER ══════════════ */
+    #drawer-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.22); z-index: 900;
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+    }
+    #drawer-overlay.open { display: block; }
+
+    #summary-drawer {
+      position: fixed; top: 0; right: -460px; width: 440px;
+      height: 100vh; background: var(--surface);
+      box-shadow: -8px 0 40px rgba(0,0,0,.14);
+      z-index: 1000; display: flex; flex-direction: column;
+      transition: right .3s cubic-bezier(.4,0,.2,1);
+      overflow: hidden;
+    }
+    #summary-drawer.open { right: 0; }
+
+    .drawer-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--sep);
+      display: flex; align-items: flex-start; gap: 12px;
+    }
+    .drawer-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), #34aadc);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 16px; font-weight: 700; flex-shrink: 0;
+    }
+    .drawer-title { flex: 1; }
+    .drawer-title h3 { font-size: 16px; font-weight: 700; letter-spacing: -.2px; }
+    .drawer-title p  { font-size: 12px; color: var(--secondary); margin-top: 2px; font-weight: 500; }
+    .drawer-close {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--bg); border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: var(--secondary); transition: background .12s;
+      flex-shrink: 0;
+    }
+    .drawer-close:hover { background: rgba(0,0,0,.08); color: var(--text); }
+
+    .drawer-stats {
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 8px; padding: 14px 20px;
+      border-bottom: 1px solid var(--sep);
+    }
+    .d-stat {
+      background: var(--bg); border-radius: var(--radius-sm);
+      padding: 10px 12px; text-align: center;
+    }
+    .d-stat .dval { font-size: 22px; font-weight: 700; color: var(--blue); }
+    .d-stat .dlbl { font-size: 10px; font-weight: 600; color: var(--secondary); text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+
+    .drawer-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+    .drawer-section-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--secondary); margin-bottom: 10px;
+    }
+    .summary-text {
+      font-size: 14px; line-height: 1.65; color: var(--text);
+      background: rgba(0,122,255,.04);
+      border-left: 3px solid var(--blue);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 14px 16px;
+    }
+
+    #drawer-loading {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 14px; padding: 40px 20px;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(0,122,255,.15);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #drawer-loading p { font-size: 13px; color: var(--secondary); font-weight: 500; }
+
+    #drawer-error {
+      background: rgba(255,59,48,.07); border: 1px solid rgba(255,59,48,.18);
+      border-radius: var(--radius-sm); padding: 12px 14px;
+      font-size: 13px; color: var(--red-dk); display: none;
+    }
+
+    .zoho-link {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 12px; font-weight: 600; color: var(--blue);
+      text-decoration: none; margin-top: 14px;
+      padding: 6px 12px; background: rgba(0,122,255,.07);
+      border-radius: 20px; transition: background .15s;
+    }
+    .zoho-link:hover { background: rgba(0,122,255,.14); }
+  </style>
+</head>
+<body>
+
+<!-- ══ DRAWER OVERLAY ══ -->
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+<!-- ══ SUMMARY DRAWER ══ -->
+<div id="summary-drawer">
+  <div class="drawer-header">
+    <div class="drawer-avatar" id="drawer-avatar">?</div>
+    <div class="drawer-title">
+      <h3 id="drawer-name">Contact</h3>
+      <p id="drawer-phone"></p>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-stats" id="drawer-stats"></div>
+  <div class="drawer-body">
+    <div id="drawer-loading">
+      <div class="spinner"></div>
+      <p>Analyzing contact with Claude…</p>
+    </div>
+    <div id="drawer-error"></div>
+    <div id="drawer-content" style="display:none">
+      <div class="drawer-section-label">AI Summary</div>
+      <div class="summary-text" id="drawer-summary-text"></div>
+      <a id="drawer-zoho-link" href="#" target="_blank" class="zoho-link">
+        Open in Zoho CRM ↗
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HEADER ══ -->
+<header>
+  <div class="header-icon">📞</div>
+  <h1>Call Tracker</h1>
+  <div class="header-dot-wrap">
+    <div id="status-dot" class="loading"></div>
+    <span id="last-updated">Loading…</span>
+  </div>
+  <button id="refresh-btn" onclick="forceRefresh()">↻ Refresh</button>
+</header>
+
+<main>
+  <div id="error-banner"></div>
+
+  <!-- ══════════════════════ HERO KPI CARDS ══════════════════════ -->
+  <div class="hero-grid" id="hero-grid"></div>
+
+  <!-- ══════════════════════ CRITICAL ALERT BANNER ══════════════════════ -->
+  <div class="alert-banner" id="alert-banner">
+    <div class="alert-icon">!</div>
+    <div class="alert-text">
+      <h3 id="alert-title">Needs attention</h3>
+      <p id="alert-desc"></p>
+    </div>
+    <button class="alert-cta" onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">Review →</button>
+  </div>
+
+  <!-- ══════════════════════ UPCOMING STRIP ══════════════════════ -->
+  <div class="up-strip" id="up-strip" style="display:none">
+    <div class="up-strip-head">
+      <span class="up-strip-label">⏰ Upcoming</span>
+      <span class="up-strip-count" id="up-strip-count">0</span>
+      <span class="up-strip-divider"></span>
+      <span class="up-strip-next-label">Next:</span>
+      <span class="up-strip-next-name" id="up-strip-next-name"></span>
+      <span class="up-strip-next-cd" id="up-strip-next-cd"></span>
+    </div>
+    <div class="up-strip-track" id="up-strip-track"></div>
+  </div>
+
+  <!-- ══════════════════════ SCHEDULED CALLS ══════════════════════ -->
+  <div class="card" id="sc-section">
+    <div class="card-header">
+      <h2>🗓 Scheduled Calls</h2>
+      <span class="card-sub">Today · Zoho Admin</span>
+    </div>
+    <div class="card-body">
+      <div class="stat-strip" id="sc-stats"></div>
+
+      <div>
+        <!-- activity + overdue -->
+        <div>
+          <div class="sub-header">
+            <span class="title">Activity</span>
+            <span class="chip" id="sc-activity-count">0</span>
+          </div>
+          <div class="filter-bar">
+            <input id="sc-search" type="text" placeholder="🔍  Name or phone…" oninput="applyScFilters()">
+            <select id="sc-status-filter" onchange="applyScFilters()">
+              <option value="">All Statuses</option>
+              <option value="completed">Completed</option>
+              <option value="early">Early</option>
+              <option value="completed_via_deal">Other</option>
+              <option value="missed">Missed</option>
+              <option value="late">Overdue</option>
+            </select>
+            <select id="sc-disp-filter" onchange="applyScFilters()">
+              <option value="">All Dispositions</option>
+            </select>
+            <button class="filter-clear" onclick="clearScFilters()">✕ Clear</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="sortable" onclick="sortSc('name')">Contact</th>
+                  <th>Phone</th>
+                  <th class="sortable" onclick="sortSc('scheduled_time')">Scheduled (EST)</th>
+                  <th class="sortable" onclick="sortSc('actual_call_time')">Actual Call (EST)</th>
+                  <th class="sortable" onclick="sortSc('status')">Status</th>
+                  <th class="sortable" onclick="sortSc('offset_minutes')">Result</th>
+                  <th class="sortable" onclick="sortSc('dial_attempts')">Dials</th>
+                  <th class="sortable" onclick="sortSc('disposition')">Disposition</th>
+                </tr>
+              </thead>
+              <tbody id="sc-tbody"></tbody>
+            </table>
+          </div>
+
+          <!-- 60+ min overdue -->
+          <div class="overdue-zone" id="sc-overdue-zone" style="display:none;scroll-margin-top:80px">
+            <div class="sub-header overdue-zone">
+              <span class="title">⚠ Long Overdue — 60+ min</span>
+              <span class="chip" id="sc-overdue-count">0</span>
+            </div>
+            <div class="overdue-toolbar">
+              <span class="resolved-count" id="sc-resolved-count"></span>
+              <button class="toggle-resolved" id="sc-toggle-resolved" onclick="toggleShowResolved()">Show resolved</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Contact</th>
+                    <th>Phone</th>
+                    <th>Scheduled (EST)</th>
+                    <th>Actual Call (EST)</th>
+                    <th>Overdue</th>
+                    <th>Dials</th>
+                    <th>Deal Stage</th>
+                    <th>Disposition</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="sc-overdue-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const REFRESH_INTERVAL = {{ refresh_interval }} * 1000;
+  const ZOHO_ORG = "goalsplasticsurgery";
+  const OVERDUE_MIN = 60;
+
+  let _upcomingCalls = [];
+  let _scActivityRecords = [];
+  let _scOverdueRecords  = [];
+  let _scSort = { key: "scheduled_time", dir: -1 };
+  let _showResolved = false;
+
+  // ─── utils ───
+  const TZ = "America/New_York";
+
+  function fmt(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: TZ, month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+  function fmtTime(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleTimeString("en-US", {
+      timeZone: TZ, hour: "2-digit", minute: "2-digit"
+    });
+  }
+  function relTime(iso) {
+    if (!iso) return "—";
+    const d = (Date.now() - new Date(iso)) / 60000;
+    if (d < 1) return "just now";
+    if (d < 60) return `${Math.round(d)}m ago`;
+    return `${Math.round(d/60)}h ago`;
+  }
+  function countdown(iso) {
+    const ms = new Date(iso) - Date.now();
+    if (ms <= 0) {
+      const s = Math.abs(ms)/1000;
+      return { text: s<60 ? `${Math.round(s)}s overdue` : `${Math.round(s/60)}m overdue`, overdue: true };
+    }
+    const s=Math.floor(ms/1000), m=Math.floor(s/60), h=Math.floor(m/60);
+    if (h>0) return { text:`${h}h ${m%60}m`, overdue:false };
+    if (m>0) return { text:`${m}m ${s%60}s`, overdue:false };
+    return { text:`${s}s`, overdue:false };
+  }
+  function crmUrl(module, id) {
+    return id ? `https://crm.zoho.com/crm/${ZOHO_ORG}/tab/${module}/${id}` : null;
+  }
+  function initials(name) {
+    if (!name) return "?";
+    return name.split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();
+  }
+
+  function statusBadge(status, onTime) {
+    const map = {
+      completed:          onTime ? ["✓ On Time","badge-green"] : ["✓ Late","badge-orange"],
+      early:              ["↑ Early","badge-teal"],
+      completed_via_deal: ["✓ Other","badge-purple"],
+      pending:            ["⏳ Pending","badge-yellow"],
+      missed:             ["✗ Missed","badge-red"],
+      upcoming:           ["⏰ Upcoming","badge-blue"],
+      late:               ["⚠ Overdue","badge-orange"],
+      no_schedule:        ["— N/A","badge-gray"],
+    };
+    const [label, cls] = map[status] || [status,"badge-gray"];
+    return `<span class="badge ${cls}">${label}</span>`;
+  }
+
+  function statPill(label, value, cls, rate) {
+    return `<div class="stat-pill ${cls}">
+      <span class="val">${value??'—'}</span>
+      <span class="lbl">${label}${rate!=null?` <span class="rate">(${rate}%)</span>`:''}</span>
+    </div>`;
+  }
+
+  // ─── sort/filter ───
+  function sortedBy(arr, key, dir) {
+    return [...arr].sort((a,b) => {
+      let av=a[key]??"", bv=b[key]??"";
+      if (typeof av==="string") av=av.toLowerCase();
+      if (typeof bv==="string") bv=bv.toLowerCase();
+      return av<bv?-dir:av>bv?dir:0;
+    });
+  }
+  function updateSortHeaders(sectionId, sort) {
+    document.querySelectorAll(`#${sectionId} th.sortable`).forEach(th => {
+      th.classList.remove("sort-asc","sort-desc");
+      const m=(th.getAttribute("onclick")||"").match(/'([^']+)'/);
+      if (m && m[1]===sort.key) th.classList.add(sort.dir===1?"sort-asc":"sort-desc");
+    });
+  }
+  function sortSc(key) {
+    _scSort.dir = _scSort.key===key ? -_scSort.dir : -1;
+    _scSort.key = key;
+    drawScTable();
+  }
+  function populateDisp(selId, records) {
+    const sel=document.getElementById(selId), cur=sel.value;
+    const disps=[...new Set(records.map(r=>r.disposition).filter(Boolean))].sort();
+    sel.innerHTML=`<option value="">All Dispositions</option>`
+      +disps.map(d=>`<option value="${d}"${d===cur?" selected":""}>${d}</option>`).join("");
+  }
+
+  // ─── contact name cell (with hyperlink + AI buttons) ───
+  function nameCell(r, module="Contacts") {
+    const url = crmUrl(module, r.id_contact || r.id);
+    const nameHtml = url
+      ? `<a class="name-link" href="${url}" target="_blank">${r.name}</a>`
+      : r.name;
+    const expBtn = r.id_contact
+      ? `<button class="expand-btn" onclick="toggleInsights(this,'${r.id_contact}')" title="Expand AI insights">▶</button>`
+      : "";
+    const aiBtn = r.id_contact
+      ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
+      : "";
+    return `<div class="name-cell" style="display:flex;align-items:center;gap:2px;max-width:240px">
+      ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nameHtml}</span>${aiBtn}
+    </div>`;
+  }
+
+  // ─── Expandable AI insights ───
+  const _insightsCache = {};
+
+  function toggleInsights(btn, contactId) {
+    const row = btn.closest("tr");
+    const next = row.nextElementSibling;
+
+    if (next && next.classList.contains("insights-row") && next.dataset.contact === contactId) {
+      next.remove();
+      btn.classList.remove("open");
+      return;
+    }
+    // close other open insights rows
+    document.querySelectorAll("tr.insights-row").forEach(r => r.remove());
+    document.querySelectorAll(".expand-btn.open").forEach(b => b.classList.remove("open"));
+
+    btn.classList.add("open");
+    const colspan = row.children.length;
+    const ir = document.createElement("tr");
+    ir.className = "insights-row";
+    ir.dataset.contact = contactId;
+    ir.innerHTML = `<td colspan="${colspan}">
+      <div class="insights-cell-inner" id="ins-cell-${contactId}">
+        <span class="insights-ai-mark">✨ AI Insights</span>
+        <div class="insights-text">
+          <span class="insights-loading"><span class="mini-spinner"></span>Analyzing call history, deal notes &amp; SMS thread…</span>
+        </div>
+      </div>
+    </td>`;
+    row.after(ir);
+
+    if (_insightsCache[contactId]) {
+      renderInsightCell(contactId, _insightsCache[contactId]);
+      return;
+    }
+    fetch(`/api/contact/${contactId}/insights`)
+      .then(r => r.json())
+      .then(data => {
+        _insightsCache[contactId] = data;
+        renderInsightCell(contactId, data);
+      })
+      .catch(e => {
+        const cell = document.getElementById(`ins-cell-${contactId}`);
+        if (cell) cell.querySelector(".insights-text").textContent = "⚠ Failed to load: " + e.message;
+      });
+  }
+
+  function renderInsightCell(contactId, data) {
+    const cell = document.getElementById(`ins-cell-${contactId}`);
+    if (!cell) return;
+    const text = (data.insights || "(no insights returned)").replace(/\*\*/g, "").replace(/__/g, "");
+
+    // Build stat pills
+    const s = data.stats || {};
+    const pills = [];
+    pills.push(`<div class="insights-stat${(s.total_calls||0)===0?" dim":""}">
+      <span class="num">${s.total_calls||0}</span><span class="lbl">total calls</span>
+    </div>`);
+    if ((s.calls_with_disposition||0) > 0)
+      pills.push(`<div class="insights-stat"><span class="num">${s.calls_with_disposition}</span><span class="lbl">dialed (logged dispositions)</span></div>`);
+    if ((s.total_sms||0) > 0)
+      pills.push(`<div class="insights-stat"><span class="num">${s.total_sms}</span><span class="lbl">SMS (${s.sms_outbound||0} sent · ${s.sms_inbound||0} received)</span></div>`);
+    else
+      pills.push(`<div class="insights-stat dim"><span class="num">0</span><span class="lbl">SMS messages</span></div>`);
+    if ((s.total_deals||0) > 0)
+      pills.push(`<div class="insights-stat"><span class="num">${s.total_deals}</span><span class="lbl">deal${s.total_deals>1?"s":""}</span></div>`);
+    if ((s.open_tasks||0) > 0)
+      pills.push(`<div class="insights-stat warn"><span class="num">${s.open_tasks}</span><span class="lbl">open tasks</span></div>`);
+    if (data.last_call_time)
+      pills.push(`<div class="insights-stat"><span class="lbl">Last call:</span><span class="num">${fmt(data.last_call_time)}</span></div>`);
+    if (data.last_sms_time)
+      pills.push(`<div class="insights-stat"><span class="lbl">Last SMS:</span><span class="num">${fmt(data.last_sms_time)}</span></div>`);
+
+    cell.innerHTML = `
+      <span class="insights-ai-mark">✨ AI Insights</span>
+      <div class="insights-text">${text}</div>
+      <div class="insights-stats">${pills.join("")}</div>
+    `;
+  }
+
+  // ─── Manager: Hero KPIs ───
+  function renderHeroKpis(sc, upcoming, overdue) {
+    const s = sc.summary;
+    const total = sc.records.length;
+    const callsDue = s.total - upcoming.length; // calls that should have happened by now
+    const html = [
+      // Total today
+      `<div class="kpi-card">
+        <div class="kpi-lbl">Total Today</div>
+        <div class="kpi-val">${total}</div>
+        <div class="kpi-sub"><strong>${upcoming.length}</strong> still upcoming</div>
+      </div>`,
+      // Completion rate
+      `<div class="kpi-card ${s.completion_rate>=85?"green":s.completion_rate>=60?"orange":"red"}">
+        <div class="kpi-lbl">Completion Rate</div>
+        <div class="kpi-val">${s.completion_rate ?? 0}<span style="font-size:22px">%</span></div>
+        <div class="kpi-sub"><strong>${s.completed}</strong> of ${total} contacts reached</div>
+      </div>`,
+      // On-time rate
+      `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
+        <div class="kpi-lbl">On-Time Rate</div>
+        <div class="kpi-val">${s.on_time_rate ?? 0}<span style="font-size:22px">%</span></div>
+        <div class="kpi-sub"><strong>${s.on_time}</strong> within −5 to +10 min</div>
+      </div>`,
+      // Needs attention
+      `<div class="kpi-card ${overdue.length>0?"red":"green"}">
+        <div class="kpi-lbl">Needs Attention</div>
+        <div class="kpi-val">${overdue.length}</div>
+        <div class="kpi-sub">long-overdue calls · <strong>${s.missed}</strong> missed total</div>
+      </div>`,
+    ].join("");
+    document.getElementById("hero-grid").innerHTML = html;
+
+    // alert banner
+    const ab = document.getElementById("alert-banner");
+    if (overdue.length > 0) {
+      ab.classList.add("show");
+      document.getElementById("alert-title").textContent =
+        `${overdue.length} call${overdue.length>1?"s":""} are 60+ minutes overdue`;
+      document.getElementById("alert-desc").textContent =
+        `These contacts haven't been dialed since their scheduled slot. Some may be closed through manual outreach already.`;
+    } else {
+      ab.classList.remove("show");
+    }
+  }
+
+  // (Hourly chart and Caller leaderboard removed)
+  function _removed_renderHourlyChart_(records) {
+    // bucket by EST hour
+    const hours = {};
+    records.forEach(r => {
+      if (!r.scheduled_time) return;
+      const d = new Date(r.scheduled_time);
+      const estHour = parseInt(d.toLocaleString("en-US", { timeZone: TZ, hour:"2-digit", hour12:false }), 10);
+      if (!hours[estHour]) hours[estHour] = { hour:estHour, on_time:0, late:0, early:0, missed:0, via_deal:0, upcoming:0 };
+      const h = hours[estHour];
+      if (r.status === "completed" && r.on_time) h.on_time++;
+      else if (r.status === "completed") h.late++;
+      else if (r.status === "early") h.early++;
+      else if (r.status === "missed") h.missed++;
+      else if (r.status === "completed_via_deal") h.via_deal++;
+      else if (r.status === "upcoming") h.upcoming++;
+    });
+    const sorted = Object.values(hours).sort((a,b) => a.hour - b.hour);
+    const labels = sorted.map(h => {
+      const ampm = h.hour < 12 ? "AM" : "PM";
+      const hh = h.hour === 0 ? 12 : h.hour > 12 ? h.hour-12 : h.hour;
+      return `${hh}${ampm}`;
+    });
+
+    const ctx = document.getElementById("hourly-chart").getContext("2d");
+    if (window._hc) window._hc.destroy();
+    window._hc = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: "On Time",  data: sorted.map(h=>h.on_time),  backgroundColor:"#10b981", stack:"x" },
+          { label: "Late",     data: sorted.map(h=>h.late),     backgroundColor:"#f59e0b", stack:"x" },
+          { label: "Early",    data: sorted.map(h=>h.early),    backgroundColor:"#06b6d4", stack:"x" },
+          { label: "Other",    data: sorted.map(h=>h.via_deal), backgroundColor:"#8b5cf6", stack:"x" },
+          { label: "Missed",   data: sorted.map(h=>h.missed),   backgroundColor:"#ef4444", stack:"x" },
+          { label: "Upcoming", data: sorted.map(h=>h.upcoming), backgroundColor:"#cbd5e1", stack:"x" },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position:"bottom", labels: { color:"#5b6478", font:{ size:11, weight:600 }, padding:8, boxWidth:10 } },
+          tooltip: { callbacks: { footer: items => `Total: ${items.reduce((s,i)=>s+i.parsed.y, 0)}` } },
+        },
+        scales: {
+          x: { stacked:true, ticks:{ color:"#5b6478", font:{ weight:600 } }, grid:{ display:false } },
+          y: { stacked:true, ticks:{ color:"#94a0b8" }, grid:{ color:"rgba(15,23,42,.05)" } },
+        },
+      },
+    });
+  }
+
+  // ─── Manager: Caller leaderboard ───
+  function renderLeaderboard(records) {
+    const stats = {};
+    records.forEach(r => {
+      if (!r.caller) return;
+      if (!stats[r.caller]) stats[r.caller] = { name:r.caller, dialed:0, on_time:0, called:0 };
+      const s = stats[r.caller];
+      // counts unique scheduled calls that this rep actually dialed
+      s.dialed++;
+      if (r.status === "completed" || r.status === "early") s.called++;
+      if (r.status === "completed" && r.on_time) s.on_time++;
+    });
+    const arr = Object.values(stats)
+      .filter(s => s.dialed > 0)
+      .sort((a,b) => b.dialed - a.dialed);
+
+    const tbody = document.getElementById("leaderboard-tbody");
+    if (!arr.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No caller data yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = arr.map(s => {
+      const rate = s.called > 0 ? Math.round(s.on_time / s.called * 100) : 0;
+      const cls = rate >= 70 ? "good" : rate >= 40 ? "mid" : "bad";
+      const init = (s.name || "?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();
+      return `<tr>
+        <td style="padding-left:14px">
+          <div class="lb-rep"><span class="lb-avatar">${init}</span><span>${s.name}</span></div>
+        </td>
+        <td style="text-align:center;font-weight:700;font-feature-settings:'tnum'">${s.dialed}</td>
+        <td>
+          <div class="lb-rate-bar">
+            <span>${rate}%</span>
+            <span class="lb-bar"><span class="lb-bar-fill ${cls}" style="width:${rate}%"></span></span>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  // ─── render scheduled calls ───
+  function renderScheduledCalls(sc) {
+    const upcoming = sc.records
+      .filter(r=>r.status==="upcoming")
+      .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
+    const past = sc.records.filter(r=>r.status!=="upcoming");
+    // Long-overdue = still missed (not closed via deal) AND >60 min overdue
+    const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN;
+    const activity = past.filter(r => !isOverdueRow(r));
+    const overdue  = past.filter(r =>  isOverdueRow(r));
+
+    _scActivityRecords = activity;
+    _scOverdueRecords  = overdue;
+    _upcomingCalls     = upcoming;
+
+    // Manager-focused rollups — only count UNRESOLVED overdue as "needs attention"
+    const unresolvedOverdue = overdue.filter(r => !r.resolved);
+    renderHeroKpis(sc, upcoming, unresolvedOverdue);
+
+    const s = sc.summary;
+    document.getElementById("sc-stats").innerHTML = [
+      statPill("Total",          sc.records.length, "blue"),
+      statPill("Completed",      s.completed,  "green",  s.completion_rate),
+      statPill("On Time",        s.on_time,    s.on_time===s.completed&&s.completed>0?"green":"orange", s.on_time_rate),
+      statPill("Early",          s.early,      s.early>0?"teal":"green"),
+      statPill("Other",          s.via_deal,   s.via_deal>0?"purple":"green"),
+      statPill("Missed",         s.missed,     s.missed>0?"red":"green"),
+      statPill("Overdue",        s.late,       s.late>0?"orange":"green"),
+      statPill("Upcoming",       upcoming.length, "blue"),
+    ].join("");
+
+    populateDisp("sc-disp-filter", past);
+    drawScTable();
+
+    renderOverdueTable();
+
+    renderUpcomingList();
+  }
+
+  function renderOverdueTable() {
+    const zone = document.getElementById("sc-overdue-zone");
+    const all  = _scOverdueRecords;
+    const visible   = _showResolved ? all : all.filter(r => !r.resolved);
+    const resolvedN = all.filter(r => r.resolved).length;
+
+    document.getElementById("sc-overdue-count").textContent = visible.length;
+
+    const resolvedLbl = document.getElementById("sc-resolved-count");
+    const toggleBtn   = document.getElementById("sc-toggle-resolved");
+    if (resolvedN > 0) {
+      resolvedLbl.textContent = `${resolvedN} resolved & hidden`;
+      toggleBtn.style.display = "";
+      toggleBtn.textContent = _showResolved ? "Hide resolved" : "Show resolved";
+    } else {
+      resolvedLbl.textContent = "";
+      toggleBtn.style.display = "none";
+    }
+
+    if (!all.length) { zone.style.display = "none"; return; }
+    zone.style.display = "";
+
+    if (!visible.length) {
+      document.getElementById("sc-overdue-tbody").innerHTML =
+        `<tr><td colspan="9" class="empty-state">All ${all.length} long-overdue calls have been resolved ✓</td></tr>`;
+      return;
+    }
+
+    const sorted = [...visible].sort((a,b)=>(a.scheduled_time||"")>(b.scheduled_time||"")?-1:1);
+    document.getElementById("sc-overdue-tbody").innerHTML = sorted.map(r => {
+      const stagePill = r.deal_stage
+        ? `<span class="stage-tag${r.deal_moved_on?"":" neutral"}">${r.deal_stage}</span>` : "—";
+      const dials = r.dial_attempts??0;
+      const actualCell = r.actual_call_time
+        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
+        : `<span class="dim">—</span>`;
+      const action = r.resolved
+        ? `<button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`
+        : `<button class="resolve-btn"   onclick="markResolved('${r.id}')"   title="Clear from concerns">✓ Resolve</button>`;
+      return `<tr class="row-overdue${r.resolved?" is-resolved":""}">
+        <td>${nameCell(r)}</td>
+        <td class="phone-cell">${r.phone||"—"}</td>
+        <td class="dim">${fmt(r.scheduled_time)}</td>
+        <td>${actualCell}</td>
+        <td><span style="color:var(--red);font-weight:700">${r.minutes_overdue} min</span></td>
+        <td style="text-align:center;font-weight:700;color:${dials>0?"var(--text)":"var(--tertiary)"}">${dials}</td>
+        <td>${stagePill}</td>
+        <td class="dim">${r.disposition||"—"}</td>
+        <td style="text-align:right">${action}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function toggleShowResolved() {
+    _showResolved = !_showResolved;
+    renderOverdueTable();
+  }
+
+  async function markResolved(id) {
+    const rec = _scOverdueRecords.find(r => r.id === id);
+    if (rec) rec.resolved = true;       // optimistic update
+    renderOverdueTable();
+    try {
+      await fetch(`/api/scheduled-call/${id}/resolve`, { method: "POST" });
+    } catch (e) {
+      if (rec) rec.resolved = false;     // rollback on error
+      renderOverdueTable();
+    }
+    // Refresh alert banner numbers
+    refreshAlertCounts();
+  }
+
+  async function markUnresolved(id) {
+    const rec = _scOverdueRecords.find(r => r.id === id);
+    if (rec) rec.resolved = false;
+    renderOverdueTable();
+    try {
+      await fetch(`/api/scheduled-call/${id}/unresolve`, { method: "POST" });
+    } catch (e) {
+      if (rec) rec.resolved = true;
+      renderOverdueTable();
+    }
+    refreshAlertCounts();
+  }
+
+  function refreshAlertCounts() {
+    // Recompute alert banner using current unresolved overdue count
+    const unresolved = _scOverdueRecords.filter(r => !r.resolved).length;
+    const ab = document.getElementById("alert-banner");
+    if (unresolved > 0) {
+      ab.classList.add("show");
+      document.getElementById("alert-title").textContent =
+        `${unresolved} call${unresolved>1?"s":""} are 60+ minutes overdue`;
+    } else {
+      ab.classList.remove("show");
+    }
+    // Update hero KPI "needs attention" card if it exists
+    const k = document.querySelector("#hero-grid .kpi-card:last-child");
+    if (k) {
+      const v = k.querySelector(".kpi-val");
+      if (v) v.textContent = unresolved;
+      k.classList.toggle("red",   unresolved > 0);
+      k.classList.toggle("green", unresolved === 0);
+    }
+  }
+
+  function applyScFilters() { drawScTable(); }
+  function clearScFilters() {
+    ["sc-search","sc-status-filter","sc-disp-filter"].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el.tagName==="INPUT") el.value=""; else el.value="";
+    });
+    drawScTable();
+  }
+
+  function drawScTable() {
+    const q  = (document.getElementById("sc-search").value||"").toLowerCase();
+    const sf = document.getElementById("sc-status-filter").value;
+    const df = document.getElementById("sc-disp-filter").value;
+    let rows = _scActivityRecords.filter(r => {
+      if (sf && r.status!==sf) return false;
+      if (df && r.disposition!==df) return false;
+      if (q  && !((r.name||"").toLowerCase().includes(q)||(r.phone||"").includes(q))) return false;
+      return true;
+    });
+    rows = sortedBy(rows, _scSort.key, _scSort.dir);
+    updateSortHeaders("sc-section", _scSort);
+    document.getElementById("sc-activity-count").textContent = rows.length;
+
+    const tbody = document.getElementById("sc-tbody");
+    if (!rows.length) {
+      tbody.innerHTML=`<tr><td colspan="8" class="empty-state">No matching records.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(r => {
+      // Result column — always populated with something meaningful
+      let result;
+      const sign = n => n>=0 ? "+" : "";
+      if (r.status==="completed" && r.offset_minutes!=null) {
+        const color = r.on_time?"var(--green-dk)":"var(--orange-dk)";
+        result=`<span style="color:${color};font-weight:700">${sign(r.offset_minutes)}${r.offset_minutes} min from scheduled</span>`;
+      } else if (r.status==="early" && r.offset_minutes!=null) {
+        result=`<span style="color:var(--teal-dk);font-weight:700">${r.offset_minutes} min early</span>`;
+      } else if (r.status==="completed_via_deal") {
+        result=`<span class="stage-tag">${r.deal_stage || "Deal closed"}</span>`;
+      } else if (r.status==="missed" && r.minutes_overdue!=null) {
+        result=`<span style="color:var(--red-dk);font-weight:700">${r.minutes_overdue} min overdue · no dial</span>`;
+      } else if (r.status==="late" && r.minutes_overdue!=null) {
+        result=`<span style="color:var(--orange-dk);font-weight:700">${r.minutes_overdue} min overdue</span>`;
+      } else if (r.status==="upcoming" && r.minutes_until!=null) {
+        result=`<span style="color:var(--blue);font-weight:700">in ${r.minutes_until} min</span>`;
+      } else if (r.status==="no_schedule") {
+        result=`<span class="dim">No schedule time</span>`;
+      } else {
+        result=`<span class="dim">—</span>`;
+      }
+      const dials=r.dial_attempts??0;
+      const cls = r.status==="completed" ? "row-completed"
+                : r.status==="early"     ? "row-early"
+                : r.status==="completed_via_deal" ? "row-via-deal"
+                : r.status==="missed"    ? "row-missed"
+                : r.status==="late"      ? "row-late" : "";
+      const actualCell = r.actual_call_time
+        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
+        : `<span class="dim">—</span>`;
+      return `<tr class="${cls}">
+        <td>${nameCell(r)}</td>
+        <td class="phone-cell">${r.phone||"—"}</td>
+        <td class="dim">${fmt(r.scheduled_time)}</td>
+        <td>${actualCell}</td>
+        <td>${statusBadge(r.status,r.on_time)}</td>
+        <td>${result}</td>
+        <td style="text-align:center;font-weight:700;color:${dials>0?"var(--text)":"var(--tertiary)"}">${dials}</td>
+        <td class="dim">${r.disposition||"—"}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  // ─── upcoming strip (horizontal, at top) ───
+  function renderUpcomingList() {
+    const strip = document.getElementById("up-strip");
+    const track = document.getElementById("up-strip-track");
+
+    if (!_upcomingCalls.length) {
+      strip.style.display = "none";
+      // also hide legacy header chip if present
+      const chip = document.getElementById("sc-next-chip");
+      if (chip) chip.style.display = "none";
+      return;
+    }
+
+    strip.style.display = "";
+    document.getElementById("up-strip-count").textContent = _upcomingCalls.length;
+    document.getElementById("up-strip-next-name").textContent = _upcomingCalls[0].name;
+
+    track.innerHTML = _upcomingCalls.map((r, i) => {
+      const isNext = i === 0;
+      const url = crmUrl("Contacts", r.id_contact);
+      const nameEl = url
+        ? `<a class="name-link up-card-name" href="${url}" target="_blank">${r.name}</a>`
+        : `<span class="up-card-name">${r.name}</span>`;
+      const aiBtn = r.id_contact
+        ? `<button class="summary-btn" onclick="event.stopPropagation();openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="AI Summary">✦</button>`
+        : "";
+      return `<div class="up-card${isNext?" is-next":""}" id="uc-${i}">
+        <div class="up-card-row1">
+          <div style="display:flex;align-items:center;gap:2px;overflow:hidden;flex:1;min-width:0">
+            ${nameEl}${aiBtn}
+          </div>
+          <span class="up-card-cd" id="ucd-${i}"></span>
+        </div>
+        <div class="up-card-meta">
+          <span>${fmtTime(r.scheduled_time)}</span>
+          ${r.phone ? `<span class="up-card-phone">${r.phone}</span>` : ""}
+          ${(r.dial_attempts||0) > 0 ? `<span class="up-card-dialed">${r.dial_attempts} dialed</span>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+    tickCountdowns();
+  }
+
+  function tickCountdowns() {
+    _upcomingCalls.forEach((r,i)=>{
+      const el = document.getElementById(`ucd-${i}`);
+      const card = document.getElementById(`uc-${i}`);
+      if (!el || !r.scheduled_time) return;
+      const cd = countdown(r.scheduled_time);
+      el.textContent = cd.text;
+      if (card) card.classList.toggle("overdue", cd.overdue);
+    });
+    if (_upcomingCalls.length) {
+      const cd = countdown(_upcomingCalls[0].scheduled_time);
+      const top = document.getElementById("up-strip-next-cd");
+      if (top) top.textContent = cd.text;
+    }
+  }
+  setInterval(tickCountdowns, 1000);
+
+  // ─── AI summary drawer ───
+  function openSummary(contactId, name, phone) {
+    document.getElementById("drawer-overlay").classList.add("open");
+    document.getElementById("summary-drawer").classList.add("open");
+    document.getElementById("drawer-name").textContent = name || "Contact";
+    document.getElementById("drawer-phone").textContent = phone || "";
+    document.getElementById("drawer-avatar").textContent = initials(name);
+    document.getElementById("drawer-stats").innerHTML = "";
+    document.getElementById("drawer-loading").style.display = "flex";
+    document.getElementById("drawer-content").style.display = "none";
+    document.getElementById("drawer-error").style.display = "none";
+
+    const zohoUrl = crmUrl("Contacts", contactId);
+    const zohoLink = document.getElementById("drawer-zoho-link");
+    if (zohoUrl) { zohoLink.href = zohoUrl; zohoLink.style.display = "inline-flex"; }
+    else zohoLink.style.display = "none";
+
+    fetch(`/api/contact/${contactId}/summary`)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById("drawer-loading").style.display = "none";
+        if (data.error) {
+          const err = document.getElementById("drawer-error");
+          err.style.display = "block";
+          err.textContent = "⚠ " + data.error;
+          return;
+        }
+        // stats
+        const st = data.stats || {};
+        document.getElementById("drawer-stats").innerHTML = [
+          `<div class="d-stat"><div class="dval">${st.total_calls??0}</div><div class="dlbl">Total Calls</div></div>`,
+          `<div class="d-stat"><div class="dval">${st.calls_with_disposition??0}</div><div class="dlbl">Dialed</div></div>`,
+          `<div class="d-stat"><div class="dval">${st.total_deals??0}</div><div class="dlbl">Deals</div></div>`,
+        ].join("");
+        document.getElementById("drawer-summary-text").textContent = data.summary;
+        document.getElementById("drawer-content").style.display = "block";
+      })
+      .catch(e => {
+        document.getElementById("drawer-loading").style.display = "none";
+        const err = document.getElementById("drawer-error");
+        err.style.display = "block";
+        err.textContent = "⚠ Failed to load summary: " + e.message;
+      });
+  }
+
+  function closeDrawer() {
+    document.getElementById("drawer-overlay").classList.remove("open");
+    document.getElementById("summary-drawer").classList.remove("open");
+  }
+  document.addEventListener("keydown", e => { if(e.key==="Escape") closeDrawer(); });
+
+  // ─── data loading ───
+  async function loadData() {
+    const dot=document.getElementById("status-dot");
+    dot.className="loading";
+    try {
+      const resp=await fetch("/api/data");
+      if(resp.status===202){
+        document.getElementById("last-updated").textContent="Loading data…";
+        setTimeout(loadData,3000); return;
+      }
+      const json=await resp.json();
+      if(json.status==="error"){ dot.className="error"; showError(json.message); return; }
+      const eb=document.getElementById("error-banner");
+      if(json.error){ eb.style.display="block"; eb.textContent="⚠ "+json.error; }
+      else eb.style.display="none";
+      dot.className="";
+      document.getElementById("last-updated").textContent="Updated "+relTime(json.last_updated);
+      renderScheduledCalls(json.data.scheduled_calls);
+    } catch(e){ dot.className="error"; showError(e.message); }
+  }
+  function showError(msg){
+    const b=document.getElementById("error-banner");
+    b.style.display="block"; b.textContent="Error: "+msg;
+  }
+  async function forceRefresh(){
+    const btn=document.getElementById("refresh-btn");
+    btn.disabled=true; btn.textContent="Refreshing…";
+    await fetch("/api/refresh",{method:"POST"});
+    setTimeout(async()=>{ await loadData(); btn.disabled=false; btn.textContent="↻ Refresh"; },2500);
+  }
+  loadData();
+  setInterval(loadData,REFRESH_INTERVAL);
+</script>
+</body>
+</html>

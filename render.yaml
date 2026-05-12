@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: call-tracker
+    runtime: python
+    plan: starter           # $7/mo, stays warm. Use "free" for testing (sleeps after 15 min idle).
+    buildCommand: pip install -r requirements.txt
+    # Single worker = single in-memory cache + one background refresh thread.
+    # If you scale beyond 1 worker, the cache becomes per-worker (fine for read-only).
+    startCommand: gunicorn -w 1 -k gthread --threads 4 -t 120 -b 0.0.0.0:$PORT app:app
+    envVars:
+      - key: ZOHO_CLIENT_ID
+        sync: false
+      - key: ZOHO_CLIENT_SECRET
+        sync: false
+      - key: ZOHO_REFRESH_TOKEN
+        sync: false
+      - key: ZOHO_BASE_URL
+        value: https://www.zohoapis.com
+      - key: ZOHO_ACCOUNTS_URL
+        value: https://accounts.zoho.com
+      - key: TZ_OFFSET_HOURS
+        value: "-6"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.9"
