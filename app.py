@@ -22,10 +22,8 @@ REFRESH_INTERVAL_SECONDS = 120
 _cache: dict = {"data": None, "last_updated": None, "error": None}
 _lock = threading.Lock()
 
-# Shared client so the access token is cached across all requests
 _zoho = ZohoClient()
 
-# ────────── Resolved-overdue persistence ──────────
 RESOLVED_PATH = Path(__file__).parent / "resolved_calls.json"
 _resolved_lock = threading.Lock()
 
@@ -41,7 +39,6 @@ def _save_resolved(data: dict) -> None:
     RESOLVED_PATH.write_text(json.dumps(data, indent=2))
 
 def _prune_resolved(data: dict) -> dict:
-    """Drop entries older than 7 days."""
     cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).isoformat()
     return {k: v for k, v in data.items() if v.get("at", "") > cutoff}
 
@@ -49,7 +46,6 @@ def resolved_ids() -> set:
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
         return set(data.keys())
-
 
 def _refresh():
     log.info("Refreshing dashboard data...")
@@ -64,7 +60,6 @@ def _refresh():
         log.error("Refresh failed: %s", exc)
         with _lock:
             _cache["error"] = str(exc)
-
 
 def _background_loop():
     consecutive_failures = 0
@@ -81,14 +76,9 @@ def _background_loop():
             wait = REFRESH_INTERVAL_SECONDS
         time.sleep(wait)
 
-
-# ------------------------------------------------------------------ routes
-
-
 @app.route("/")
 def index():
     return render_template("index.html", refresh_interval=REFRESH_INTERVAL_SECONDS)
-
 
 def _parse_local_date_to_utc(
     date_str: str, hour: int, minute: int, second: int,
@@ -102,7 +92,6 @@ def _parse_local_date_to_utc(
         hour=hour, minute=minute, second=second, tzinfo=timezone.utc
     )
     return d - timedelta(hours=tz_offset_hours)
-
 
 @app.route("/api/data")
 def api_data():
@@ -151,7 +140,6 @@ def api_data():
             "data": annotated,
         })
 
-
 @app.route("/api/scheduled-call/<rec_id>/resolve", methods=["POST"])
 def resolve_call(rec_id):
     with _resolved_lock:
@@ -159,7 +147,6 @@ def resolve_call(rec_id):
         data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
         _save_resolved(data)
     return jsonify({"status": "resolved", "id": rec_id})
-
 
 @app.route("/api/scheduled-call/<rec_id>/unresolve", methods=["POST"])
 def unresolve_call(rec_id):
@@ -169,12 +156,10 @@ def unresolve_call(rec_id):
         _save_resolved(data)
     return jsonify({"status": "unresolved", "id": rec_id})
 
-
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
     threading.Thread(target=_refresh, daemon=True).start()
     return jsonify({"status": "refreshing"})
-
 
 @app.route("/api/contact/<contact_id>/summary")
 def contact_summary(contact_id):
@@ -201,7 +186,7 @@ def contact_summary(contact_id):
         ) or "No tasks on record."
         contact = data["contact"]
         prompt = f"""You are a concise sales assistant for a medical aesthetics/plastic surgery practice.
-Analyze this CRM contact and write a SHORT summary (4–6 sentences) for a sales rep who is about to call them.
+Analyze this CRM contact and write a SHORT summary (4-6 sentences) for a sales rep who is about to call them.
 
 Cover: current deal stage, what was discussed in past calls, any objections or interest signals, pending tasks, and a suggested approach.
 
@@ -217,7 +202,7 @@ CALL HISTORY (most recent first):
 OPEN TASKS:
 {tasks_text}
 
-Write your response as plain prose — no bullet points, no headers. Be direct and actionable."""
+Write your response as plain prose - no bullet points, no headers. Be direct and actionable."""
         claude = anthropic.Anthropic(api_key=api_key)
         message = claude.messages.create(
             model="claude-haiku-4-5",
@@ -232,7 +217,6 @@ Write your response as plain prose — no bullet points, no headers. Be direct a
     except Exception as e:
         log.error("Contact summary error: %s", e)
         return jsonify({"error": str(e)}), 500
-
 
 @app.route("/api/contact/<contact_id>/insights")
 def contact_insights(contact_id):
@@ -276,7 +260,7 @@ def contact_insights(contact_id):
         prompt = f"""You analyze CRM contact history for a sales rep about to call them.
 
 Write a 50-word summary as flowing prose. CRITICAL formatting rules:
-- NO markdown, NO asterisks, NO bullet points, NO headers like "Interest Level:" — just plain prose sentences
+- NO markdown, NO asterisks, NO bullet points, NO headers - just plain prose sentences
 - Cover the contact's funnel position, last meaningful interaction, any objections or interest signals, and what the rep should know going in
 - If there is little info, say so plainly. Do not invent details.
 
@@ -316,9 +300,6 @@ Write 3-4 plain sentences. No formatting."""
     except Exception as e:
         log.error("Contact insights error: %s", e)
         return jsonify({"insights": f"Error: {e}"}), 500
-
-
-# ------------------------------------------------------------------ startup
 
 _bg_started = False
 _bg_lock = threading.Lock()
