@@ -3,13 +3,13 @@ import json
 import threading
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from zoho_client import ZohoClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -91,8 +91,58 @@ def index():
     return render_template("index.html", refresh_interval=REFRESH_INTERVAL_SECONDS)
 
 
+def _parse_local_date_to_utc(
+    date_str: str, hour: int, minute: int, second: int,
+    tz_offset_minutes=None,
+) -> datetime:
+    """Convert a YYYY-MM-DD local-time date string to a UTC-aware datetime.
+
+    tz_offset_minutes: browser's getTimezoneOffset() value (minutes WEST of UTC,
+    e.g. CDT = 300, CST = 360).  When provided it takes precedence over the env var
+    so that DST is handled correctly.
+    """
+    if tz_offset_minutes is not None:
+        # getTimezoneOffset() is positive for zones behind UTC (CDT=300 → UTC-5)
+        tz_offset_hours = -tz_offset_minutes / 60.0
+    else:
+        tz_offset_hours = float(os.environ.get("TZ_OFFSET_HOURS", "-6"))
+    d = datetime.strptime(date_str, "%Y-%m-%d").replace(
+        hour=hour, minute=minute, second=second, tzinfo=timezone.utc
+    )
+    return d - timedelta(hours=tz_offset_hours)
+
+
 @app.route("/api/data")
 def api_data():
+    start_param = request.args.get("start")   # YYYY-MM-DD local date
+    end_param   = request.args.get("end")     # YYYY-MM-DD local date
+    tz_param    = request.args.get("tz")      # browser getTimezoneOffset() in minutes
+    tz_offset_minutes = int(tz_param) if tz_param is not None else None
+
+    if start_param:
+        # Custom date range: live fetch, bypass cache
+        try:
+            effective_end = end_param or start_param
+            start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
+            end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
+            data = _zoho.get_dashboard_data(start_dt=start_dt, end_dt=end_dt)
+            rids = resolved_ids()
+            annotated = json.loads(json.dumps(data))
+            if annotated.get("scheduled_calls"):
+                for r in annotated["scheduled_calls"]["records"]:
+                    r["resolved"] = r.get("id") in rids
+            return jsonify({
+                "status": "ok",
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "error": None,
+                "data": annotated,
+                "date_range": {"start": start_param, "end": effective_end},
+            })
+        except Exception as exc:
+            log.error("Custom date range fetch failed: %s", exc)
+            return jsonify({"status": "error", "message": str(exc)}), 500
+
+    # Default: today's cached data
     with _lock:
         if _cache["data"] is None and _cache["error"] is None:
             return jsonify({"status": "loading"}), 202
@@ -324,4 +374,4 @@ _ensure_background_thread()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(debug=False, port=port, use_reloader=False)
+    app.run(debug=False, port=port, use_reloader=False, threaded=True)

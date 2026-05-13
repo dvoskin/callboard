@@ -15,6 +15,9 @@ NEW_DEAL_LOOKBACK_HOURS = 48
 #   > +ON_TIME_AFTER_MIN → "completed" on_time=False  (late, > 10 min after)
 EARLY_BEFORE_MIN     = int(os.getenv("EARLY_BEFORE_MIN", "5"))
 ON_TIME_AFTER_MIN    = int(os.getenv("ON_TIME_AFTER_MIN", "10"))
+# Earliest hour (local time) at which dialing begins. Calls scheduled before
+# this hour are treated as if they were scheduled at this hour for classification.
+DIAL_START_HOUR      = int(os.getenv("DIAL_START_HOUR", "9"))
 # Legacy: kept only for compatibility with anything still reading SCHEDULED_TOLERANCE_MINUTES
 SCHEDULED_CALL_TOLERANCE_MINUTES = ON_TIME_AFTER_MIN
 # Max window (minutes) within which a call counts as fulfilling a scheduled slot.
@@ -136,6 +139,37 @@ class ZohoClient:
         return all_deals
 
     # --------------------------------------------------------------- calls
+
+    def _effective_scheduled(self, scheduled: datetime) -> datetime:
+        """Return effective scheduled time, clamping pre-DIAL_START_HOUR calls to 9 AM local.
+
+        Any call scheduled before DIAL_START_HOUR in local time (TZ_OFFSET_HOURS) is
+        treated as if it were scheduled at exactly DIAL_START_HOUR that same day.
+        This prevents off-hours Zoho scheduling artifacts from being classified as
+        hundreds of minutes early or overdue.
+        """
+        # Shift to local time (tzinfo stays UTC but the wall-clock time is local)
+        local_dt = scheduled + timedelta(hours=TZ_OFFSET_HOURS)
+        if local_dt.hour < DIAL_START_HOUR:
+            local_start = local_dt.replace(
+                hour=DIAL_START_HOUR, minute=0, second=0, microsecond=0
+            )
+            # Shift back to UTC
+            return local_start - timedelta(hours=TZ_OFFSET_HOURS)
+        return scheduled
+
+    @staticmethod
+    def _extract_recording_url(description: str) -> Optional[str]:
+        """Extract a recording URL from a RingCX call description field."""
+        if not description:
+            return None
+        urls = re.findall(r'https?://\S+', description)
+        # Prefer URLs that look like recordings/audio
+        for url in urls:
+            low = url.lower().rstrip(".,;)")
+            if any(kw in low for kw in ("recording", "listen", "audio", "media", "rec/", "playback")):
+                return url.rstrip(".,;)")
+        return urls[0].rstrip(".,;)") if urls else None
 
     @staticmethod
     def _phone_from_subject(subject: str) -> Optional[str]:
@@ -331,17 +365,31 @@ class ZohoClient:
         if not scheduled:
             return {"status": "no_schedule", "dial_attempts": 0, "caller": None}
 
+        # Clamp pre-DIAL_START_HOUR schedules to DIAL_START_HOUR for classification.
+        # The original scheduled_time is preserved in results for display purposes.
+        effective_scheduled = self._effective_scheduled(scheduled)
         now = datetime.now(timezone.utc)
 
         def mins_from_schedule(c):
             t = self._parse_dt(c.get("Call_Start_Time"))
-            return abs((t - scheduled).total_seconds()) / 60 if t else float("inf")
+            return abs((t - effective_scheduled).total_seconds()) / 60 if t else float("inf")
 
-        # All calls with a disposition for this phone = total dial attempts
+        # RingCX calls (have disposition) — drive timing classification
         all_dialed = [c for c in calls if c.get("Outgoing_call_disposition")]
-        dial_attempts = len(all_dialed)
-        # Most recent dialed call drives the displayed disposition
+        # RingCentral MVP calls ("Outgoing call to" subject, no disposition)
+        # — count as dial attempts but don't affect timing/status classification
+        mvp_calls = [
+            c for c in calls
+            if not c.get("Outgoing_call_disposition")
+            and "outgoing call to" in (c.get("Subject") or "").lower()
+        ]
+        dial_attempts = len(all_dialed) + len(mvp_calls)
+        # Most recent RingCX call drives the displayed disposition
         most_recent = max(all_dialed, key=lambda c: c.get("Call_Start_Time") or "") if all_dialed else None
+        # Fall back to MVP call time if no RingCX call exists
+        most_recent_any = most_recent or (
+            max(mvp_calls, key=lambda c: c.get("Call_Start_Time") or "") if mvp_calls else None
+        )
 
         # Calls within the match window count toward schedule fulfillment
         nearby = [
@@ -353,7 +401,7 @@ class ZohoClient:
             closest = min(nearby, key=mins_from_schedule)
             call_dt = self._parse_dt(closest.get("Call_Start_Time"))
             offset_min = (
-                (call_dt - scheduled).total_seconds() / 60 if call_dt else None
+                (call_dt - effective_scheduled).total_seconds() / 60 if call_dt else None
             )
             # New classification:
             #   offset < -5      → early
@@ -371,9 +419,10 @@ class ZohoClient:
                 "dial_attempts": dial_attempts,
                 "disposition": most_recent.get("Outgoing_call_disposition"),
                 "caller": self._caller_name(most_recent),
+                "recording_url": self._extract_recording_url(closest.get("Description") or ""),
             }
 
-        minutes_until = (scheduled - now).total_seconds() / 60
+        minutes_until = (effective_scheduled - now).total_seconds() / 60
 
         if minutes_until > 0:
             return {
@@ -388,30 +437,39 @@ class ZohoClient:
         return {
             "status": "missed" if minutes_overdue > SCHEDULED_CALL_TOLERANCE_MINUTES else "late",
             "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
-            "actual_call_time": most_recent.get("Call_Start_Time") if most_recent else None,
+            "actual_call_time": most_recent_any.get("Call_Start_Time") if most_recent_any else None,
             "minutes_overdue": round(minutes_overdue, 1),
             "dial_attempts": dial_attempts,
+            "mvp_only": len(all_dialed) == 0 and len(mvp_calls) > 0,
             "disposition": most_recent.get("Outgoing_call_disposition") if most_recent else None,
-            "caller": self._caller_name(most_recent) if most_recent else None,
+            "caller": self._caller_name(most_recent or most_recent_any),
+            "recording_url": self._extract_recording_url((most_recent.get("Description") or "") if most_recent else ""),
         }
 
     # ------------------------------------------------ scheduled call records
 
-    def _fetch_scheduled_call_records_today(self) -> list[dict]:
-        """Fetch today's Zoho Admin call records with 'scheduled' in Subject.
+    def _fetch_scheduled_call_records_today(
+        self,
+        window_start_dt: Optional[datetime] = None,
+        window_end_dt: Optional[datetime] = None,
+    ) -> list[dict]:
+        """Fetch Zoho Admin 'Scheduled Call' records within the given UTC window.
 
-        Uses REST API search (not COQL) so Who_Id comes back as a full {id, name} dict.
-        Window is today 00:00–23:59 in local time (TZ_OFFSET_HOURS), converted to UTC.
+        If window_start_dt / window_end_dt are None, defaults to today in local time.
+        Uses REST API search so Who_Id comes back as a full {id, name} dict.
         """
         import logging
         log = logging.getLogger(__name__)
-        now = datetime.now(timezone.utc)
-        # Compute today's local midnight and end-of-day, then shift to UTC
-        local_now = now + timedelta(hours=TZ_OFFSET_HOURS)
-        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        local_end   = local_now.replace(hour=23, minute=59, second=59, microsecond=0)
-        window_start = (local_start - timedelta(hours=TZ_OFFSET_HOURS)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        window_end   = (local_end   - timedelta(hours=TZ_OFFSET_HOURS)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        if window_start_dt is not None:
+            window_start = window_start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            window_end   = window_end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        else:
+            now = datetime.now(timezone.utc)
+            local_now = now + timedelta(hours=TZ_OFFSET_HOURS)
+            local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            local_end   = local_now.replace(hour=23, minute=59, second=59, microsecond=0)
+            window_start = (local_start - timedelta(hours=TZ_OFFSET_HOURS)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            window_end   = (local_end   - timedelta(hours=TZ_OFFSET_HOURS)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
         all_records, page = [], 1
         while True:
@@ -424,7 +482,7 @@ class ZohoClient:
                         f"and((Call_Start_Time:greater_equal:{window_start})"
                         f"and(Call_Start_Time:less_equal:{window_end}))"
                     ),
-                    "fields": "id,Subject,Call_Start_Time,Who_Id,Owner",
+                    "fields": "id,Subject,Call_Start_Time,Who_Id,Owner,Description,Call_Status",
                     "per_page": 200,
                     "page": page,
                 },
@@ -472,12 +530,21 @@ class ZohoClient:
         "Retainer Invoice Sent",
     }
 
-    def _fetch_deal_stages_for_contacts(self, contact_ids: list[str]) -> dict[str, str]:
-        """Returns {contact_id: stage} for each contact's most recently modified deal."""
+    # Stages where the deal owner's name should be surfaced on the record
+    OWNER_VISIBLE_STAGES = {
+        "Quote Sent",
+        "Retainer Invoice Sent",
+        "Closed Won - Surgery Scheduled",
+        "Payment Received",
+        "Payment Recieved",  # Zoho typo variant
+    }
+
+    def _fetch_deal_stages_for_contacts(self, contact_ids: list[str]) -> dict[str, dict]:
+        """Returns {contact_id: {"stage": str, "owner": str}} for each contact's most recently modified deal."""
         import logging
         log = logging.getLogger(__name__)
-        result: dict[str, str] = {}
-        BATCH = 8
+        result: dict[str, dict] = {}
+        BATCH = 15
         for i in range(0, len(contact_ids), BATCH):
             batch = contact_ids[i : i + BATCH]
             conditions = " or ".join(f"(Contact_Name:equals:{cid})" for cid in batch)
@@ -486,7 +553,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "criteria": conditions,
-                    "fields": "id,Stage,Contact_Name",
+                    "fields": "id,Stage,Contact_Name,Owner",
                     "sort_by": "Modified_Time",
                     "sort_order": "desc",
                     "per_page": 50,
@@ -500,34 +567,49 @@ class ZohoClient:
                 cn = deal.get("Contact_Name")
                 cid = cn.get("id") if isinstance(cn, dict) else cn
                 if cid and cid not in result:
-                    result[cid] = deal.get("Stage") or ""
+                    owner = deal.get("Owner") or {}
+                    owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
+                    result[cid] = {
+                        "stage": deal.get("Stage") or "",
+                        "owner": owner_name,
+                    }
         log.info("  → deal stages fetched for %d contacts", len(result))
         return result
 
-    def _fetch_ringcx_calls_today(self) -> list[dict]:
-        """Fetch today's RingCX outbound calls that have Outgoing_call_disposition set.
+    def _fetch_ringcx_calls_today(
+        self,
+        window_start_dt: Optional[datetime] = None,
+        window_end_dt: Optional[datetime] = None,
+    ) -> list[dict]:
+        """Fetch RingCX outbound calls with a disposition within the given UTC window.
 
-        Subject pattern: 'Outbound Call to +1...'
-        Uses COQL with today's date range.  Falls back to full-dump if COQL rejects Subject like.
+        If window_start_dt / window_end_dt are None, defaults to today's bounds.
+        Uses the REST /Calls/search endpoint (works with ZohoCRM.modules.ALL scope).
         """
         import logging
         log = logging.getLogger(__name__)
-        today_start, today_end = self._today_bounds()
-        start_str = today_start.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        end_str   = today_end.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        if window_start_dt is not None:
+            start_str = window_start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = window_end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        else:
+            today_start, today_end = self._today_bounds()
+            start_str = today_start.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = today_end.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
-        all_calls, offset = [], 0
+        all_calls, page = [], 1
         while True:
-            query = (
-                "select id, Subject, Call_Start_Time, Outgoing_call_disposition, Call_Type, Owner "
-                f"from Calls where Call_Start_Time between '{start_str}' and '{end_str}' "
-                "and id is not null "
-                f"order by Call_Start_Time desc limit 200 offset {offset}"
-            )
-            resp = requests.post(
-                f"{self.base_url}/crm/v6/coql",
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/Calls/search",
                 headers=self._headers(),
-                json={"select_query": query},
+                params={
+                    "criteria": (
+                        f"((Call_Start_Time:greater_equal:{start_str})"
+                        f"and(Call_Start_Time:less_equal:{end_str}))"
+                    ),
+                    "fields": "id,Subject,Call_Start_Time,Outgoing_call_disposition,Call_Type,Owner,Description",
+                    "per_page": 200,
+                    "page": page,
+                },
                 timeout=20,
             )
             if resp.status_code == 204:
@@ -536,20 +618,26 @@ class ZohoClient:
                 log.warning("RingCX calls fetch failed %s: %s", resp.status_code, resp.text[:200])
                 break
             data = resp.json()
-            # Keep only calls with a disposition (RingCX auto-logged outbound attempts)
-            all_calls.extend(
-                c for c in data.get("data", []) if c.get("Outgoing_call_disposition")
-            )
+            # Keep RingCX calls (have Outgoing_call_disposition) AND
+            # RingCentral MVP calls ("Outgoing call to" subject, no disposition)
+            for c in data.get("data", []):
+                subj = (c.get("Subject") or "").lower()
+                if c.get("Outgoing_call_disposition") or "outgoing call to" in subj:
+                    all_calls.append(c)
             if not data.get("info", {}).get("more_records"):
                 break
-            offset += 200
+            page += 1
 
         log.info("  → %d RingCX calls with disposition fetched for today", len(all_calls))
         return all_calls
 
     # --------------------------------------------------------------- main
 
-    def get_dashboard_data(self) -> dict:
+    def get_dashboard_data(
+        self,
+        start_dt: Optional[datetime] = None,
+        end_dt: Optional[datetime] = None,
+    ) -> dict:
         import logging
         log = logging.getLogger(__name__)
 
@@ -558,8 +646,10 @@ class ZohoClient:
 
         # ── Scheduled Calls ────────────────────────────────────────────────
         # Source A: Zoho Admin "Scheduled Call / Call scheduled" records → define the schedule
-        log.info("Fetching today's scheduled call records (Zoho Admin)...")
-        sched_call_records = self._fetch_scheduled_call_records_today()
+        log.info("Fetching scheduled call records (window: %s → %s)...",
+                 start_dt.date() if start_dt else "today",
+                 end_dt.date() if end_dt else "today")
+        sched_call_records = self._fetch_scheduled_call_records_today(start_dt, end_dt)
 
         # Get contact phones for all scheduled records
         contact_ids = list({
@@ -571,8 +661,8 @@ class ZohoClient:
         contact_phones = self._fetch_contact_phones(contact_ids)
 
         # Source B: RingCX outbound calls with disposition → actual dials
-        log.info("Fetching today's RingCX outbound calls with disposition...")
-        ringcx_calls = self._fetch_ringcx_calls_today()
+        log.info("Fetching RingCX outbound calls with disposition...")
+        ringcx_calls = self._fetch_ringcx_calls_today(start_dt, end_dt)
 
         # Build phone → RingCX calls map (keyed by normalized last-10 digits extracted from Subject)
         ringcx_by_phone: dict[str, list[dict]] = {}
@@ -622,6 +712,8 @@ class ZohoClient:
                 "phone": phone,
                 "created_time": rec.get("Call_Start_Time"),
                 "owner": "Zoho Admin",
+                "call_status": rec.get("Call_Status") or "",
+                "sched_description": rec.get("Description") or "",
             }
 
         nd_results = []
@@ -634,26 +726,50 @@ class ZohoClient:
             result = {**sched_base(rec), **self._classify_scheduled_call(rec, sc_calls_for(rec))}
             sc_results.append(result)
 
-        # For scheduled calls missed > 90 min, look up deal stage to flag if deal moved on
-        log.info("Checking deal stages for long-missed scheduled calls...")
-        long_missed_contact_ids = list({
-            r["id_contact"]
-            for r in sc_results
-            if r.get("status") in ("missed", "late")
-            and (r.get("minutes_overdue") or 0) > 90
-            and r.get("id_contact")
-        })
-        if long_missed_contact_ids:
-            deal_stages = self._fetch_deal_stages_for_contacts(long_missed_contact_ids)
+        # Look up deal stages for ALL scheduled call contacts so the current stage
+        # can be shown in the Result column whenever a deal has moved past "Call Scheduled".
+        log.info("Fetching deal stages for all %d scheduled call contacts...", len(contact_ids))
+        all_contact_ids = list({r["id_contact"] for r in sc_results if r.get("id_contact")})
+        if all_contact_ids:
+            deal_info_map = self._fetch_deal_stages_for_contacts(all_contact_ids)
             for r in sc_results:
                 cid = r.get("id_contact")
-                if cid and cid in deal_stages:
-                    stage = deal_stages[cid]
-                    r["deal_stage"] = stage
-                    if stage in self.STAGE_MOVED_ON:
-                        # Treat as successfully closed via manual contact outside RingCX
+                if cid and cid in deal_info_map:
+                    info  = deal_info_map[cid]
+                    stage = info["stage"]
+                    owner = info["owner"]
+                    # Surface the stage whenever it's moved beyond the initial "New Deal" stage
+                    if stage and stage != "New Deal":
+                        r["deal_stage"] = stage
+                    # Surface the deal owner for high-value stages
+                    if stage in self.OWNER_VISIBLE_STAGES and owner:
+                        r["deal_owner"] = owner
+                    # Auto-resolve long-overdue calls whose deals are fully closed/moved on
+                    if (stage in self.STAGE_MOVED_ON
+                            and r.get("status") in ("missed", "late")
+                            and (r.get("minutes_overdue") or 0) > 90):
                         r["deal_moved_on"] = True
                         r["status"] = "completed_via_deal"
+
+        # Workflow auto-completion detection: for overdue calls with 0 dials,
+        # check if the Zoho scheduled call was marked Completed by workflow
+        # (either Call_Status == "Completed" or description contains workflow keywords).
+        WORKFLOW_KEYWORDS = (
+            "completed by workflow",
+            "auto-completed",
+            "auto completed",
+            "removed from queue",
+            "workflow completed",
+            "stage changed",
+            "moved to",
+        )
+        for r in sc_results:
+            if r.get("status") in ("missed", "late") and r.get("dial_attempts", 0) == 0:
+                call_status = (r.get("call_status") or "").strip()
+                desc = (r.get("sched_description") or "").lower()
+                if call_status == "Completed" or any(kw in desc for kw in WORKFLOW_KEYWORDS):
+                    r["completed_via_workflow"] = True
+                    r["status"] = "completed_via_workflow"
 
         # New Deals: sort by created_time descending (most recent first)
         nd_results.sort(key=lambda d: d.get("created_time") or "", reverse=True)
@@ -664,19 +780,21 @@ class ZohoClient:
         )
 
         def summary(results, mode="new"):
-            # "early" and "completed_via_deal" count toward completion
-            called = [r for r in results if r["status"] in ("completed", "early", "completed_via_deal")]
-            completed = [r for r in results if r["status"] == "completed"]
-            early     = [r for r in results if r["status"] == "early"]
-            via_deal  = [r for r in results if r["status"] == "completed_via_deal"]
-            on_time   = [r for r in completed if r.get("on_time")]
-            missed    = [r for r in results if r["status"] == "missed"]
+            # "early", "completed_via_deal", and "completed_via_workflow" count toward completion
+            called = [r for r in results if r["status"] in ("completed", "early", "completed_via_deal", "completed_via_workflow")]
+            completed    = [r for r in results if r["status"] == "completed"]
+            early        = [r for r in results if r["status"] == "early"]
+            via_deal     = [r for r in results if r["status"] == "completed_via_deal"]
+            via_workflow = [r for r in results if r["status"] == "completed_via_workflow"]
+            on_time      = [r for r in completed if r.get("on_time")]
+            missed       = [r for r in results if r["status"] == "missed"]
             s = {
                 "total": len(results),
                 "completed": len(called),
                 "on_time": len(on_time),
                 "early": len(early),
                 "via_deal": len(via_deal),
+                "via_workflow": len(via_workflow),
                 "missed": len(missed),
                 "on_time_rate": round(len(on_time) / len(called) * 100) if called else None,
                 "completion_rate": round(len(called) / len(results) * 100) if results else None,
@@ -718,17 +836,16 @@ class ZohoClient:
                 "created": d.get("Created_Time"), "modified": d.get("Modified_Time"),
             }
 
-        # 2. All calls linked to this contact (via COQL Who_Id)
+        # 2. All calls linked to this contact (via REST search; no COQL scope needed)
         calls = []
-        resp = requests.post(
-            f"{self.base_url}/crm/v6/coql",
+        resp = requests.get(
+            f"{self.base_url}/crm/v6/Calls/search",
             headers=self._headers(),
-            json={"select_query": (
-                "select id, Subject, Call_Start_Time, Call_Type, Call_Duration_in_seconds, "
-                "Outgoing_call_disposition, Description, Owner "
-                f"from Calls where Who_Id = '{contact_id}' "
-                "order by Call_Start_Time desc limit 50"
-            )},
+            params={
+                "criteria": f"(Who_Id:equals:{contact_id})",
+                "fields": "id,Subject,Call_Start_Time,Call_Type,Call_Duration_in_seconds,Outgoing_call_disposition,Description,Owner",
+                "per_page": 50,
+            },
             timeout=20,
         )
         if resp.ok and resp.status_code != 204:
@@ -745,14 +862,14 @@ class ZohoClient:
 
         # 3. Deals linked to this contact
         deals = []
-        resp = requests.post(
-            f"{self.base_url}/crm/v6/coql",
+        resp = requests.get(
+            f"{self.base_url}/crm/v6/Deals/search",
             headers=self._headers(),
-            json={"select_query": (
-                "select id, Deal_Name, Stage, Amount, Modified_Time, Created_Time, Description "
-                f"from Deals where Contact_Name = '{contact_id}' "
-                "order by Modified_Time desc limit 10"
-            )},
+            params={
+                "criteria": f"(Contact_Name:equals:{contact_id})",
+                "fields": "id,Deal_Name,Stage,Amount,Modified_Time,Created_Time,Description",
+                "per_page": 10,
+            },
             timeout=20,
         )
         if resp.ok and resp.status_code != 204:
@@ -766,14 +883,14 @@ class ZohoClient:
 
         # 4. Tasks / activities
         tasks = []
-        resp = requests.post(
-            f"{self.base_url}/crm/v6/coql",
+        resp = requests.get(
+            f"{self.base_url}/crm/v6/Tasks/search",
             headers=self._headers(),
-            json={"select_query": (
-                "select id, Subject, Status, Due_Date, Description, Owner "
-                f"from Tasks where Who_Id = '{contact_id}' "
-                "order by Modified_Time desc limit 20"
-            )},
+            params={
+                "criteria": f"(Who_Id:equals:{contact_id})",
+                "fields": "id,Subject,Status,Due_Date,Description,Owner",
+                "per_page": 20,
+            },
             timeout=20,
         )
         if resp.ok and resp.status_code != 204:
@@ -787,40 +904,28 @@ class ZohoClient:
         # 5. HelloSend SMS history linked to this contact
         sms_messages = []
         sms_module = "ringcentralbulksmsextensionforzohocrm__RingCentral_SMS_History"
-        # Try common field-name variants — the module is a third-party extension
-        for select_clause in (
-            "select id, Name, Direction, Message, Status, Created_Time",
-            "select id, Name, Created_Time",
-        ):
-            try:
-                resp = requests.post(
-                    f"{self.base_url}/crm/v6/coql",
-                    headers=self._headers(),
-                    json={"select_query": (
-                        f"{select_clause} "
-                        f"from {sms_module} "
-                        f"where Who_Id = '{contact_id}' "
-                        "order by Created_Time desc limit 30"
-                    )},
-                    timeout=15,
-                )
-                if resp.ok and resp.status_code != 204:
-                    for s in resp.json().get("data", []):
-                        sms_messages.append({
-                            "time": s.get("Created_Time"),
-                            "direction": s.get("Direction"),
-                            "message": (s.get("Message") or s.get("Name") or "")[:300],
-                            "status": s.get("Status"),
-                        })
-                    break  # query worked
-                elif resp.status_code == 400:
-                    # Try the simpler field set
-                    continue
-                else:
-                    break
-            except Exception as e:
-                log.warning("SMS history fetch failed: %s", e)
-                break
+        try:
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/{sms_module}/search",
+                headers=self._headers(),
+                params={
+                    "criteria": f"(Who_Id:equals:{contact_id})",
+                    "per_page": 30,
+                    "sort_by": "Created_Time",
+                    "sort_order": "desc",
+                },
+                timeout=15,
+            )
+            if resp.ok and resp.status_code != 204:
+                for s in resp.json().get("data", []):
+                    sms_messages.append({
+                        "time": s.get("Created_Time"),
+                        "direction": s.get("Direction"),
+                        "message": (s.get("Message") or s.get("Name") or "")[:300],
+                        "status": s.get("Status"),
+                    })
+        except Exception as e:
+            log.warning("SMS history fetch failed: %s", e)
 
         log.info("Contact summary data: %d calls, %d deals, %d tasks, %d SMS for %s",
                  len(calls), len(deals), len(tasks), len(sms_messages), contact_id)
