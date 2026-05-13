@@ -127,7 +127,7 @@
     #refresh-btn:disabled{ opacity: .5; cursor: default; transform: none; }
 
     /* ══════════════ LAYOUT ══════════════ */
-    main { padding: 24px 28px; max-width: 1760px; margin: 0 auto; }
+    main { padding: 24px 28px 48px; max-width: 1760px; margin: 0 auto; }
 
     .card {
       background: var(--surface);
@@ -135,20 +135,19 @@
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow);
       margin-bottom: 24px;
-      overflow: hidden;
       position: relative;
     }
     /* (top accent removed for cleaner modern look) */
     .card-header {
-      padding: 20px 24px 0;
-      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 22px 26px 0;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     }
     .card-header h2 {
-      font-size: 17px; font-weight: 700; letter-spacing: -.3px; flex:1;
+      font-size: 18px; font-weight: 700; letter-spacing: -.3px; flex:1;
       color: var(--text);
     }
     .card-sub { font-size: 12px; color: var(--secondary); font-weight: 500; }
-    .card-body { padding: 16px 24px 24px; }
+    .card-body { padding: 18px 26px 26px; }
 
     #error-banner {
       background: rgba(255,59,48,.07);
@@ -163,22 +162,23 @@
 
     /* ══════════════ STAT STRIP ══════════════ */
     .stat-strip {
-      display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0;
+      display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 18px;
     }
     .stat-pill {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 22px;
-      padding: 7px 15px;
-      display: flex; align-items: baseline; gap: 7px;
+      padding: 8px 16px 8px 14px;
+      display: flex; align-items: baseline; gap: 8px;
       font-size: 12px; font-weight: 500;
       box-shadow: var(--shadow-sm);
-      transition: transform .12s, box-shadow .12s;
+      transition: transform .12s, box-shadow .12s, border-color .12s;
+      white-space: nowrap;
     }
-    .stat-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
-    .stat-pill .val { font-size: 20px; font-weight: 800; line-height: 1.1; font-feature-settings: "tnum"; }
-    .stat-pill .lbl { color: var(--secondary); font-weight: 600; }
-    .stat-pill .rate{ color: var(--text); font-weight: 700; }
+    .stat-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow); border-color: rgba(15,23,42,.2); }
+    .stat-pill .val { font-size: 19px; font-weight: 800; line-height: 1.1; font-feature-settings: "tnum"; }
+    .stat-pill .lbl { color: var(--secondary); font-weight: 600; letter-spacing: .01em; }
+    .stat-pill .rate{ color: var(--text); font-weight: 700; font-size: 11px; opacity: .75; }
     .stat-pill.green  .val { color: var(--green-dk); }
     .stat-pill.red    .val { color: var(--red-dk); }
     .stat-pill.orange .val { color: var(--orange-dk); }
@@ -189,43 +189,51 @@
 
     /* ══════════════ FILTER BAR ══════════════ */
     .filter-bar {
-      display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
-      margin-bottom: 12px;
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
     }
     .filter-bar input,
     .filter-bar select {
-      background: var(--bg); border: 1px solid var(--border);
+      background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--text);
       font-size: 13px; font-family: inherit; font-weight: 500;
-      padding: 6px 10px; outline: none;
+      padding: 7px 11px; outline: none;
       transition: border-color .15s, box-shadow .15s;
     }
     .filter-bar input:focus,
     .filter-bar select:focus {
       border-color: var(--blue);
-      box-shadow: 0 0 0 3px rgba(0,122,255,.1);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
     }
-    .filter-bar input { min-width: 190px; }
+    .filter-bar input { min-width: 200px; }
     .filter-clear {
       font-size: 12px; font-weight: 600; font-family: inherit;
       color: var(--secondary); cursor: pointer;
-      padding: 6px 9px; border-radius: var(--radius-sm);
-      border: 1px solid var(--border); background: none;
-      transition: color .15s, border-color .15s;
+      padding: 7px 11px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--surface);
+      transition: color .15s, border-color .15s, background .15s;
     }
-    .filter-clear:hover { color: var(--red); border-color: rgba(255,59,48,.4); }
+    .filter-clear:hover { color: var(--red); border-color: rgba(255,59,48,.4); background: rgba(255,59,48,.04); }
 
     /* ══════════════ TABLE ══════════════ */
     .table-wrap {
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      overflow: auto; background: var(--surface);
+      overflow-x: auto; overflow-y: visible;
+      background: var(--surface);
     }
-    table { width: 100%; border-collapse: collapse; }
+    .table-wrap::-webkit-scrollbar { height: 10px; }
+    .table-wrap::-webkit-scrollbar-thumb { background: rgba(15,23,42,.18); border-radius: 5px; }
+    .table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,.3); }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
     th {
-      text-align: left; font-size: 10.5px; font-weight: 800;
+      text-align: left; font-size: 10px; font-weight: 800;
       color: var(--secondary); text-transform: uppercase;
-      letter-spacing: .09em; padding: 11px 13px;
+      letter-spacing: .08em; padding: 8px 10px;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
       background: linear-gradient(180deg, #fafbff, var(--surface2));
@@ -234,12 +242,54 @@
     th.sortable:hover { color: var(--blue); }
     th.sort-asc::after  { content: " ↑"; color: var(--blue); }
     th.sort-desc::after { content: " ↓"; color: var(--blue); }
-    td {
-      padding: 10px 13px; border-bottom: 1px solid var(--sep);
-      vertical-align: middle; font-size: 13px;
+    th { position: relative; }
+    th .col-resize {
+      position: absolute; right: 0; top: 0; bottom: 0;
+      width: 6px; cursor: col-resize;
+      background: transparent; transition: background .12s;
+      z-index: 4;
     }
+    th .col-resize:hover, th .col-resize.active { background: var(--blue); opacity: .6; }
+    th[draggable="true"] { cursor: grab; }
+    th[draggable="true"].dragging { opacity: 0.4; }
+    th.drop-target { box-shadow: inset -3px 0 0 var(--blue); }
+    td {
+      padding: 6px 10px; border-bottom: 1px solid var(--sep);
+      vertical-align: middle; font-size: 12.5px; line-height: 1.35;
+      /* Single-line rows by default — long content truncates with ellipsis */
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 280px;
+    }
+    /* Some cells need their content fully visible (flex containers with their own overflow handling) */
+    td.col-name, td.col-status, td.col-result, td.col-source, td.col-rec, td.col-dials,
+    td.col-stage { overflow: visible; }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(37,99,235,.035); }
+    tbody tr:nth-child(even) td { background: rgba(15,23,42,.014); }
+    tbody tr { transition: background .08s; }
+    tr:hover td { background: rgba(37,99,235,.05) !important; }
+    /* Subtle vertical column dividers using td shadow — only visible on hover */
+    tbody tr:hover td { box-shadow: inset 1px 0 0 rgba(15,23,42,.05); }
+    tbody tr:hover td:first-child { box-shadow: none; }
+    /* Sticky-feel for first column: subtle right shadow */
+    tbody td:first-child {
+      position: relative;
+    }
+    /* Compact density on hover-able rows */
+    tr.row-completed     td:first-child,
+    tr.row-early         td:first-child,
+    tr.row-via-deal      td:first-child,
+    tr.row-via-workflow  td:first-child,
+    tr.row-missed        td:first-child,
+    tr.row-late          td:first-child,
+    tr.row-overdue       td:first-child { padding-left: 9px; }
+
+    /* Compact badges / pills to match denser rows */
+    .badge        { padding: 2px 7px; font-size: 10.5px; }
+    .stage-tag    { padding: 2px 6px; font-size: 10px; }
+    .src-pill     { padding: 1px 6px; font-size: 9.5px; }
+    .floor-badge  { padding: 1px 5px; font-size: 9px; margin-left: 5px; }
+    .expand-btn   { width: 14px; height: 14px; font-size: 8px; }
+    .summary-btn  { width: 16px; height: 16px; font-size: 10px; }
 
     tr.row-completed td:first-child  { box-shadow: inset 3px 0 0 var(--green);   padding-left: 10px; }
     tr.row-early     td:first-child  { box-shadow: inset 3px 0 0 var(--teal);    padding-left: 10px; }
@@ -259,10 +309,18 @@
     /* ══════════════ BADGES ══════════════ */
     .badge {
       display: inline-flex; align-items: center;
-      border-radius: 6px; padding: 3px 9px;
+      border-radius: 6px; padding: 4px 10px;
       font-size: 11px; font-weight: 700;
       white-space: nowrap; letter-spacing: .01em;
+      border: 1px solid transparent;
     }
+    .badge-green  { border-color: rgba(16,185,129,.2); }
+    .badge-red    { border-color: rgba(239,68,68,.2); }
+    .badge-orange { border-color: rgba(245,158,11,.2); }
+    .badge-teal   { border-color: rgba(6,182,212,.2); }
+    .badge-purple { border-color: rgba(139,92,246,.2); }
+    .badge-blue   { border-color: rgba(37,99,235,.2); }
+    .badge-yellow { border-color: rgba(234,179,8,.22); }
     .badge-green  { background: rgba(52,199,89,.12);  color: var(--green-dk);  }
     .badge-red    { background: rgba(255,59,48,.1);   color: var(--red-dk);    }
     .badge-orange { background: rgba(255,159,10,.12); color: var(--orange-dk); }
@@ -272,15 +330,140 @@
     .badge-purple { background: rgba(175,82,222,.1);  color: var(--purple-dk); }
     .badge-gray   { background: rgba(142,142,147,.1); color: var(--secondary); }
 
-    /* stage tag on long-overdue */
+    /* Deal-stage tag with category-based colors */
     .stage-tag {
       display: inline-flex; align-items: center;
-      font-size: 10px; font-weight: 700;
-      background: rgba(175,82,222,.1); color: var(--purple-dk);
-      border-radius: 4px; padding: 2px 6px; margin-left: 5px;
+      font-size: 10.5px; font-weight: 700;
+      background: rgba(142,142,147,.1); color: var(--secondary);
+      border-radius: 5px; padding: 3px 8px;
       white-space: nowrap; vertical-align: middle;
+      letter-spacing: .01em;
+      border: 1px solid transparent;
     }
-    .stage-tag.neutral { background: rgba(142,142,147,.1); color: var(--secondary); }
+    .stage-tag.neutral    { background: rgba(142,142,147,.1);  color: var(--secondary);  }
+    .stage-tag.s-new      { background: rgba(99,102,241,.1);   color: #4338ca;           border-color: rgba(99,102,241,.18); }
+    .stage-tag.s-scheduled{ background: rgba(37,99,235,.1);    color: var(--blue-dk);    border-color: rgba(37,99,235,.18); }
+    .stage-tag.s-quote    { background: rgba(139,92,246,.1);   color: var(--purple-dk);  border-color: rgba(139,92,246,.18); }
+    .stage-tag.s-invoice  { background: rgba(6,182,212,.1);    color: var(--teal-dk);    border-color: rgba(6,182,212,.2); }
+    .stage-tag.s-paid     { background: rgba(16,185,129,.12);  color: var(--green-dk);   border-color: rgba(16,185,129,.22); }
+    .stage-tag.s-won      { background: rgba(16,185,129,.18);  color: #065f46;           border-color: rgba(16,185,129,.35); }
+    .stage-tag.s-followup { background: rgba(234,179,8,.14);   color: var(--yellow-dk);  border-color: rgba(234,179,8,.22); }
+    .stage-tag.s-prev     { background: rgba(100,116,139,.12); color: #475569;           border-color: rgba(100,116,139,.2); }
+    .stage-tag.s-spanish  { background: rgba(245,158,11,.12);  color: var(--orange-dk);  border-color: rgba(245,158,11,.22); }
+    .stage-tag.s-noanswer { background: rgba(239,68,68,.08);   color: var(--red-dk);     border-color: rgba(239,68,68,.18); }
+    .stage-tag.s-unsub    { background: rgba(15,23,42,.06);    color: #64748b;           border-color: rgba(15,23,42,.12); text-decoration: line-through; }
+    .stage-tag.s-lost     { background: rgba(239,68,68,.12);   color: var(--red-dk);     border-color: rgba(239,68,68,.22); }
+
+    /* source pills (RingCX / MVP) */
+    .src-pill {
+      display: inline-flex; align-items: center;
+      font-size: 10px; font-weight: 800; letter-spacing: .02em;
+      border-radius: 4px; padding: 2px 7px;
+      white-space: nowrap;
+    }
+    .src-ringcx { background: rgba(37,99,235,.1); color: var(--blue-dk); }
+    .src-mvp    { background: rgba(245,158,11,.12); color: var(--orange-dk); }
+
+    /* "ⓘ 9 AM" floor badge */
+    .floor-badge {
+      display: inline-flex; align-items: center;
+      font-size: 9.5px; font-weight: 700;
+      background: rgba(245,158,11,.1); color: var(--orange-dk);
+      border-radius: 3px; padding: 1px 5px;
+      margin-left: 6px; vertical-align: middle;
+      cursor: help; letter-spacing: .02em;
+      border: 1px solid rgba(245,158,11,.22);
+    }
+    .floor-badge:hover { background: rgba(245,158,11,.18); }
+
+    /* Column show/hide menu — refined card */
+    .cols-menu-wrap { position: relative; display: inline-block; }
+    .cols-menu {
+      display: none;
+      position: absolute; right: 0; top: 38px; z-index: 50;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow:
+        0 24px 60px rgba(15,23,42,.18),
+        0 4px 16px rgba(15,23,42,.08),
+        0 0 0 1px rgba(255,255,255,.6) inset;
+      padding: 0; min-width: 280px;
+      overflow: hidden;
+      transform-origin: top right;
+      animation: menu-pop .14s cubic-bezier(.2,.7,.3,1.2);
+    }
+    @keyframes menu-pop {
+      from { opacity: 0; transform: scale(.96) translateY(-4px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .cols-menu.open { display: block; }
+    .cols-menu-header {
+      padding: 12px 16px 10px;
+      background: linear-gradient(180deg, var(--surface), var(--surface2));
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--sep);
+    }
+    .cols-menu-header .title {
+      font-size: 12px; font-weight: 800; letter-spacing: -.2px; color: var(--text);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .cols-menu-header .title::before {
+      content: ""; width: 14px; height: 14px; border-radius: 3px;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.4);
+    }
+    .cols-menu-header .reset {
+      font-size: 11px; font-weight: 600; color: var(--secondary);
+      cursor: pointer; background: var(--bg); border: 1px solid var(--border);
+      padding: 4px 9px; border-radius: 8px; font-family: inherit;
+      transition: all .12s;
+    }
+    .cols-menu-header .reset:hover { color: var(--blue); border-color: rgba(37,99,235,.35); background: rgba(37,99,235,.06); }
+    .cols-menu-body {
+      padding: 6px; max-height: 420px; overflow-y: auto;
+    }
+    .cols-menu-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; cursor: pointer;
+      font-size: 13px; font-weight: 500; color: var(--text);
+      user-select: none; transition: background .1s;
+      border-radius: 8px;
+      margin-bottom: 1px;
+    }
+    .cols-menu-row:hover { background: var(--surface2); }
+    .cols-menu-row[draggable=true]:active { cursor: grabbing; }
+    .cols-menu-row input[type=checkbox] {
+      accent-color: var(--blue); width: 15px; height: 15px; margin: 0;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .cols-menu-row .cm-handle {
+      cursor: grab; color: var(--tertiary); font-size: 12px; font-weight: 700;
+      padding: 0 4px; user-select: none; letter-spacing: -1px;
+      transition: color .12s;
+    }
+    .cols-menu-row:hover .cm-handle { color: var(--secondary); }
+    .cols-menu-row.dragging { opacity: .35; background: rgba(37,99,235,.06); }
+    .cols-menu-row.drop-above { box-shadow: inset 0 2px 0 var(--blue); }
+    .cols-menu-row.drop-below { box-shadow: inset 0 -2px 0 var(--blue); }
+    .cols-menu-row .cm-label { flex: 1; }
+    .cols-menu-row.is-locked { opacity: .55; cursor: not-allowed; }
+    .cols-menu-row.is-locked .cm-lock {
+      font-size: 11px; color: var(--tertiary);
+    }
+    .cols-menu-footer {
+      padding: 9px 16px;
+      border-top: 1px solid var(--sep);
+      font-size: 10.5px; color: var(--tertiary); font-weight: 500;
+      background: var(--surface2);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .cols-menu-footer .kbd {
+      display: inline-flex; align-items: center;
+      font-family: "SF Mono", monospace; font-size: 9px; font-weight: 700;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 5px; color: var(--secondary);
+    }
 
     /* ══════════════ NEXT-CALL CHIP ══════════════ */
     #sc-next-chip {
@@ -297,15 +480,19 @@
       gap: 16px; align-items: start;
     }
     .sub-header {
-      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
     }
-    .sub-header .title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .sub-header .title {
+      font-size: 14px; font-weight: 700; color: var(--text);
+      letter-spacing: -.15px;
+    }
     .sub-header .chip  {
       font-size: 11px; font-weight: 700;
       background: var(--bg); border: 1px solid var(--border);
-      border-radius: 10px; padding: 1px 8px; color: var(--secondary);
+      border-radius: 10px; padding: 2px 9px; color: var(--secondary);
+      min-width: 22px; text-align: center;
     }
-    .overdue-zone { margin-top: 22px; }
+    .overdue-zone { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--sep); }
     .overdue-zone .title { color: var(--red); }
     .overdue-zone .chip  {
       background: rgba(255,59,48,.07);
@@ -314,8 +501,8 @@
     }
     /* overdue section — unified control row */
     .overdue-controls {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      padding: 9px 14px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 11px 16px;
       background: var(--surface2);
       border-bottom: 1px solid var(--sep);
       border-top: 1px solid var(--sep);
@@ -393,10 +580,17 @@
     .unresolve-btn:hover { color: var(--red); border-color: var(--red); }
 
     tr.is-resolved td {
-      opacity: 0.55;
-      background: rgba(16,185,129,.03);
+      color: var(--tertiary);
+      background: rgba(15,23,42,.025);
     }
-    tr.is-resolved td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+    tr.is-resolved td:first-child { box-shadow: inset 3px 0 0 rgba(16,185,129,.55); }
+    tr.is-resolved .badge,
+    tr.is-resolved .stage-tag,
+    tr.is-resolved .owner-tag { opacity: 0.55; filter: saturate(.5); }
+    tr.is-resolved .name-link { color: var(--tertiary); }
+    tr.is-resolved::after {
+      /* (subtle "Resolved" affordance via row dimming + green left bar already) */
+    }
 
     /* ══════════════ UPCOMING PANEL ══════════════ */
     .upcoming-panel {
@@ -514,14 +708,14 @@
     .hero-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-      margin-bottom: 22px;
+      gap: 16px;
+      margin-bottom: 24px;
     }
     .kpi-card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 18px 20px 16px;
+      padding: 20px 22px 18px;
       box-shadow: var(--shadow);
       position: relative;
       overflow: hidden;
@@ -659,7 +853,7 @@
       border-radius: var(--radius);
       padding: 14px 18px;
       margin-bottom: 22px;
-      display: flex; align-items: center; gap: 14px;
+      align-items: center; gap: 14px;
       box-shadow: 0 2px 10px rgba(239,68,68,.08);
     }
     .alert-banner.show { display: flex; }
@@ -853,6 +1047,19 @@
     }
     .zoho-link:hover { background: rgba(0,122,255,.14); }
 
+    /* ══════════════ TABLET (mid-density) ══════════════ */
+    @media (max-width: 1180px) and (min-width: 681px) {
+      /* Drop the most-secondary columns to keep the essential 8 visible */
+      .col-lastdial, .col-source, .col-rec { display: none !important; }
+      main { padding: 20px 18px 36px; }
+      .hero-grid { grid-template-columns: repeat(2, 1fr); }
+      th { padding: 10px 10px; }
+      td { padding: 10px 10px; max-width: 240px; }
+      .name-cell { max-width: 200px; }
+      /* Smaller resize handles but keep usable */
+      th .col-resize { width: 4px; }
+    }
+
     /* ══════════════ MOBILE RESPONSIVE ══════════════ */
     @media (max-width: 680px) {
       /* Header */
@@ -898,25 +1105,44 @@
       /* Tables: compact padding, touch-friendly scroll */
       .table-wrap { -webkit-overflow-scrolling: touch; }
       th { font-size: 9.5px; padding: 9px 8px; }
-      td { padding: 9px 8px; font-size: 12px; }
-      .name-cell { max-width: 130px; }
+      td { padding: 9px 8px; font-size: 12px; max-width: 200px; }
+      .name-cell { max-width: 150px; }
       .phone-cell { font-size: 11px; }
 
-      /* Activity table — hide Phone (2), Actual Call (4), Dials (7) */
-      #sc-activity-table thead th:nth-child(2),
-      #sc-activity-table tbody td:nth-child(2),
-      #sc-activity-table thead th:nth-child(4),
-      #sc-activity-table tbody td:nth-child(4),
-      #sc-activity-table thead th:nth-child(7),
-      #sc-activity-table tbody td:nth-child(7) { display: none; }
+      /* Disable column drag/reorder on touch — fingers can't easily target headers */
+      th[draggable="true"] { cursor: default; }
+      th .col-resize { display: none; }
 
-      /* Overdue table — checkbox col added, so Phone=3, ActualCall=5, Dials=7 */
+      /* Class-based column hiding (survives reordering) — show only the essentials */
+      .col-phone, .col-lastdial, .col-source, .col-dials, .col-disp, .col-rec,
+      .col-stage, .col-actual { display: none !important; }
+
+      /* Overdue table is its own beast — hide same columns there */
       #sc-overdue-zone table thead th:nth-child(3),
       #sc-overdue-zone table tbody td:nth-child(3),
       #sc-overdue-zone table thead th:nth-child(5),
       #sc-overdue-zone table tbody td:nth-child(5),
       #sc-overdue-zone table thead th:nth-child(7),
       #sc-overdue-zone table tbody td:nth-child(7) { display: none; }
+
+      /* Cols menu becomes a bottom sheet on small screens */
+      .cols-menu {
+        position: fixed !important;
+        left: 0; right: 0; bottom: 0; top: auto !important;
+        border-radius: 16px 16px 0 0;
+        min-width: 0; width: 100%;
+        max-height: 70vh;
+        box-shadow: 0 -12px 40px rgba(15,23,42,.18);
+        animation: sheet-up .2s ease-out;
+      }
+      @keyframes sheet-up {
+        from { transform: translateY(100%); }
+        to   { transform: translateY(0); }
+      }
+      .cols-menu-body { max-height: 50vh; }
+      .cols-menu-row { padding: 12px 16px; font-size: 14px; }
+      .cols-menu-row input[type=checkbox] { width: 18px; height: 18px; }
+      .cols-menu-row .cm-handle { font-size: 18px; padding: 4px 8px; }
 
       /* Upcoming strip */
       .up-strip-head { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
@@ -1149,20 +1375,27 @@
               <option value="">All Dispositions</option>
             </select>
             <button class="filter-clear" onclick="clearScFilters()">✕ Clear</button>
+            <div class="cols-menu-wrap">
+              <button class="filter-clear" onclick="toggleColsMenu(event)" title="Show / hide columns">⚙ Columns</button>
+              <div class="cols-menu" id="cols-menu"></div>
+            </div>
           </div>
           <div class="table-wrap">
             <table id="sc-activity-table">
               <thead>
-                <tr>
-                  <th class="sortable" onclick="sortSc('name')">Contact</th>
-                  <th>Phone</th>
-                  <th class="sortable" onclick="sortSc('scheduled_time')">Scheduled (EST)</th>
-                  <th class="sortable" onclick="sortSc('actual_call_time')">Actual Call (EST)</th>
-                  <th class="sortable" onclick="sortSc('status')">Status</th>
-                  <th class="sortable" onclick="sortSc('offset_minutes')">Result</th>
-                  <th class="sortable" onclick="sortSc('dial_attempts')">Dials</th>
-                  <th class="sortable" onclick="sortSc('disposition')">Disposition</th>
-                  <th>Recording</th>
+                <tr id="sc-thead-row">
+                  <th class="sortable col-name" onclick="sortSc('name')">Contact</th>
+                  <th class="col-phone">Phone</th>
+                  <th class="sortable col-scheduled" onclick="sortSc('scheduled_time')">Scheduled (EST)</th>
+                  <th class="sortable col-actual" onclick="sortSc('actual_call_time')">Actual Call (EST)</th>
+                  <th class="sortable col-lastdial" onclick="sortSc('last_attempt_time')">Last Dial</th>
+                  <th class="sortable col-source" onclick="sortSc('logged_via')">Source</th>
+                  <th class="sortable col-status" onclick="sortSc('status')">Status</th>
+                  <th class="sortable col-result" onclick="sortSc('offset_minutes')">Result</th>
+                  <th class="sortable col-stage" onclick="sortSc('deal_stage')">Deal Stage</th>
+                  <th class="sortable col-dials" onclick="sortSc('dial_attempts')">Dials</th>
+                  <th class="sortable col-disp" onclick="sortSc('disposition')">Disposition</th>
+                  <th class="col-rec">Recording</th>
                 </tr>
               </thead>
               <tbody id="sc-tbody"></tbody>
@@ -1224,7 +1457,7 @@
   let _upcomingCalls = [];
   let _scActivityRecords = [];
   let _scOverdueRecords  = [];
-  let _scSort = { key: "scheduled_time", dir: -1 };
+  let _scSort = { key: "scheduled_time", dir: 1 };  // earliest first by default
   let _overdueSort = { key: "minutes_overdue", dir: -1 };
   let _overdueSelected = new Set();
   let _showResolved = false;
@@ -1280,6 +1513,38 @@
 
   // ─── utils ───
   const TZ = "America/New_York";
+  const DIAL_START_HOUR = 9;  // calls scheduled earlier are clamped to 9 AM local
+
+  // Returns the effective scheduled wall-clock time (in TZ) as a Date, applying
+  // the DIAL_START_HOUR clamp so pre-business-hours schedules are treated as
+  // if scheduled at 9 AM local.
+  function effectiveScheduledDate(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+    }).formatToParts(d);
+    const get = t => parts.find(p => p.type === t)?.value;
+    const h = parseInt(get("hour"), 10);
+    if (h >= DIAL_START_HOUR) return d;
+    // Shift to 9:00:00 local that same date
+    const min  = parseInt(get("minute"), 10);
+    const sec  = parseInt(get("second"), 10);
+    const shiftMin = (DIAL_START_HOUR - h) * 60 - min - sec / 60;
+    return new Date(d.getTime() + shiftMin * 60000);
+  }
+
+  // Difference between actual call time and the effective scheduled time, in
+  // minutes (positive = late, negative = early). Returns null if either input
+  // is missing.
+  function computeEffectiveOffsetMin(scheduledIso, actualIso) {
+    if (!scheduledIso || !actualIso) return null;
+    const eff = effectiveScheduledDate(scheduledIso);
+    const act = new Date(actualIso);
+    if (!eff || isNaN(act.getTime())) return null;
+    return Math.round(((act.getTime() - eff.getTime()) / 60000) * 10) / 10;
+  }
 
   function fmt(iso) {
     if (!iso) return "—";
@@ -1318,6 +1583,25 @@
   function initials(name) {
     if (!name) return "?";
     return name.split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();
+  }
+
+  // Map a Zoho deal-stage string to a color-class for the .stage-tag pill
+  function stageClass(stage) {
+    if (!stage) return "neutral";
+    const s = stage.toLowerCase();
+    if (s.includes("closed won") || s.includes("surgery scheduled")) return "s-won";
+    if (s.includes("payment received") || s.includes("payment recieved")) return "s-paid";
+    if (s.includes("retainer") || s.includes("invoice")) return "s-invoice";
+    if (s.includes("quote")) return "s-quote";
+    if (s.includes("follow up") || s.includes("follow-up")) return "s-followup";
+    if (s.includes("call scheduled")) return "s-scheduled";
+    if (s.includes("new deal")) return "s-new";
+    if (s.includes("prev") || s.includes("assisted")) return "s-prev";
+    if (s.includes("spanish")) return "s-spanish";
+    if (s.includes("no answer") || s === "voicemail / no answer") return "s-noanswer";
+    if (s.includes("unsubscribe")) return "s-unsub";
+    if (s.includes("closed lost") || s.includes("lost")) return "s-lost";
+    return "neutral";
   }
 
   function statusBadge(status, onTime) {
@@ -1428,7 +1712,7 @@
   }
 
   // ─── contact name cell (with hyperlink + AI buttons) ───
-  function nameCell(r, module="Contacts") {
+  function nameCell(r, module="Contacts", trailing="") {
     const url = crmUrl(module, r.id_contact || r.id);
     const nameHtml = url
       ? `<a class="name-link" href="${url}" target="_blank">${r.name}</a>`
@@ -1439,8 +1723,8 @@
     const aiBtn = r.id_contact
       ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
       : "";
-    return `<div class="name-cell" style="display:flex;align-items:center;gap:2px;max-width:240px">
-      ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nameHtml}</span>${aiBtn}
+    return `<div class="name-cell" style="display:flex;align-items:center;gap:4px;max-width:280px">
+      ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span>${aiBtn}${trailing}
     </div>`;
   }
 
@@ -1528,19 +1812,24 @@
   function renderHeroKpis(sc, upcoming, overdue) {
     const s = sc.summary;
     const total = sc.records.length;
-    const callsDue = s.total - upcoming.length; // calls that should have happened by now
+    // "Due now" = everything except records still in the future (status=upcoming).
+    // Completion rate is real-time: completed / due-now, ignoring future-scheduled calls.
+    const callsDue = total - upcoming.length;
+    const liveCompletionRate = callsDue > 0
+      ? Math.round((s.completed / callsDue) * 100)
+      : null;
     const html = [
       // Total today
       `<div class="kpi-card">
         <div class="kpi-lbl">Total Today</div>
         <div class="kpi-val">${total}</div>
-        <div class="kpi-sub"><strong>${upcoming.length}</strong> still upcoming</div>
+        <div class="kpi-sub"><strong>${upcoming.length}</strong> still upcoming · <strong>${callsDue}</strong> due now</div>
       </div>`,
-      // Completion rate
-      `<div class="kpi-card ${s.completion_rate>=85?"green":s.completion_rate>=60?"orange":"red"}">
+      // Completion rate — real-time, of calls due so far
+      `<div class="kpi-card ${liveCompletionRate>=85?"green":liveCompletionRate>=60?"orange":"red"}">
         <div class="kpi-lbl">Completion Rate</div>
-        <div class="kpi-val">${s.completion_rate ?? 0}<span style="font-size:22px">%</span></div>
-        <div class="kpi-sub"><strong>${s.completed}</strong> of ${total} contacts reached</div>
+        <div class="kpi-val">${liveCompletionRate ?? 0}<span style="font-size:22px">%</span></div>
+        <div class="kpi-sub"><strong>${s.completed}</strong> of ${callsDue} due now</div>
       </div>`,
       // On-time rate
       `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
@@ -1664,16 +1953,53 @@
 
   // ─── render scheduled calls ───
   function renderScheduledCalls(sc) {
+    // Calls scheduled before 9 AM Eastern are assumed to be expected at 9 AM
+    // (reps don't dial outside business hours). Apply the floor once, here,
+    // so every downstream display + calculation sees the same effective time.
+    sc.records.forEach(r => {
+      if (r.scheduled_time) {
+        const original = r.scheduled_time;
+        const eff = effectiveScheduledDate(original);
+        if (eff) {
+          const effIso = eff.toISOString();
+          if (effIso !== new Date(original).toISOString()) {
+            r._floored = true;
+            r._scheduled_original = original;
+          }
+          r.scheduled_time = effIso;
+        }
+      }
+    });
+
+    // Backend status is cached every 120s, so a record that was "upcoming" a minute ago
+    // can now have a scheduled_time in the past. Reclassify client-side using the
+    // current wall-clock so the upcoming strip never carries stale past entries
+    // and past calls don't show as "upcoming".
+    const nowMs = Date.now();
+    sc.records.forEach(r => {
+      if (r.status === "upcoming" && r.scheduled_time) {
+        const t = new Date(r.scheduled_time).getTime();
+        if (t <= nowMs) {
+          // Compute minutes overdue and promote to late/missed
+          const overdueMin = (nowMs - t) / 60000;
+          r.minutes_overdue = +overdueMin.toFixed(1);
+          r.minutes_until = null;
+          r.status = overdueMin > 10 ? "missed" : "late";
+        }
+      }
+    });
     const upcoming = sc.records
-      .filter(r=>r.status==="upcoming")
+      .filter(r => r.status === "upcoming"
+                && r.scheduled_time
+                && new Date(r.scheduled_time).getTime() > nowMs)
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
-    const past = sc.records.filter(r=>r.status!=="upcoming");
+    const past = sc.records.filter(r => r.status !== "upcoming");
     // Long-overdue = still missed (not closed via deal or workflow) AND >60 min overdue
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    // For custom date ranges (especially future dates), include upcoming records in the
-    // activity table so the main table is never empty just because all calls are "upcoming".
-    const activityBase = _customDateActive ? sc.records : past;
-    const activity = activityBase.filter(r => !isOverdueRow(r));
+    // Activity table always shows everything (past + upcoming), minus long-overdue
+    // (which gets its own zone below). The upcoming strip at the top is a
+    // shortcut highlight, not a substitute for the table.
+    const activity = sc.records.filter(r => !isOverdueRow(r));
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;
@@ -1685,9 +2011,11 @@
     renderHeroKpis(sc, upcoming, unresolvedOverdue);
 
     const s = sc.summary;
+    const _callsDue = sc.records.length - upcoming.length;
+    const _liveCompletion = _callsDue > 0 ? Math.round((s.completed / _callsDue) * 100) : null;
     document.getElementById("sc-stats").innerHTML = [
       statPill("Total",          sc.records.length, "blue"),
-      statPill("Completed",      s.completed,  "green",  s.completion_rate),
+      statPill("Completed",      s.completed,  "green",  _liveCompletion),
       statPill("On Time",        s.on_time,    s.on_time===s.completed&&s.completed>0?"green":"orange", s.on_time_rate),
       statPill("Early",          s.early,      s.early>0?"teal":"green"),
       statPill("Other",          s.via_deal,        s.via_deal>0?"purple":"green"),
@@ -1753,7 +2081,7 @@
       const ownerTag = r.deal_owner
         ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
       const stagePill = r.deal_stage
-        ? `<span class="stage-tag${r.deal_moved_on?"":" neutral"}">${r.deal_stage}</span>${ownerTag}` : "—";
+        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>${ownerTag}` : "—";
       const dials = r.dial_attempts??0;
       const actualCell = r.actual_call_time
         ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
@@ -1839,6 +2167,252 @@
     }
   }
 
+  // ─── Column show/hide ───
+  const SC_COLUMNS = [
+    { key: "name",       label: "Contact",          always: true  },
+    { key: "phone",      label: "Phone",            default: true  },
+    { key: "scheduled",  label: "Scheduled (EST)",  default: true  },
+    { key: "actual",     label: "Actual Call (EST)",default: true  },
+    { key: "lastdial",   label: "Last Dial",        default: false },
+    { key: "source",     label: "Source",           default: false },
+    { key: "status",     label: "Status",           default: true  },
+    { key: "result",     label: "Result",           default: true  },
+    { key: "stage",      label: "Deal Stage",       default: true  },
+    { key: "dials",      label: "Dials",            default: true  },
+    { key: "disp",       label: "Disposition",      default: true  },
+    { key: "rec",        label: "Recording",        default: true  },
+  ];
+  function _colIsVisible(c) {
+    if (c.always) return true;
+    if (_colPrefs[c.key] === false) return false;
+    if (_colPrefs[c.key] === true)  return true;
+    return c.default !== false;  // fall back to declared default
+  }
+  function _loadColPrefs() {
+    try { return JSON.parse(localStorage.getItem("scColPrefs") || "{}"); }
+    catch { return {}; }
+  }
+  function _saveColPrefs(p) {
+    try { localStorage.setItem("scColPrefs", JSON.stringify(p)); } catch {}
+  }
+  let _colPrefs = _loadColPrefs();
+  // Persisted column order + widths (Contact is always first)
+  let _colOrder = (_colPrefs._order && Array.isArray(_colPrefs._order))
+    ? _colPrefs._order.filter(k => SC_COLUMNS.some(c => c.key === k))
+    : SC_COLUMNS.map(c => c.key);
+  // Ensure all known cols present (newly added ones get appended)
+  SC_COLUMNS.forEach(c => { if (!_colOrder.includes(c.key)) _colOrder.push(c.key); });
+  let _colWidths = _colPrefs._widths || {};
+
+  function _persistAll() {
+    _colPrefs._order = _colOrder;
+    _colPrefs._widths = _colWidths;
+    _saveColPrefs(_colPrefs);
+  }
+
+  function applyColVisibility() {
+    SC_COLUMNS.forEach(c => {
+      const hidden = !_colIsVisible(c);
+      document.querySelectorAll(`.col-${c.key}`).forEach(el => {
+        el.style.display = hidden ? "none" : "";
+      });
+    });
+    applyColOrder();
+    applyColWidths();
+  }
+
+  function applyColOrder() {
+    // Reorder header cells and every row's cells to match _colOrder
+    const head = document.getElementById("sc-thead-row");
+    if (!head) return;
+    const orderedHeadCells = _colOrder.map(k => head.querySelector(`.col-${k}`)).filter(Boolean);
+    orderedHeadCells.forEach(el => head.appendChild(el));
+    document.querySelectorAll("#sc-tbody tr").forEach(tr => {
+      const ordered = _colOrder.map(k => tr.querySelector(`.col-${k}`)).filter(Boolean);
+      ordered.forEach(el => tr.appendChild(el));
+    });
+  }
+
+  function applyColWidths() {
+    Object.entries(_colWidths).forEach(([key, w]) => {
+      const th = document.querySelector(`th.col-${key}`);
+      if (th) th.style.width = w + "px";
+    });
+  }
+
+  function setColVis(key, visible) {
+    _colPrefs[key] = visible;
+    _persistAll();
+    applyColVisibility();
+  }
+  function resetCols(ev) {
+    if (ev) ev.preventDefault();
+    _colPrefs = {};
+    _colOrder = SC_COLUMNS.map(c => c.key);
+    _colWidths = {};
+    try { localStorage.removeItem("scColPrefs"); } catch {}
+    document.getElementById("cols-menu").innerHTML = "";
+    document.querySelectorAll("th").forEach(th => th.style.width = "");
+    applyColVisibility();
+  }
+
+  function _renderColsMenu() {
+    const orderedCols = _colOrder.map(k => SC_COLUMNS.find(c => c.key === k)).filter(Boolean);
+    const rows = orderedCols.map(c => {
+      const checked = _colIsVisible(c);
+      const grab = c.always
+        ? `<span class="cm-lock" title="Always shown">🔒</span>`
+        : `<span class="cm-handle" title="Drag to reorder">⋮⋮</span>`;
+      const cls = `cols-menu-row${c.always ? " is-locked" : ""}`;
+      const drag = c.always ? "" : `draggable="true"`;
+      const onClick = c.always ? "" : `onclick="(event.target.tagName!=='INPUT') && this.querySelector('input').click()"`;
+      return `<div class="${cls}" data-key="${c.key}" ${drag} ${onClick}>
+        ${grab}
+        <input type="checkbox" ${checked?"checked":""} ${c.always?"disabled":""} onchange="setColVis('${c.key}', this.checked); event.stopPropagation();">
+        <span class="cm-label">${c.label}</span>
+      </div>`;
+    }).join("");
+    document.getElementById("cols-menu").innerHTML =
+      `<div class="cols-menu-header">
+         <span class="title">Columns</span>
+         <button class="reset" onclick="resetCols(event)">Reset</button>
+       </div>
+       <div class="cols-menu-body" id="cols-menu-body">${rows}</div>
+       <div class="cols-menu-footer">
+         <span class="kbd">⋮⋮</span> drag to reorder
+         <span style="opacity:.5">·</span>
+         <span class="kbd">⇿</span> drag header edge to resize
+       </div>`;
+    _wireMenuDnD();
+  }
+
+  function _wireMenuDnD() {
+    const body = document.getElementById("cols-menu-body");
+    if (!body) return;
+    let dragKey = null;
+    body.querySelectorAll(".cols-menu-row[draggable=true]").forEach(row => {
+      row.addEventListener("dragstart", e => {
+        dragKey = row.dataset.key;
+        row.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      row.addEventListener("dragend", () => {
+        row.classList.remove("dragging");
+        body.querySelectorAll(".cols-menu-row").forEach(r => r.classList.remove("drop-above","drop-below"));
+      });
+      row.addEventListener("dragover", e => {
+        e.preventDefault();
+        if (!dragKey || row.dataset.key === dragKey) return;
+        const rect = row.getBoundingClientRect();
+        const above = (e.clientY - rect.top) < rect.height / 2;
+        body.querySelectorAll(".cols-menu-row").forEach(r => r.classList.remove("drop-above","drop-below"));
+        row.classList.add(above ? "drop-above" : "drop-below");
+      });
+      row.addEventListener("drop", e => {
+        e.preventDefault();
+        const targetKey = row.dataset.key;
+        if (!dragKey || targetKey === dragKey) return;
+        const rect = row.getBoundingClientRect();
+        const above = (e.clientY - rect.top) < rect.height / 2;
+        const newOrder = _colOrder.filter(k => k !== dragKey);
+        const idx = newOrder.indexOf(targetKey);
+        newOrder.splice(above ? idx : idx + 1, 0, dragKey);
+        _colOrder = newOrder;
+        _persistAll();
+        _renderColsMenu();
+        applyColOrder();
+      });
+    });
+  }
+
+  function toggleColsMenu(ev) {
+    ev.stopPropagation();
+    const menu = document.getElementById("cols-menu");
+    if (!menu.innerHTML) _renderColsMenu();
+    menu.classList.toggle("open");
+  }
+
+  // ─── Column resize handles on table headers ───
+  function _wireResizeHandles() {
+    document.querySelectorAll("#sc-activity-table th").forEach(th => {
+      if (th.querySelector(".col-resize")) return;
+      const handle = document.createElement("div");
+      handle.className = "col-resize";
+      th.appendChild(handle);
+      handle.addEventListener("mousedown", e => {
+        e.preventDefault(); e.stopPropagation();
+        handle.classList.add("active");
+        const startX = e.pageX;
+        const startW = th.offsetWidth;
+        const key = [...th.classList].find(c => c.startsWith("col-"))?.replace("col-","");
+        const onMove = ev => {
+          const w = Math.max(60, startW + (ev.pageX - startX));
+          th.style.width = w + "px";
+          if (key) _colWidths[key] = w;
+        };
+        const onUp = () => {
+          handle.classList.remove("active");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          _persistAll();
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    });
+  }
+
+  // ─── Drag-and-drop header reorder ───
+  function _wireHeaderDnD() {
+    let dragKey = null;
+    document.querySelectorAll("#sc-thead-row th").forEach(th => {
+      const key = [...th.classList].find(c => c.startsWith("col-"))?.replace("col-","");
+      if (!key) return;
+      th.setAttribute("draggable", "true");
+      th.addEventListener("dragstart", e => {
+        // Don't initiate drag if user grabbed the resize handle
+        if (e.target.classList && e.target.classList.contains("col-resize")) {
+          e.preventDefault(); return;
+        }
+        dragKey = key;
+        th.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      th.addEventListener("dragend", () => {
+        th.classList.remove("dragging");
+        document.querySelectorAll("#sc-thead-row th").forEach(t => t.classList.remove("drop-target"));
+      });
+      th.addEventListener("dragover", e => {
+        if (!dragKey || key === dragKey) return;
+        e.preventDefault();
+        document.querySelectorAll("#sc-thead-row th").forEach(t => t.classList.remove("drop-target"));
+        th.classList.add("drop-target");
+      });
+      th.addEventListener("drop", e => {
+        e.preventDefault();
+        if (!dragKey || key === dragKey) return;
+        const newOrder = _colOrder.filter(k => k !== dragKey);
+        const idx = newOrder.indexOf(key);
+        newOrder.splice(idx + 1, 0, dragKey);
+        _colOrder = newOrder;
+        _persistAll();
+        applyColOrder();
+        if (document.getElementById("cols-menu").innerHTML) _renderColsMenu();
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    _wireResizeHandles();
+    _wireHeaderDnD();
+  });
+  document.addEventListener("click", e => {
+    const menu = document.getElementById("cols-menu");
+    if (menu && menu.classList.contains("open") && !menu.contains(e.target)) {
+      menu.classList.remove("open");
+    }
+  });
+
   function applyScFilters() { drawScTable(); }
   function clearScFilters() {
     ["sc-search","sc-status-filter","sc-disp-filter"].forEach(id=>{
@@ -1864,41 +2438,74 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="9" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="12" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
-      // Result column — always populated with something meaningful
+      // Result column — pure diff between Scheduled and Actual Call columns.
+      // No timezone math, no clamping — just (actual - scheduled) in minutes.
       let result;
       const sign = n => n>=0 ? "+" : "";
-      if (r.status==="completed" && r.offset_minutes!=null) {
-        const color = r.on_time?"var(--green-dk)":"var(--orange-dk)";
-        result=`<span style="color:${color};font-weight:700">${sign(r.offset_minutes)}${r.offset_minutes} min from scheduled</span>`;
-      } else if (r.status==="early" && r.offset_minutes!=null) {
-        result=`<span style="color:var(--teal-dk);font-weight:700">${r.offset_minutes} min early</span>`;
-      } else if (r.status==="completed_via_deal") {
-        const ownerTag = r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
-        result=`<span class="stage-tag">${r.deal_stage || "Deal closed"}</span>${ownerTag}`;
-      } else if (r.status==="completed_via_workflow") {
+      const liveOffset = (r.scheduled_time && r.actual_call_time)
+        ? Math.round(((new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000) * 10) / 10
+        : null;
+
+      // Recompute the bucket from the pure diff so Status badge and Result always agree.
+      // < -5 min  → early, -5..+10 → on time, > +10 → late.
+      let bucket = r.status;
+      if (liveOffset !== null) {
+        if (liveOffset < -5) bucket = "early";
+        else if (liveOffset > 10) bucket = "late_call";
+        else bucket = "on_time";
+      }
+      r._bucket = bucket;  // consumed by statusBadge override below
+
+      if (bucket === "on_time" && liveOffset !== null) {
+        result = `<span style="color:var(--green-dk);font-weight:700">${sign(liveOffset)}${liveOffset} min from scheduled</span>`;
+      } else if (bucket === "early" && liveOffset !== null) {
+        result = `<span style="color:var(--teal-dk);font-weight:700">${Math.abs(liveOffset)} min early</span>`;
+      } else if (bucket === "late_call" && liveOffset !== null) {
+        result = `<span style="color:var(--orange-dk);font-weight:700">+${liveOffset} min from scheduled</span>`;
+      } else if (r.status === "completed_via_deal") {
+        // Stage + owner now live in the Deal Stage column. Result here just describes
+        // how the slot was fulfilled (and a time diff if we have an actual call).
+        const diffTag = (liveOffset !== null)
+          ? ` <span style="color:var(--secondary);font-weight:600;font-size:11px">${sign(liveOffset)}${liveOffset} min</span>`
+          : "";
+        result = `<span style="color:var(--purple-dk);font-weight:600">Closed via deal</span>${diffTag}`;
+      } else if (r.status === "completed_via_workflow") {
         const wfDesc = (r.sched_description||"").slice(0,120).trim();
-        result=`<span style="color:var(--teal-dk);font-weight:600">Auto-completed by workflow</span>`
+        result = `<span style="color:var(--teal-dk);font-weight:600">Auto-completed by workflow</span>`
              + (wfDesc ? ` <span class="dim" style="font-size:11px" title="${wfDesc.replace(/"/g,'&quot;')}">${wfDesc.length>60?wfDesc.slice(0,60)+"…":wfDesc}</span>` : "");
-      } else if (r.status==="missed" && r.minutes_overdue!=null) {
-        result=`<span style="color:var(--red-dk);font-weight:700">${r.minutes_overdue} min overdue · no dial</span>`;
-      } else if (r.status==="late" && r.minutes_overdue!=null) {
-        result=`<span style="color:var(--orange-dk);font-weight:700">${r.minutes_overdue} min overdue</span>`;
-      } else if (r.status==="upcoming" && r.minutes_until!=null) {
-        result=`<span style="color:var(--blue);font-weight:700">in ${r.minutes_until} min</span>`;
+      } else if (r.status === "missed" && r.scheduled_time) {
+        // Recompute now-vs-scheduled client-side so it matches the (already-floored) Scheduled column
+        const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
+        result = `<span style="color:var(--red-dk);font-weight:700">${od} min overdue · no dial</span>`;
+      } else if (r.status === "late" && r.scheduled_time) {
+        const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
+        result = `<span style="color:var(--orange-dk);font-weight:700">${od} min overdue</span>`;
+      } else if (r.status === "upcoming" && r.scheduled_time) {
+        // Live countdown — updated every second by tickCountdowns()
+        const cd = countdown(r.scheduled_time);
+        result = `<span class="row-cd" data-cd-iso="${r.scheduled_time}" style="color:var(--blue);font-weight:700;font-variant-numeric:tabular-nums">in ${cd.text}</span>`;
       } else if (r.status==="no_schedule") {
         result=`<span class="dim">No schedule time</span>`;
       } else {
         result=`<span class="dim">—</span>`;
       }
-      // Append deal stage tag (+ owner if high-value stage) for non-completed-via-deal statuses
-      if (r.deal_stage && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
-        const ownerTag = r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
-        result += ` <span class="stage-tag neutral">${r.deal_stage}</span>${ownerTag}`;
-      }
+      // Deal stage now lives in its own column with semantic colors.
+      const stageCell = r.deal_stage
+        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>` +
+          (r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "")
+        : `<span class="dim">—</span>`;
+      const sourceCell = r.logged_via === "ringcx"
+        ? `<span class="src-pill src-ringcx" title="Logged via RingCX">RingCX</span>`
+        : r.logged_via === "mvp"
+          ? `<span class="src-pill src-mvp" title="Logged via RingCentral MVP">MVP</span>`
+          : `<span class="dim">—</span>`;
+      const lastDialCell = r.last_attempt_time
+        ? `<span style="font-feature-settings:'tnum';font-weight:600;color:var(--text)">${fmt(r.last_attempt_time)}</span>`
+        : `<span class="dim">—</span>`;
       const dials=r.dial_attempts??0;
       const dialsCell = dials === 0
         ? `<span style="color:var(--tertiary)">0</span>`
@@ -1914,24 +2521,41 @@
       const actualCell = r.actual_call_time
         ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
         : `<span class="dim">—</span>`;
+      // Tooltip badge for calls originally scheduled before 9 AM
+      const flooredBadge = r._floored && r._scheduled_original
+        ? ` <span class="floor-badge" title="Originally scheduled at ${fmt(r._scheduled_original)} — assumed at 9:00 AM (business hours)">ⓘ 9 AM</span>`
+        : "";
       const recCell = r.recording_url
         ? `<a class="rec-btn" href="${r.recording_url}" target="_blank" title="Play recording">▶</a>`
         : `<span class="dim">—</span>`;
+      // Resolve effective status/on_time for the badge so it agrees with Result.
+      // For special completed buckets (deal/workflow), keep the backend status.
+      let effStatus = r.status;
+      let effOnTime = r.on_time;
+      if (r._bucket && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
+        if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
+        else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
+        else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
+      }
       return `<tr class="${cls}">
-        <td>${nameCell(r)}</td>
-        <td class="phone-cell">${r.phone||"—"}</td>
-        <td class="dim">${fmt(r.scheduled_time)}</td>
-        <td>${actualCell}</td>
-        <td>${statusBadge(r.status,r.on_time)}</td>
-        <td>${result}</td>
-        <td style="text-align:center">${dialsCell}</td>
-        <td class="dim">${r.mvp_only
+        <td class="col-name">${nameCell(r, "Contacts", flooredBadge)}</td>
+        <td class="phone-cell col-phone">${r.phone||"—"}</td>
+        <td class="dim col-scheduled">${fmt(r.scheduled_time)}</td>
+        <td class="col-actual">${actualCell}</td>
+        <td class="col-lastdial">${lastDialCell}</td>
+        <td class="col-source">${sourceCell}</td>
+        <td class="col-status">${statusBadge(effStatus,effOnTime)}</td>
+        <td class="col-result">${result}</td>
+        <td class="col-stage">${stageCell}</td>
+        <td style="text-align:center" class="col-dials">${dialsCell}</td>
+        <td class="dim col-disp">${r.mvp_only
           ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—")
           : (r.disposition || (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—"))
         }</td>
-        <td style="text-align:center">${recCell}</td>
+        <td style="text-align:center" class="col-rec">${recCell}</td>
       </tr>`;
     }).join("");
+    applyColVisibility();
   }
 
   // ─── upcoming strip (horizontal, at top) ───
@@ -1991,6 +2615,13 @@
       const top = document.getElementById("up-strip-next-cd");
       if (top) top.textContent = cd.text;
     }
+    // Activity-table inline countdowns (for upcoming rows)
+    document.querySelectorAll("span.row-cd[data-cd-iso]").forEach(el => {
+      const iso = el.getAttribute("data-cd-iso");
+      const cd = countdown(iso);
+      el.textContent = `in ${cd.text}`;
+      if (cd.overdue) el.style.color = "var(--orange-dk)";
+    });
   }
   setInterval(tickCountdowns, 1000);
 
