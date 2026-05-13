@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#eef0f5" media="(prefers-color-scheme: light)" />
+  <meta name="format-detection" content="telephone=no" />
   <title>Call Tracker</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
@@ -218,6 +222,9 @@
       transition: color .15s, border-color .15s, background .15s;
     }
     .filter-clear:hover { color: var(--red); border-color: rgba(255,59,48,.4); background: rgba(255,59,48,.04); }
+
+    /* Filters collapse toggle — hidden on desktop, shown on mobile */
+    .filters-toggle { display: none; }
 
     /* ══════════════ TABLE ══════════════ */
     .table-wrap {
@@ -662,11 +669,17 @@
       background: linear-gradient(135deg, rgba(99,102,241,.04), rgba(139,92,246,.04), rgba(217,70,239,.04));
       border-bottom: 1px solid var(--sep);
       padding: 0;
+      /* Override the global single-line rule so AI insights can wrap freely */
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      max-width: none !important;
     }
     .insights-cell-inner {
       padding: 14px 18px 16px;
       border-left: 3px solid var(--purple);
       display: flex; flex-direction: column; gap: 10px;
+      max-width: 100%;
     }
     .insights-ai-mark {
       display: inline-flex; align-items: center; gap: 5px;
@@ -678,6 +691,7 @@
     .insights-text {
       font-size: 13px; line-height: 1.6; color: var(--text);
       font-weight: 500; max-width: 760px;
+      white-space: normal; overflow-wrap: break-word; word-break: break-word;
     }
     .insights-stats {
       display: flex; flex-wrap: wrap; gap: 8px;
@@ -791,13 +805,61 @@
       padding: 2px 9px; border-radius: 10px;
       margin-left: auto;
     }
+    /* Scrollable strip — hide native scrollbar, add fade + chevron affordance */
+    .up-strip-track-wrap {
+      position: relative;
+    }
+    .up-strip-track-wrap::before,
+    .up-strip-track-wrap::after {
+      content: "";
+      position: absolute; top: 0; bottom: 0;
+      width: 28px; pointer-events: none;
+      opacity: 0; transition: opacity .15s;
+      z-index: 2;
+    }
+    .up-strip-track-wrap::before {
+      left: 0;
+      background: linear-gradient(90deg, var(--surface) 0%, rgba(255,255,255,0) 100%);
+    }
+    .up-strip-track-wrap::after {
+      right: 0;
+      background: linear-gradient(270deg, var(--surface) 0%, rgba(255,255,255,0) 100%);
+    }
+    .up-strip-track-wrap.scroll-left::before  { opacity: 1; }
+    .up-strip-track-wrap.scroll-right::after  { opacity: 1; }
+
+    .up-strip-chevron {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      display: none; align-items: center; justify-content: center;
+      font-size: 11px; color: var(--blue); font-weight: 800;
+      pointer-events: none; z-index: 3;
+      animation: chev-pulse 1.4s ease-in-out infinite;
+    }
+    .up-strip-chevron.left  { left: 6px; }
+    .up-strip-chevron.right { right: 6px; }
+    .up-strip-track-wrap.scroll-left  .up-strip-chevron.left  { display: flex; }
+    .up-strip-track-wrap.scroll-right .up-strip-chevron.right { display: flex; }
+    @keyframes chev-pulse {
+      0%, 100% { transform: translateY(-50%) translateX(0); opacity: .9; }
+      50%      { transform: translateY(-50%) translateX(3px); opacity: 1; }
+    }
+    .up-strip-chevron.left { animation-name: chev-pulse-left; }
+    @keyframes chev-pulse-left {
+      0%, 100% { transform: translateY(-50%) translateX(0); opacity: .9; }
+      50%      { transform: translateY(-50%) translateX(-3px); opacity: 1; }
+    }
+
     .up-strip-track {
       display: flex; gap: 10px; padding: 12px 16px;
       overflow-x: auto;
-      scrollbar-width: thin;
+      scrollbar-width: none;          /* Firefox */
+      -ms-overflow-style: none;       /* IE/Edge legacy */
+      scroll-behavior: smooth;
     }
-    .up-strip-track::-webkit-scrollbar { height: 6px; }
-    .up-strip-track::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .up-strip-track::-webkit-scrollbar { display: none; }  /* WebKit */
 
     .up-card {
       min-width: 200px; max-width: 240px;
@@ -1096,11 +1158,86 @@
       .stat-pill .val { font-size: 15px; }
       .stat-pill .lbl { font-size: 10.5px; }
 
-      /* Filter bar: stack full-width */
-      .filter-bar { flex-direction: column; gap: 8px; }
-      .filter-bar input,
-      .filter-bar select { width: 100%; min-width: 0; font-size: 14px; padding: 8px 10px; }
-      .filter-clear { width: 100%; padding: 8px 10px; text-align: center; }
+      /* Filters collapse toggle becomes the visible affordance on mobile.
+         Inline with the Activity sub-header (right-aligned via margin-left:auto). */
+      .filters-toggle {
+        display: inline-flex; align-items: center; gap: 6px;
+        margin: 0 0 0 auto;
+        padding: 5px 10px; border-radius: 10px;
+        background: var(--surface); border: 1px solid var(--border);
+        color: var(--text); font-family: inherit;
+        font-size: 11.5px; font-weight: 700; cursor: pointer;
+        transition: border-color .12s, background .12s;
+        flex-shrink: 0;
+      }
+      .filters-toggle:hover, .filters-toggle[aria-expanded=true] {
+        border-color: var(--blue);
+        background: rgba(37,99,235,.04);
+        color: var(--blue-dk);
+      }
+      .filters-toggle .ft-caret {
+        font-size: 9px; transition: transform .15s;
+        margin-left: auto;
+      }
+      .filters-toggle[aria-expanded=true] .ft-caret { transform: rotate(180deg); }
+      .filters-toggle .ft-active {
+        display: none;
+        background: var(--blue); color: #fff;
+        font-size: 9.5px; font-weight: 800;
+        border-radius: 10px; padding: 1px 7px;
+      }
+      .filters-toggle .ft-active.show { display: inline-block; }
+
+      /* Filter bar collapsed by default on mobile */
+      .filter-bar { display: none; }
+      .filter-bar.open {
+        display: grid;
+        animation: fb-down .14s ease-out;
+      }
+      @keyframes fb-down {
+        from { opacity: 0; transform: translateY(-4px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Filter bar: ultra-compact 2-row grid */
+      .filter-bar.open {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        grid-template-areas:
+          "search  clear  cols"
+          "status  status disp";
+        gap: 5px;
+        padding: 6px;
+        border-radius: 10px;
+      }
+      .filter-bar input[type="text"],
+      .filter-bar input:not([type]) {
+        grid-area: search; min-width: 0;
+        font-size: 12px; padding: 6px 9px; height: 30px;
+        border-radius: 7px;
+      }
+      .filter-bar select#sc-status-filter { grid-area: status; }
+      .filter-bar select#sc-disp-filter   { grid-area: disp; }
+      .filter-bar select {
+        width: 100%; min-width: 0;
+        font-size: 12px; padding: 5px 7px; height: 30px;
+        border-radius: 7px;
+      }
+      .filter-bar > .filter-clear {
+        grid-area: clear; padding: 0 10px; font-size: 11px;
+        min-width: 0; height: 30px; border-radius: 7px;
+      }
+      .filter-bar .cols-menu-wrap { grid-area: cols; }
+      .filter-bar .cols-menu-wrap .filter-clear {
+        width: 100%; padding: 0 10px; font-size: 11px;
+        height: 30px; border-radius: 7px;
+      }
+
+      /* 9 AM floor badge: shrink to just the icon on mobile to free name space */
+      .floor-badge {
+        padding: 1px 4px; font-size: 8.5px; margin-left: 4px;
+        letter-spacing: 0;
+      }
 
       /* Tables: compact padding, touch-friendly scroll */
       .table-wrap { -webkit-overflow-scrolling: touch; }
@@ -1176,6 +1313,129 @@
       .insights-text { font-size: 12px; }
       .insights-stats { gap: 6px; }
       .insights-stat { font-size: 10px; padding: 3px 8px; }
+    }
+
+    /* ══════════════ iPhone Pro & smaller (≤ 430px) — fine-tuned ══════════════ */
+    @media (max-width: 430px) {
+      /* Header — keep app icon visible, shrink rest */
+      header { padding: 0 12px; gap: 6px; height: 48px; }
+      .header-icon { width: 28px; height: 28px; font-size: 13px; border-radius: 8px; }
+      header h1 { font-size: 13.5px; letter-spacing: -.2px; }
+      #last-updated { font-size: 10px; max-width: 70px; }
+      #refresh-btn { padding: 5px 9px; font-size: 11px; min-width: 0; }
+      #refresh-btn span.btn-label { display: none; } /* if label exists, fall back to icon */
+
+      /* Layout — tighter side padding for narrow screens */
+      main { padding: 10px 10px 32px; }
+
+      /* Hero KPIs: 2×2 but smaller cells, give "needs attention" room */
+      .hero-grid { gap: 8px; margin-bottom: 12px; }
+      .kpi-card { padding: 10px 12px 9px; border-radius: 14px; }
+      .kpi-card::after { height: 2px; }
+      .kpi-card .kpi-lbl { font-size: 9.5px; letter-spacing: .06em; }
+      .kpi-card .kpi-val { font-size: 22px; margin-top: 4px; }
+      .kpi-card .kpi-val span { font-size: 14px !important; }
+      .kpi-card .kpi-sub { font-size: 9.5px; margin-top: 3px; line-height: 1.3; }
+
+      /* Alert banner — keep CTA tappable */
+      .alert-banner { padding: 10px 12px; gap: 8px; border-radius: 10px; }
+      .alert-icon { width: 26px; height: 26px; font-size: 12px; }
+      .alert-text h3 { font-size: 12px; }
+      .alert-text p { font-size: 10.5px; }
+      .alert-cta { padding: 7px 12px; font-size: 11px; min-height: 36px; min-width: 90px; }
+
+      /* Card chrome */
+      .card { border-radius: 14px; margin-bottom: 14px; }
+      .card-header { padding: 12px 14px 0; gap: 8px; }
+      .card-header h2 { font-size: 14px; }
+      .card-body { padding: 10px 12px 14px; }
+      .card-date-bar { padding: 8px 12px; gap: 6px; }
+      .cdb-input { font-size: 14px; padding: 6px 8px; }
+      .cdb-apply, .cdb-today { font-size: 11px; padding: 6px 10px; }
+
+      /* Sub-headers — punchier titles */
+      .sub-header .title { font-size: 12.5px; }
+      .sub-header .chip { font-size: 10px; padding: 1px 7px; }
+
+      /* Stat strip — one-tap pill row, no gaps to feel rich */
+      .stat-strip { gap: 5px; margin: 10px 0 12px; }
+      .stat-pill { padding: 4px 9px; border-radius: 14px; }
+      .stat-pill .val { font-size: 13px; }
+      .stat-pill .lbl { font-size: 10px; }
+      .stat-pill .rate { font-size: 9.5px; }
+
+      /* Filters toggle — pill matches stat pills */
+      .filters-toggle { font-size: 11px; padding: 6px 10px; border-radius: 14px; margin-bottom: 6px; }
+      .filter-bar { padding: 5px; gap: 4px; border-radius: 8px; }
+      .filter-bar input, .filter-bar select { font-size: 12px; padding: 5px 8px; height: 28px; }
+      .filter-bar > .filter-clear,
+      .filter-bar .cols-menu-wrap .filter-clear { height: 28px; font-size: 10.5px; padding: 0 8px; }
+
+      /* Upcoming strip — slim cards */
+      .up-strip-head { padding: 7px 10px; }
+      .up-strip-label { font-size: 10px; }
+      .up-strip-count { font-size: 9px; padding: 1px 6px; }
+      .up-strip-next-name { font-size: 11px; max-width: 90px; }
+      .up-strip-next-cd { font-size: 11px; padding: 1px 7px; }
+      .up-strip-track { padding: 8px 10px; gap: 7px; }
+      .up-card { min-width: 138px; max-width: 160px; padding: 8px 10px; border-radius: 10px; }
+      .up-card-name { font-size: 12px; }
+      .up-card-cd { font-size: 10.5px; padding: 1px 6px; }
+      .up-card-meta { font-size: 10px; gap: 6px; }
+
+      /* Tables — denser & touch-friendly */
+      th { font-size: 9px; padding: 7px 6px; letter-spacing: .06em; }
+      td { padding: 7px 6px; font-size: 11.5px; max-width: 170px; }
+      .name-cell { max-width: 130px; }
+      .expand-btn { width: 13px; height: 13px; font-size: 7px; }
+      .summary-btn { width: 14px; height: 14px; font-size: 9px; }
+      .badge { padding: 1px 6px; font-size: 9.5px; border-radius: 5px; }
+      .stage-tag { padding: 1px 5px; font-size: 9px; }
+      .floor-badge { padding: 0 3px; font-size: 8px; }
+      .resolve-btn, .unresolve-btn {
+        font-size: 10px; padding: 4px 8px; min-height: 28px; border-radius: 10px;
+      }
+
+      /* Overdue zone divider less prominent on tight screens */
+      .overdue-zone { margin-top: 16px; padding-top: 14px; }
+
+      /* AI summary drawer keeps full-width treatment from 680 breakpoint */
+      .drawer-header { padding: 12px 14px 10px; }
+      .drawer-header h2 { font-size: 14px; }
+      .drawer-stats { grid-template-columns: repeat(2, 1fr); }
+      .d-stat .dval { font-size: 16px; }
+      .drawer-body { padding: 12px 14px; }
+
+      /* Cols menu — bottom sheet, even snugger */
+      .cols-menu-row { padding: 11px 14px; font-size: 13px; }
+      .cols-menu-header { padding: 10px 14px 8px; }
+      .cols-menu-header .title { font-size: 11px; }
+    }
+
+    /* ══════════════ Extra-narrow (≤ 360px, iPhone SE, mini) ══════════════ */
+    @media (max-width: 360px) {
+      .hero-grid { grid-template-columns: 1fr 1fr; }
+      .kpi-card .kpi-val { font-size: 20px; }
+      .kpi-card .kpi-val span { font-size: 12px !important; }
+      header h1 { font-size: 12.5px; }
+      main { padding: 8px 8px 28px; }
+      .up-card { min-width: 130px; }
+    }
+
+    /* ══════════════ Safe area (notch / home indicator) ══════════════ */
+    @supports (padding: max(0px)) {
+      header {
+        padding-left: max(12px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+      }
+      main {
+        padding-left: max(10px, env(safe-area-inset-left));
+        padding-right: max(10px, env(safe-area-inset-right));
+        padding-bottom: max(32px, calc(env(safe-area-inset-bottom) + 16px));
+      }
+      .cols-menu {
+        padding-bottom: env(safe-area-inset-bottom);
+      }
     }
 
     /* ══════════════ DATE RANGE BAR ══════════════ */
@@ -1331,7 +1591,11 @@
       <span class="up-strip-next-name" id="up-strip-next-name"></span>
       <span class="up-strip-next-cd" id="up-strip-next-cd"></span>
     </div>
-    <div class="up-strip-track" id="up-strip-track"></div>
+    <div class="up-strip-track-wrap" id="up-strip-track-wrap">
+      <div class="up-strip-chevron left">‹</div>
+      <div class="up-strip-track" id="up-strip-track"></div>
+      <div class="up-strip-chevron right">›</div>
+    </div>
   </div>
 
   <!-- ══════════════════════ SCHEDULED CALLS ══════════════════════ -->
@@ -1359,8 +1623,13 @@
           <div class="sub-header">
             <span class="title">Activity</span>
             <span class="chip" id="sc-activity-count">0</span>
+            <button class="filters-toggle" id="filters-toggle" onclick="toggleFilters()" aria-expanded="false">
+              <span>⚙ Filters</span>
+              <span class="ft-active" id="ft-active-count"></span>
+              <span class="ft-caret">▾</span>
+            </button>
           </div>
-          <div class="filter-bar">
+          <div class="filter-bar" id="sc-filter-bar">
             <input id="sc-search" type="text" placeholder="🔍  Name or phone…" oninput="applyScFilters()">
             <select id="sc-status-filter" onchange="applyScFilters()">
               <option value="">All Statuses</option>
@@ -2413,12 +2682,29 @@
     }
   });
 
-  function applyScFilters() { drawScTable(); }
+  function toggleFilters() {
+    const bar = document.getElementById("sc-filter-bar");
+    const btn = document.getElementById("filters-toggle");
+    const open = bar.classList.toggle("open");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function _updateFiltersActiveCount() {
+    const q = (document.getElementById("sc-search")?.value || "").trim();
+    const sf = document.getElementById("sc-status-filter")?.value || "";
+    const df = document.getElementById("sc-disp-filter")?.value || "";
+    const n = (q ? 1 : 0) + (sf ? 1 : 0) + (df ? 1 : 0);
+    const badge = document.getElementById("ft-active-count");
+    if (!badge) return;
+    badge.textContent = n;
+    badge.classList.toggle("show", n > 0);
+  }
+  function applyScFilters() { _updateFiltersActiveCount(); drawScTable(); }
   function clearScFilters() {
     ["sc-search","sc-status-filter","sc-disp-filter"].forEach(id=>{
       const el=document.getElementById(id);
       if(el.tagName==="INPUT") el.value=""; else el.value="";
     });
+    _updateFiltersActiveCount();
     drawScTable();
   }
 
@@ -2472,7 +2758,7 @@
         const diffTag = (liveOffset !== null)
           ? ` <span style="color:var(--secondary);font-weight:600;font-size:11px">${sign(liveOffset)}${liveOffset} min</span>`
           : "";
-        result = `<span style="color:var(--purple-dk);font-weight:600">Closed via deal</span>${diffTag}`;
+        result = `<span style="color:var(--purple-dk);font-weight:600">Resolved via Deal</span>${diffTag}`;
       } else if (r.status === "completed_via_workflow") {
         const wfDesc = (r.sched_description||"").slice(0,120).trim();
         result = `<span style="color:var(--teal-dk);font-weight:600">Auto-completed by workflow</span>`
@@ -2599,7 +2885,28 @@
       </div>`;
     }).join("");
     tickCountdowns();
+    requestAnimationFrame(_updateUpcomingScrollHints);
   }
+
+  // Toggle left/right scroll fade + animated chevron based on current scroll position
+  function _updateUpcomingScrollHints() {
+    const wrap  = document.getElementById("up-strip-track-wrap");
+    const track = document.getElementById("up-strip-track");
+    if (!wrap || !track) return;
+    const overflow = track.scrollWidth > track.clientWidth + 2;
+    const atLeft   = track.scrollLeft <= 2;
+    const atRight  = track.scrollLeft + track.clientWidth >= track.scrollWidth - 2;
+    wrap.classList.toggle("scroll-left",  overflow && !atLeft);
+    wrap.classList.toggle("scroll-right", overflow && !atRight);
+  }
+  // Initial wiring once DOM is available
+  document.addEventListener("DOMContentLoaded", () => {
+    const track = document.getElementById("up-strip-track");
+    if (track) {
+      track.addEventListener("scroll", _updateUpcomingScrollHints, { passive: true });
+      window.addEventListener("resize", _updateUpcomingScrollHints);
+    }
+  });
 
   function tickCountdowns() {
     _upcomingCalls.forEach((r,i)=>{
@@ -2689,6 +2996,7 @@
       <div class="kpi-card"><div class="kpi-lbl">Needs Attention</div><div class="kpi-val dim">—</div></div>`;
   }
 
+  let _loadRetries = 0;
   async function loadData(startDate = null, endDate = null) {
     const dot = document.getElementById("status-dot");
     dot.className = "loading";
@@ -2708,9 +3016,21 @@
       const resp = await fetch(url);
       cdbLoading.classList.remove("show");
       if (resp.status === 202) {
+        _loadRetries++;
         document.getElementById("last-updated").textContent = "Loading data…";
-        setTimeout(() => loadData(startDate, endDate), 3000); return;
+        // First time the cache is empty, kick a background refresh
+        if (_loadRetries === 1 && !startDate) {
+          fetch("/api/refresh", { method: "POST" }).catch(()=>{});
+        }
+        // After 3 cache misses (~6 s), fall back to a live fetch with today's date
+        if (_loadRetries >= 3 && !startDate) {
+          const today = todayISO();
+          setTimeout(() => loadData(today, today), 500);
+          return;
+        }
+        setTimeout(() => loadData(startDate, endDate), 2000); return;
       }
+      _loadRetries = 0;
       const json = await resp.json();
       if (json.status === "error") { dot.className = "error"; showError(json.message); return; }
       const eb = document.getElementById("error-banner");
