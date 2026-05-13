@@ -189,6 +189,25 @@ def api_refresh():
     return jsonify({"status": "refreshing"})
 
 
+@app.route("/api/_diag")
+def api_diag():
+    """Diagnostic — reveals current cache state, no auth (read-only)."""
+    with _lock:
+        data = _cache.get("data")
+        sc = (data or {}).get("scheduled_calls") or {}
+        records = sc.get("records") or []
+        return jsonify({
+            "cache_data_is_none": data is None,
+            "cache_error": _cache.get("error"),
+            "cache_last_updated": _cache.get("last_updated"),
+            "record_count": len(records),
+            "bg_started": _bg_started,
+            "id_cache": id(_cache),
+            "id_lock": id(_lock),
+            "pid": os.getpid(),
+        })
+
+
 @app.route("/api/contact/<contact_id>/summary")
 def contact_summary(contact_id):
     import anthropic
