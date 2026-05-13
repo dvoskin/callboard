@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "call-tracker",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["app.py"],
+      "port": 8080,
+      "env": {
+        "PORT": "8080"
+      }
+    }
+  ]
+}
