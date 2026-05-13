@@ -367,23 +367,39 @@ class ZohoClient:
         if not scheduled:
             return {"status": "no_schedule", "dial_attempts": 0, "caller": None}
 
-        # Clamp pre-DIAL_START_HOUR schedules to DIAL_START_HOUR for classification.
-        # The original scheduled_time is preserved in results for display purposes.
-        effective_scheduled = self._effective_scheduled(scheduled)
+        # No clamping — use the literal scheduled time. The Result column is a
+        # pure (actual - scheduled) subtraction so the dashboard always agrees
+        # with what's displayed in the Scheduled and Actual Call columns.
+        effective_scheduled = scheduled
         now = datetime.now(timezone.utc)
 
         def mins_from_schedule(c):
             t = self._parse_dt(c.get("Call_Start_Time"))
             return abs((t - effective_scheduled).total_seconds()) / 60 if t else float("inf")
 
+        # A call only "belongs" to a scheduled slot if it happens on the SAME
+        # local calendar date as the scheduled time. This prevents yesterday's
+        # 9 PM dial from matching today's 9 AM schedule.
+        local_tz = timezone(timedelta(hours=TZ_OFFSET_HOURS))
+        sched_local_date = effective_scheduled.astimezone(local_tz).date()
+        def same_local_date(c):
+            t = self._parse_dt(c.get("Call_Start_Time"))
+            if not t:
+                return False
+            return t.astimezone(local_tz).date() == sched_local_date
+
         # RingCX calls (have disposition) — drive timing classification
-        all_dialed = [c for c in calls if c.get("Outgoing_call_disposition")]
+        all_dialed = [
+            c for c in calls
+            if c.get("Outgoing_call_disposition") and same_local_date(c)
+        ]
         # RingCentral MVP calls ("Outgoing call to" subject, no disposition)
         # — count as dial attempts but don't affect timing/status classification
         mvp_calls = [
             c for c in calls
             if not c.get("Outgoing_call_disposition")
             and "outgoing call to" in (c.get("Subject") or "").lower()
+            and same_local_date(c)
         ]
         dial_attempts = len(all_dialed) + len(mvp_calls)
         # Most recent RingCX call drives the displayed disposition
@@ -405,13 +421,17 @@ class ZohoClient:
             offset_min = (
                 (call_dt - effective_scheduled).total_seconds() / 60 if call_dt else None
             )
-            # New classification:
-            #   offset < -5      → early
-            #   -5 ≤ offset ≤ 10 → completed (on_time)
-            #   offset > 10      → completed (late)
             is_early = offset_min is not None and offset_min < -EARLY_BEFORE_MIN
             on_time  = (offset_min is not None
                         and -EARLY_BEFORE_MIN <= offset_min <= ON_TIME_AFTER_MIN)
+            # Source of the dial that fulfilled the slot
+            logged_via = "ringcx" if closest.get("Outgoing_call_disposition") else "mvp"
+            # Most recent attempt across BOTH RingCX and MVP (retries)
+            last_attempt = max(
+                (c for c in (all_dialed + mvp_calls) if c.get("Call_Start_Time")),
+                key=lambda c: c.get("Call_Start_Time"),
+                default=None,
+            )
             return {
                 "status": "early" if is_early else "completed",
                 "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
@@ -419,9 +439,11 @@ class ZohoClient:
                 "offset_minutes": round(offset_min, 1) if offset_min is not None else None,
                 "on_time": on_time,
                 "dial_attempts": dial_attempts,
-                "disposition": most_recent.get("Outgoing_call_disposition"),
-                "caller": self._caller_name(most_recent),
+                "disposition": most_recent.get("Outgoing_call_disposition") if most_recent else None,
+                "caller": self._caller_name(most_recent or closest),
                 "recording_url": self._extract_recording_url(closest.get("Description") or ""),
+                "logged_via": logged_via,
+                "last_attempt_time": last_attempt.get("Call_Start_Time") if last_attempt else None,
             }
 
         minutes_until = (effective_scheduled - now).total_seconds() / 60
@@ -443,7 +465,12 @@ class ZohoClient:
             if self._parse_dt(c.get("Call_Start_Time"))
         ]
         closest_call = min(all_with_time, key=mins_from_schedule) if all_with_time else None
-        # Disposition / caller still come from the most recent dialed RingCX call when present
+        logged_via = None
+        if closest_call:
+            logged_via = "ringcx" if closest_call.get("Outgoing_call_disposition") else "mvp"
+        last_attempt = max(
+            all_with_time, key=lambda c: c.get("Call_Start_Time"), default=None
+        ) if all_with_time else None
         return {
             "status": "missed" if minutes_overdue > SCHEDULED_CALL_TOLERANCE_MINUTES else "late",
             "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
@@ -454,6 +481,8 @@ class ZohoClient:
             "disposition": most_recent.get("Outgoing_call_disposition") if most_recent else None,
             "caller": self._caller_name(most_recent or closest_call or most_recent_any),
             "recording_url": self._extract_recording_url((most_recent.get("Description") or "") if most_recent else ""),
+            "logged_via": logged_via,
+            "last_attempt_time": last_attempt.get("Call_Start_Time") if last_attempt else None,
         }
 
     # ------------------------------------------------ scheduled call records
@@ -913,29 +942,73 @@ class ZohoClient:
                 })
 
         # 5. HelloSend SMS history linked to this contact
+        # HelloSend SMS module (CustomModule23 in this org). HelloSend records
+        # don't always carry Who_Id linkage to contacts/deals, so we search by
+        # phone number directly. We try a few common phone-field names since
+        # HelloSend's schema can vary by install.
         sms_messages = []
-        # HelloSend SMS module (CustomModule23 in this org)
         sms_module = "CustomModule23"
+        contact_phone = normalize_phone(contact.get("phone") or "")
         try:
-            resp = requests.get(
-                f"{self.base_url}/crm/v6/{sms_module}/search",
-                headers=self._headers(),
-                params={
-                    "criteria": f"(Who_Id:equals:{contact_id})",
-                    "per_page": 30,
-                    "sort_by": "Created_Time",
-                    "sort_order": "desc",
-                },
-                timeout=15,
-            )
-            if resp.ok and resp.status_code != 204:
-                for s in resp.json().get("data", []):
-                    sms_messages.append({
-                        "time": s.get("Created_Time"),
-                        "direction": s.get("Direction"),
-                        "message": (s.get("Message") or s.get("Name") or "")[:300],
-                        "status": s.get("Status"),
-                    })
+            # Build candidate phone variants to match against any text-based
+            # phone field (e.g. "+1 (555) 123-4567" vs "5551234567")
+            phone_variants = []
+            if contact_phone:
+                phone_variants = [
+                    contact_phone,
+                    f"+1{contact_phone}",
+                    f"1{contact_phone}",
+                ]
+
+            # Try field-name candidates one by one. Zoho's search 400s if the
+            # field name doesn't exist — that's our signal to try the next one.
+            field_candidates = ["Phone_Number", "Phone", "To", "Number",
+                                "Mobile", "Recipient", "Recipient_Number",
+                                "PhoneNumber", "Mobile_Number"]
+            sms_records = []
+            tried = []
+            for field in field_candidates:
+                if not phone_variants:
+                    break
+                or_terms = "or".join(
+                    f"({field}:equals:{v})" for v in phone_variants
+                )
+                criteria = or_terms if len(phone_variants) == 1 else f"({or_terms})"
+                resp = requests.get(
+                    f"{self.base_url}/crm/v6/{sms_module}/search",
+                    headers=self._headers(),
+                    params={
+                        "criteria": criteria,
+                        "per_page": 50,
+                        "sort_by": "Created_Time",
+                        "sort_order": "desc",
+                    },
+                    timeout=15,
+                )
+                tried.append(f"{field}={resp.status_code}")
+                if resp.status_code == 204:
+                    # Field exists but no records — good signal we hit the right field
+                    sms_records = []
+                    break
+                if resp.ok:
+                    sms_records = resp.json().get("data", [])
+                    if sms_records:
+                        log.info("HelloSend matched %d records via field '%s'", len(sms_records), field)
+                        break
+                # Else (4xx): wrong field name — try next
+            else:
+                log.warning("HelloSend SMS search exhausted candidates: %s", tried)
+
+            for s in sms_records:
+                # Pick whichever field actually holds the message body
+                msg = (s.get("Message") or s.get("Body") or
+                       s.get("Content") or s.get("Name") or "")
+                sms_messages.append({
+                    "time": s.get("Created_Time"),
+                    "direction": s.get("Direction") or s.get("Type") or "",
+                    "message": str(msg)[:300],
+                    "status": s.get("Status") or s.get("Delivery_Status") or "",
+                })
         except Exception as e:
             log.warning("SMS history fetch failed: %s", e)
 
