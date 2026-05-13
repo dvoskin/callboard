@@ -243,7 +243,8 @@
 
     tr.row-completed td:first-child  { box-shadow: inset 3px 0 0 var(--green);   padding-left: 10px; }
     tr.row-early     td:first-child  { box-shadow: inset 3px 0 0 var(--teal);    padding-left: 10px; }
-    tr.row-via-deal  td:first-child  { box-shadow: inset 3px 0 0 var(--purple);  padding-left: 10px; }
+    tr.row-via-deal     td:first-child  { box-shadow: inset 3px 0 0 var(--purple);  padding-left: 10px; }
+    tr.row-via-workflow td:first-child  { box-shadow: inset 3px 0 0 var(--teal);    padding-left: 10px; }
     tr.row-missed    td:first-child { box-shadow: inset 3px 0 0 var(--red);     padding-left: 10px; }
     tr.row-late      td:first-child { box-shadow: inset 3px 0 0 var(--orange);  padding-left: 10px; }
     tr.row-overdue   td:first-child { box-shadow: inset 3px 0 0 #ff3b30;        padding-left: 10px; }
@@ -311,19 +312,64 @@
       border-color: rgba(255,59,48,.18);
       color: var(--red-dk);
     }
-    .overdue-toolbar {
-      display: flex; align-items: center; gap: 10px;
-      margin-bottom: 8px; font-size: 12px;
+    /* overdue section — unified control row */
+    .overdue-controls {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 9px 14px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--sep);
+      border-top: 1px solid var(--sep);
     }
-    .overdue-toolbar .resolved-count { color: var(--secondary); font-weight: 500; }
-    .overdue-toolbar .toggle-resolved {
+    .overdue-controls input[type="text"] {
+      flex: 1; min-width: 130px; max-width: 200px;
+      padding: 5px 10px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 12px; font-family: inherit;
+      background: var(--surface); color: var(--text); outline: none;
+      transition: border-color .15s;
+    }
+    .overdue-controls input[type="text"]:focus { border-color: var(--blue); }
+    .overdue-controls select {
+      padding: 5px 8px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 12px; font-family: inherit;
+      background: var(--surface); color: var(--text);
+      outline: none; cursor: pointer;
+    }
+    .overdue-controls .od-spacer { flex: 1; }
+    .overdue-controls .resolved-count {
+      font-size: 11px; color: var(--secondary); font-weight: 500; white-space: nowrap;
+    }
+    .overdue-controls .toggle-resolved {
       background: none; border: 1px solid var(--border);
       color: var(--secondary); font-size: 11px; font-weight: 600;
       padding: 4px 10px; border-radius: 14px;
-      cursor: pointer; font-family: inherit;
+      cursor: pointer; font-family: inherit; white-space: nowrap;
       transition: color .12s, border-color .12s;
     }
-    .overdue-toolbar .toggle-resolved:hover { color: var(--blue); border-color: var(--blue); }
+    .overdue-controls .toggle-resolved:hover { color: var(--blue); border-color: var(--blue); }
+    .bulk-resolve-btn {
+      display: none;
+      background: var(--green); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 11px; font-weight: 700;
+      padding: 5px 13px; cursor: pointer;
+      font-family: inherit; transition: opacity .12s;
+      white-space: nowrap;
+    }
+    .bulk-resolve-btn:hover { opacity: .85; }
+    .od-clear-btn {
+      background: none; border: 1px solid var(--border); color: var(--secondary);
+      font-size: 11px; font-weight: 600; padding: 4px 9px;
+      border-radius: 8px; cursor: pointer; font-family: inherit;
+      transition: color .12s;
+    }
+    .od-clear-btn:hover { color: var(--red); border-color: var(--red); }
+    .overdue-cb-col { width: 32px; text-align: center; padding: 0 4px !important; }
+    tr.is-selected td { background: rgba(37,99,235,.05) !important; }
+    tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
+
+    /* sub-header right-side slot */
+    .sub-header { display: flex; align-items: center; gap: 8px; margin-bottom: 0; padding-bottom: 10px; }
+    .sub-header .sh-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 
     .resolve-btn {
       background: none; border: 1px solid var(--border);
@@ -806,6 +852,188 @@
       border-radius: 20px; transition: background .15s;
     }
     .zoho-link:hover { background: rgba(0,122,255,.14); }
+
+    /* ══════════════ MOBILE RESPONSIVE ══════════════ */
+    @media (max-width: 680px) {
+      /* Header */
+      header { padding: 0 14px; gap: 8px; height: 52px; }
+      header h1 { font-size: 14px; }
+      #last-updated { font-size: 11px; max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #refresh-btn { padding: 6px 10px; font-size: 11px; }
+
+      /* Layout */
+      main { padding: 14px 12px; }
+
+      /* Hero KPIs: 2×2 */
+      .hero-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+      .kpi-card { padding: 12px 13px 10px; }
+      .kpi-card .kpi-lbl { font-size: 10px; }
+      .kpi-card .kpi-val { font-size: 26px; }
+      .kpi-card .kpi-sub { font-size: 10px; margin-top: 4px; }
+
+      /* Alert banner: stack vertically */
+      .alert-banner { flex-wrap: wrap; padding: 11px 14px; gap: 10px; }
+      .alert-icon { width: 30px; height: 30px; font-size: 14px; }
+      .alert-text h3 { font-size: 13px; }
+      .alert-text p { font-size: 11px; }
+      .alert-cta { width: 100%; text-align: center; padding: 8px 14px; }
+
+      /* Card */
+      .card-header { padding: 14px 16px 0; }
+      .card-header h2 { font-size: 15px; }
+      .card-body { padding: 12px 14px 18px; }
+
+      /* Stat strip: smaller pills, wrap tight */
+      .stat-strip { gap: 6px; }
+      .stat-pill { padding: 5px 10px; border-radius: 16px; }
+      .stat-pill .val { font-size: 15px; }
+      .stat-pill .lbl { font-size: 10.5px; }
+
+      /* Filter bar: stack full-width */
+      .filter-bar { flex-direction: column; gap: 8px; }
+      .filter-bar input,
+      .filter-bar select { width: 100%; min-width: 0; font-size: 14px; padding: 8px 10px; }
+      .filter-clear { width: 100%; padding: 8px 10px; text-align: center; }
+
+      /* Tables: compact padding, touch-friendly scroll */
+      .table-wrap { -webkit-overflow-scrolling: touch; }
+      th { font-size: 9.5px; padding: 9px 8px; }
+      td { padding: 9px 8px; font-size: 12px; }
+      .name-cell { max-width: 130px; }
+      .phone-cell { font-size: 11px; }
+
+      /* Activity table — hide Phone (2), Actual Call (4), Dials (7) */
+      #sc-activity-table thead th:nth-child(2),
+      #sc-activity-table tbody td:nth-child(2),
+      #sc-activity-table thead th:nth-child(4),
+      #sc-activity-table tbody td:nth-child(4),
+      #sc-activity-table thead th:nth-child(7),
+      #sc-activity-table tbody td:nth-child(7) { display: none; }
+
+      /* Overdue table — checkbox col added, so Phone=3, ActualCall=5, Dials=7 */
+      #sc-overdue-zone table thead th:nth-child(3),
+      #sc-overdue-zone table tbody td:nth-child(3),
+      #sc-overdue-zone table thead th:nth-child(5),
+      #sc-overdue-zone table tbody td:nth-child(5),
+      #sc-overdue-zone table thead th:nth-child(7),
+      #sc-overdue-zone table tbody td:nth-child(7) { display: none; }
+
+      /* Upcoming strip */
+      .up-strip-head { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+      .up-strip-next-name { max-width: 120px; }
+      .up-strip-track { padding: 10px 12px; gap: 8px; }
+      .up-card { min-width: 155px; }
+
+      /* Sub-headers */
+      .sub-header .title { font-size: 12px; }
+      .overdue-toolbar { flex-wrap: wrap; gap: 8px; }
+
+      /* Date range bar */
+      .card-date-bar { padding: 10px 14px; gap: 7px; }
+      .cdb-input { font-size: 15px; flex: 1; min-width: 130px; }
+      .cdb-apply { padding: 7px 14px; }
+      .cdb-today { padding: 7px 11px; }
+
+      /* Overdue zone */
+      .overdue-zone { margin-top: 18px; }
+
+      /* AI insights drawer: full-width on mobile */
+      #summary-drawer { width: 100vw; right: -100vw; }
+      #summary-drawer.open { right: 0; }
+      .drawer-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .drawer-header { padding: 14px 16px 12px; }
+      .drawer-body { padding: 14px 16px; }
+      .d-stat .dval { font-size: 18px; }
+
+      /* Insights inline row */
+      .insights-cell-inner { padding: 12px 14px 14px; }
+      .insights-text { font-size: 12px; }
+      .insights-stats { gap: 6px; }
+      .insights-stat { font-size: 10px; padding: 3px 8px; }
+    }
+
+    /* ══════════════ DATE RANGE BAR ══════════════ */
+    .card-date-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 24px;
+      border-bottom: 1px solid var(--sep);
+      background: linear-gradient(90deg, rgba(37,99,235,.025), transparent);
+      transition: background .2s;
+    }
+    .card-date-bar.is-custom {
+      background: linear-gradient(90deg, rgba(37,99,235,.07), rgba(37,99,235,.02));
+      border-bottom-color: rgba(37,99,235,.2);
+    }
+    .card-date-bar.is-custom .cdb-label { color: var(--blue-dk); }
+    .cdb-label {
+      font-size: 11px; font-weight: 700; color: var(--secondary);
+      text-transform: uppercase; letter-spacing: .06em; white-space: nowrap;
+      transition: color .2s;
+    }
+    .cdb-input {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text);
+      font-size: 13px; font-family: inherit; font-weight: 500;
+      padding: 5px 9px; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .cdb-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,122,255,.1); }
+    .cdb-sep { font-size: 13px; color: var(--tertiary); font-weight: 600; }
+    .cdb-range-badge {
+      display: none; align-items: center; gap: 5px;
+      background: rgba(37,99,235,.1); border: 1px solid rgba(37,99,235,.2);
+      color: var(--blue-dk); font-size: 11px; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px;
+    }
+    .card-date-bar.is-custom .cdb-range-badge { display: inline-flex; }
+    .cdb-apply {
+      background: var(--blue); color: #fff; border: none;
+      border-radius: var(--radius-sm); padding: 5px 14px;
+      cursor: pointer; font-size: 12px; font-weight: 600;
+      font-family: inherit; transition: opacity .12s;
+    }
+    .cdb-apply:hover { opacity: .85; }
+    .cdb-today {
+      display: none;
+      background: none; border: 1px solid rgba(37,99,235,.35);
+      color: var(--blue); font-size: 12px; font-weight: 600;
+      padding: 5px 11px; border-radius: var(--radius-sm);
+      cursor: pointer; font-family: inherit;
+      transition: background .12s;
+    }
+    .cdb-today:hover { background: rgba(37,99,235,.07); }
+    .cdb-loading {
+      display: none; align-items: center; gap: 7px;
+      font-size: 12px; color: var(--secondary); font-weight: 500;
+    }
+    .cdb-loading.show { display: flex; }
+
+    /* ══════════════ DEAL OWNER TAG ══════════════ */
+    .owner-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 600; color: var(--secondary);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1px 7px; margin-left: 4px;
+      vertical-align: middle;
+    }
+    .owner-tag .owner-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--purple); flex-shrink: 0;
+    }
+
+    /* ══════════════ RECORDING BUTTON ══════════════ */
+    .rec-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 6px;
+      background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.2);
+      color: var(--green-dk); font-size: 10px;
+      text-decoration: none; transition: background .12s, transform .1s, box-shadow .12s;
+      flex-shrink: 0;
+    }
+    .rec-btn:hover {
+      background: rgba(16,185,129,.16); transform: scale(1.12);
+      box-shadow: 0 2px 8px rgba(16,185,129,.25);
+    }
   </style>
 </head>
 <body>
@@ -884,7 +1112,17 @@
   <div class="card" id="sc-section">
     <div class="card-header">
       <h2>🗓 Scheduled Calls</h2>
-      <span class="card-sub">Today · Zoho Admin</span>
+      <span class="card-sub" id="sc-card-sub">Today · Zoho Admin</span>
+    </div>
+    <div class="card-date-bar" id="card-date-bar">
+      <span class="cdb-label" id="cdb-label">Date range</span>
+      <input type="date" id="date-start" class="cdb-input">
+      <span class="cdb-sep">→</span>
+      <input type="date" id="date-end" class="cdb-input">
+      <button class="cdb-apply" onclick="applyDateRange()">Apply</button>
+      <span class="cdb-range-badge" id="cdb-range-badge"></span>
+      <button class="cdb-today" id="cdb-today-btn" onclick="resetToToday()">↩ Today</button>
+      <span class="cdb-loading" id="cdb-loading"><span class="mini-spinner"></span>Loading…</span>
     </div>
     <div class="card-body">
       <div class="stat-strip" id="sc-stats"></div>
@@ -902,7 +1140,8 @@
               <option value="">All Statuses</option>
               <option value="completed">Completed</option>
               <option value="early">Early</option>
-              <option value="completed_via_deal">Other</option>
+              <option value="completed_via_deal">Other (Deal)</option>
+              <option value="completed_via_workflow">Workflow Auto-completed</option>
               <option value="missed">Missed</option>
               <option value="late">Overdue</option>
             </select>
@@ -912,7 +1151,7 @@
             <button class="filter-clear" onclick="clearScFilters()">✕ Clear</button>
           </div>
           <div class="table-wrap">
-            <table>
+            <table id="sc-activity-table">
               <thead>
                 <tr>
                   <th class="sortable" onclick="sortSc('name')">Contact</th>
@@ -923,6 +1162,7 @@
                   <th class="sortable" onclick="sortSc('offset_minutes')">Result</th>
                   <th class="sortable" onclick="sortSc('dial_attempts')">Dials</th>
                   <th class="sortable" onclick="sortSc('disposition')">Disposition</th>
+                  <th>Recording</th>
                 </tr>
               </thead>
               <tbody id="sc-tbody"></tbody>
@@ -934,22 +1174,33 @@
             <div class="sub-header overdue-zone">
               <span class="title">⚠ Long Overdue — 60+ min</span>
               <span class="chip" id="sc-overdue-count">0</span>
+              <span class="sh-right">
+                <span class="resolved-count" id="sc-resolved-count"></span>
+                <button class="toggle-resolved" id="sc-toggle-resolved" onclick="toggleShowResolved()" style="display:none">Show resolved</button>
+              </span>
             </div>
-            <div class="overdue-toolbar">
-              <span class="resolved-count" id="sc-resolved-count"></span>
-              <button class="toggle-resolved" id="sc-toggle-resolved" onclick="toggleShowResolved()">Show resolved</button>
+            <div class="overdue-controls">
+              <input type="checkbox" id="od-select-all" onchange="toggleSelectAll(this)" title="Select all visible">
+              <input type="text" id="od-search" placeholder="🔍  Name or phone…" oninput="renderOverdueTable()">
+              <select id="od-stage-filter" onchange="renderOverdueTable()">
+                <option value="">All Stages</option>
+              </select>
+              <button class="od-clear-btn" onclick="clearOverdueFilters()">✕</button>
+              <div class="od-spacer"></div>
+              <button class="bulk-resolve-btn" id="sc-bulk-resolve" onclick="bulkResolveSelected()">✓ Resolve (<span id="sc-sel-count">0</span>)</button>
             </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Contact</th>
+                    <th class="overdue-cb-col"><input type="checkbox" id="od-select-all" onchange="toggleSelectAll(this)" title="Select all"></th>
+                    <th class="sortable" onclick="sortOverdue('name')">Contact</th>
                     <th>Phone</th>
-                    <th>Scheduled (EST)</th>
+                    <th class="sortable" onclick="sortOverdue('scheduled_time')">Scheduled (EST)</th>
                     <th>Actual Call (EST)</th>
-                    <th>Overdue</th>
-                    <th>Dials</th>
-                    <th>Deal Stage</th>
+                    <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
+                    <th class="sortable" onclick="sortOverdue('dial_attempts')">Dials</th>
+                    <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
                     <th>Disposition</th>
                     <th></th>
                   </tr>
@@ -974,7 +1225,58 @@
   let _scActivityRecords = [];
   let _scOverdueRecords  = [];
   let _scSort = { key: "scheduled_time", dir: -1 };
+  let _overdueSort = { key: "minutes_overdue", dir: -1 };
+  let _overdueSelected = new Set();
   let _showResolved = false;
+  let _customDateActive = false;
+
+  // ─── date range helpers ───
+  function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + "-" +
+      String(d.getMonth()+1).padStart(2,"0") + "-" +
+      String(d.getDate()).padStart(2,"0");
+  }
+  function initDatePicker() {
+    const today = todayISO();
+    document.getElementById("date-start").value = today;
+    document.getElementById("date-end").value   = today;
+  }
+  function fmtDateLabel(iso) {
+    return new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric" });
+  }
+  function _setDateBarCustom(label) {
+    const bar = document.getElementById("card-date-bar");
+    bar.classList.add("is-custom");
+    document.getElementById("cdb-today-btn").style.display = "";
+    document.getElementById("cdb-range-badge").textContent = label;
+    document.getElementById("sc-card-sub").textContent = label + " · Zoho Admin";
+  }
+  function _setDateBarToday() {
+    const bar = document.getElementById("card-date-bar");
+    bar.classList.remove("is-custom");
+    document.getElementById("cdb-today-btn").style.display = "none";
+    document.getElementById("cdb-range-badge").textContent = "";
+    document.getElementById("sc-card-sub").textContent = "Today · Zoho Admin";
+  }
+  function applyDateRange() {
+    const start = document.getElementById("date-start").value;
+    let   end   = document.getElementById("date-end").value || start;
+    if (end < start) { end = start; document.getElementById("date-end").value = start; }
+    _customDateActive = true;
+    const label = start === end ? fmtDateLabel(start) : `${fmtDateLabel(start)} – ${fmtDateLabel(end)}`;
+    _setDateBarCustom(label);
+    loadData(start, end);
+  }
+  function resetToToday() {
+    _customDateActive = false;
+    const today = todayISO();
+    document.getElementById("date-start").value = today;
+    document.getElementById("date-end").value   = today;
+    _setDateBarToday();
+    _clearStaleUI();
+    loadData();
+  }
 
   // ─── utils ───
   const TZ = "America/New_York";
@@ -1022,7 +1324,8 @@
     const map = {
       completed:          onTime ? ["✓ On Time","badge-green"] : ["✓ Late","badge-orange"],
       early:              ["↑ Early","badge-teal"],
-      completed_via_deal: ["✓ Other","badge-purple"],
+      completed_via_deal:     ["✓ Other","badge-purple"],
+      completed_via_workflow: ["✓ Workflow","badge-teal"],
       pending:            ["⏳ Pending","badge-yellow"],
       missed:             ["✗ Missed","badge-red"],
       upcoming:           ["⏰ Upcoming","badge-blue"],
@@ -1060,6 +1363,62 @@
     _scSort.dir = _scSort.key===key ? -_scSort.dir : -1;
     _scSort.key = key;
     drawScTable();
+  }
+  function sortOverdue(key) {
+    _overdueSort.dir = _overdueSort.key===key ? -_overdueSort.dir : -1;
+    _overdueSort.key = key;
+    renderOverdueTable();
+  }
+  function toggleSelectAll(cb) {
+    const tbody = document.getElementById("sc-overdue-tbody");
+    tbody.querySelectorAll("input.od-cb").forEach(c => {
+      c.checked = cb.checked;
+      const id = c.dataset.id;
+      cb.checked ? _overdueSelected.add(id) : _overdueSelected.delete(id);
+    });
+    _updateBulkBtn();
+  }
+  function _updateBulkBtn() {
+    const btn = document.getElementById("sc-bulk-resolve");
+    const cnt = document.getElementById("sc-sel-count");
+    const n = _overdueSelected.size;
+    btn.style.display = n > 0 ? "" : "none";
+    cnt.textContent = n;
+  }
+  function onOverdueCbChange(cb) {
+    const id = cb.dataset.id;
+    cb.checked ? _overdueSelected.add(id) : _overdueSelected.delete(id);
+    const allCb = document.getElementById("od-select-all");
+    const allVisible = [...document.querySelectorAll("#sc-overdue-tbody input.od-cb")];
+    allCb.checked = allVisible.length > 0 && allVisible.every(c => c.checked);
+    allCb.indeterminate = !allCb.checked && allVisible.some(c => c.checked);
+    _updateBulkBtn();
+  }
+  async function bulkResolveSelected() {
+    const ids = [..._overdueSelected];
+    if (!ids.length) return;
+    await Promise.all(ids.map(id =>
+      fetch(`/api/scheduled-call/${id}/resolve`, { method: "POST" })
+    ));
+    _overdueSelected.clear();
+    _updateBulkBtn();
+    document.getElementById("od-select-all").checked = false;
+    document.getElementById("od-select-all").indeterminate = false;
+    // Optimistically mark resolved and re-render without a full reload
+    _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
+    renderOverdueTable();
+  }
+  function clearOverdueFilters() {
+    document.getElementById("od-search").value = "";
+    document.getElementById("od-stage-filter").value = "";
+    renderOverdueTable();
+  }
+  function populateOverdueStages(records) {
+    const sel = document.getElementById("od-stage-filter");
+    const cur = sel.value;
+    const stages = [...new Set(records.map(r => r.deal_stage).filter(Boolean))].sort();
+    sel.innerHTML = `<option value="">All Stages</option>`
+      + stages.map(s => `<option value="${s}"${s===cur?" selected":""}>${s}</option>`).join("");
   }
   function populateDisp(selId, records) {
     const sel=document.getElementById(selId), cur=sel.value;
@@ -1309,9 +1668,12 @@
       .filter(r=>r.status==="upcoming")
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
     const past = sc.records.filter(r=>r.status!=="upcoming");
-    // Long-overdue = still missed (not closed via deal) AND >60 min overdue
-    const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN;
-    const activity = past.filter(r => !isOverdueRow(r));
+    // Long-overdue = still missed (not closed via deal or workflow) AND >60 min overdue
+    const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
+    // For custom date ranges (especially future dates), include upcoming records in the
+    // activity table so the main table is never empty just because all calls are "upcoming".
+    const activityBase = _customDateActive ? sc.records : past;
+    const activity = activityBase.filter(r => !isOverdueRow(r));
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;
@@ -1328,7 +1690,8 @@
       statPill("Completed",      s.completed,  "green",  s.completion_rate),
       statPill("On Time",        s.on_time,    s.on_time===s.completed&&s.completed>0?"green":"orange", s.on_time_rate),
       statPill("Early",          s.early,      s.early>0?"teal":"green"),
-      statPill("Other",          s.via_deal,   s.via_deal>0?"purple":"green"),
+      statPill("Other",          s.via_deal,        s.via_deal>0?"purple":"green"),
+      statPill("Workflow",       s.via_workflow||0, (s.via_workflow||0)>0?"teal":"green"),
       statPill("Missed",         s.missed,     s.missed>0?"red":"green"),
       statPill("Overdue",        s.late,       s.late>0?"orange":"green"),
       statPill("Upcoming",       upcoming.length, "blue"),
@@ -1345,10 +1708,7 @@
   function renderOverdueTable() {
     const zone = document.getElementById("sc-overdue-zone");
     const all  = _scOverdueRecords;
-    const visible   = _showResolved ? all : all.filter(r => !r.resolved);
     const resolvedN = all.filter(r => r.resolved).length;
-
-    document.getElementById("sc-overdue-count").textContent = visible.length;
 
     const resolvedLbl = document.getElementById("sc-resolved-count");
     const toggleBtn   = document.getElementById("sc-toggle-resolved");
@@ -1364,16 +1724,36 @@
     if (!all.length) { zone.style.display = "none"; return; }
     zone.style.display = "";
 
+    // Populate stage filter
+    populateOverdueStages(all);
+
+    // Apply search / stage filter
+    const q     = (document.getElementById("od-search").value || "").toLowerCase();
+    const stage = document.getElementById("od-stage-filter").value;
+    let visible = _showResolved ? all : all.filter(r => !r.resolved);
+    if (q)     visible = visible.filter(r => (r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q));
+    if (stage) visible = visible.filter(r => r.deal_stage === stage);
+
+    document.getElementById("sc-overdue-count").textContent = visible.length;
+
     if (!visible.length) {
       document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="9" class="empty-state">All ${all.length} long-overdue calls have been resolved ✓</td></tr>`;
+        `<tr><td colspan="10" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
+      // Reset select-all
+      const allCb = document.getElementById("od-select-all");
+      allCb.checked = false; allCb.indeterminate = false;
       return;
     }
 
-    const sorted = [...visible].sort((a,b)=>(a.scheduled_time||"")>(b.scheduled_time||"")?-1:1);
+    // Apply sort
+    const sorted = sortedBy(visible, _overdueSort.key, _overdueSort.dir);
+    updateSortHeaders("sc-overdue-zone", _overdueSort);
+
     document.getElementById("sc-overdue-tbody").innerHTML = sorted.map(r => {
+      const ownerTag = r.deal_owner
+        ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
       const stagePill = r.deal_stage
-        ? `<span class="stage-tag${r.deal_moved_on?"":" neutral"}">${r.deal_stage}</span>` : "—";
+        ? `<span class="stage-tag${r.deal_moved_on?"":" neutral"}">${r.deal_stage}</span>${ownerTag}` : "—";
       const dials = r.dial_attempts??0;
       const actualCell = r.actual_call_time
         ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
@@ -1381,18 +1761,29 @@
       const action = r.resolved
         ? `<button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`
         : `<button class="resolve-btn"   onclick="markResolved('${r.id}')"   title="Clear from concerns">✓ Resolve</button>`;
-      return `<tr class="row-overdue${r.resolved?" is-resolved":""}">
+      const isSel = _overdueSelected.has(r.id);
+      return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}">
+        <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
         <td>${nameCell(r)}</td>
         <td class="phone-cell">${r.phone||"—"}</td>
         <td class="dim">${fmt(r.scheduled_time)}</td>
         <td>${actualCell}</td>
         <td><span style="color:var(--red);font-weight:700">${r.minutes_overdue} min</span></td>
-        <td style="text-align:center;font-weight:700;color:${dials>0?"var(--text)":"var(--tertiary)"}">${dials}</td>
+        <td style="text-align:center">${dials > 0 ? (r.mvp_only ? `<span style="font-weight:700">${dials}</span> <span title="Dialed via RingCentral MVP" style="font-size:10px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.1);border-radius:4px;padding:1px 5px">MVP</span>` : `<span style="font-weight:700">${dials}</span>`) : `<span style="color:var(--tertiary)">0</span>`}</td>
         <td>${stagePill}</td>
-        <td class="dim">${r.disposition||"—"}</td>
+        <td class="dim">${r.mvp_only
+          ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—")
+          : (r.disposition || (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—"))
+        }</td>
         <td style="text-align:right">${action}</td>
       </tr>`;
     }).join("");
+
+    // Sync select-all checkbox state
+    const allCbs = [...document.querySelectorAll("#sc-overdue-tbody input.od-cb")];
+    const allCb = document.getElementById("od-select-all");
+    allCb.checked = allCbs.length > 0 && allCbs.every(c => c.checked);
+    allCb.indeterminate = !allCb.checked && allCbs.some(c => c.checked);
   }
 
   function toggleShowResolved() {
@@ -1473,7 +1864,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="8" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="9" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -1486,7 +1877,12 @@
       } else if (r.status==="early" && r.offset_minutes!=null) {
         result=`<span style="color:var(--teal-dk);font-weight:700">${r.offset_minutes} min early</span>`;
       } else if (r.status==="completed_via_deal") {
-        result=`<span class="stage-tag">${r.deal_stage || "Deal closed"}</span>`;
+        const ownerTag = r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
+        result=`<span class="stage-tag">${r.deal_stage || "Deal closed"}</span>${ownerTag}`;
+      } else if (r.status==="completed_via_workflow") {
+        const wfDesc = (r.sched_description||"").slice(0,120).trim();
+        result=`<span style="color:var(--teal-dk);font-weight:600">Auto-completed by workflow</span>`
+             + (wfDesc ? ` <span class="dim" style="font-size:11px" title="${wfDesc.replace(/"/g,'&quot;')}">${wfDesc.length>60?wfDesc.slice(0,60)+"…":wfDesc}</span>` : "");
       } else if (r.status==="missed" && r.minutes_overdue!=null) {
         result=`<span style="color:var(--red-dk);font-weight:700">${r.minutes_overdue} min overdue · no dial</span>`;
       } else if (r.status==="late" && r.minutes_overdue!=null) {
@@ -1498,14 +1894,28 @@
       } else {
         result=`<span class="dim">—</span>`;
       }
+      // Append deal stage tag (+ owner if high-value stage) for non-completed-via-deal statuses
+      if (r.deal_stage && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
+        const ownerTag = r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
+        result += ` <span class="stage-tag neutral">${r.deal_stage}</span>${ownerTag}`;
+      }
       const dials=r.dial_attempts??0;
-      const cls = r.status==="completed" ? "row-completed"
-                : r.status==="early"     ? "row-early"
-                : r.status==="completed_via_deal" ? "row-via-deal"
-                : r.status==="missed"    ? "row-missed"
-                : r.status==="late"      ? "row-late" : "";
+      const dialsCell = dials === 0
+        ? `<span style="color:var(--tertiary)">0</span>`
+        : r.mvp_only
+          ? `<span style="font-weight:700;color:var(--text)">${dials}</span> <span title="Dialed via RingCentral MVP — no disposition logged" style="font-size:10px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.1);border-radius:4px;padding:1px 5px">MVP</span>`
+          : `<span style="font-weight:700;color:var(--text)">${dials}</span>`;
+      const cls = r.status==="completed"          ? "row-completed"
+                : r.status==="early"               ? "row-early"
+                : r.status==="completed_via_deal"  ? "row-via-deal"
+                : r.status==="completed_via_workflow" ? "row-via-workflow"
+                : r.status==="missed"              ? "row-missed"
+                : r.status==="late"                ? "row-late" : "";
       const actualCell = r.actual_call_time
         ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
+        : `<span class="dim">—</span>`;
+      const recCell = r.recording_url
+        ? `<a class="rec-btn" href="${r.recording_url}" target="_blank" title="Play recording">▶</a>`
         : `<span class="dim">—</span>`;
       return `<tr class="${cls}">
         <td>${nameCell(r)}</td>
@@ -1514,8 +1924,12 @@
         <td>${actualCell}</td>
         <td>${statusBadge(r.status,r.on_time)}</td>
         <td>${result}</td>
-        <td style="text-align:center;font-weight:700;color:${dials>0?"var(--text)":"var(--tertiary)"}">${dials}</td>
-        <td class="dim">${r.disposition||"—"}</td>
+        <td style="text-align:center">${dialsCell}</td>
+        <td class="dim">${r.mvp_only
+          ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—")
+          : (r.disposition || (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—"))
+        }</td>
+        <td style="text-align:center">${recCell}</td>
       </tr>`;
     }).join("");
   }
@@ -1632,37 +2046,74 @@
   document.addEventListener("keydown", e => { if(e.key==="Escape") closeDrawer(); });
 
   // ─── data loading ───
-  async function loadData() {
-    const dot=document.getElementById("status-dot");
-    dot.className="loading";
+  function _clearStaleUI() {
+    // Hide alert banner and overdue zone immediately when a new date range is applied
+    // so stale data from a previous fetch doesn't linger while the new fetch is in flight.
+    document.getElementById("alert-banner").classList.remove("show");
+    document.getElementById("sc-overdue-zone").style.display = "none";
+    document.getElementById("hero-grid").innerHTML = `
+      <div class="kpi-card"><div class="kpi-lbl">Total Today</div><div class="kpi-val dim">—</div></div>
+      <div class="kpi-card"><div class="kpi-lbl">Completion Rate</div><div class="kpi-val dim">—</div></div>
+      <div class="kpi-card"><div class="kpi-lbl">On-Time Rate</div><div class="kpi-val dim">—</div></div>
+      <div class="kpi-card"><div class="kpi-lbl">Needs Attention</div><div class="kpi-val dim">—</div></div>`;
+  }
+
+  async function loadData(startDate = null, endDate = null) {
+    const dot = document.getElementById("status-dot");
+    dot.className = "loading";
+    const cdbLoading = document.getElementById("cdb-loading");
+    if (startDate) { cdbLoading.classList.add("show"); _clearStaleUI(); }
+    // Keep date picker in sync with actual "today" in case the page stayed open overnight
+    if (!startDate) {
+      const today = todayISO();
+      document.getElementById("date-start").value = today;
+      document.getElementById("date-end").value   = today;
+    }
     try {
-      const resp=await fetch("/api/data");
-      if(resp.status===202){
-        document.getElementById("last-updated").textContent="Loading data…";
-        setTimeout(loadData,3000); return;
+      // Always pass browser timezone offset so DST is handled correctly
+      const tzOffset = new Date().getTimezoneOffset(); // minutes west of UTC (CDT=300, CST=360)
+      let url = `/api/data?tz=${tzOffset}`;
+      if (startDate) url += `&start=${startDate}&end=${endDate || startDate}`;
+      const resp = await fetch(url);
+      cdbLoading.classList.remove("show");
+      if (resp.status === 202) {
+        document.getElementById("last-updated").textContent = "Loading data…";
+        setTimeout(() => loadData(startDate, endDate), 3000); return;
       }
-      const json=await resp.json();
-      if(json.status==="error"){ dot.className="error"; showError(json.message); return; }
-      const eb=document.getElementById("error-banner");
-      if(json.error){ eb.style.display="block"; eb.textContent="⚠ "+json.error; }
-      else eb.style.display="none";
-      dot.className="";
-      document.getElementById("last-updated").textContent="Updated "+relTime(json.last_updated);
+      const json = await resp.json();
+      if (json.status === "error") { dot.className = "error"; showError(json.message); return; }
+      const eb = document.getElementById("error-banner");
+      if (json.error) { eb.style.display = "block"; eb.textContent = "⚠ " + json.error; }
+      else eb.style.display = "none";
+      dot.className = "";
+      document.getElementById("last-updated").textContent = "Updated " + relTime(json.last_updated);
       renderScheduledCalls(json.data.scheduled_calls);
-    } catch(e){ dot.className="error"; showError(e.message); }
+    } catch(e) {
+      cdbLoading.classList.remove("show");
+      dot.className = "error"; showError(e.message);
+    }
   }
-  function showError(msg){
-    const b=document.getElementById("error-banner");
-    b.style.display="block"; b.textContent="Error: "+msg;
+  function showError(msg) {
+    const b = document.getElementById("error-banner");
+    b.style.display = "block"; b.textContent = "Error: " + msg;
   }
-  async function forceRefresh(){
-    const btn=document.getElementById("refresh-btn");
-    btn.disabled=true; btn.textContent="Refreshing…";
-    await fetch("/api/refresh",{method:"POST"});
-    setTimeout(async()=>{ await loadData(); btn.disabled=false; btn.textContent="↻ Refresh"; },2500);
+  async function forceRefresh() {
+    const btn = document.getElementById("refresh-btn");
+    btn.disabled = true; btn.textContent = "Refreshing…";
+    if (_customDateActive) {
+      // Re-fetch the current custom range
+      const start = document.getElementById("date-start").value;
+      const end   = document.getElementById("date-end").value;
+      await loadData(start, end);
+      btn.disabled = false; btn.textContent = "↻ Refresh";
+    } else {
+      await fetch("/api/refresh", { method: "POST" });
+      setTimeout(async () => { await loadData(); btn.disabled = false; btn.textContent = "↻ Refresh"; }, 2500);
+    }
   }
+  initDatePicker();
   loadData();
-  setInterval(loadData,REFRESH_INTERVAL);
+  setInterval(() => { if (!_customDateActive) loadData(); }, REFRESH_INTERVAL);
 </script>
 </body>
 </html>
