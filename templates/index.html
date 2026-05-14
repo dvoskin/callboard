@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#eef0f5" media="(prefers-color-scheme: light)" />
   <meta name="format-detection" content="telephone=no" />
-  <title>Call Tracker</title>
+  <title>Sales Call Monitor</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
   <style>
@@ -500,12 +500,17 @@
       border-radius: 10px; padding: 2px 9px; color: var(--secondary);
       min-width: 22px; text-align: center;
     }
-    .overdue-zone { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--sep); }
-    .overdue-zone .title { color: var(--red); }
+    .overdue-zone {
+      margin-top: 24px; padding-top: 20px;
+      border-top: 2px solid rgba(239,68,68,.15);
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+    .overdue-zone .title { color: var(--red); font-size: 14px; }
     .overdue-zone .chip  {
-      background: rgba(255,59,48,.07);
-      border-color: rgba(255,59,48,.18);
+      background: rgba(255,59,48,.08);
+      border-color: rgba(255,59,48,.2);
       color: var(--red-dk);
+      font-weight: 800;
     }
     /* overdue section — unified control row */
     .overdue-controls {
@@ -819,43 +824,117 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 0;
-      margin-bottom: 22px;
-      box-shadow: var(--shadow-sm);
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
       overflow: hidden;
     }
     .live-panel.collapsed .lp-body { display: none; }
     .lp-header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 20px;
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 20px;
       cursor: pointer; user-select: none;
       border-bottom: 1px solid var(--sep);
+      transition: background .12s;
     }
     .live-panel.collapsed .lp-header { border-bottom: none; }
-    .lp-header:hover { background: var(--surface2); }
+    .lp-header:hover { background: rgba(16,185,129,.03); }
     .lp-pulse {
-      width: 10px; height: 10px; border-radius: 50%;
+      width: 9px; height: 9px; border-radius: 50%;
       background: var(--green);
       box-shadow: 0 0 0 0 rgba(16,185,129,.5);
       animation: livePulse 2s infinite;
+      flex-shrink: 0;
     }
     @keyframes livePulse {
       0%   { box-shadow: 0 0 0 0 rgba(16,185,129,.5); }
-      70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+      70%  { box-shadow: 0 0 0 7px rgba(16,185,129,0); }
       100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
     }
     .lp-title {
-      font-size: 14px; font-weight: 700; color: var(--text);
-      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 700; color: var(--text);
+      display: flex; align-items: center; gap: 7px;
+      letter-spacing: -.15px;
     }
     .lp-title-count {
-      background: var(--blue); color: #fff;
-      font-size: 11px; font-weight: 700;
-      padding: 2px 8px; border-radius: 10px;
+      background: var(--green); color: #fff;
+      font-size: 10px; font-weight: 800;
+      padding: 2px 7px; border-radius: 10px;
+      min-width: 20px; text-align: center;
     }
     .lp-caret {
       font-size: 16px; color: var(--tertiary); transition: transform .2s;
+      margin-left: auto;
     }
     .live-panel.collapsed .lp-caret { transform: rotate(-90deg); }
+
+    /* User filter dropdown */
+    .lp-filter-wrap { position: relative; margin-left: auto; }
+    .lp-filter-btn {
+      display: flex; align-items: center; gap: 5px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 5px 11px;
+      font-size: 12px; font-weight: 600; color: var(--secondary);
+      cursor: pointer; font-family: inherit;
+      transition: border-color .15s, background .15s;
+    }
+    .lp-filter-btn:hover { border-color: var(--blue); background: rgba(37,99,235,.04); color: var(--blue); }
+    .lp-filter-btn.active { border-color: var(--blue); background: rgba(37,99,235,.06); color: var(--blue); }
+    .lp-filter-badge {
+      background: var(--blue); color: #fff;
+      font-size: 10px; font-weight: 700;
+      padding: 1px 6px; border-radius: 8px; min-width: 18px; text-align: center;
+    }
+    .lp-filter-dropdown {
+      display: none; position: absolute; right: 0; top: 36px; z-index: 60;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-lg);
+      min-width: 240px; max-height: 360px;
+      overflow: hidden;
+      animation: menu-pop .14s cubic-bezier(.2,.7,.3,1.2);
+    }
+    .lp-filter-dropdown.open { display: block; }
+    .lp-filter-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px 8px; border-bottom: 1px solid var(--sep);
+    }
+    .lp-filter-title { font-size: 12px; font-weight: 700; color: var(--text); }
+    .lp-filter-clear {
+      font-size: 11px; font-weight: 600; color: var(--secondary);
+      background: none; border: none; cursor: pointer; font-family: inherit;
+      padding: 2px 6px; border-radius: 6px;
+      transition: color .12s, background .12s;
+    }
+    .lp-filter-clear:hover { color: var(--red); background: rgba(239,68,68,.06); }
+    .lp-filter-search-wrap { padding: 6px 10px; }
+    .lp-filter-search {
+      width: 100%; padding: 6px 10px; font-size: 12px; font-family: inherit;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--surface2); color: var(--text); outline: none;
+      transition: border-color .15s;
+    }
+    .lp-filter-search:focus { border-color: var(--blue); }
+    .lp-filter-list {
+      max-height: 240px; overflow-y: auto; padding: 4px 6px 8px;
+      scrollbar-width: thin;
+    }
+    .lp-filter-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; cursor: pointer; border-radius: 6px;
+      font-size: 13px; font-weight: 500; color: var(--text);
+      transition: background .1s;
+    }
+    .lp-filter-item:hover { background: var(--surface2); }
+    .lp-filter-item input[type="checkbox"] {
+      accent-color: var(--blue); width: 15px; height: 15px; margin: 0;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .lp-filter-item .agent-status-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .lp-filter-item .agent-status-dot.on-call  { background: var(--green); }
+    .lp-filter-item .agent-status-dot.available { background: var(--blue); }
+    .lp-filter-item .agent-status-dot.dnd       { background: var(--red); }
+    .lp-filter-item .agent-status-dot.offline   { background: var(--tertiary); }
 
     .lp-body { padding: 0; }
 
@@ -863,39 +942,41 @@
     .lp-calls-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      padding: 12px 20px;
-      max-height: 264px;  /* ~3 rows of cards */
+      gap: 10px;
+      padding: 14px 20px;
+      max-height: 280px;  /* ~3 rows of cards */
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--tertiary) transparent;
+      background: var(--surface2);
     }
     .lp-calls-grid::-webkit-scrollbar { width: 4px; }
     .lp-calls-grid::-webkit-scrollbar-thumb { background: var(--tertiary); border-radius: 4px; }
     .lp-call-card {
-      background: var(--surface2);
-      border: 1px solid var(--sep);
-      border-radius: var(--radius-sm);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       padding: 10px 12px;
       position: relative;
-      transition: box-shadow .15s, border-color .15s;
-      min-height: 64px;
+      transition: box-shadow .15s, border-color .15s, transform .12s;
+      min-height: 60px;
     }
     .lp-call-card:hover {
       box-shadow: var(--shadow);
       border-color: rgba(37,99,235,.25);
+      transform: translateY(-1px);
     }
     .lp-call-card.matched {
       border-left: 3px solid var(--green);
-      background: linear-gradient(135deg, rgba(16,185,129,.04), var(--surface2));
+      background: linear-gradient(135deg, rgba(16,185,129,.03), var(--surface));
     }
     .lp-call-card.queued {
       border-left: 3px solid var(--orange);
-      opacity: .75;
+      opacity: .8;
     }
     .lp-call-agent {
       font-size: 12px; font-weight: 700; color: var(--text);
-      margin-bottom: 3px;
+      margin-bottom: 4px;
       display: flex; align-items: center; gap: 5px;
       flex-wrap: wrap;
     }
@@ -937,15 +1018,17 @@
     .lp-call-state.outdial { background: rgba(37,99,235,.1); color: var(--blue-dk); }
 
     .lp-empty {
-      padding: 14px 20px;
+      padding: 20px;
       text-align: center;
       color: var(--tertiary);
-      font-size: 13px;
+      font-size: 13px; font-weight: 500;
       grid-column: 1 / -1;
     }
     .lp-refresh-note {
-      font-size: 10px; color: var(--tertiary);
-      padding: 0 20px 10px; text-align: right;
+      font-size: 10px; color: var(--tertiary); font-weight: 500;
+      padding: 6px 20px 10px; text-align: right;
+      border-top: 1px solid var(--sep);
+      background: var(--surface2);
     }
 
     /* ══════════════ UPCOMING STRIP ══════════════ */
@@ -1756,7 +1839,7 @@
 <!-- ══ HEADER ══ -->
 <header>
   <div class="header-icon">📞</div>
-  <h1>Call Tracker</h1>
+  <h1>Sales Call Monitor</h1>
   <div class="header-dot-wrap">
     <div id="status-dot" class="loading"></div>
     <span id="last-updated">Loading…</span>
@@ -1778,6 +1861,38 @@
       <p id="alert-desc"></p>
     </div>
     <button class="alert-cta" onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">Review →</button>
+  </div>
+
+  <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
+  <div class="live-panel collapsed" id="live-panel" style="display:none">
+    <div class="lp-header" onclick="toggleLivePanel()">
+      <div class="lp-pulse"></div>
+      <div class="lp-title">
+        Live Monitor
+        <span class="lp-title-count" id="lp-call-count">0</span>
+      </div>
+      <div class="lp-filter-wrap" onclick="event.stopPropagation()">
+        <button class="lp-filter-btn" id="lp-filter-btn" onclick="toggleUserFilter(event)">
+          <span>👤 Filter</span>
+          <span class="lp-filter-badge" id="lp-filter-badge" style="display:none">0</span>
+        </button>
+        <div class="lp-filter-dropdown" id="lp-filter-dropdown">
+          <div class="lp-filter-header">
+            <span class="lp-filter-title">Filter by Agent</span>
+            <button class="lp-filter-clear" onclick="clearUserFilter()">Clear all</button>
+          </div>
+          <div class="lp-filter-search-wrap">
+            <input type="text" class="lp-filter-search" id="lp-filter-search" placeholder="Search agents…" oninput="filterAgentList()">
+          </div>
+          <div class="lp-filter-list" id="lp-filter-list"></div>
+        </div>
+      </div>
+      <span class="lp-caret">▾</span>
+    </div>
+    <div class="lp-body">
+      <div class="lp-calls-grid" id="lp-calls-grid"></div>
+      <div class="lp-refresh-note" id="lp-refresh-note"></div>
+    </div>
   </div>
 
   <!-- ══════════════════════ UPCOMING STRIP ══════════════════════ -->
@@ -1917,21 +2032,6 @@
     </div>
   </div>
 
-  <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
-  <div class="live-panel" id="live-panel" style="display:none">
-    <div class="lp-header" onclick="toggleLivePanel()">
-      <div class="lp-pulse"></div>
-      <div class="lp-title">
-        Live Monitor
-        <span class="lp-title-count" id="lp-call-count">0</span>
-      </div>
-      <span class="lp-caret">▾</span>
-    </div>
-    <div class="lp-body">
-      <div class="lp-calls-grid" id="lp-calls-grid"></div>
-      <div class="lp-refresh-note" id="lp-refresh-note"></div>
-    </div>
-  </div>
 
 </main>
 
@@ -3438,15 +3538,94 @@
   // LIVE MONITOR — RingCX real-time integration
   // ══════════════════════════════════════════════════════════════
   let _liveData = null;
-  let _livePanelCollapsed = false;
+  let _livePanelCollapsed = true;  // collapsed by default
   let _liveTimer = null;
   let _liveActiveCalls = []; // stored globally for cross-referencing in the main table
+  let _liveSelectedAgents = new Set(); // user filter: selected agent names
+  let _liveAllAgents = []; // all known agents for the filter list
 
   function toggleLivePanel() {
     const panel = document.getElementById("live-panel");
     _livePanelCollapsed = !_livePanelCollapsed;
     panel.classList.toggle("collapsed", _livePanelCollapsed);
   }
+
+  // ─── User filter for live monitor ───
+  function toggleUserFilter(e) {
+    e.stopPropagation();
+    const dd = document.getElementById("lp-filter-dropdown");
+    const btn = document.getElementById("lp-filter-btn");
+    const isOpen = dd.classList.toggle("open");
+    btn.classList.toggle("active", isOpen);
+    if (isOpen) {
+      renderAgentFilterList();
+      document.getElementById("lp-filter-search").focus();
+    }
+  }
+
+  function closeUserFilter() {
+    document.getElementById("lp-filter-dropdown").classList.remove("open");
+    document.getElementById("lp-filter-btn").classList.remove("active");
+  }
+
+  // Close dropdown on outside click
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".lp-filter-wrap")) closeUserFilter();
+  });
+
+  function renderAgentFilterList() {
+    const list = document.getElementById("lp-filter-list");
+    const q = (document.getElementById("lp-filter-search").value || "").toLowerCase();
+    const agents = _liveAllAgents.filter(a => !q || a.name.toLowerCase().includes(q));
+
+    list.innerHTML = agents.map(a => {
+      const checked = _liveSelectedAgents.has(a.name) ? "checked" : "";
+      const statusClass = ["CallConnected","Ringing","OnHold"].includes(a.telephony_status) ? "on-call"
+        : a.status === "Available" ? "available"
+        : a.dnd_status === "DoNotAcceptAnyCalls" || a.status === "DoNotDisturb" ? "dnd" : "offline";
+      return `<label class="lp-filter-item">
+        <input type="checkbox" ${checked} onchange="toggleAgentFilter('${a.name.replace(/'/g,"\\'")}', this.checked)">
+        <span class="agent-status-dot ${statusClass}"></span>
+        ${a.name}
+      </label>`;
+    }).join("");
+  }
+
+  function filterAgentList() { renderAgentFilterList(); }
+
+  function toggleAgentFilter(name, checked) {
+    if (checked) _liveSelectedAgents.add(name);
+    else _liveSelectedAgents.delete(name);
+    updateFilterBadge();
+    if (_liveData) renderLivePanel(_liveData);
+    // Save to localStorage
+    localStorage.setItem("lp_selected_agents", JSON.stringify([..._liveSelectedAgents]));
+  }
+
+  function clearUserFilter() {
+    _liveSelectedAgents.clear();
+    updateFilterBadge();
+    renderAgentFilterList();
+    if (_liveData) renderLivePanel(_liveData);
+    localStorage.removeItem("lp_selected_agents");
+  }
+
+  function updateFilterBadge() {
+    const badge = document.getElementById("lp-filter-badge");
+    if (_liveSelectedAgents.size > 0) {
+      badge.textContent = _liveSelectedAgents.size;
+      badge.style.display = "";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  // Restore saved filter on load
+  try {
+    const saved = JSON.parse(localStorage.getItem("lp_selected_agents") || "[]");
+    saved.forEach(n => _liveSelectedAgents.add(n));
+    updateFilterBadge();
+  } catch(e) {}
 
   function formatPhone(num) {
     if (!num) return "";
@@ -3542,12 +3721,11 @@
     // Show the panel
     panel.style.display = "";
 
-    // Header stats
-    const onCall = agents.filter(a => ["CallConnected","Ringing","OnHold"].includes(a.telephony_status));
-    const avail = agents.filter(a => a.status === "Available" && a.telephony_status === "NoCall");
-    const dnd = agents.filter(a => a.dnd_status === "DoNotAcceptAnyCalls" || a.status === "DoNotDisturb");
+    // Build agent list for filter (update on every poll)
+    _liveAllAgents = agents.slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
     // Merge RingEX-detected calls (from presence) that aren't already in RingCX active calls
+    const onCall = agents.filter(a => ["CallConnected","Ringing","OnHold"].includes(a.telephony_status));
     const cxAgentNames = new Set(calls.map(c => (c.agent_name || "").toLowerCase()));
     const rexCalls = onCall
       .filter(a => !cxAgentNames.has((a.name || "").toLowerCase()))
@@ -3558,7 +3736,14 @@
         duration_sec: 0,
         source: "ringex",
       }));
-    const allCalls = [...calls, ...rexCalls];
+    let allCalls = [...calls, ...rexCalls];
+
+    // Apply user agent filter
+    if (_liveSelectedAgents.size > 0) {
+      allCalls = allCalls.filter(c =>
+        _liveSelectedAgents.has(c.agent_name || "") || !c.agent_name
+      );
+    }
 
     document.getElementById("lp-call-count").textContent = allCalls.length;
 

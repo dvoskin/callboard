@@ -50,10 +50,6 @@ class RingCXClient:
         self._agents_cache_expiry: float = 0
         self._AGENTS_CACHE_TTL = 60  # refresh agents every 60s, not every poll
 
-        # RingCX sales agent IDs cache (from agent groups containing "Sales")
-        self._sales_agent_ids: set[str] = set()
-        self._sales_agent_ids_expiry: float = 0
-        self._SALES_CACHE_TTL = 300  # refresh sales agent list every 5 min
 
     @property
     def configured(self) -> bool:
@@ -164,59 +160,6 @@ class RingCXClient:
         return {"Authorization": f"Bearer {self._ensure_cx_token()}"}
 
     # ══════════════════════════════════════════════════════════════
-    # RingCX — Sales Agent Groups (filter to sales teams)
-    # ══════════════════════════════════════════════════════════════
-
-    def _get_sales_agent_ids(self) -> set[str]:
-        """Fetch agent groups from RingCX, find groups containing 'Sales',
-        and return the set of agent IDs in those groups. Cached for 5 min."""
-        if self._sales_agent_ids and time.time() < self._sales_agent_ids_expiry:
-            return self._sales_agent_ids
-
-        try:
-            self._ensure_cx_token()
-            if not self._cx_account_id:
-                return self._sales_agent_ids
-
-            resp = requests.get(
-                f"{self.ringcx_url}/voice/api/v1/admin/accounts/{self._cx_account_id}/agentGroups",
-                headers=self._cx_headers(),
-                timeout=15,
-            )
-            if not resp.ok:
-                log.warning("RingCX agent groups fetch failed: %s", resp.status_code)
-                return self._sales_agent_ids
-
-            groups = resp.json()
-            if isinstance(groups, dict):
-                groups = groups.get("agentGroups") or groups.get("records") or []
-
-            sales_ids: set[str] = set()
-            for group in groups:
-                group_name = group.get("groupName") or group.get("name") or ""
-                if "sales" in group_name.lower():
-                    # Collect agent IDs from this group
-                    agents = group.get("agents") or []
-                    for agent in agents:
-                        aid = str(agent.get("agentId") or agent.get("id") or "")
-                        if aid:
-                            sales_ids.add(aid)
-                    log.info("RingCX sales group '%s': %d agents", group_name, len(agents))
-
-            if sales_ids:
-                self._sales_agent_ids = sales_ids
-                self._sales_agent_ids_expiry = time.time() + self._SALES_CACHE_TTL
-                log.info("RingCX: %d total sales agent IDs cached", len(sales_ids))
-            else:
-                log.warning("RingCX: no agent groups containing 'Sales' found — showing all agents")
-
-            return self._sales_agent_ids
-
-        except Exception as e:
-            log.error("RingCX agent groups error: %s", e)
-            return self._sales_agent_ids
-
-    # ══════════════════════════════════════════════════════════════
     # RingCX — Active Calls (Engage Voice API)
     # ══════════════════════════════════════════════════════════════
 
@@ -292,14 +235,7 @@ class RingCXClient:
                     "source": "ringcx",
                 })
 
-            # Filter to sales agents only (if sales groups are configured)
-            sales_ids = self._get_sales_agent_ids()
-            if sales_ids:
-                active = [c for c in active if c["agent_id"] in sales_ids or not c["agent_id"]]
-                log.info("RingCX: %d active calls after sales filter (%d sales agents)", len(active), len(sales_ids))
-            else:
-                log.info("RingCX: %d active calls found (no sales filter)", len(active))
-
+            log.info("RingCX: %d active calls found", len(active))
             return active
 
         except requests.exceptions.HTTPError as e:
@@ -344,18 +280,6 @@ class RingCXClient:
                     page += 1
                 else:
                     break
-
-            # Filter to Sales department only
-            sales_extensions = []
-            for ext in all_extensions:
-                dept = ext.get("department") or ""
-                if "sales" in dept.lower():
-                    sales_extensions.append(ext)
-            if sales_extensions:
-                log.info("RingEX: %d/%d extensions in Sales department", len(sales_extensions), len(all_extensions))
-                all_extensions = sales_extensions
-            else:
-                log.warning("RingEX: no extensions with 'Sales' department found — showing all %d", len(all_extensions))
 
             # Fetch presence for each extension
             agents = []
