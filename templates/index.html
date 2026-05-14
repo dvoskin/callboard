@@ -3988,13 +3988,22 @@
     const cxAgentNames = new Set(calls.map(c => (c.agent_name || "").toLowerCase()));
     const rexCalls = onCall
       .filter(a => !cxAgentNames.has((a.name || "").toLowerCase()))
-      .map(a => ({
-        agent_name: a.name,
-        call_state: a.telephony_status === "Ringing" ? "RINGING" : "ACTIVE",
-        ani: "", dnis: "", from: "", to: "",
-        duration_sec: 0,
-        source: "ringex",
-      }));
+      .map(a => {
+        // Extract phone numbers from the RingEX active call details
+        const ac = (a.active_calls || [])[0] || {};
+        const fromNum = ac.from?.phoneNumber || ac.from?.name || ac.from || "";
+        const toNum = ac.to?.phoneNumber || ac.to?.name || ac.to || "";
+        const dir = ac.direction || "";
+        return {
+          agent_name: a.name,
+          call_state: a.telephony_status === "Ringing" ? "RINGING" : "ACTIVE",
+          direction: dir,
+          ani: fromNum, dnis: toNum,
+          from: fromNum, to: toNum,
+          duration_sec: 0,
+          source: "ringex",
+        };
+      });
     let allCalls = [...calls, ...rexCalls];
 
     // Apply user agent filter
