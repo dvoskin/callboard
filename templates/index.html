@@ -3358,6 +3358,13 @@
       if (startDate) url += `&start=${startDate}&end=${endDate || startDate}`;
       const resp = await fetch(url);
       cdbLoading.classList.remove("show");
+      // Guard against non-JSON responses (e.g. Render 502/504 HTML error pages)
+      const contentType = resp.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        if (resp.status >= 500) {
+          throw new Error(`Server error (${resp.status}) — retrying…`);
+        }
+      }
       if (resp.status === 202) {
         _loadRetries++;
         document.getElementById("last-updated").textContent = "Loading data…";
@@ -3619,6 +3626,7 @@
     try {
       // Check if configured first
       const statusResp = await fetch("/api/ringcx/status");
+      if (!statusResp.ok) return;
       const statusData = await statusResp.json();
       if (!statusData.configured) {
         document.getElementById("live-panel").style.display = "none";
@@ -3630,6 +3638,7 @@
         fetch("/api/ringcx/active-calls"),
         fetch("/api/ringcx/agents"),
       ]);
+      if (!callsResp.ok || !agentsResp.ok) return;
       const callsData = await callsResp.json();
       const agentsData = await agentsResp.json();
 
