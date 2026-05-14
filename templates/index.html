@@ -372,6 +372,16 @@
     .result-tag.r-workflow  { color: var(--teal-dk); }
     .result-tag.r-resolved  { color: var(--secondary); }
     .result-tag.r-live      { color: var(--green-dk); }
+    .result-tag.r-observed  { color: var(--green-dk); }
+
+    /* Observed-call indicator */
+    .observed-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 9px; font-weight: 600; color: var(--blue-dk);
+      background: rgba(37,99,235,.07); border-radius: 3px;
+      padding: 1px 5px; cursor: help; vertical-align: middle;
+      margin-left: 4px;
+    }
     .result-tag.r-countdown { color: var(--blue-dk); font-variant-numeric: tabular-nums; }
     .result-tag .result-sub { font-size: 10.5px; font-weight: 500; color: var(--secondary); margin-left: 2px; }
 
@@ -3448,6 +3458,15 @@
       const liveCall = findLiveCallForRecord(r);
       r._liveCall = liveCall;
 
+      // Record observation when a live call matches a scheduled record
+      if (liveCall && r.id) {
+        recordObservation(r.id, liveCall);
+      }
+
+      // Check for a past observation if no actual call logged
+      const obs = (!r.actual_call_time && !liveCall && r.id) ? getObservation(r.id) : null;
+      r._observed = obs;
+
       // Result column — pure diff between Scheduled and Actual Call columns.
       let result;
       const sign = n => n>=0 ? "+" : "";
@@ -3455,11 +3474,21 @@
         ? Math.round(((new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000) * 10) / 10
         : null;
 
+      // If no actual call but we have an observation, compute offset from observation time
+      const obsOffset = (r.scheduled_time && obs && !r.actual_call_time)
+        ? Math.round(((new Date(obs.time) - new Date(r.scheduled_time)) / 60000) * 10) / 10
+        : null;
+
       // Recompute the bucket from the pure diff so Status badge and Result always agree.
       let bucket = r.status;
       if (liveOffset !== null) {
         if (liveOffset < -10) bucket = "early";
         else if (liveOffset > 10) bucket = "late_call";
+        else bucket = "on_time";
+      } else if (obsOffset !== null) {
+        // Use observation to determine bucket
+        if (obsOffset < -10) bucket = "early";
+        else if (obsOffset > 10) bucket = "late_call";
         else bucket = "on_time";
       }
       r._bucket = bucket;
@@ -3469,6 +3498,20 @@
         const agent = liveCall.agent_name || "Agent";
         const dur = fmtDuration(liveCall.duration_sec || 0);
         result = `<span class="result-tag r-live">🟢 On Call <span class="result-sub">${agent} · ${dur}</span></span>`;
+      // Observed call — not yet logged but we saw it happen
+      } else if (obs) {
+        const obsAgent = obs.agent || "Agent";
+        const obsDur = obs.duration > 0 ? ` · ${fmtDuration(obs.duration)}` : "";
+        const obsSrc = obs.source === "ringcx" ? "RingCX" : obs.source === "ringex" ? "RingEX" : obs.source;
+        const obsTime = new Date(obs.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        const obsTitle = `Observed via ${obsSrc} at ${obsTime} — ${obsAgent}${obsDur}. Call not yet logged in CRM.`;
+        if (obsOffset !== null) {
+          const absDiff = Math.abs(obsOffset);
+          const label = obsOffset < -10 ? `${absDiff} min early` : obsOffset > 10 ? `+${obsOffset} min late` : `${sign(obsOffset)}${obsOffset} min`;
+          result = `<span class="result-tag r-observed" title="${obsTitle}">👁 ${label} <span class="result-sub">observed · not logged</span></span>`;
+        } else {
+          result = `<span class="result-tag r-observed" title="${obsTitle}">👁 Observed <span class="result-sub">not logged</span></span>`;
+        }
       // Resolved manually — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
         result = `<span class="result-tag r-resolved">Resolved manually</span>`;
@@ -3520,15 +3563,23 @@
         : r.mvp_only
           ? `<span class="dials-val">${dials}</span><span class="dials-src">RingEX</span>`
           : `<span class="dials-val">${dials}</span>`;
-      const cls = r.status==="completed"          ? "row-completed"
+      let cls = r.status==="completed"          ? "row-completed"
                 : r.status==="early"               ? "row-early"
                 : r.status==="completed_via_deal"  ? "row-via-deal"
                 : r.status==="completed_via_workflow" ? "row-via-workflow"
                 : r.status==="missed"              ? "row-missed"
                 : r.status==="late"                ? "row-late" : "";
-      const actualCell = r.actual_call_time
-        ? `<span class="ts-cell ts-actual">${fmt(r.actual_call_time)}</span>`
-        : `<span class="no-data">—</span>`;
+      // Override row class for observed (unlogged) calls
+      if (obs && !r.actual_call_time) cls = "row-completed";
+      let actualCell;
+      if (r.actual_call_time) {
+        actualCell = `<span class="ts-cell ts-actual">${fmt(r.actual_call_time)}</span>`;
+      } else if (obs) {
+        const obsTitle = `Observed at ${fmt(obs.time)} via ${obs.source === "ringcx" ? "RingCX" : "RingEX"} — not logged in CRM`;
+        actualCell = `<span class="ts-cell ts-actual" style="color:var(--blue-dk)" title="${obsTitle}">${fmt(obs.time)}</span><span class="observed-badge" title="${obsTitle}">👁 observed</span>`;
+      } else {
+        actualCell = `<span class="no-data">—</span>`;
+      }
       // Tooltip badge for calls originally scheduled before 9 AM
       const flooredBadge = r._floored && r._scheduled_original
         ? ` <span class="floor-badge" title="Originally scheduled at ${fmt(r._scheduled_original)} — assumed at 9:00 AM (business hours)">ⓘ 9 AM</span>`
@@ -3545,10 +3596,19 @@
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
-      // Live call override for status badge
-      const statusHtml = r._liveCall
-        ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
-        : statusBadge(effStatus, effOnTime);
+      // Live call or observed-call override for status badge
+      let statusHtml;
+      if (r._liveCall) {
+        statusHtml = `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`;
+      } else if (obs && !r.actual_call_time) {
+        // Show a special "Observed" badge — call happened but isn't logged yet
+        const obsBucket = r._bucket;
+        const obsBadgeCls = obsBucket === "on_time" ? "badge-green" : obsBucket === "early" ? "badge-teal" : "badge-orange";
+        const obsLabel = obsBucket === "on_time" ? "✓ On Time" : obsBucket === "early" ? "↑ Early" : "✓ Late";
+        statusHtml = `<span class="badge ${obsBadgeCls}" title="Call observed via live monitor but not yet logged in CRM">${obsLabel} <span style="font-size:9px;opacity:.7">👁</span></span>`;
+      } else {
+        statusHtml = statusBadge(effStatus, effOnTime);
+      }
 
       const phoneCell = r.phone
         ? `<span class="phone-cell">${r.phone}</span>`
@@ -3562,7 +3622,9 @@
         ? `<span class="ts-cell">${fmt(r.scheduled_time)}</span>`
         : `<span class="no-data">—</span>`;
 
-      return `<tr class="${cls}"${r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : ''}>
+      const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"'
+        : (obs && !r.actual_call_time) ? ' style="background:rgba(37,99,235,.03)"' : '';
+      return `<tr class="${cls}"${rowBg}>
         <td class="col-name">${nameCell(r, "Contacts", flooredBadge)}</td>
         <td class="col-phone">${phoneCell}</td>
         <td class="col-scheduled">${schedCell}</td>
@@ -3958,6 +4020,43 @@
       return desc;
     }
     return null;
+  }
+
+  // ─── Observed call tracking ───
+  // Persists live-call observations so unlogged calls still show as handled.
+  // Key = scheduled record ID, value = {agent, time, duration, source, phone}
+  const _OBSERVED_KEY = "observed_calls";
+  let _observedCalls = {};
+  try {
+    const stored = localStorage.getItem(_OBSERVED_KEY);
+    if (stored) {
+      _observedCalls = JSON.parse(stored);
+      // Prune observations older than 24 hours
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      for (const [k, v] of Object.entries(_observedCalls)) {
+        if (new Date(v.time).getTime() < cutoff) delete _observedCalls[k];
+      }
+    }
+  } catch (e) { _observedCalls = {}; }
+
+  function _saveObserved() {
+    try { localStorage.setItem(_OBSERVED_KEY, JSON.stringify(_observedCalls)); } catch (e) {}
+  }
+
+  function recordObservation(recId, call) {
+    if (!recId || _observedCalls[recId]) return; // don't overwrite
+    _observedCalls[recId] = {
+      agent: call.agent_name || "",
+      time: new Date().toISOString(),
+      duration: call.duration_sec || 0,
+      source: call.source || "unknown",
+      phone: call.ani || call.from || call.dnis || call.to || "",
+    };
+    _saveObserved();
+  }
+
+  function getObservation(recId) {
+    return _observedCalls[recId] || null;
   }
 
   function findLiveCallForRecord(rec) {
