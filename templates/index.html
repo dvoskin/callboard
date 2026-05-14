@@ -3514,7 +3514,8 @@
         }
       // Resolved manually — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
-        result = `<span class="result-tag r-resolved">Resolved manually</span>`;
+        const noteSnippet = r.note ? ` <span class="result-sub" title="${r.note.replace(/"/g,'&quot;')}">${r.note.length > 40 ? r.note.slice(0,40)+"…" : r.note}</span>` : "";
+        result = `<span class="result-tag r-resolved">Resolved manually${noteSnippet}</span>`;
       } else if (bucket === "on_time" && liveOffset !== null) {
         result = `<span class="result-tag r-on-time">${sign(liveOffset)}${liveOffset} min</span>`;
       } else if (bucket === "early" && liveOffset !== null) {
@@ -3624,8 +3625,9 @@
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"'
         : (obs && !r.actual_call_time) ? ' style="background:rgba(37,99,235,.03)"' : '';
+      const noteIcon = (r.note && r.resolved) ? ` <span class="observed-badge" title="${r.note.replace(/"/g,'&quot;')}">📝</span>` : "";
       return `<tr class="${cls}"${rowBg}>
-        <td class="col-name">${nameCell(r, "Contacts", flooredBadge)}</td>
+        <td class="col-name">${nameCell(r, "Contacts", flooredBadge + noteIcon)}</td>
         <td class="col-phone">${phoneCell}</td>
         <td class="col-scheduled">${schedCell}</td>
         <td class="col-actual">${actualCell}</td>
@@ -3891,6 +3893,10 @@
   let _liveTimer = null;
   let _liveActiveCalls = []; // stored globally for cross-referencing in the main table
   let _liveSelectedAgents = new Set(); // user filter: selected agent names
+  try {
+    const saved = localStorage.getItem("lp_selected_agents");
+    if (saved) _liveSelectedAgents = new Set(JSON.parse(saved));
+  } catch (e) {}
   let _liveAllAgents = []; // all known agents for the filter list
 
   function toggleLivePanel() {
@@ -3900,6 +3906,12 @@
   }
 
   // ─── User filter for live monitor ───
+  // Initialize badge from persisted selection
+  if (_liveSelectedAgents.size > 0) {
+    const badge = document.getElementById("lp-filter-badge");
+    if (badge) { badge.textContent = _liveSelectedAgents.size; badge.style.display = ""; }
+  }
+
   function toggleUserFilter(e) {
     e.stopPropagation();
     const dd = document.getElementById("lp-filter-dropdown");
