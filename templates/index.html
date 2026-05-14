@@ -4019,15 +4019,31 @@
       .map(a => {
         // Extract phone numbers from the RingEX active call details
         const ac = (a.active_calls || [])[0] || {};
-        const fromNum = ac.from?.phoneNumber || ac.from?.name || ac.from || "";
-        const toNum = ac.to?.phoneNumber || ac.to?.name || ac.to || "";
-        const dir = ac.direction || "";
+        // from/to can be: string, {phoneNumber, name, extensionNumber}, or absent
+        const extractPhone = v => {
+          if (!v) return "";
+          if (typeof v === "string") return v;
+          return v.phoneNumber || v.extensionNumber || v.name || "";
+        };
+        const fromNum = extractPhone(ac.from);
+        const toNum = extractPhone(ac.to);
+        // Fallback: sipData.remoteUri often has "sip:+1XXXXXXXXXX@..."
+        let sipRemote = "";
+        if ((!fromNum && !toNum) && ac.sipData) {
+          const uri = ac.sipData.remoteUri || ac.sipData.toTag || "";
+          const m = uri.match(/sip:([+\d]+)@/);
+          if (m) sipRemote = m[1];
+        }
+        const dir = ac.direction || ac.telephonyStatus || "";
+        const isOutbound = dir.toLowerCase().includes("outbound");
         return {
           agent_name: a.name,
           call_state: a.telephony_status === "Ringing" ? "RINGING" : "ACTIVE",
           direction: dir,
-          ani: fromNum, dnis: toNum,
-          from: fromNum, to: toNum,
+          ani: fromNum || (isOutbound ? "" : sipRemote),
+          dnis: toNum || (isOutbound ? sipRemote : ""),
+          from: fromNum || (isOutbound ? "" : sipRemote),
+          to: toNum || (isOutbound ? sipRemote : ""),
           duration_sec: 0,
           source: "ringex",
         };

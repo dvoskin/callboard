@@ -251,71 +251,72 @@ class RingCXClient:
     # ══════════════════════════════════════════════════════════════
 
     def get_agent_statuses(self) -> list[dict]:
-        """Fetch presence status for all extensions via RingEX API.
-        Cached for 60 seconds to avoid rate-limiting (62 extensions × 15s = too many calls).
+        """Fetch presence status for all extensions via RingEX account-level presence API.
+
+        Uses the account-level endpoint with detailedTelephonyState=true to get
+        all agents in one paginated call (instead of N individual calls), plus
+        full active-call details including phone numbers and direction.
+        Cached for 60 seconds to avoid rate-limiting.
         """
         if self._agents_cache and time.time() < self._agents_cache_expiry:
             return self._agents_cache
 
         try:
-            all_extensions = []
+            agents = []
             page = 1
             while True:
                 resp = requests.get(
-                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/extension",
+                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/presence",
                     headers=self._rc_headers(),
                     params={
-                        "type": "User",
-                        "status": "Enabled",
-                        "perPage": 100,
+                        "detailedTelephonyState": "true",
+                        "perPage": 250,
                         "page": page,
                     },
-                    timeout=15,
+                    timeout=20,
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                all_extensions.extend(data.get("records", []))
-                nav = data.get("navigation", {})
-                if nav.get("nextPage"):
+                records = data.get("records", [])
+
+                for p in records:
+                    ext = p.get("extension") or {}
+                    ext_id = ext.get("id") or p.get("id", "")
+                    # Extract active call details with phone numbers
+                    raw_calls = p.get("activeCalls") or []
+                    active_calls = []
+                    for ac in raw_calls:
+                        active_calls.append({
+                            "id": ac.get("id") or ac.get("telephonySessionId", ""),
+                            "direction": ac.get("direction", ""),
+                            "from": ac.get("from", ""),
+                            "to": ac.get("to", ""),
+                            "telephonyStatus": ac.get("telephonyStatus", ""),
+                            "sipData": ac.get("sipData", {}),
+                        })
+
+                    agents.append({
+                        "ext_id": str(ext_id),
+                        "ext_number": ext.get("extensionNumber", ""),
+                        "name": p.get("name") or ext.get("name", ""),
+                        "status": p.get("presenceStatus", "Offline"),
+                        "dnd_status": p.get("dndStatus", ""),
+                        "telephony_status": p.get("telephonyStatus", "NoCall"),
+                        "active_calls": active_calls,
+                    })
+
+                nav = data.get("navigation") or data.get("paging") or {}
+                total_pages = nav.get("totalPages", 1)
+                if page < total_pages:
                     page += 1
                 else:
                     break
 
-            # Fetch presence for each extension
-            agents = []
-            for ext in all_extensions:
-                ext_id = ext.get("id")
-                name = ext.get("name", "")
-                ext_number = ext.get("extensionNumber", "")
-
-                try:
-                    pres_resp = requests.get(
-                        f"{self.server_url}/restapi/v1.0/account/{self.account_id}/extension/{ext_id}/presence",
-                        headers=self._rc_headers(),
-                        timeout=10,
-                    )
-                    if pres_resp.ok:
-                        p = pres_resp.json()
-                        agents.append({
-                            "ext_id": str(ext_id),
-                            "ext_number": ext_number,
-                            "name": name,
-                            "status": p.get("presenceStatus", "Offline"),
-                            "dnd_status": p.get("dndStatus", ""),
-                            "telephony_status": p.get("telephonyStatus", "NoCall"),
-                            "active_calls": p.get("activeCalls", []),
-                        })
-                except Exception:
-                    agents.append({
-                        "ext_id": str(ext_id),
-                        "ext_number": ext_number,
-                        "name": name,
-                        "status": "Unknown",
-                        "telephony_status": "Unknown",
-                        "active_calls": [],
-                    })
-
-            log.info("RingEX: %d agent statuses fetched", len(agents))
+            on_call = [a for a in agents if a["telephony_status"] in ("CallConnected", "Ringing", "OnHold")]
+            log.info("RingEX: %d agent statuses fetched (account-level presence), %d on call", len(agents), len(on_call))
+            for a in on_call:
+                log.info("  On call: %s (%s) — calls: %s", a["name"], a["telephony_status"],
+                         a["active_calls"][:2] if a["active_calls"] else "[]")
             self._agents_cache = agents
             self._agents_cache_expiry = time.time() + self._AGENTS_CACHE_TTL
             return agents
