@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from flask import Flask, jsonify, render_template, request
 from zoho_client import ZohoClient
+from ringcx_client import RingCXClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -22,8 +23,9 @@ REFRESH_INTERVAL_SECONDS = 120
 _cache: dict = {"data": None, "last_updated": None, "error": None}
 _lock = threading.Lock()
 
-# Shared client so the access token is cached across all requests
+# Shared clients so access tokens are cached across all requests
 _zoho = ZohoClient()
+_ringcx = RingCXClient()
 
 # ────────── Resolved-overdue persistence ──────────
 RESOLVED_PATH = Path(__file__).parent / "resolved_calls.json"
@@ -278,7 +280,7 @@ Write your response as plain prose — no bullet points, no headers. Be direct a
 
 @app.route("/api/contact/<contact_id>/insights")
 def contact_insights(contact_id):
-    """50-word AI summary of deal notes + RingCX call notes for inline expansion."""
+    """Direct, digestible AI analysis with live record stats for inline expansion."""
     import anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
@@ -291,85 +293,176 @@ def contact_insights(contact_id):
         sms = data.get("sms", [])
         stats = data.get("stats", {})
 
-        # Build context strings
-        deal_notes = "\n".join(
-            f"- {d.get('name','?')} [{d.get('stage','?')}] {d.get('modified','')[:10]}: {d.get('description','')}"
-            for d in deals if d.get("description") or d.get("stage")
-        )
-        call_log = "\n".join(
-            f"- {(c.get('time') or '?')[:16]} | {c.get('type','?')} | "
-            f"{c.get('disposition') or 'no disposition'} | "
-            f"{c.get('duration_sec') or 0}s | "
-            f"Rep: {c.get('owner') or '?'} | "
-            f"Notes: {(c.get('description') or '')[:200]}"
-            for c in calls[:15]
-        )
-        sms_log = "\n".join(
-            f"- {(s.get('time') or '?')[:16]} | {s.get('direction','?')} | "
-            f"{s.get('status','?')}: {(s.get('message') or '')[:160]}"
-            for s in sms[:15]
+        # ── Build structured data for AI and frontend ──
+        now = datetime.now(timezone.utc)
+
+        # Only show actual dial attempts: MVP calls ("outgoing call to") or
+        # calls with an outgoing disposition logged (RingCX completed dials).
+        def is_dial_attempt(c):
+            subj = (c.get("subject") or "").lower()
+            return (subj.startswith("outgoing call to")
+                    or bool(c.get("disposition")))
+
+        dialed_calls = [c for c in calls if is_dial_attempt(c)]
+        recent_calls = dialed_calls[:4]
+        recent_calls_text = "\n".join(
+            f"  {i+1}. {(c.get('time') or '?')[:16]} | {c.get('type','?')} | "
+            f"Disposition: {c.get('disposition') or 'none'} | "
+            f"Duration: {c.get('duration_sec') or 0}s | "
+            f"Rep: {c.get('owner') or '?'}"
+            + (f" | Notes: {c.get('description','')[:120]}" if c.get('description') else "")
+            for i, c in enumerate(recent_calls)
+        ) or "  (no calls logged)"
+
+        # Activity in last 24h and 72h
+        def hours_ago(iso_str):
+            try:
+                t = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+                return (now - t).total_seconds() / 3600
+            except Exception:
+                return 9999
+
+        calls_24h = [c for c in dialed_calls if hours_ago(c.get("time","")) <= 24]
+        calls_72h = [c for c in dialed_calls if hours_ago(c.get("time","")) <= 72]
+        sms_24h   = [s for s in sms if hours_ago(s.get("time","")) <= 24]
+        sms_72h   = [s for s in sms if hours_ago(s.get("time","")) <= 72]
+
+        recency_text = (
+            f"Last 24h: {len(calls_24h)} calls, {len(sms_24h)} SMS. "
+            f"Last 72h: {len(calls_72h)} calls, {len(sms_72h)} SMS."
         )
 
-        # Aggregated call attempt stats
-        calls_summary = (
-            f"{stats.get('total_calls',0)} total calls "
-            f"({stats.get('outbound_calls',0)} outbound, "
-            f"{stats.get('calls_with_disposition',0)} with dispositions logged)"
-        )
-        sms_summary = (
-            f"{stats.get('total_sms',0)} SMS messages "
-            f"({stats.get('sms_outbound',0)} sent, {stats.get('sms_inbound',0)} received)"
-        )
+        # Deal info
+        deal_text = "\n".join(
+            f"  - {d.get('name','?')} | Stage: {d.get('stage','?')} | "
+            f"Modified: {d.get('modified','?')[:10]}"
+            + (f" | Notes: {d.get('description','')[:100]}" if d.get('description') else "")
+            for d in deals
+        ) or "  (no deals)"
+
+        # Recent SMS (last 5)
+        recent_sms_text = "\n".join(
+            f"  - {(s.get('time') or '?')[:16]} | {s.get('direction','?')}: "
+            f"{(s.get('message') or '')[:120]}"
+            for s in sms[:5]
+        ) or "  (no SMS)"
 
         contact = data["contact"]
-        prompt = f"""You analyze CRM contact history for a sales rep about to call them.
+        prompt = f"""You are a sales analyst for a medical aesthetics practice. A rep is about to call this contact. Give a DIRECT, actionable briefing.
 
-Write a 50-word summary as flowing prose. CRITICAL formatting rules:
-- NO markdown, NO asterisks, NO bullet points, NO headers like "Interest Level:" — just plain prose sentences
-- Cover the contact's funnel position, last meaningful interaction, any objections or interest signals, and what the rep should know going in
-- If there is little info, say so plainly. Do not invent details.
+RULES:
+- Plain text only. NO markdown, NO asterisks, NO bold, NO bullet points, NO headers.
+- 3-4 short, punchy sentences. Be specific with dates and numbers.
+- State what happened, what the contact wants, and what the rep should do.
+- If there's little data, say "Limited history" and state what IS known.
 
-CONTACT: {contact.get('name')} | Source: {contact.get('lead_source') or 'unknown'}
-SUMMARY: {calls_summary}; {sms_summary}
+CONTACT: {contact.get('name')} | Phone: {contact.get('phone')} | Source: {contact.get('lead_source') or 'unknown'}
 
-DEALS:
-{deal_notes or '(no deals on record)'}
+STATS: {len(dialed_calls)} actual dial attempts out of {stats.get('total_calls',0)} call records, {stats.get('total_sms',0)} SMS ({stats.get('sms_outbound',0)} sent, {stats.get('sms_inbound',0)} received)
+{recency_text}
 
-CALL HISTORY (most recent first, up to 15):
-{call_log or '(no calls logged)'}
+DEAL:
+{deal_text}
 
-SMS HISTORY (most recent first, up to 15):
-{sms_log or '(no SMS messages)'}
+LAST {len(recent_calls)} DIAL ATTEMPTS (outbound calls only):
+{recent_calls_text}
 
-Write 3-4 plain sentences. No formatting."""
+RECENT SMS:
+{recent_sms_text}
+
+Write your briefing now. Be direct — "Called 3x on May 13, no answer" not "Multiple outreach attempts were made"."""
 
         claude = anthropic.Anthropic(api_key=api_key)
         msg = claude.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=180,
+            max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
 
         # Strip any stray markdown
         text = msg.content[0].text.strip()
         text = text.replace("**", "").replace("__", "")
-        # Strip lines that are just labels (defensive)
         lines = [ln for ln in text.split("\n") if not ln.strip().endswith(":") or len(ln.strip()) > 35]
         text = " ".join(ln.strip() for ln in lines if ln.strip())
+
+        # Build recent attempts list for frontend display
+        recent_attempts = [
+            {
+                "time": c.get("time"),
+                "disposition": c.get("disposition"),
+                "duration": c.get("duration_sec", 0),
+                "rep": c.get("owner"),
+            }
+            for c in recent_calls
+        ]
 
         return jsonify({
             "insights": text,
             "stats": stats,
             "call_count": len(calls),
+            "dial_count": len(dialed_calls),
             "sms_count": len(sms),
-            "last_call_time": calls[0]["time"] if calls else None,
-            "last_call_disposition": calls[0].get("disposition") if calls else None,
+            "recent_attempts": recent_attempts,
+            "activity_24h": {"calls": len(calls_24h), "sms": len(sms_24h)},
+            "activity_72h": {"calls": len(calls_72h), "sms": len(sms_72h)},
+            "last_call_time": dialed_calls[0]["time"] if dialed_calls else None,
+            "last_call_disposition": dialed_calls[0].get("disposition") if dialed_calls else None,
             "last_sms_time": sms[0]["time"] if sms else None,
             "last_sms_direction": sms[0].get("direction") if sms else None,
         })
     except Exception as e:
         log.error("Contact insights error: %s", e)
         return jsonify({"insights": f"Error: {e}"}), 500
+
+
+# ------------------------------------------------------------------ RingCX live monitoring
+
+@app.route("/api/ringcx/status")
+def ringcx_status():
+    """Check if RingCX integration is configured."""
+    return jsonify({"configured": _ringcx.configured})
+
+
+@app.route("/api/ringcx/live")
+def ringcx_live():
+    """Full live snapshot: active calls + agent statuses."""
+    if not _ringcx.configured:
+        return jsonify({
+            "error": "RingCX not configured",
+            "help": "Set RC_CLIENT_ID, RC_CLIENT_SECRET, RC_JWT_TOKEN in .env",
+        }), 503
+    try:
+        snapshot = _ringcx.get_live_snapshot()
+        return jsonify(snapshot)
+    except Exception as e:
+        log.error("RingCX live snapshot error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ringcx/active-calls")
+def ringcx_active_calls():
+    """Just the active calls (lightweight poll)."""
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+    try:
+        calls = _ringcx.get_active_calls()
+        return jsonify({"calls": calls, "count": len(calls)})
+    except Exception as e:
+        log.error("RingCX active calls error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ringcx/agents")
+def ringcx_agents():
+    """Agent presence statuses."""
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+    try:
+        agents = _ringcx.get_agent_statuses()
+        return jsonify({"agents": agents, "count": len(agents)})
+    except Exception as e:
+        log.error("RingCX agents error: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
 # ------------------------------------------------------------------ startup

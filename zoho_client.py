@@ -521,7 +521,7 @@ class ZohoClient:
                         f"and((Call_Start_Time:greater_equal:{window_start})"
                         f"and(Call_Start_Time:less_equal:{window_end}))"
                     ),
-                    "fields": "id,Subject,Call_Start_Time,Who_Id,Owner,Description,Call_Status",
+                    "fields": "id,Subject,Call_Start_Time,Who_Id,What_Id,Owner,Description,Call_Status",
                     "per_page": 200,
                     "page": page,
                 },
@@ -577,6 +577,39 @@ class ZohoClient:
         "Payment Received",
         "Payment Recieved",  # Zoho typo variant
     }
+
+    def _fetch_deal_stages_by_ids(self, deal_ids: list[str]) -> dict[str, dict]:
+        """Returns {deal_id: {"stage": str, "owner": str}} for the specific deals."""
+        import logging
+        log = logging.getLogger(__name__)
+        result: dict[str, dict] = {}
+        BATCH = 50
+        for i in range(0, len(deal_ids), BATCH):
+            batch = deal_ids[i : i + BATCH]
+            ids_param = ",".join(batch)
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/Deals",
+                headers=self._headers(),
+                params={
+                    "ids": ids_param,
+                    "fields": "id,Stage,Owner",
+                },
+                timeout=20,
+            )
+            if resp.status_code == 204 or not resp.ok:
+                log.warning("Deal ID lookup failed %s: %s", resp.status_code, resp.text[:200])
+                continue
+            for deal in resp.json().get("data", []):
+                did = deal.get("id")
+                if did:
+                    owner = deal.get("Owner") or {}
+                    owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
+                    result[did] = {
+                        "stage": deal.get("Stage") or "",
+                        "owner": owner_name,
+                    }
+        log.info("  → deal stages fetched by ID for %d deals", len(result))
+        return result
 
     def _fetch_deal_stages_for_contacts(self, contact_ids: list[str]) -> dict[str, dict]:
         """Returns {contact_id: {"stage": str, "owner": str}} for each contact's most recently modified deal."""
@@ -744,9 +777,13 @@ class ZohoClient:
             who = rec.get("Who_Id") or {}
             cid = who.get("id") if isinstance(who, dict) else None
             phone = contact_phones.get(cid) if cid else None
+            # What_Id links to the related record (usually a Deal)
+            what = rec.get("What_Id") or {}
+            what_id = what.get("id") if isinstance(what, dict) else None
             return {
                 "id": rec["id"],
                 "id_contact": cid,
+                "id_deal": what_id,  # deal linked directly to this call
                 "name": who.get("name") if isinstance(who, dict) else "—",
                 "phone": phone,
                 "created_time": rec.get("Call_Start_Time"),
@@ -765,31 +802,48 @@ class ZohoClient:
             result = {**sched_base(rec), **self._classify_scheduled_call(rec, sc_calls_for(rec))}
             sc_results.append(result)
 
-        # Look up deal stages for ALL scheduled call contacts so the current stage
-        # can be shown in the Result column whenever a deal has moved past "Call Scheduled".
-        log.info("Fetching deal stages for all %d scheduled call contacts...", len(contact_ids))
-        all_contact_ids = list({r["id_contact"] for r in sc_results if r.get("id_contact")})
-        if all_contact_ids:
-            deal_info_map = self._fetch_deal_stages_for_contacts(all_contact_ids)
-            for r in sc_results:
-                cid = r.get("id_contact")
-                if cid and cid in deal_info_map:
-                    info  = deal_info_map[cid]
-                    stage = info["stage"]
-                    owner = info["owner"]
-                    # Surface the stage whenever it's moved beyond the initial "New Deal" stage
-                    if stage and stage != "New Deal":
-                        r["deal_stage"] = stage
-                    # Surface the deal owner for high-value stages
-                    if stage in self.OWNER_VISIBLE_STAGES and owner:
-                        r["deal_owner"] = owner
-                    # Auto-resolve any overdue scheduled call whose deal has moved
-                    # past the "Call Scheduled" stage (rep handled it via the deal).
-                    if (stage
-                            and stage not in ("New Deal", "Call Scheduled")
-                            and r.get("status") in ("missed", "late")):
-                        r["deal_moved_on"] = True
-                        r["status"] = "completed_via_deal"
+        # Look up deal stages — prefer the deal linked directly to each call (What_Id),
+        # fall back to contact-based lookup only for calls with no linked deal.
+        linked_deal_ids = list({r["id_deal"] for r in sc_results if r.get("id_deal")})
+        fallback_contact_ids = list({r["id_contact"] for r in sc_results
+                                     if r.get("id_contact") and not r.get("id_deal")})
+
+        deal_by_id_map = {}
+        if linked_deal_ids:
+            log.info("Fetching deal stages by deal ID for %d linked deals...", len(linked_deal_ids))
+            deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
+
+        deal_by_contact_map = {}
+        if fallback_contact_ids:
+            log.info("Fetching deal stages by contact for %d contacts (no linked deal)...", len(fallback_contact_ids))
+            deal_by_contact_map = self._fetch_deal_stages_for_contacts(fallback_contact_ids)
+
+        for r in sc_results:
+            info = None
+            did = r.get("id_deal")
+            cid = r.get("id_contact")
+            # Prefer the specific deal linked to the call
+            if did and did in deal_by_id_map:
+                info = deal_by_id_map[did]
+            elif cid and cid in deal_by_contact_map:
+                info = deal_by_contact_map[cid]
+
+            if info:
+                stage = info["stage"]
+                owner = info["owner"]
+                # Surface the stage whenever it's moved beyond the initial "New Deal" stage
+                if stage and stage != "New Deal":
+                    r["deal_stage"] = stage
+                # Surface the deal owner for high-value stages
+                if stage in self.OWNER_VISIBLE_STAGES and owner:
+                    r["deal_owner"] = owner
+                # Auto-resolve any overdue scheduled call whose deal has moved
+                # past the "Call Scheduled" stage (rep handled it via the deal).
+                if (stage
+                        and stage not in ("New Deal", "Call Scheduled")
+                        and r.get("status") in ("missed", "late")):
+                    r["deal_moved_on"] = True
+                    r["status"] = "completed_via_deal"
 
         # Workflow auto-completion detection: for overdue calls with 0 dials,
         # check if the Zoho scheduled call was marked Completed by workflow
@@ -941,73 +995,91 @@ class ZohoClient:
                     "description": (t.get("Description") or "")[:200],
                 })
 
-        # 5. HelloSend SMS history linked to this contact
-        # HelloSend SMS module (CustomModule23 in this org). HelloSend records
-        # don't always carry Who_Id linkage to contacts/deals, so we search by
-        # phone number directly. We try a few common phone-field names since
-        # HelloSend's schema can vary by install.
+        # 5. HelloSend / RingCentral SMS history (CustomModule23)
+        # Module API name: ringcentralbulksmsextensionforzohocrm__RingCentral_SMS_History
+        # Key fields discovered from the module:
+        #   To:             ringcentralbulksmsextensionforzohocrm__To          (recipient phone)
+        #   From:           ringcentralbulksmsextensionforzohocrm__From_Number (sender phone)
+        #   SMS body:       ringcentralbulksmsextensionforzohocrm__SMS
+        #   Direction:      ringcentralbulksmsextensionforzohocrm__SMS_Type    (Outbound/Inbound)
+        #   Contact link:   ringcentralbulksmsextensionforzohocrm__Contact_Lookup
+        #   Channel:        ringcentralbulksmsextensionforzohocrm__Channel
+        #   Sent via:       ringcentralbulksmsextensionforzohocrm__SMS_Sent_Via
+        SMS_PREFIX = "ringcentralbulksmsextensionforzohocrm__"
         sms_messages = []
-        sms_module = "CustomModule23"
+        sms_module = f"{SMS_PREFIX}RingCentral_SMS_History"
         contact_phone = normalize_phone(contact.get("phone") or "")
         try:
-            # Build candidate phone variants to match against any text-based
-            # phone field (e.g. "+1 (555) 123-4567" vs "5551234567")
-            phone_variants = []
-            if contact_phone:
-                phone_variants = [
-                    contact_phone,
-                    f"+1{contact_phone}",
-                    f"1{contact_phone}",
-                ]
-
-            # Try field-name candidates one by one. Zoho's search 400s if the
-            # field name doesn't exist — that's our signal to try the next one.
-            field_candidates = ["Phone_Number", "Phone", "To", "Number",
-                                "Mobile", "Recipient", "Recipient_Number",
-                                "PhoneNumber", "Mobile_Number"]
             sms_records = []
-            tried = []
-            for field in field_candidates:
-                if not phone_variants:
-                    break
-                or_terms = "or".join(
-                    f"({field}:equals:{v})" for v in phone_variants
-                )
-                criteria = or_terms if len(phone_variants) == 1 else f"({or_terms})"
-                resp = requests.get(
-                    f"{self.base_url}/crm/v6/{sms_module}/search",
-                    headers=self._headers(),
-                    params={
-                        "criteria": criteria,
-                        "per_page": 50,
-                        "sort_by": "Created_Time",
-                        "sort_order": "desc",
-                    },
-                    timeout=15,
-                )
-                tried.append(f"{field}={resp.status_code}")
-                if resp.status_code == 204:
-                    # Field exists but no records — good signal we hit the right field
-                    sms_records = []
-                    break
-                if resp.ok:
-                    sms_records = resp.json().get("data", [])
-                    if sms_records:
-                        log.info("HelloSend matched %d records via field '%s'", len(sms_records), field)
-                        break
-                # Else (4xx): wrong field name — try next
-            else:
-                log.warning("HelloSend SMS search exhausted candidates: %s", tried)
 
+            # Strategy 1: Search by Contact_Lookup (direct link — most reliable)
+            contact_lookup_field = f"{SMS_PREFIX}Contact_Lookup"
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/{sms_module}/search",
+                headers=self._headers(),
+                params={
+                    "criteria": f"({contact_lookup_field}:equals:{contact_id})",
+                    "per_page": 50,
+                    "sort_by": "Created_Time",
+                    "sort_order": "desc",
+                },
+                timeout=15,
+            )
+            if resp.ok:
+                sms_records = resp.json().get("data", [])
+                log.info("HelloSend: %d SMS via Contact_Lookup for %s", len(sms_records), contact_id)
+
+            # Strategy 2: If no results via lookup, search by phone number
+            # (catches messages where Contact_Lookup wasn't populated)
+            if not sms_records and contact_phone:
+                to_field = f"{SMS_PREFIX}To"
+                from_field = f"{SMS_PREFIX}From_Number"
+                phone_variants = [f"+1{contact_phone}", contact_phone]
+                # Search To field (outbound to contact) and From field (inbound from contact)
+                for field in [to_field, from_field]:
+                    or_terms = "or".join(f"({field}:equals:{v})" for v in phone_variants)
+                    criteria = f"({or_terms})" if len(phone_variants) > 1 else or_terms
+                    resp = requests.get(
+                        f"{self.base_url}/crm/v6/{sms_module}/search",
+                        headers=self._headers(),
+                        params={
+                            "criteria": criteria,
+                            "per_page": 50,
+                            "sort_by": "Created_Time",
+                            "sort_order": "desc",
+                        },
+                        timeout=15,
+                    )
+                    if resp.ok:
+                        new_recs = resp.json().get("data", [])
+                        # Merge, deduplicate by ID
+                        existing_ids = {r["id"] for r in sms_records}
+                        for r in new_recs:
+                            if r["id"] not in existing_ids:
+                                sms_records.append(r)
+                                existing_ids.add(r["id"])
+                if sms_records:
+                    log.info("HelloSend: %d SMS via phone match for %s", len(sms_records), contact_phone)
+                    # Re-sort merged results by Created_Time desc
+                    sms_records.sort(key=lambda r: r.get("Created_Time", ""), reverse=True)
+
+            sms_body_field = f"{SMS_PREFIX}SMS"
+            sms_type_field = f"{SMS_PREFIX}SMS_Type"
+            sms_via_field  = f"{SMS_PREFIX}SMS_Sent_Via"
             for s in sms_records:
-                # Pick whichever field actually holds the message body
-                msg = (s.get("Message") or s.get("Body") or
-                       s.get("Content") or s.get("Name") or "")
+                msg = s.get(sms_body_field) or s.get("Name") or ""
+                sms_type = s.get(sms_type_field) or ""  # "Outbound" or "Inbound"
+                direction = "outbound" if "outbound" in sms_type.lower() else (
+                    "inbound" if "inbound" in sms_type.lower() else sms_type
+                )
+                owner = s.get("Owner") or {}
+                owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
                 sms_messages.append({
                     "time": s.get("Created_Time"),
-                    "direction": s.get("Direction") or s.get("Type") or "",
+                    "direction": direction,
                     "message": str(msg)[:300],
-                    "status": s.get("Status") or s.get("Delivery_Status") or "",
+                    "status": s.get(sms_via_field) or "",
+                    "owner": owner_name,
                 })
         except Exception as e:
             log.warning("SMS history fetch failed: %s", e)
