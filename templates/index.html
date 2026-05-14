@@ -233,23 +233,25 @@
       border-radius: var(--radius);
       overflow-x: auto; overflow-y: visible;
       background: var(--surface);
+      box-shadow: 0 1px 3px rgba(15,23,42,.04);
     }
-    .table-wrap::-webkit-scrollbar { height: 10px; }
-    .table-wrap::-webkit-scrollbar-thumb { background: rgba(15,23,42,.18); border-radius: 5px; }
-    .table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,.3); }
+    .table-wrap::-webkit-scrollbar { height: 6px; }
+    .table-wrap::-webkit-scrollbar-track { background: transparent; }
+    .table-wrap::-webkit-scrollbar-thumb { background: rgba(15,23,42,.14); border-radius: 3px; }
+    .table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,.25); }
     table { width: 100%; border-collapse: separate; border-spacing: 0; }
     th {
-      text-align: left; font-size: 10px; font-weight: 800;
-      color: var(--secondary); text-transform: uppercase;
-      letter-spacing: .08em; padding: 8px 10px;
+      text-align: left; font-size: 10px; font-weight: 700;
+      color: var(--tertiary); text-transform: uppercase;
+      letter-spacing: .06em; padding: 10px 12px 9px;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
-      background: linear-gradient(180deg, #fafbff, var(--surface2));
+      background: var(--surface);
     }
     th.sortable { cursor: pointer; user-select: none; transition: color .12s; }
     th.sortable:hover { color: var(--blue); }
-    th.sort-asc::after  { content: " ↑"; color: var(--blue); }
-    th.sort-desc::after { content: " ↓"; color: var(--blue); }
+    th.sort-asc::after  { content: " ↑"; color: var(--blue); font-weight: 800; }
+    th.sort-desc::after { content: " ↓"; color: var(--blue); font-weight: 800; }
     th { position: relative; }
     th .col-resize {
       position: absolute; right: 0; top: 0; bottom: 0;
@@ -257,135 +259,140 @@
       background: transparent; transition: background .12s;
       z-index: 4;
     }
-    th .col-resize:hover, th .col-resize.active { background: var(--blue); opacity: .6; }
+    th .col-resize:hover, th .col-resize.active { background: var(--blue); opacity: .5; }
     th[draggable="true"] { cursor: grab; }
     th[draggable="true"].dragging { opacity: 0.4; }
     th.drop-target { box-shadow: inset -3px 0 0 var(--blue); }
     td {
-      padding: 7px 10px; border-bottom: 1px solid var(--sep);
-      vertical-align: middle; font-size: 12.5px; line-height: 1.4;
-      /* Single-line rows by default — long content truncates with ellipsis */
+      padding: 9px 12px; border-bottom: 1px solid rgba(15,23,42,.045);
+      vertical-align: middle; font-size: 12.5px; line-height: 1.45;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       max-width: 280px;
       font-feature-settings: "tnum";
+      color: var(--text);
     }
-    /* Some cells need their content fully visible (flex containers with their own overflow handling) */
     td.col-name, td.col-status, td.col-result, td.col-source, td.col-rec, td.col-dials,
     td.col-stage { overflow: visible; }
     tr:last-child td { border-bottom: none; }
-    tbody tr:nth-child(even) td { background: rgba(15,23,42,.014); }
-    tbody tr { transition: background .08s; }
-    tr:hover td { background: rgba(37,99,235,.05) !important; }
-    /* Subtle vertical column dividers using td shadow — only visible on hover */
-    tbody tr:hover td { box-shadow: inset 1px 0 0 rgba(15,23,42,.05); }
-    tbody tr:hover td:first-child { box-shadow: none; }
-    /* Sticky-feel for first column: subtle right shadow */
-    tbody td:first-child {
-      position: relative;
-    }
-    /* Compact density on hover-able rows */
-    tr.row-completed     td:first-child,
-    tr.row-early         td:first-child,
-    tr.row-via-deal      td:first-child,
-    tr.row-via-workflow  td:first-child,
-    tr.row-missed        td:first-child,
-    tr.row-late          td:first-child,
-    tr.row-overdue       td:first-child { padding-left: 9px; }
+    tbody tr { transition: background .1s ease; }
+    tr:hover td { background: rgba(37,99,235,.035) !important; }
 
-    /* Compact badges / pills to match denser rows */
-    .badge        { padding: 2px 7px; font-size: 10.5px; }
-    .stage-tag    { padding: 2px 6px; font-size: 10px; }
-    .src-pill     { padding: 1px 6px; font-size: 9.5px; }
-    .floor-badge  { padding: 1px 5px; font-size: 9px; margin-left: 5px; }
-    .expand-btn   { width: 14px; height: 14px; font-size: 8px; }
-    .summary-btn  { width: 16px; height: 16px; font-size: 10px; }
+    /* Left status indicator stripe */
+    tr.row-completed td:first-child  { box-shadow: inset 2.5px 0 0 var(--green);  }
+    tr.row-early     td:first-child  { box-shadow: inset 2.5px 0 0 var(--teal);   }
+    tr.row-via-deal     td:first-child  { box-shadow: inset 2.5px 0 0 var(--purple); }
+    tr.row-via-workflow td:first-child  { box-shadow: inset 2.5px 0 0 var(--teal);   }
+    tr.row-missed    td:first-child { box-shadow: inset 2.5px 0 0 var(--red);    }
+    tr.row-late      td:first-child { box-shadow: inset 2.5px 0 0 var(--orange); }
+    tr.row-overdue   td:first-child { box-shadow: inset 2.5px 0 0 #ff3b30;       }
 
-    tr.row-completed td:first-child  { box-shadow: inset 3px 0 0 var(--green);   padding-left: 10px; }
-    tr.row-early     td:first-child  { box-shadow: inset 3px 0 0 var(--teal);    padding-left: 10px; }
-    tr.row-via-deal     td:first-child  { box-shadow: inset 3px 0 0 var(--purple);  padding-left: 10px; }
-    tr.row-via-workflow td:first-child  { box-shadow: inset 3px 0 0 var(--teal);    padding-left: 10px; }
-    tr.row-missed    td:first-child { box-shadow: inset 3px 0 0 var(--red);     padding-left: 10px; }
-    tr.row-late      td:first-child { box-shadow: inset 3px 0 0 var(--orange);  padding-left: 10px; }
-    tr.row-overdue   td:first-child { box-shadow: inset 3px 0 0 #ff3b30;        padding-left: 10px; }
-
-    .name-cell  { max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
-    .name-link  { color: var(--text); text-decoration: none; font-weight: 600; font-size: 13px; }
+    .name-cell  { max-width: 210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+    .name-link  { color: var(--text); text-decoration: none; font-weight: 600; font-size: 12.5px; }
     .name-link:hover { color: var(--blue); text-decoration: underline; }
-    .phone-cell { font-family: "SF Mono","Fira Code",monospace; font-size: 12px; color: var(--secondary); letter-spacing: -.2px; }
+    .phone-cell { font-family: "SF Mono","Fira Code",monospace; font-size: 11.5px; color: var(--secondary); letter-spacing: -.2px; }
     .dim        { font-size: 12px; color: var(--secondary); }
-    .empty-state{ padding: 32px; text-align:center; color:var(--tertiary); font-size:13px; font-weight:500; }
-    /* Clean empty-field indicator — replaces ugly "—" dashes */
-    .no-data { color: var(--tertiary); opacity: .45; font-size: 11px; font-weight: 400; letter-spacing: .02em; user-select: none; }
+    .empty-state{ padding: 36px; text-align:center; color:var(--tertiary); font-size:13px; font-weight:500; }
+    .no-data { color: var(--tertiary); opacity: .35; font-size: 11px; font-weight: 400; letter-spacing: .02em; user-select: none; }
 
     /* ══════════════ BADGES ══════════════ */
     .badge {
-      display: inline-flex; align-items: center;
-      border-radius: 6px; padding: 4px 10px;
-      font-size: 11px; font-weight: 700;
+      display: inline-flex; align-items: center; gap: 3px;
+      border-radius: 5px; padding: 3px 8px;
+      font-size: 10.5px; font-weight: 600;
       white-space: nowrap; letter-spacing: .01em;
-      border: 1px solid transparent;
+      border: none;
     }
-    .badge-green  { border-color: rgba(16,185,129,.2); }
-    .badge-red    { border-color: rgba(239,68,68,.2); }
-    .badge-orange { border-color: rgba(245,158,11,.2); }
-    .badge-teal   { border-color: rgba(6,182,212,.2); }
-    .badge-purple { border-color: rgba(139,92,246,.2); }
-    .badge-blue   { border-color: rgba(37,99,235,.2); }
-    .badge-yellow { border-color: rgba(234,179,8,.22); }
-    .badge-green  { background: rgba(52,199,89,.12);  color: var(--green-dk);  }
-    .badge-red    { background: rgba(255,59,48,.1);   color: var(--red-dk);    }
-    .badge-orange { background: rgba(255,159,10,.12); color: var(--orange-dk); }
-    .badge-yellow { background: rgba(255,204,0,.15);  color: var(--yellow-dk); }
-    .badge-blue   { background: rgba(0,122,255,.1);   color: var(--blue-dk);   }
-    .badge-teal   { background: rgba(50,173,230,.12); color: var(--teal-dk);   }
-    .badge-purple { background: rgba(175,82,222,.1);  color: var(--purple-dk); }
-    .badge-gray   { background: rgba(142,142,147,.1); color: var(--secondary); }
+    .badge-green  { background: rgba(16,185,129,.1);   color: var(--green-dk);  }
+    .badge-red    { background: rgba(239,68,68,.09);   color: var(--red-dk);    }
+    .badge-orange { background: rgba(245,158,11,.1);   color: var(--orange-dk); }
+    .badge-yellow { background: rgba(234,179,8,.12);   color: var(--yellow-dk); }
+    .badge-blue   { background: rgba(37,99,235,.08);   color: var(--blue-dk);   }
+    .badge-teal   { background: rgba(6,182,212,.1);    color: var(--teal-dk);   }
+    .badge-purple { background: rgba(139,92,246,.09);  color: var(--purple-dk); }
+    .badge-gray   { background: rgba(142,142,147,.08); color: var(--secondary); }
 
     /* Deal-stage tag with category-based colors */
     .stage-tag {
       display: inline-flex; align-items: center;
-      font-size: 10.5px; font-weight: 700;
-      background: rgba(142,142,147,.1); color: var(--secondary);
-      border-radius: 5px; padding: 3px 8px;
+      font-size: 10px; font-weight: 600;
+      background: rgba(142,142,147,.08); color: var(--secondary);
+      border-radius: 4px; padding: 2px 7px;
       white-space: nowrap; vertical-align: middle;
       letter-spacing: .01em;
-      border: 1px solid transparent;
+      border: none;
     }
-    .stage-tag.neutral    { background: rgba(142,142,147,.1);  color: var(--secondary);  }
-    .stage-tag.s-new      { background: rgba(99,102,241,.1);   color: #4338ca;           border-color: rgba(99,102,241,.18); }
-    .stage-tag.s-scheduled{ background: rgba(37,99,235,.1);    color: var(--blue-dk);    border-color: rgba(37,99,235,.18); }
-    .stage-tag.s-quote    { background: rgba(139,92,246,.1);   color: var(--purple-dk);  border-color: rgba(139,92,246,.18); }
-    .stage-tag.s-invoice  { background: rgba(6,182,212,.1);    color: var(--teal-dk);    border-color: rgba(6,182,212,.2); }
-    .stage-tag.s-paid     { background: rgba(16,185,129,.12);  color: var(--green-dk);   border-color: rgba(16,185,129,.22); }
-    .stage-tag.s-won      { background: rgba(16,185,129,.18);  color: #065f46;           border-color: rgba(16,185,129,.35); }
-    .stage-tag.s-followup { background: rgba(234,179,8,.14);   color: var(--yellow-dk);  border-color: rgba(234,179,8,.22); }
-    .stage-tag.s-prev     { background: rgba(100,116,139,.12); color: #475569;           border-color: rgba(100,116,139,.2); }
-    .stage-tag.s-spanish  { background: rgba(245,158,11,.12);  color: var(--orange-dk);  border-color: rgba(245,158,11,.22); }
-    .stage-tag.s-noanswer { background: rgba(239,68,68,.08);   color: var(--red-dk);     border-color: rgba(239,68,68,.18); }
-    .stage-tag.s-unsub    { background: rgba(15,23,42,.06);    color: #64748b;           border-color: rgba(15,23,42,.12); text-decoration: line-through; }
-    .stage-tag.s-lost     { background: rgba(239,68,68,.12);   color: var(--red-dk);     border-color: rgba(239,68,68,.22); }
+    .stage-tag.neutral    { background: rgba(142,142,147,.08); color: var(--secondary);  }
+    .stage-tag.s-new      { background: rgba(99,102,241,.08);  color: #4f46e5;           }
+    .stage-tag.s-scheduled{ background: rgba(37,99,235,.08);   color: var(--blue-dk);    }
+    .stage-tag.s-quote    { background: rgba(139,92,246,.08);  color: var(--purple-dk);  }
+    .stage-tag.s-invoice  { background: rgba(6,182,212,.08);   color: var(--teal-dk);    }
+    .stage-tag.s-paid     { background: rgba(16,185,129,.1);   color: var(--green-dk);   }
+    .stage-tag.s-won      { background: rgba(16,185,129,.14);  color: #065f46;           }
+    .stage-tag.s-followup { background: rgba(234,179,8,.1);    color: var(--yellow-dk);  }
+    .stage-tag.s-prev     { background: rgba(100,116,139,.08); color: #475569;           }
+    .stage-tag.s-spanish  { background: rgba(245,158,11,.08);  color: var(--orange-dk);  }
+    .stage-tag.s-noanswer { background: rgba(239,68,68,.07);   color: var(--red-dk);     }
+    .stage-tag.s-unsub    { background: rgba(15,23,42,.04);    color: #94a3b8;           text-decoration: line-through; }
+    .stage-tag.s-lost     { background: rgba(239,68,68,.08);   color: var(--red-dk);     }
 
     /* source pills (RingCX / RingEX) */
     .src-pill {
       display: inline-flex; align-items: center;
-      font-size: 10px; font-weight: 800; letter-spacing: .02em;
-      border-radius: 4px; padding: 2px 7px;
-      white-space: nowrap;
+      font-size: 9.5px; font-weight: 700; letter-spacing: .03em;
+      border-radius: 3px; padding: 2px 6px;
+      white-space: nowrap; text-transform: uppercase;
     }
-    .src-ringcx { background: rgba(37,99,235,.1); color: var(--blue-dk); }
-    .src-rex    { background: rgba(245,158,11,.12); color: var(--orange-dk); }
+    .src-ringcx { background: rgba(37,99,235,.07); color: var(--blue-dk); }
+    .src-rex    { background: rgba(245,158,11,.08); color: var(--orange-dk); }
 
     /* "ⓘ 9 AM" floor badge */
     .floor-badge {
       display: inline-flex; align-items: center;
-      font-size: 9.5px; font-weight: 700;
-      background: rgba(245,158,11,.1); color: var(--orange-dk);
+      font-size: 9px; font-weight: 600;
+      background: rgba(245,158,11,.08); color: var(--orange-dk);
       border-radius: 3px; padding: 1px 5px;
-      margin-left: 6px; vertical-align: middle;
+      margin-left: 5px; vertical-align: middle;
       cursor: help; letter-spacing: .02em;
-      border: 1px solid rgba(245,158,11,.22);
+      border: none;
     }
-    .floor-badge:hover { background: rgba(245,158,11,.18); }
+    .floor-badge:hover { background: rgba(245,158,11,.15); }
+
+    /* Result column inline tags */
+    .result-tag {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 11.5px; font-weight: 600; font-feature-settings: "tnum";
+      white-space: nowrap;
+    }
+    .result-tag.r-on-time   { color: var(--green-dk); }
+    .result-tag.r-early     { color: var(--teal-dk); }
+    .result-tag.r-late-call { color: var(--orange-dk); }
+    .result-tag.r-missed    { color: var(--red-dk); }
+    .result-tag.r-overdue   { color: var(--orange-dk); }
+    .result-tag.r-deal      { color: var(--purple-dk); }
+    .result-tag.r-workflow  { color: var(--teal-dk); }
+    .result-tag.r-resolved  { color: var(--secondary); }
+    .result-tag.r-live      { color: var(--green-dk); }
+    .result-tag.r-countdown { color: var(--blue-dk); font-variant-numeric: tabular-nums; }
+    .result-tag .result-sub { font-size: 10.5px; font-weight: 500; color: var(--secondary); margin-left: 2px; }
+
+    /* Timestamp cells */
+    .ts-cell { font-feature-settings: "tnum"; font-size: 12px; font-weight: 500; color: var(--secondary); }
+    .ts-cell.ts-actual { color: var(--text); font-weight: 600; }
+
+    /* Dials cell */
+    .dials-val { font-weight: 700; font-size: 12px; color: var(--text); font-feature-settings: "tnum"; }
+    .dials-src { font-size: 9px; font-weight: 600; color: var(--secondary); background: rgba(142,142,147,.06); border-radius: 3px; padding: 1px 4px; margin-left: 3px; }
+
+    /* Disposition cell */
+    .disp-text { font-size: 12px; font-weight: 500; color: var(--text); }
+    .disp-caller { font-size: 11.5px; color: var(--tertiary); }
+
+    /* Compact overrides for in-table badges/pills */
+    td .badge        { padding: 2px 7px; font-size: 10.5px; }
+    td .stage-tag    { padding: 2px 6px; font-size: 10px; }
+    td .src-pill     { padding: 1px 5px; font-size: 9px; }
+    .expand-btn   { width: 14px; height: 14px; font-size: 8px; }
+    .summary-btn  { width: 16px; height: 16px; font-size: 10px; }
 
     /* Column show/hide menu — refined card */
     .cols-menu-wrap { position: relative; display: inline-block; }
@@ -2313,11 +2320,11 @@
       early:              ["↑ Early","badge-teal"],
       completed_via_deal:     ["✓ Other","badge-purple"],
       completed_via_workflow: ["✓ Workflow","badge-teal"],
-      pending:            ["⏳ Pending","badge-yellow"],
+      pending:            ["Pending","badge-yellow"],
       missed:             ["✗ Missed","badge-red"],
-      upcoming:           ["⏰ Upcoming","badge-blue"],
-      late:               ["⚠ Overdue","badge-orange"],
-      no_schedule:        ["— N/A","badge-gray"],
+      upcoming:           ["Upcoming","badge-blue"],
+      late:               ["Overdue","badge-orange"],
+      no_schedule:        ["N/A","badge-gray"],
     };
     const [label, cls] = map[status] || [status,"badge-gray"];
     return `<span class="badge ${cls}">${label}</span>`;
@@ -3447,42 +3454,38 @@
       if (liveCall) {
         const agent = liveCall.agent_name || "Agent";
         const dur = fmtDuration(liveCall.duration_sec || 0);
-        result = `<span style="color:var(--green-dk);font-weight:700">🟢 On Call</span> <span style="font-size:11px;color:var(--secondary)">${agent} · ${dur}</span>`;
+        result = `<span class="result-tag r-live">🟢 On Call <span class="result-sub">${agent} · ${dur}</span></span>`;
       // Resolved manually — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
-        result = `<span style="color:var(--secondary);font-weight:600">Resolved manually</span>`;
+        result = `<span class="result-tag r-resolved">Resolved manually</span>`;
       } else if (bucket === "on_time" && liveOffset !== null) {
-        result = `<span style="color:var(--green-dk);font-weight:700">${sign(liveOffset)}${liveOffset} min from scheduled</span>`;
+        result = `<span class="result-tag r-on-time">${sign(liveOffset)}${liveOffset} min</span>`;
       } else if (bucket === "early" && liveOffset !== null) {
-        result = `<span style="color:var(--teal-dk);font-weight:700">${Math.abs(liveOffset)} min early</span>`;
+        result = `<span class="result-tag r-early">${Math.abs(liveOffset)} min early</span>`;
       } else if (bucket === "late_call" && liveOffset !== null) {
-        result = `<span style="color:var(--orange-dk);font-weight:700">+${liveOffset} min from scheduled</span>`;
+        result = `<span class="result-tag r-late-call">+${liveOffset} min late</span>`;
       } else if (r.status === "completed_via_deal") {
-        // Stage + owner now live in the Deal Stage column. Result here just describes
-        // how the slot was fulfilled (and a time diff if we have an actual call).
         const diffTag = (liveOffset !== null)
-          ? ` <span style="color:var(--secondary);font-weight:600;font-size:11px">${sign(liveOffset)}${liveOffset} min</span>`
+          ? ` <span class="result-sub">${sign(liveOffset)}${liveOffset} min</span>`
           : "";
-        result = `<span style="color:var(--purple-dk);font-weight:600">Resolved via Deal</span>${diffTag}`;
+        result = `<span class="result-tag r-deal">Via Deal${diffTag}</span>`;
       } else if (r.status === "completed_via_workflow") {
         const wfDesc = (r.sched_description||"").slice(0,120).trim();
-        result = `<span style="color:var(--teal-dk);font-weight:600">Auto-completed by workflow</span>`
-             + (wfDesc ? ` <span class="dim" style="font-size:11px" title="${wfDesc.replace(/"/g,'&quot;')}">${wfDesc.length>60?wfDesc.slice(0,60)+"…":wfDesc}</span>` : "");
+        result = `<span class="result-tag r-workflow">Auto-completed</span>`
+             + (wfDesc ? ` <span class="result-sub" title="${wfDesc.replace(/"/g,'&quot;')}">${wfDesc.length>50?wfDesc.slice(0,50)+"…":wfDesc}</span>` : "");
       } else if (r.status === "missed" && r.scheduled_time) {
-        // Recompute now-vs-scheduled client-side so it matches the (already-floored) Scheduled column
         const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
-        result = `<span style="color:var(--red-dk);font-weight:700">${od} min overdue · no dial</span>`;
+        result = `<span class="result-tag r-missed">${od} min overdue <span class="result-sub">no dial</span></span>`;
       } else if (r.status === "late" && r.scheduled_time) {
         const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
-        result = `<span style="color:var(--orange-dk);font-weight:700">${od} min overdue</span>`;
+        result = `<span class="result-tag r-overdue">${od} min overdue</span>`;
       } else if (r.status === "upcoming" && r.scheduled_time) {
-        // Live countdown — updated every second by tickCountdowns()
         const cd = countdown(r.scheduled_time);
-        result = `<span class="row-cd" data-cd-iso="${r.scheduled_time}" style="color:var(--blue);font-weight:700;font-variant-numeric:tabular-nums">in ${cd.text}</span>`;
+        result = `<span class="result-tag r-countdown row-cd" data-cd-iso="${r.scheduled_time}">in ${cd.text}</span>`;
       } else if (r.status==="no_schedule") {
-        result=`<span class="dim">No schedule time</span>`;
+        result=`<span class="no-data">No schedule</span>`;
       } else {
-        result=`<span class="dim">—</span>`;
+        result=`<span class="no-data">—</span>`;
       }
       // Deal stage now lives in its own column with semantic colors.
       const stageCell = r.deal_stage
@@ -3490,19 +3493,19 @@
           (r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "")
         : `<span class="no-data">—</span>`;
       const sourceCell = r.logged_via === "ringcx"
-        ? `<span class="src-pill src-ringcx" title="Logged via RingCX">RingCX</span>`
+        ? `<span class="src-pill src-ringcx">RingCX</span>`
         : r.logged_via === "mvp"
-          ? `<span class="src-pill src-rex" title="Logged via RingEX">RingEX</span>`
+          ? `<span class="src-pill src-rex">RingEX</span>`
           : `<span class="no-data">—</span>`;
       const lastDialCell = r.last_attempt_time
-        ? `<span style="font-feature-settings:'tnum';font-weight:600;color:var(--text);font-size:12px">${fmt(r.last_attempt_time)}</span>`
+        ? `<span class="ts-cell ts-actual">${fmt(r.last_attempt_time)}</span>`
         : `<span class="no-data">—</span>`;
       const dials=r.dial_attempts??0;
       const dialsCell = dials === 0
         ? `<span class="no-data">0</span>`
         : r.mvp_only
-          ? `<span style="font-weight:700;color:var(--text)">${dials}</span> <span title="Dialed via RingEX" style="font-size:9.5px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.08);border-radius:4px;padding:1px 5px">RingEX</span>`
-          : `<span style="font-weight:700;color:var(--text)">${dials}</span>`;
+          ? `<span class="dials-val">${dials}</span><span class="dials-src">RingEX</span>`
+          : `<span class="dials-val">${dials}</span>`;
       const cls = r.status==="completed"          ? "row-completed"
                 : r.status==="early"               ? "row-early"
                 : r.status==="completed_via_deal"  ? "row-via-deal"
@@ -3510,7 +3513,7 @@
                 : r.status==="missed"              ? "row-missed"
                 : r.status==="late"                ? "row-late" : "";
       const actualCell = r.actual_call_time
-        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum';font-size:12px">${fmt(r.actual_call_time)}</span>`
+        ? `<span class="ts-cell ts-actual">${fmt(r.actual_call_time)}</span>`
         : `<span class="no-data">—</span>`;
       // Tooltip badge for calls originally scheduled before 9 AM
       const flooredBadge = r._floored && r._scheduled_original
@@ -3537,12 +3540,12 @@
         ? `<span class="phone-cell">${r.phone}</span>`
         : `<span class="no-data">—</span>`;
       const dispCell = r.mvp_only
-        ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`)
+        ? (r.caller ? `<span class="disp-caller">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`)
         : (r.disposition
-            ? `<span style="font-size:12px;color:var(--text);font-weight:500">${r.disposition}</span>`
-            : (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`));
+            ? `<span class="disp-text">${r.disposition}</span>`
+            : (r.caller ? `<span class="disp-caller">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`));
       const schedCell = r.scheduled_time
-        ? `<span style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary);font-weight:500">${fmt(r.scheduled_time)}</span>`
+        ? `<span class="ts-cell">${fmt(r.scheduled_time)}</span>`
         : `<span class="no-data">—</span>`;
 
       return `<tr class="${cls}"${r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : ''}>
