@@ -45,6 +45,11 @@ class RingCXClient:
         self._cx_token_expiry: float = 0
         self._cx_account_id: Optional[str] = None
 
+        # Agent status cache (avoid 62 API calls every 15s)
+        self._agents_cache: list[dict] = []
+        self._agents_cache_expiry: float = 0
+        self._AGENTS_CACHE_TTL = 60  # refresh agents every 60s, not every poll
+
     @property
     def configured(self) -> bool:
         return bool(self.client_id and self.client_secret and self.jwt_token)
@@ -117,8 +122,9 @@ class RingCXClient:
         data = resp.json()
         self._cx_token = data.get("accessToken")
         self._cx_refresh_token = data.get("refreshToken")
-        # RingCX tokens are valid for 5 minutes
-        self._cx_token_expiry = time.time() + 240  # refresh at 4 min to be safe
+        # RingCX tokens are valid for 5 minutes — refresh at 4 min to be safe
+        self._cx_token_expiry = time.time() + 240
+        log.info("RingCX token expires at +240s, refresh token: %s", "yes" if self._cx_refresh_token else "no")
 
         # Extract account ID from agentDetails
         agent_details = data.get("agentDetails") or []
@@ -245,18 +251,11 @@ class RingCXClient:
 
     def get_agent_statuses(self) -> list[dict]:
         """Fetch presence status for all extensions via RingEX API.
-
-        Returns:
-        [
-            {
-                "ext_id": "12345",
-                "name": "Jane Doe",
-                "status": "Available" | "Busy" | "DoNotDisturb" | "Offline",
-                "telephony_status": "NoCall" | "Ringing" | "OnHold" | "CallConnected",
-                "active_calls": [...],
-            },
-        ]
+        Cached for 60 seconds to avoid rate-limiting (62 extensions × 15s = too many calls).
         """
+        if self._agents_cache and time.time() < self._agents_cache_expiry:
+            return self._agents_cache
+
         try:
             all_extensions = []
             page = 1
@@ -316,11 +315,13 @@ class RingCXClient:
                     })
 
             log.info("RingEX: %d agent statuses fetched", len(agents))
+            self._agents_cache = agents
+            self._agents_cache_expiry = time.time() + self._AGENTS_CACHE_TTL
             return agents
 
         except Exception as e:
             log.error("RingEX agent statuses error: %s", e)
-            return []
+            return self._agents_cache if self._agents_cache else []
 
     # ══════════════════════════════════════════════════════════════
     # Combined live snapshot (both APIs)
