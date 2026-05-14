@@ -840,22 +840,6 @@
       font-size: 11px; font-weight: 700;
       padding: 2px 8px; border-radius: 10px;
     }
-    .lp-meta {
-      margin-left: auto;
-      display: flex; align-items: center; gap: 14px;
-      font-size: 12px; color: var(--secondary);
-    }
-    .lp-stat {
-      display: flex; align-items: center; gap: 5px;
-    }
-    .lp-stat .dot {
-      width: 8px; height: 8px; border-radius: 50%;
-    }
-    .lp-stat .dot.green { background: var(--green); }
-    .lp-stat .dot.red   { background: var(--red); }
-    .lp-stat .dot.orange { background: var(--orange); }
-    .lp-stat .dot.gray  { background: var(--tertiary); }
-    .lp-stat .num { font-weight: 700; color: var(--text); }
     .lp-caret {
       font-size: 16px; color: var(--tertiary); transition: transform .2s;
     }
@@ -1335,7 +1319,6 @@
       .live-panel { margin-bottom: 14px; }
       .lp-header { padding: 10px 14px; gap: 8px; }
       .lp-title { font-size: 13px; }
-      .lp-meta { gap: 8px; font-size: 11px; }
       .lp-calls-grid { grid-template-columns: 1fr; gap: 6px; padding: 10px 14px; max-height: 220px; }
       .lp-call-card { min-height: 58px; padding: 8px 10px; }
       .lp-call-agent { font-size: 11px; }
@@ -1792,11 +1775,6 @@
       <div class="lp-title">
         Live Monitor
         <span class="lp-title-count" id="lp-call-count">0</span>
-      </div>
-      <div class="lp-meta" id="lp-meta">
-        <span class="lp-stat"><span class="dot green"></span><span class="num" id="lp-on-call">0</span> on call</span>
-        <span class="lp-stat"><span class="dot orange"></span><span class="num" id="lp-available">0</span> available</span>
-        <span class="lp-stat"><span class="dot red"></span><span class="num" id="lp-dnd">0</span> DND</span>
       </div>
       <span class="lp-caret">▾</span>
     </div>
@@ -3538,9 +3516,6 @@
     const allCalls = [...calls, ...rexCalls];
 
     document.getElementById("lp-call-count").textContent = allCalls.length;
-    document.getElementById("lp-on-call").textContent = onCall.length;
-    document.getElementById("lp-available").textContent = avail.length;
-    document.getElementById("lp-dnd").textContent = dnd.length;
 
     // Calls grid
     const grid = document.getElementById("lp-calls-grid");
@@ -3585,9 +3560,15 @@
           </div>
           <div class="lp-call-detail">
             <span>📞</span>
-            <span class="phone">${formatPhone(call.ani || call.from)}</span>
-            <span style="color:var(--tertiary)">→</span>
-            <span class="phone">${formatPhone(call.dnis || call.to)}</span>
+            ${(() => {
+              const dir = (call.direction || call.call_state || "").toUpperCase();
+              const isOutbound = dir.includes("OUTDIAL") || dir.includes("OUTBOUND") || dir.includes("OUT");
+              const caller = isOutbound ? (call.dnis || call.to) : (call.ani || call.from);
+              const dialed = isOutbound ? (call.ani || call.from) : (call.dnis || call.to);
+              return `<span class="phone">${formatPhone(caller)}</span>
+                      <span style="color:var(--tertiary)">→</span>
+                      <span class="phone">${formatPhone(dialed)}</span>`;
+            })()}
           </div>
           ${matchHtml}
         </div>`;
