@@ -2354,10 +2354,11 @@
     const past = sc.records.filter(r => r.status !== "upcoming");
     // Long-overdue = still missed (not closed via deal or workflow) AND >60 min overdue
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    // Activity table always shows everything (past + upcoming), minus long-overdue
-    // (which gets its own zone below). The upcoming strip at the top is a
-    // shortcut highlight, not a substitute for the table.
-    const activity = sc.records;  // show ALL records including long-overdue (overdue zone is for escalation tracking)
+    const HIDE_FROM_MAIN_MIN = 90; // hide from main list if >90 min overdue (unless resolved)
+    const isHiddenOverdue = r => r.status==="missed" && (r.minutes_overdue||0) > HIDE_FROM_MAIN_MIN && !r.completed_via_workflow && !r.resolved;
+    // Activity table: hide 90+ min overdue calls (they live in the overdue zone),
+    // but show them back if they've been resolved by manager
+    const activity = sc.records.filter(r => !isHiddenOverdue(r));
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;
