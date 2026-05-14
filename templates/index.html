@@ -940,32 +940,6 @@
     .lp-call-state.ringing { background: rgba(245,158,11,.12); color: var(--orange-dk); }
     .lp-call-state.outdial { background: rgba(37,99,235,.1); color: var(--blue-dk); }
 
-    /* Agent status bar */
-    .lp-agents-bar {
-      display: flex; gap: 6px; flex-wrap: wrap;
-      padding: 12px 20px;
-      border-top: 1px solid var(--sep);
-      background: var(--surface2);
-    }
-    .lp-agent-chip {
-      display: flex; align-items: center; gap: 5px;
-      padding: 4px 10px; border-radius: 8px;
-      font-size: 11px; font-weight: 500;
-      background: var(--surface);
-      border: 1px solid var(--sep);
-      white-space: nowrap;
-    }
-    .lp-agent-chip .dot {
-      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-    }
-    .lp-agent-chip.on-call { border-color: rgba(16,185,129,.3); }
-    .lp-agent-chip.on-call .dot { background: var(--green); }
-    .lp-agent-chip.available .dot { background: var(--blue); }
-    .lp-agent-chip.dnd .dot { background: var(--red); }
-    .lp-agent-chip.busy .dot { background: var(--orange); }
-    .lp-agent-chip.offline { opacity: .45; }
-    .lp-agent-chip.offline .dot { background: var(--tertiary); }
-
     .lp-empty {
       padding: 14px 20px;
       text-align: center;
@@ -1814,7 +1788,6 @@
     </div>
     <div class="lp-body">
       <div class="lp-calls-grid" id="lp-calls-grid"></div>
-      <div class="lp-agents-bar" id="lp-agents-bar"></div>
       <div class="lp-refresh-note" id="lp-refresh-note"></div>
     </div>
   </div>
@@ -3606,41 +3579,6 @@
         </div>`;
       }).join("");
     }
-
-    // Agent status bar — show on-call agents first, then available, then DND, then busy
-    const agentBar = document.getElementById("lp-agents-bar");
-    // Only show human agents (skip departments, queues, system extensions)
-    const humanAgents = agents.filter(a => {
-      const n = (a.name || "").toLowerCase();
-      return !n.includes("department") && !n.includes("agent") && !n.includes("info ")
-        && !n.includes("med spa") && !n.includes("folli md") && !n.includes("meltme")
-        && !n.includes("weightloss") && !n.includes("scheduling") && !n.includes("manychat")
-        && a.status !== "Offline";
-    });
-
-    const agentSorted = [...humanAgents].sort((a, b) => {
-      const order = a => {
-        if (a.telephony_status === "CallConnected") return 0;
-        if (a.telephony_status === "Ringing" || a.telephony_status === "OnHold") return 1;
-        if (a.dnd_status === "DoNotAcceptAnyCalls") return 4;
-        if (a.status === "Busy") return 3;
-        if (a.status === "Available") return 2;
-        return 5;
-      };
-      return order(a) - order(b);
-    });
-
-    agentBar.innerHTML = agentSorted.map(a => {
-      let cls = "available";
-      if (a.telephony_status === "CallConnected") cls = "on-call";
-      else if (a.telephony_status === "Ringing" || a.telephony_status === "OnHold") cls = "on-call";
-      else if (a.dnd_status === "DoNotAcceptAnyCalls") cls = "dnd";
-      else if (a.status === "Busy") cls = "busy";
-      else if (a.status === "Offline") cls = "offline";
-
-      const firstName = (a.name || "").split(" ")[0];
-      return `<span class="lp-agent-chip ${cls}"><span class="dot"></span>${firstName}</span>`;
-    }).join("");
 
     // Refresh timestamp
     const ts = data.timestamp ? new Date(data.timestamp) : new Date();
