@@ -262,11 +262,12 @@
     th[draggable="true"].dragging { opacity: 0.4; }
     th.drop-target { box-shadow: inset -3px 0 0 var(--blue); }
     td {
-      padding: 6px 10px; border-bottom: 1px solid var(--sep);
-      vertical-align: middle; font-size: 12.5px; line-height: 1.35;
+      padding: 7px 10px; border-bottom: 1px solid var(--sep);
+      vertical-align: middle; font-size: 12.5px; line-height: 1.4;
       /* Single-line rows by default — long content truncates with ellipsis */
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       max-width: 280px;
+      font-feature-settings: "tnum";
     }
     /* Some cells need their content fully visible (flex containers with their own overflow handling) */
     td.col-name, td.col-status, td.col-result, td.col-source, td.col-rec, td.col-dials,
@@ -308,11 +309,13 @@
     tr.row-overdue   td:first-child { box-shadow: inset 3px 0 0 #ff3b30;        padding-left: 10px; }
 
     .name-cell  { max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
-    .name-link  { color: var(--text); text-decoration: none; font-weight: 600; }
+    .name-link  { color: var(--text); text-decoration: none; font-weight: 600; font-size: 13px; }
     .name-link:hover { color: var(--blue); text-decoration: underline; }
-    .phone-cell { font-family: "SF Mono","Fira Code",monospace; font-size: 12px; color: var(--secondary); }
+    .phone-cell { font-family: "SF Mono","Fira Code",monospace; font-size: 12px; color: var(--secondary); letter-spacing: -.2px; }
     .dim        { font-size: 12px; color: var(--secondary); }
     .empty-state{ padding: 32px; text-align:center; color:var(--tertiary); font-size:13px; font-weight:500; }
+    /* Clean empty-field indicator — replaces ugly "—" dashes */
+    .no-data { color: var(--tertiary); opacity: .45; font-size: 11px; font-weight: 400; letter-spacing: .02em; user-select: none; }
 
     /* ══════════════ BADGES ══════════════ */
     .badge {
@@ -1413,14 +1416,31 @@
       /* Live panel: single column on mobile */
       .live-panel { margin-bottom: 14px; }
       .lp-header { padding: 10px 14px; gap: 8px; }
-      .lp-title { font-size: 13px; }
+      .lp-title { font-size: 12px; }
       .lp-calls-grid { grid-template-columns: 1fr; gap: 6px; padding: 10px 14px; max-height: 220px; }
-      .lp-call-card { min-height: 58px; padding: 8px 10px; }
+      .lp-call-card { min-height: 54px; padding: 8px 10px; }
       .lp-call-agent { font-size: 11px; }
       .lp-call-detail { font-size: 10px; }
       .lp-call-dur { font-size: 10px; top: 6px; right: 8px; }
-      .lp-call-match { font-size: 9.5px; }
-      .lp-refresh-note { font-size: 9px; padding: 0 14px 8px; }
+      .lp-call-match { font-size: 9px; padding: 2px 6px; }
+      .lp-refresh-note { font-size: 9px; padding: 4px 14px 8px; }
+      /* Filter dropdown: full width bottom sheet on mobile */
+      .lp-filter-btn { padding: 4px 8px; font-size: 11px; }
+      .lp-filter-btn span:first-child { font-size: 11px; }
+      .lp-filter-dropdown {
+        position: fixed !important; left: 0; right: 0; bottom: 0; top: auto !important;
+        border-radius: 16px 16px 0 0; min-width: 0; width: 100%;
+        max-height: 60vh;
+        box-shadow: 0 -12px 40px rgba(15,23,42,.18);
+        animation: sheet-up .2s ease-out;
+      }
+      .lp-filter-list { max-height: 45vh; }
+      .lp-filter-item { padding: 10px 12px; font-size: 14px; }
+      .lp-filter-item input[type="checkbox"] { width: 18px; height: 18px; }
+
+      /* Notes column in overdue — also hide on mobile */
+      #sc-overdue-zone table thead th:nth-child(10),
+      #sc-overdue-zone table tbody td:nth-child(10) { display: none; }
 
       /* Alert banner: stack vertically */
       .alert-banner { flex-wrap: wrap; padding: 11px 14px; gap: 10px; }
@@ -1580,7 +1600,10 @@
       .cdb-today { padding: 7px 11px; }
 
       /* Overdue zone */
-      .overdue-zone { margin-top: 18px; }
+      .overdue-zone { margin-top: 16px; padding-top: 14px; }
+      .overdue-controls { padding: 8px 12px; gap: 6px; }
+      .overdue-controls input[type="text"] { min-width: 100px; max-width: none; font-size: 12px; }
+      .overdue-controls select { font-size: 12px; }
 
       /* AI insights drawer: full-width on mobile */
       #summary-drawer { width: 100vw; right: -100vw; }
@@ -1678,8 +1701,11 @@
         font-size: 10px; padding: 4px 8px; min-height: 28px; border-radius: 10px;
       }
 
-      /* Overdue zone divider less prominent on tight screens */
-      .overdue-zone { margin-top: 16px; padding-top: 14px; }
+      /* Overdue zone */
+      .overdue-zone { margin-top: 14px; padding-top: 12px; }
+      .note-input { font-size: 11px; padding: 3px 6px; }
+      .lp-filter-btn { padding: 3px 6px; font-size: 10px; gap: 3px; }
+      .lp-filter-badge { font-size: 9px; padding: 0 5px; }
 
       /* AI summary drawer keeps full-width treatment from 680 breakpoint */
       .drawer-header { padding: 12px 14px 10px; }
@@ -2133,20 +2159,20 @@
   }
 
   function fmt(iso) {
-    if (!iso) return "—";
+    if (!iso) return '<span class="no-data">—</span>';
     return new Date(iso).toLocaleString("en-US", {
       timeZone: TZ, month: "short", day: "numeric",
       hour: "2-digit", minute: "2-digit"
     });
   }
   function fmtTime(iso) {
-    if (!iso) return "—";
+    if (!iso) return '<span class="no-data">—</span>';
     return new Date(iso).toLocaleTimeString("en-US", {
       timeZone: TZ, hour: "2-digit", minute: "2-digit"
     });
   }
   function relTime(iso) {
-    if (!iso) return "—";
+    if (!iso) return '<span class="no-data">—</span>';
     const d = (Date.now() - new Date(iso)) / 60000;
     if (d < 1) return "just now";
     if (d < 60) return `${Math.round(d)}m ago`;
@@ -2750,32 +2776,36 @@
       const ownerTag = r.deal_owner
         ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
       const stagePill = r.deal_stage
-        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>${ownerTag}` : "—";
+        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>${ownerTag}` : `<span class="no-data">—</span>`;
       const dials = r.dial_attempts??0;
-      const actualCell = r.actual_call_time
-        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
-        : `<span class="dim">—</span>`;
+      const odActualCell = r.actual_call_time
+        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum';font-size:12px">${fmt(r.actual_call_time)}</span>`
+        : `<span class="no-data">—</span>`;
       const action = r.resolved
         ? `<button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`
         : `<button class="resolve-btn"   onclick="markResolved('${r.id}')"   title="Clear from concerns">✓ Resolve</button>`;
-      // 9 AM floor badge (same logic as main table)
       const odFloorBadge = r._floored && r._scheduled_original
         ? ` <span class="floor-badge" title="Originally scheduled at ${fmt(r._scheduled_original)} — assumed at 9:00 AM (business hours)">ⓘ 9 AM</span>`
         : "";
+      const odDispCell = r.mvp_only
+        ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`)
+        : (r.disposition
+            ? `<span style="font-size:12px;color:var(--text);font-weight:500">${r.disposition}</span>`
+            : (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`));
+      const odDialsCell = dials > 0
+        ? (r.mvp_only ? `<span style="font-weight:700">${dials}</span> <span title="Dialed via RingEX" style="font-size:9.5px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.08);border-radius:4px;padding:1px 5px">RingEX</span>` : `<span style="font-weight:700">${dials}</span>`)
+        : `<span class="no-data">0</span>`;
       const isSel = _overdueSelected.has(r.id);
       return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}">
         <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
         <td>${nameCell(r)}</td>
-        <td class="phone-cell">${r.phone||"—"}</td>
-        <td class="dim">${fmt(r.scheduled_time)}${odFloorBadge}</td>
-        <td>${actualCell}</td>
-        <td><span style="color:var(--red);font-weight:700">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
-        <td style="text-align:center">${dials > 0 ? (r.mvp_only ? `<span style="font-weight:700">${dials}</span> <span title="Dialed via RingEX" style="font-size:10px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.1);border-radius:4px;padding:1px 5px">RingEX</span>` : `<span style="font-weight:700">${dials}</span>`) : `<span style="color:var(--tertiary)">0</span>`}</td>
+        <td class="phone-cell">${r.phone || '<span class="no-data">—</span>'}</td>
+        <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${fmt(r.scheduled_time)}${odFloorBadge}</td>
+        <td>${odActualCell}</td>
+        <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
+        <td style="text-align:center">${odDialsCell}</td>
         <td>${stagePill}</td>
-        <td class="dim">${r.mvp_only
-          ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—")
-          : (r.disposition || (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—"))
-        }</td>
+        <td>${odDispCell}</td>
         <td class="note-cell">
           <div class="note-wrap">
             <input type="text" class="note-input" data-id="${r.id}"
@@ -3239,20 +3269,20 @@
       const stageCell = r.deal_stage
         ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>` +
           (r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "")
-        : `<span class="dim">—</span>`;
+        : `<span class="no-data">—</span>`;
       const sourceCell = r.logged_via === "ringcx"
         ? `<span class="src-pill src-ringcx" title="Logged via RingCX">RingCX</span>`
         : r.logged_via === "mvp"
           ? `<span class="src-pill src-rex" title="Logged via RingEX">RingEX</span>`
-          : `<span class="dim">—</span>`;
+          : `<span class="no-data">—</span>`;
       const lastDialCell = r.last_attempt_time
-        ? `<span style="font-feature-settings:'tnum';font-weight:600;color:var(--text)">${fmt(r.last_attempt_time)}</span>`
-        : `<span class="dim">—</span>`;
+        ? `<span style="font-feature-settings:'tnum';font-weight:600;color:var(--text);font-size:12px">${fmt(r.last_attempt_time)}</span>`
+        : `<span class="no-data">—</span>`;
       const dials=r.dial_attempts??0;
       const dialsCell = dials === 0
-        ? `<span style="color:var(--tertiary)">0</span>`
+        ? `<span class="no-data">0</span>`
         : r.mvp_only
-          ? `<span style="font-weight:700;color:var(--text)">${dials}</span> <span title="Dialed via RingEX — no disposition logged" style="font-size:10px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.1);border-radius:4px;padding:1px 5px">RingEX</span>`
+          ? `<span style="font-weight:700;color:var(--text)">${dials}</span> <span title="Dialed via RingEX" style="font-size:9.5px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.08);border-radius:4px;padding:1px 5px">RingEX</span>`
           : `<span style="font-weight:700;color:var(--text)">${dials}</span>`;
       const cls = r.status==="completed"          ? "row-completed"
                 : r.status==="early"               ? "row-early"
@@ -3261,15 +3291,15 @@
                 : r.status==="missed"              ? "row-missed"
                 : r.status==="late"                ? "row-late" : "";
       const actualCell = r.actual_call_time
-        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum'">${fmt(r.actual_call_time)}</span>`
-        : `<span class="dim">—</span>`;
+        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum';font-size:12px">${fmt(r.actual_call_time)}</span>`
+        : `<span class="no-data">—</span>`;
       // Tooltip badge for calls originally scheduled before 9 AM
       const flooredBadge = r._floored && r._scheduled_original
         ? ` <span class="floor-badge" title="Originally scheduled at ${fmt(r._scheduled_original)} — assumed at 9:00 AM (business hours)">ⓘ 9 AM</span>`
         : "";
       const recCell = r.recording_url
         ? `<a class="rec-btn" href="${r.recording_url}" target="_blank" title="Play recording">▶</a>`
-        : `<span class="dim">—</span>`;
+        : `<span class="no-data"></span>`;
       // Resolve effective status/on_time for the badge so it agrees with Result.
       // For special completed buckets (deal/workflow), keep the backend status.
       let effStatus = r.status;
@@ -3284,10 +3314,22 @@
         ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
         : statusBadge(effStatus, effOnTime);
 
+      const phoneCell = r.phone
+        ? `<span class="phone-cell">${r.phone}</span>`
+        : `<span class="no-data">—</span>`;
+      const dispCell = r.mvp_only
+        ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`)
+        : (r.disposition
+            ? `<span style="font-size:12px;color:var(--text);font-weight:500">${r.disposition}</span>`
+            : (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`));
+      const schedCell = r.scheduled_time
+        ? `<span style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary);font-weight:500">${fmt(r.scheduled_time)}</span>`
+        : `<span class="no-data">—</span>`;
+
       return `<tr class="${cls}"${r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : ''}>
         <td class="col-name">${nameCell(r, "Contacts", flooredBadge)}</td>
-        <td class="phone-cell col-phone">${r.phone||"—"}</td>
-        <td class="dim col-scheduled">${fmt(r.scheduled_time)}</td>
+        <td class="col-phone">${phoneCell}</td>
+        <td class="col-scheduled">${schedCell}</td>
         <td class="col-actual">${actualCell}</td>
         <td class="col-lastdial">${lastDialCell}</td>
         <td class="col-source">${sourceCell}</td>
@@ -3295,10 +3337,7 @@
         <td class="col-result">${result}</td>
         <td class="col-stage">${stageCell}</td>
         <td style="text-align:center" class="col-dials">${dialsCell}</td>
-        <td class="dim col-disp">${r.mvp_only
-          ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—")
-          : (r.disposition || (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—"))
-        }</td>
+        <td class="col-disp">${dispCell}</td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
       </tr>`;
     }).join("");
