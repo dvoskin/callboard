@@ -5,7 +5,7 @@ Provides real-time visibility into active calls and agent statuses
 via the RingCentral Platform API.
 
 Required env vars:
-  RC_CLIENT_ID       – OAuth app client ID (from developers.ringcentral.com)
+  RC_CLIENT_ID       – OAuth app client ID (from developers.ringcentral.com) 
   RC_CLIENT_SECRET   – OAuth app client secret
   RC_JWT_TOKEN       – JWT credential for server-to-server auth
   RC_ACCOUNT_ID      – RingCentral account ID (default: "~" for current)
