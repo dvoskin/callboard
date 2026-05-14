@@ -406,7 +406,6 @@ class ZohoClient:
         ]
         dial_attempts = len(all_dialed) + len(mvp_calls)
 
-        # Most recent RingCX call drives the displayed disposition
         most_recent_ringcx = (
             max(all_dialed, key=lambda c: c.get("Call_Start_Time") or "")
             if all_dialed else None
@@ -450,9 +449,8 @@ class ZohoClient:
                 "offset_minutes": round(offset_min, 1) if offset_min is not None else None,
                 "on_time": on_time,
                 "dial_attempts": dial_attempts,
-                "disposition": (most_recent_ringcx.get("Outgoing_call_disposition")
-                                if most_recent_ringcx else None),
-                "caller": self._caller_name(most_recent_ringcx or closest_ringcx),
+                "disposition": closest_ringcx.get("Outgoing_call_disposition"),
+                "caller": self._caller_name(closest_ringcx),
                 "recording_url": self._extract_recording_url(
                     closest_ringcx.get("Description") or ""
                 ),
