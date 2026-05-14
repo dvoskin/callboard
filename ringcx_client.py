@@ -1,19 +1,19 @@
 """
 RingCX / RingCentral live monitoring client.
 
-Provides real-time visibility into active calls and agent statuses
-via the RingCentral Platform API.
+Two-layer integration:
+  1. RingEX  (standard RingCentral Platform API) — agent presence & telephony status
+  2. RingCX  (Engage Voice API) — real-time active calls with full detail
+
+Auth flow for RingCX:
+  Step 1: JWT → RingCentral access token  (same as RingEX)
+  Step 2: Exchange RC token → RingCX token via /api/auth/login/rc/accesstoken
 
 Required env vars:
-  RC_CLIENT_ID       – OAuth app client ID (from developers.ringcentral.com) 
+  RC_CLIENT_ID       – OAuth app client ID
   RC_CLIENT_SECRET   – OAuth app client secret
   RC_JWT_TOKEN       – JWT credential for server-to-server auth
   RC_ACCOUNT_ID      – RingCentral account ID (default: "~" for current)
-
-Scopes needed on the RC app:
-  - ReadPresence       (agent statuses)
-  - ReadCallLog        (recent calls)
-  - ReadTelephonySessions  (active calls)
 """
 
 import os
@@ -33,18 +33,30 @@ class RingCXClient:
         self.jwt_token = os.getenv("RC_JWT_TOKEN", "")
         self.account_id = os.getenv("RC_ACCOUNT_ID", "~")
         self.server_url = os.getenv("RC_SERVER_URL", "https://platform.ringcentral.com")
-        self._access_token: Optional[str] = None
-        self._token_expiry: float = 0
+        self.ringcx_url = "https://ringcx.ringcentral.com"
+
+        # RingEX token (standard RC platform)
+        self._rc_token: Optional[str] = None
+        self._rc_token_expiry: float = 0
+
+        # RingCX token (Engage Voice)
+        self._cx_token: Optional[str] = None
+        self._cx_refresh_token: Optional[str] = None
+        self._cx_token_expiry: float = 0
+        self._cx_account_id: Optional[str] = None
 
     @property
     def configured(self) -> bool:
         return bool(self.client_id and self.client_secret and self.jwt_token)
 
-    # ── Auth ──
+    # ══════════════════════════════════════════════════════════════
+    # Auth — RingEX (standard RingCentral)
+    # ══════════════════════════════════════════════════════════════
 
-    def _ensure_token(self) -> str:
-        if self._access_token and time.time() < self._token_expiry:
-            return self._access_token
+    def _ensure_rc_token(self) -> str:
+        """Get or refresh the RingCentral Platform API token."""
+        if self._rc_token and time.time() < self._rc_token_expiry:
+            return self._rc_token
 
         if not self.configured:
             raise RuntimeError("RingCX not configured — set RC_CLIENT_ID, RC_CLIENT_SECRET, RC_JWT_TOKEN")
@@ -60,96 +72,179 @@ class RingCXClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        self._access_token = data["access_token"]
-        self._token_expiry = time.time() + data.get("expires_in", 3600) - 60
-        log.info("RingCX auth token acquired (expires in %ds)", data.get("expires_in", 0))
-        return self._access_token
+        self._rc_token = data["access_token"]
+        self._rc_token_expiry = time.time() + data.get("expires_in", 3600) - 60
+        log.info("RingEX auth token acquired (expires in %ds)", data.get("expires_in", 0))
+        return self._rc_token
 
-    def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._ensure_token()}"}
+    def _rc_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._ensure_rc_token()}"}
 
-    # ── Active Calls ──
+    # ══════════════════════════════════════════════════════════════
+    # Auth — RingCX (Engage Voice)
+    # ══════════════════════════════════════════════════════════════
+
+    def _ensure_cx_token(self) -> str:
+        """Get or refresh the RingCX (Engage Voice) token.
+
+        Two-step flow:
+        1. Get RC platform token (reuse _ensure_rc_token)
+        2. Exchange it for a RingCX token
+        """
+        if self._cx_token and time.time() < self._cx_token_expiry:
+            return self._cx_token
+
+        # Try refresh first if we have a refresh token
+        if self._cx_refresh_token:
+            try:
+                return self._refresh_cx_token()
+            except Exception:
+                log.warning("RingCX refresh failed, doing full auth")
+
+        # Full auth: get RC token then exchange
+        rc_token = self._ensure_rc_token()
+
+        resp = requests.post(
+            f"{self.ringcx_url}/api/auth/login/rc/accesstoken?includeRefresh=true",
+            data={
+                "rcAccessToken": rc_token,
+                "rcTokenType": "Bearer",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        self._cx_token = data.get("accessToken")
+        self._cx_refresh_token = data.get("refreshToken")
+        # RingCX tokens are valid for 5 minutes
+        self._cx_token_expiry = time.time() + 240  # refresh at 4 min to be safe
+
+        # Extract account ID from agentDetails
+        agent_details = data.get("agentDetails") or []
+        if agent_details and isinstance(agent_details, list):
+            self._cx_account_id = str(agent_details[0].get("accountId", ""))
+        if not self._cx_account_id:
+            self._cx_account_id = str(data.get("accountId", ""))
+
+        log.info("RingCX (Engage Voice) token acquired, account=%s", self._cx_account_id)
+        return self._cx_token
+
+    def _refresh_cx_token(self) -> str:
+        """Refresh the RingCX token using the refresh token."""
+        resp = requests.post(
+            f"{self.ringcx_url}/api/auth/token/refresh",
+            data={
+                "refresh_token": self._cx_refresh_token,
+                "rcTokenType": "Bearer",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        self._cx_token = data.get("accessToken")
+        self._cx_refresh_token = data.get("refreshToken")  # must replace old one
+        self._cx_token_expiry = time.time() + 240
+        log.info("RingCX token refreshed")
+        return self._cx_token
+
+    def _cx_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._ensure_cx_token()}"}
+
+    # ══════════════════════════════════════════════════════════════
+    # RingCX — Active Calls (Engage Voice API)
+    # ══════════════════════════════════════════════════════════════
 
     def get_active_calls(self) -> list[dict]:
-        """Fetch currently active telephony sessions across the account.
+        """Fetch currently active calls from RingCX (Engage Voice).
 
-        Returns a list of simplified call objects:
-        [
-            {
-                "session_id": "...",
-                "status": "InProgress" | "Ringing" | "Hold" | ...,
-                "direction": "Inbound" | "Outbound",
-                "from": "+15551234567",
-                "to": "+15559876543",
-                "agent_name": "Jane Doe",
-                "agent_ext": "101",
-                "started_at": "2026-05-14T10:30:00Z",
-                "duration_sec": 125,
-            },
-            ...
-        ]
+        Returns a list of simplified call objects with agent info,
+        caller details, call state, and duration.
         """
         try:
+            token = self._ensure_cx_token()
+            if not self._cx_account_id:
+                log.warning("RingCX account ID not set, cannot fetch active calls")
+                return []
+
             resp = requests.get(
-                f"{self.server_url}/restapi/v1.0/account/{self.account_id}/telephony/sessions",
-                headers=self._headers(),
-                params={"perPage": 100},
+                f"{self.ringcx_url}/voice/api/v1/admin/accounts/{self._cx_account_id}/activeCalls/list",
+                headers=self._cx_headers(),
+                params={
+                    "product": "ACCOUNT",
+                    "productId": self._cx_account_id,
+                    "maxRows": 200,
+                    "page": 1,
+                },
                 timeout=15,
             )
             if resp.status_code == 204:
                 return []
             resp.raise_for_status()
-            sessions = resp.json().get("records", [])
+            calls_data = resp.json()
 
-            active = []
+            # Handle both list and dict responses
+            if isinstance(calls_data, dict):
+                calls_list = calls_data.get("activeCalls") or calls_data.get("records") or []
+            elif isinstance(calls_data, list):
+                calls_list = calls_data
+            else:
+                calls_list = []
+
             now = datetime.now(timezone.utc)
-            for session in sessions:
-                for party in session.get("parties", []):
-                    status = party.get("status", {}).get("code", "")
-                    if status in ("Disconnected", "Gone"):
-                        continue
-                    direction = party.get("direction", "")
-                    from_info = party.get("from", {})
-                    to_info = party.get("to", {})
-                    ext_info = party.get("extensionId")
+            active = []
+            for call in calls_list:
+                # Parse enqueue/start time for duration
+                enqueue = call.get("enqueueTime") or call.get("callStartTime") or ""
+                dur = 0
+                if enqueue:
+                    try:
+                        started = datetime.fromisoformat(str(enqueue).replace("Z", "+00:00"))
+                        dur = int((now - started).total_seconds())
+                    except Exception:
+                        pass
 
-                    # Parse start time
-                    created = session.get("creationTime") or ""
-                    started = None
-                    dur = 0
-                    if created:
-                        try:
-                            started = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                            dur = int((now - started).total_seconds())
-                        except Exception:
-                            pass
+                agent_name = " ".join(filter(None, [
+                    call.get("agentFirstName", ""),
+                    call.get("agentLastName", ""),
+                ])).strip()
 
-                    active.append({
-                        "session_id": session.get("id"),
-                        "status": status,
-                        "direction": direction,
-                        "from": from_info.get("phoneNumber", from_info.get("name", "")),
-                        "to": to_info.get("phoneNumber", to_info.get("name", "")),
-                        "agent_name": party.get("name", ""),
-                        "agent_ext": str(party.get("extensionId", "")),
-                        "started_at": created,
-                        "duration_sec": max(0, dur),
-                    })
+                active.append({
+                    "uii": call.get("uii", ""),
+                    "session_id": call.get("uii", ""),
+                    "call_state": call.get("callState", ""),
+                    "status": call.get("callState", ""),
+                    "direction": call.get("callDirection", call.get("direction", "")),
+                    "ani": call.get("ani", ""),        # caller number
+                    "dnis": call.get("dnis", ""),       # dialed number
+                    "from": call.get("ani", ""),
+                    "to": call.get("dnis", ""),
+                    "agent_name": agent_name,
+                    "agent_id": str(call.get("agentId", "")),
+                    "queue_name": call.get("gate", call.get("queueName", "")),
+                    "started_at": enqueue,
+                    "duration_sec": max(0, dur),
+                    "source": "ringcx",
+                })
 
-            log.info("RingCX: %d active call parties found", len(active))
+            log.info("RingCX: %d active calls found", len(active))
             return active
 
         except requests.exceptions.HTTPError as e:
-            log.error("RingCX active calls error: %s", e)
-            raise
+            log.error("RingCX active calls error: %s — %s",
+                      e, e.response.text[:300] if e.response is not None else "")
+            return []
         except Exception as e:
             log.error("RingCX active calls error: %s", e)
             return []
 
-    # ── Agent Presence / Extensions ──
+    # ══════════════════════════════════════════════════════════════
+    # RingEX — Agent Presence (standard RC Platform API)
+    # ══════════════════════════════════════════════════════════════
 
     def get_agent_statuses(self) -> list[dict]:
-        """Fetch presence status for all extensions.
+        """Fetch presence status for all extensions via RingEX API.
 
         Returns:
         [
@@ -158,7 +253,6 @@ class RingCXClient:
                 "name": "Jane Doe",
                 "status": "Available" | "Busy" | "DoNotDisturb" | "Offline",
                 "telephony_status": "NoCall" | "Ringing" | "OnHold" | "CallConnected",
-                "ring_on_monitored": False,
                 "active_calls": [...],
             },
         ]
@@ -169,7 +263,7 @@ class RingCXClient:
             while True:
                 resp = requests.get(
                     f"{self.server_url}/restapi/v1.0/account/{self.account_id}/extension",
-                    headers=self._headers(),
+                    headers=self._rc_headers(),
                     params={
                         "type": "User",
                         "status": "Enabled",
@@ -187,7 +281,7 @@ class RingCXClient:
                 else:
                     break
 
-            # Now fetch presence for each extension (batch where possible)
+            # Fetch presence for each extension
             agents = []
             for ext in all_extensions:
                 ext_id = ext.get("id")
@@ -197,7 +291,7 @@ class RingCXClient:
                 try:
                     pres_resp = requests.get(
                         f"{self.server_url}/restapi/v1.0/account/{self.account_id}/extension/{ext_id}/presence",
-                        headers=self._headers(),
+                        headers=self._rc_headers(),
                         timeout=10,
                     )
                     if pres_resp.ok:
@@ -221,34 +315,41 @@ class RingCXClient:
                         "active_calls": [],
                     })
 
-            log.info("RingCX: %d agent statuses fetched", len(agents))
+            log.info("RingEX: %d agent statuses fetched", len(agents))
             return agents
 
         except Exception as e:
-            log.error("RingCX agent statuses error: %s", e)
+            log.error("RingEX agent statuses error: %s", e)
             return []
 
-    # ── Combined live snapshot ──
+    # ══════════════════════════════════════════════════════════════
+    # Combined live snapshot (both APIs)
+    # ══════════════════════════════════════════════════════════════
 
     def get_live_snapshot(self) -> dict:
-        """Return a combined live monitoring snapshot."""
-        active_calls = self.get_active_calls()
+        """Return a combined live monitoring snapshot from both RingEX and RingCX."""
+        # RingCX active calls (Engage Voice — detailed call data)
+        cx_calls = self.get_active_calls()
+
+        # RingEX agent presence (standard RC — who's available/busy/on call)
         agents = self.get_agent_statuses()
 
-        # Summarize
+        # Agents currently on a call (from RingEX presence)
         on_call = [a for a in agents if a["telephony_status"] in ("CallConnected", "Ringing", "OnHold")]
         available = [a for a in agents if a["status"] == "Available" and a["telephony_status"] == "NoCall"]
         dnd = [a for a in agents if a["dnd_status"] == "DoNotAcceptAnyCalls" or a["status"] == "DoNotDisturb"]
+        offline = [a for a in agents if a["status"] == "Offline"]
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "active_calls": active_calls,
-            "agents": agents,
+            "active_calls": cx_calls,          # from RingCX (Engage Voice)
+            "agents": agents,                   # from RingEX (presence)
             "summary": {
                 "total_agents": len(agents),
                 "on_call": len(on_call),
                 "available": len(available),
                 "dnd": len(dnd),
-                "active_call_count": len(active_calls),
+                "offline": len(offline),
+                "active_call_count": len(cx_calls),
             },
         }
