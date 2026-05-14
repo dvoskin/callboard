@@ -250,18 +250,59 @@ class RingCXClient:
     # RingEX — Agent Presence (standard RC Platform API)
     # ══════════════════════════════════════════════════════════════
 
-    def get_agent_statuses(self) -> list[dict]:
-        """Fetch presence status for all extensions via RingEX account-level presence API.
+    def _fetch_extension_names(self) -> dict:
+        """Fetch {ext_id: {name, extensionNumber}} for all enabled User extensions.
+        Cached alongside the agents cache (same TTL).
+        """
+        if hasattr(self, "_ext_names") and self._ext_names and time.time() < self._agents_cache_expiry:
+            return self._ext_names
 
-        Uses the account-level endpoint with detailedTelephonyState=true to get
-        all agents in one paginated call (instead of N individual calls), plus
-        full active-call details including phone numbers and direction.
-        Cached for 60 seconds to avoid rate-limiting.
+        names = {}
+        page = 1
+        while True:
+            resp = requests.get(
+                f"{self.server_url}/restapi/v1.0/account/{self.account_id}/extension",
+                headers=self._rc_headers(),
+                params={"type": "User", "status": "Enabled", "perPage": 250, "page": page},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for ext in data.get("records", []):
+                eid = str(ext.get("id", ""))
+                names[eid] = {
+                    "name": ext.get("name", ""),
+                    "extensionNumber": ext.get("extensionNumber", ""),
+                }
+            nav = data.get("navigation", {})
+            if nav.get("nextPage"):
+                page += 1
+            else:
+                break
+        log.info("RingEX: fetched names for %d extensions", len(names))
+        self._ext_names = names
+        return names
+
+    def get_agent_statuses(self) -> list[dict]:
+        """Fetch presence status for all extensions via RingEX API.
+
+        Two-step approach:
+        1. Fetch extension list (for names) — one paginated call
+        2. Fetch account-level presence with detailedTelephonyState=true —
+           one paginated call for all statuses + active call details
+
+        This replaces the old per-extension presence loop that made N
+        individual API calls and hit rate limits.
+        Cached for 60 seconds.
         """
         if self._agents_cache and time.time() < self._agents_cache_expiry:
             return self._agents_cache
 
         try:
+            # Step 1: get extension names
+            ext_names = self._fetch_extension_names()
+
+            # Step 2: get account-level presence with call details
             agents = []
             page = 1
             while True:
@@ -281,7 +322,13 @@ class RingCXClient:
 
                 for p in records:
                     ext = p.get("extension") or {}
-                    ext_id = ext.get("id") or p.get("id", "")
+                    ext_id = str(ext.get("id") or p.get("id", ""))
+
+                    # Look up name from extension list
+                    ext_info = ext_names.get(ext_id, {})
+                    name = ext_info.get("name") or ext.get("name") or p.get("name") or ""
+                    ext_number = ext_info.get("extensionNumber") or ext.get("extensionNumber", "")
+
                     # Extract active call details with phone numbers
                     raw_calls = p.get("activeCalls") or []
                     active_calls = []
@@ -296,9 +343,9 @@ class RingCXClient:
                         })
 
                     agents.append({
-                        "ext_id": str(ext_id),
-                        "ext_number": ext.get("extensionNumber", ""),
-                        "name": p.get("name") or ext.get("name", ""),
+                        "ext_id": ext_id,
+                        "ext_number": ext_number,
+                        "name": name,
                         "status": p.get("presenceStatus", "Offline"),
                         "dnd_status": p.get("dndStatus", ""),
                         "telephony_status": p.get("telephonyStatus", "NoCall"),
@@ -312,8 +359,11 @@ class RingCXClient:
                 else:
                     break
 
+            # Filter to only named agents (skip system/IVR extensions without names)
+            agents = [a for a in agents if a["name"]]
+
             on_call = [a for a in agents if a["telephony_status"] in ("CallConnected", "Ringing", "OnHold")]
-            log.info("RingEX: %d agent statuses fetched (account-level presence), %d on call", len(agents), len(on_call))
+            log.info("RingEX: %d agents fetched, %d on call", len(agents), len(on_call))
             for a in on_call:
                 log.info("  On call: %s (%s) — calls: %s", a["name"], a["telephony_status"],
                          a["active_calls"][:2] if a["active_calls"] else "[]")
