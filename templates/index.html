@@ -559,6 +559,18 @@
     }
     .od-clear-btn:hover { color: var(--red); border-color: var(--red); }
     .overdue-cb-col { width: 32px; text-align: center; padding: 0 4px !important; }
+    .note-cell { min-width: 140px; }
+    .note-wrap { display: flex; align-items: center; }
+    .note-input {
+      width: 100%; font-size: 12px; font-family: inherit;
+      border: 1px solid transparent; border-radius: 6px;
+      padding: 4px 8px; background: transparent; color: var(--text);
+      transition: border-color .15s, background .15s;
+    }
+    .note-input::placeholder { color: var(--tertiary); font-size: 11px; }
+    .note-input:hover { background: var(--surface2); border-color: var(--sep); }
+    .note-input:focus { background: var(--surface); border-color: var(--blue); outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+    .note-input.saved { border-color: var(--green); background: rgba(16,185,129,.06); }
     tr.is-selected td { background: rgba(37,99,235,.05) !important; }
     tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
 
@@ -1768,22 +1780,6 @@
     <button class="alert-cta" onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">Review →</button>
   </div>
 
-  <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
-  <div class="live-panel" id="live-panel" style="display:none">
-    <div class="lp-header" onclick="toggleLivePanel()">
-      <div class="lp-pulse"></div>
-      <div class="lp-title">
-        Live Monitor
-        <span class="lp-title-count" id="lp-call-count">0</span>
-      </div>
-      <span class="lp-caret">▾</span>
-    </div>
-    <div class="lp-body">
-      <div class="lp-calls-grid" id="lp-calls-grid"></div>
-      <div class="lp-refresh-note" id="lp-refresh-note"></div>
-    </div>
-  </div>
-
   <!-- ══════════════════════ UPCOMING STRIP ══════════════════════ -->
   <div class="up-strip" id="up-strip" style="display:none">
     <div class="up-strip-head">
@@ -1907,6 +1903,7 @@
                     <th class="sortable" onclick="sortOverdue('dial_attempts')">Dials</th>
                     <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
                     <th>Disposition</th>
+                    <th>Notes</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -1919,6 +1916,23 @@
       </div>
     </div>
   </div>
+
+  <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
+  <div class="live-panel" id="live-panel" style="display:none">
+    <div class="lp-header" onclick="toggleLivePanel()">
+      <div class="lp-pulse"></div>
+      <div class="lp-title">
+        Live Monitor
+        <span class="lp-title-count" id="lp-call-count">0</span>
+      </div>
+      <span class="lp-caret">▾</span>
+    </div>
+    <div class="lp-body">
+      <div class="lp-calls-grid" id="lp-calls-grid"></div>
+      <div class="lp-refresh-note" id="lp-refresh-note"></div>
+    </div>
+  </div>
+
 </main>
 
 <script>
@@ -2621,7 +2635,7 @@
 
     if (!visible.length) {
       document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="10" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
+        `<tr><td colspan="11" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
       // Reset select-all
       const allCb = document.getElementById("od-select-all");
       allCb.checked = false; allCb.indeterminate = false;
@@ -2662,6 +2676,16 @@
           ? (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—")
           : (r.disposition || (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : "—"))
         }</td>
+        <td class="note-cell">
+          <div class="note-wrap">
+            <input type="text" class="note-input" data-id="${r.id}"
+              value="${(r.note||'').replace(/"/g,'&quot;')}"
+              placeholder="Add note…"
+              onblur="saveNote(this)"
+              onkeydown="if(event.key==='Enter'){this.blur()}"
+            >
+          </div>
+        </td>
         <td style="text-align:right">${action}</td>
       </tr>`;
     }).join("");
@@ -2714,6 +2738,27 @@
       drawScTable();
     }
     refreshAlertCounts();
+  }
+
+  async function saveNote(input) {
+    const id = input.dataset.id;
+    const note = input.value.trim();
+    // Update local record
+    const rec = _scOverdueRecords.find(r => r.id === id);
+    if (rec) rec.note = note;
+    // Visual feedback
+    input.classList.add("saved");
+    setTimeout(() => input.classList.remove("saved"), 1200);
+    // Persist to server
+    try {
+      await fetch(`/api/scheduled-call/${id}/note`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({note}),
+      });
+    } catch (e) {
+      console.error("Failed to save note:", e);
+    }
   }
 
   function refreshAlertCounts() {

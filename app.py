@@ -54,6 +54,11 @@ def resolved_ids() -> set:
         data = _prune_resolved(_load_resolved())
         return set(data.keys())
 
+def resolved_data_full() -> dict:
+    """Return the full resolved dict (includes notes)."""
+    with _resolved_lock:
+        return _prune_resolved(_load_resolved())
+
 
 def _refresh():
     log.info("Refreshing dashboard data...")
@@ -130,11 +135,13 @@ def api_data():
             start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
             end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
             data = _zoho.get_dashboard_data(start_dt=start_dt, end_dt=end_dt)
-            rids = resolved_ids()
+            rd = resolved_data_full()
+            rids = set(rd.keys())
             annotated = json.loads(json.dumps(data))
             if annotated.get("scheduled_calls"):
                 for r in annotated["scheduled_calls"]["records"]:
                     r["resolved"] = r.get("id") in rids
+                    r["note"] = rd.get(r.get("id"), {}).get("note", "")
             return jsonify({
                 "status": "ok",
                 "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -153,12 +160,14 @@ def api_data():
         if _cache["error"] and _cache["data"] is None:
             return jsonify({"status": "error", "message": _cache["error"]}), 500
         data = _cache["data"]
-        # Annotate scheduled call records with resolved flag (does not mutate cache)
-        rids = resolved_ids()
+        # Annotate scheduled call records with resolved flag + notes (does not mutate cache)
+        rd = resolved_data_full()
+        rids = set(rd.keys())
         annotated = json.loads(json.dumps(data))  # cheap deep copy
         if annotated.get("scheduled_calls"):
             for r in annotated["scheduled_calls"]["records"]:
                 r["resolved"] = r.get("id") in rids
+                r["note"] = rd.get(r.get("id"), {}).get("note", "")
         return jsonify(
             {
                 "status": "ok",
@@ -185,6 +194,21 @@ def unresolve_call(rec_id):
         data.pop(rec_id, None)
         _save_resolved(data)
     return jsonify({"status": "unresolved", "id": rec_id})
+
+
+@app.route("/api/scheduled-call/<rec_id>/note", methods=["POST"])
+def save_note(rec_id):
+    """Save a note for a scheduled call record. Persists across deploys."""
+    body = request.get_json(silent=True) or {}
+    note_text = (body.get("note") or "").strip()
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        if rec_id not in data:
+            # Create entry even if not resolved — just for notes
+            data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
+        data[rec_id]["note"] = note_text
+        _save_resolved(data)
+    return jsonify({"status": "ok", "id": rec_id, "note": note_text})
 
 
 @app.route("/api/refresh", methods=["POST"])
