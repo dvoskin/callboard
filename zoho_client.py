@@ -802,31 +802,21 @@ class ZohoClient:
             result = {**sched_base(rec), **self._classify_scheduled_call(rec, sc_calls_for(rec))}
             sc_results.append(result)
 
-        # Look up deal stages — prefer the deal linked directly to each call (What_Id),
-        # fall back to contact-based lookup only for calls with no linked deal.
+        # Look up deal stages ONLY for calls with a direct deal link (What_Id).
+        # We no longer fall back to the contact's most-recent deal, because that
+        # can show the wrong stage when a contact has multiple deals.
         linked_deal_ids = list({r["id_deal"] for r in sc_results if r.get("id_deal")})
-        fallback_contact_ids = list({r["id_contact"] for r in sc_results
-                                     if r.get("id_contact") and not r.get("id_deal")})
 
         deal_by_id_map = {}
         if linked_deal_ids:
             log.info("Fetching deal stages by deal ID for %d linked deals...", len(linked_deal_ids))
             deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
 
-        deal_by_contact_map = {}
-        if fallback_contact_ids:
-            log.info("Fetching deal stages by contact for %d contacts (no linked deal)...", len(fallback_contact_ids))
-            deal_by_contact_map = self._fetch_deal_stages_for_contacts(fallback_contact_ids)
-
         for r in sc_results:
             info = None
             did = r.get("id_deal")
-            cid = r.get("id_contact")
-            # Prefer the specific deal linked to the call
             if did and did in deal_by_id_map:
                 info = deal_by_id_map[did]
-            elif cid and cid in deal_by_contact_map:
-                info = deal_by_contact_map[cid]
 
             if info:
                 stage = info["stage"]
