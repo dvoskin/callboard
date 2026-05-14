@@ -863,13 +863,34 @@
 
     .lp-body { padding: 0; }
 
-    /* Active calls grid */
-    .lp-calls-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 10px;
-      padding: 16px 20px;
+    /* Active calls — horizontal scroll strip */
+    .lp-calls-wrap {
+      position: relative;
+      padding: 0 20px;
     }
+    .lp-calls-grid {
+      display: flex;
+      gap: 10px;
+      padding: 14px 0;
+      overflow-x: auto;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .lp-calls-grid::-webkit-scrollbar { display: none; }
+    .lp-calls-wrap .lp-chevron {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; color: var(--secondary);
+      cursor: pointer; z-index: 2;
+      opacity: 0; transition: opacity .2s;
+    }
+    .lp-calls-wrap:hover .lp-chevron { opacity: 1; }
+    .lp-calls-wrap .lp-chevron.left  { left: 6px; }
+    .lp-calls-wrap .lp-chevron.right { right: 6px; }
     .lp-call-card {
       background: var(--surface2);
       border: 1px solid var(--sep);
@@ -877,7 +898,9 @@
       padding: 12px 14px;
       position: relative;
       transition: box-shadow .15s, border-color .15s;
+      min-width: 270px; max-width: 300px;
       min-height: 72px;
+      flex-shrink: 0;
       display: flex; flex-direction: column; justify-content: center;
     }
     .lp-call-card:hover {
@@ -962,10 +985,11 @@
     .lp-agent-chip.offline .dot { background: var(--tertiary); }
 
     .lp-empty {
-      padding: 24px 20px;
+      padding: 14px 0;
       text-align: center;
       color: var(--tertiary);
       font-size: 13px;
+      width: 100%;
     }
     .lp-refresh-note {
       font-size: 10px; color: var(--tertiary);
@@ -1807,7 +1831,11 @@
       <span class="lp-caret">▾</span>
     </div>
     <div class="lp-body">
-      <div class="lp-calls-grid" id="lp-calls-grid"></div>
+      <div class="lp-calls-wrap">
+        <div class="lp-chevron left" onclick="document.getElementById('lp-calls-grid').scrollBy({left:-300,behavior:'smooth'})">‹</div>
+        <div class="lp-calls-grid" id="lp-calls-grid"></div>
+        <div class="lp-chevron right" onclick="document.getElementById('lp-calls-grid').scrollBy({left:300,behavior:'smooth'})">›</div>
+      </div>
       <div class="lp-agents-bar" id="lp-agents-bar"></div>
       <div class="lp-refresh-note" id="lp-refresh-note"></div>
     </div>
