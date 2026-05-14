@@ -183,6 +183,7 @@
     .stat-pill .val { font-size: 19px; font-weight: 800; line-height: 1.1; font-feature-settings: "tnum"; }
     .stat-pill .lbl { color: var(--secondary); font-weight: 600; letter-spacing: .01em; }
     .stat-pill .rate{ color: var(--text); font-weight: 700; font-size: 11px; opacity: .75; }
+    .stat-pill .adj-note { display: block; font-size: 9.5px; color: var(--tertiary); font-weight: 500; opacity: .65; margin-top: 1px; font-style: italic; }
     .stat-pill.green  .val { color: var(--green-dk); }
     .stat-pill.red    .val { color: var(--red-dk); }
     .stat-pill.orange .val { color: var(--orange-dk); }
@@ -785,6 +786,10 @@
       font-size: 12px; color: var(--secondary); margin-top: 6px; font-weight: 500;
     }
     .kpi-card .kpi-sub strong { color: var(--text); font-weight: 700; }
+    .kpi-card .kpi-adj {
+      font-size: 11px; color: var(--tertiary); margin-top: 3px; font-weight: 500;
+      font-style: italic; opacity: .7;
+    }
 
     /* ══════════════ UPCOMING STRIP ══════════════ */
     .up-strip {
@@ -1913,10 +1918,11 @@
     return `<span class="badge ${cls}">${label}</span>`;
   }
 
-  function statPill(label, value, cls, rate) {
+  function statPill(label, value, cls, rate, adjNote) {
     return `<div class="stat-pill ${cls}">
       <span class="val">${value??'—'}</span>
       <span class="lbl">${label}${rate!=null?` <span class="rate">(${rate}%)</span>`:''}</span>
+      ${adjNote ? `<span class="adj-note">${adjNote}</span>` : ''}
     </div>`;
   }
 
@@ -2141,6 +2147,13 @@
     const liveCompletionRate = callsDue > 0
       ? Math.round((s.completed / callsDue) * 100)
       : null;
+    // Adjusted completion: count "Resolved by manager" as completed
+    const resolvedCount = sc.records.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
+    const adjCompleted = s.completed + resolvedCount;
+    const adjCompletionRate = callsDue > 0
+      ? Math.round((adjCompleted / callsDue) * 100)
+      : null;
+    const showAdj = resolvedCount > 0;
     const html = [
       // Total today
       `<div class="kpi-card">
@@ -2153,6 +2166,7 @@
         <div class="kpi-lbl">Completion Rate</div>
         <div class="kpi-val">${liveCompletionRate ?? 0}<span style="font-size:22px">%</span></div>
         <div class="kpi-sub"><strong>${s.completed}</strong> of ${callsDue} due now</div>
+        ${showAdj ? `<div class="kpi-adj" title="Includes ${resolvedCount} resolved by manager">${adjCompletionRate}% incl. resolved</div>` : ""}
       </div>`,
       // On-time rate
       `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
@@ -2357,9 +2371,13 @@
 
     const _callsDue = sc.records.length - upcoming.length;
     const _liveCompletion = _callsDue > 0 ? Math.round((s.completed / _callsDue) * 100) : null;
+    // Adjusted completion including resolved-by-manager
+    const _resolvedN = sc.records.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
+    const _adjCompleted = s.completed + _resolvedN;
+    const _adjCompletion = _callsDue > 0 ? Math.round((_adjCompleted / _callsDue) * 100) : null;
     document.getElementById("sc-stats").innerHTML = [
       statPill("Total",          sc.records.length, "blue"),
-      statPill("Completed",      s.completed,  "green",  _liveCompletion),
+      statPill("Completed",      s.completed,  "green",  _liveCompletion, _resolvedN > 0 ? `${_adjCompletion}% w/ resolved` : null),
       statPill("On Time",        s.on_time,    s.on_time===s.completed&&s.completed>0?"green":"orange", s.on_time_rate),
       statPill("Early",          s.early,      s.early>0?"teal":"green"),
       statPill("Other",          s.via_deal,        s.via_deal>0?"purple":"green"),
