@@ -305,11 +305,29 @@ def contact_insights(contact_id):
 
         dialed_calls = [c for c in calls if is_dial_attempt(c)]
         recent_calls = dialed_calls[:4]
+
+        # Detect campaign from call descriptions (e.g. "OUT - Scheduled Calls - English")
+        def extract_campaign(c):
+            desc = c.get("description") or c.get("subject") or ""
+            if desc.upper().startswith("OUT"):
+                # "OUT - Scheduled Calls - English" → "Scheduled Calls - English"
+                parts = desc.split(" - ", 1)
+                if len(parts) > 1:
+                    return parts[1].strip()
+            return None
+
+        campaigns = {}
+        for c in dialed_calls:
+            camp = extract_campaign(c)
+            if camp:
+                campaigns[camp] = campaigns.get(camp, 0) + 1
+
         recent_calls_text = "\n".join(
             f"  {i+1}. {(c.get('time') or '?')[:16]} | {c.get('type','?')} | "
             f"Disposition: {c.get('disposition') or 'none'} | "
             f"Duration: {c.get('duration_sec') or 0}s | "
             f"Rep: {c.get('owner') or '?'}"
+            + (f" | Campaign: {extract_campaign(c)}" if extract_campaign(c) else "")
             + (f" | Notes: {c.get('description','')[:120]}" if c.get('description') else "")
             for i, c in enumerate(recent_calls)
         ) or "  (no calls logged)"
@@ -409,6 +427,7 @@ Write your briefing now. Be direct — "Called 3x on May 13, no answer" not "Mul
             "last_call_disposition": dialed_calls[0].get("disposition") if dialed_calls else None,
             "last_sms_time": sms[0]["time"] if sms else None,
             "last_sms_direction": sms[0].get("direction") if sms else None,
+            "campaigns": campaigns,  # e.g. {"Scheduled Calls - English": 3}
         })
     except Exception as e:
         log.error("Contact insights error: %s", e)
@@ -441,11 +460,41 @@ def ringcx_live():
 
 @app.route("/api/ringcx/active-calls")
 def ringcx_active_calls():
-    """Just the active calls (lightweight poll)."""
+    """Active calls with scheduled-call cross-reference."""
     if not _ringcx.configured:
         return jsonify({"error": "RingCX not configured"}), 503
     try:
         calls = _ringcx.get_active_calls()
+
+        # Cross-reference with today's scheduled calls if available
+        with _lock:
+            sc_data = (_cache.get("data") or {}).get("scheduled_calls", {})
+            sc_records = sc_data.get("records") or []
+
+        # Build phone → scheduled record lookup
+        phone_map = {}
+        for rec in sc_records:
+            phone = (rec.get("phone") or "").replace("+", "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+            if len(phone) >= 10:
+                phone_map[phone[-10:]] = {
+                    "contact_name": rec.get("contact_name") or rec.get("name"),
+                    "scheduled_time": rec.get("scheduled_time"),
+                    "status": rec.get("status"),
+                    "deal_stage": rec.get("deal_stage"),
+                    "id": rec.get("id"),
+                }
+
+        # Annotate active calls with scheduled-call matches
+        for call in calls:
+            ani = (call.get("ani") or "").replace("+", "").replace("-", "").replace(" ", "")
+            dnis = (call.get("dnis") or "").replace("+", "").replace("-", "").replace(" ", "")
+            match = None
+            if len(ani) >= 10:
+                match = phone_map.get(ani[-10:])
+            if not match and len(dnis) >= 10:
+                match = phone_map.get(dnis[-10:])
+            call["scheduled_match"] = match
+
         return jsonify({"calls": calls, "count": len(calls)})
     except Exception as e:
         log.error("RingCX active calls error: %s", e)

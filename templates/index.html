@@ -801,6 +801,175 @@
       opacity: .55; margin-top: 2px; white-space: nowrap;
     }
 
+    /* ══════════════ LIVE MONITOR PANEL ══════════════ */
+    .live-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 0;
+      margin-bottom: 22px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    .live-panel.collapsed .lp-body { display: none; }
+    .lp-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 20px;
+      cursor: pointer; user-select: none;
+      border-bottom: 1px solid var(--sep);
+    }
+    .live-panel.collapsed .lp-header { border-bottom: none; }
+    .lp-header:hover { background: var(--surface2); }
+    .lp-pulse {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(16,185,129,.5);
+      animation: livePulse 2s infinite;
+    }
+    @keyframes livePulse {
+      0%   { box-shadow: 0 0 0 0 rgba(16,185,129,.5); }
+      70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+      100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+    }
+    .lp-title {
+      font-size: 14px; font-weight: 700; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .lp-title-count {
+      background: var(--blue); color: #fff;
+      font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 10px;
+    }
+    .lp-meta {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 14px;
+      font-size: 12px; color: var(--secondary);
+    }
+    .lp-stat {
+      display: flex; align-items: center; gap: 5px;
+    }
+    .lp-stat .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .lp-stat .dot.green { background: var(--green); }
+    .lp-stat .dot.red   { background: var(--red); }
+    .lp-stat .dot.orange { background: var(--orange); }
+    .lp-stat .dot.gray  { background: var(--tertiary); }
+    .lp-stat .num { font-weight: 700; color: var(--text); }
+    .lp-caret {
+      font-size: 16px; color: var(--tertiary); transition: transform .2s;
+    }
+    .live-panel.collapsed .lp-caret { transform: rotate(-90deg); }
+
+    .lp-body { padding: 0; }
+
+    /* Active calls grid */
+    .lp-calls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+      padding: 16px 20px;
+    }
+    .lp-call-card {
+      background: var(--surface2);
+      border: 1px solid var(--sep);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      position: relative;
+      transition: box-shadow .15s, border-color .15s;
+    }
+    .lp-call-card:hover {
+      box-shadow: var(--shadow);
+      border-color: rgba(37,99,235,.25);
+    }
+    .lp-call-card.matched {
+      border-left: 3px solid var(--green);
+      background: linear-gradient(135deg, rgba(16,185,129,.04), var(--surface2));
+    }
+    .lp-call-card.queued {
+      border-left: 3px solid var(--orange);
+      opacity: .75;
+    }
+    .lp-call-agent {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      margin-bottom: 4px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .lp-call-agent .campaign-tag {
+      font-size: 9.5px; font-weight: 600;
+      padding: 1px 6px; border-radius: 6px;
+      background: rgba(139,92,246,.1); color: var(--purple-dk);
+      white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lp-call-detail {
+      font-size: 11.5px; color: var(--secondary);
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 2px;
+    }
+    .lp-call-detail .phone {
+      font-feature-settings: "tnum";
+      font-weight: 500;
+    }
+    .lp-call-dur {
+      position: absolute; top: 10px; right: 12px;
+      font-size: 12px; font-weight: 700;
+      font-feature-settings: "tnum";
+      color: var(--green-dk);
+    }
+    .lp-call-dur.long { color: var(--orange-dk); }
+    .lp-call-match {
+      margin-top: 6px;
+      font-size: 10.5px; font-weight: 600;
+      color: var(--green-dk);
+      background: rgba(16,185,129,.08);
+      padding: 3px 8px; border-radius: 6px;
+      display: inline-block;
+    }
+    .lp-call-state {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .lp-call-state.active { background: rgba(16,185,129,.12); color: var(--green-dk); }
+    .lp-call-state.ringing { background: rgba(245,158,11,.12); color: var(--orange-dk); }
+    .lp-call-state.outdial { background: rgba(37,99,235,.1); color: var(--blue-dk); }
+
+    /* Agent status bar */
+    .lp-agents-bar {
+      display: flex; gap: 6px; flex-wrap: wrap;
+      padding: 12px 20px;
+      border-top: 1px solid var(--sep);
+      background: var(--surface2);
+    }
+    .lp-agent-chip {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 8px;
+      font-size: 11px; font-weight: 500;
+      background: var(--surface);
+      border: 1px solid var(--sep);
+      white-space: nowrap;
+    }
+    .lp-agent-chip .dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .lp-agent-chip.on-call { border-color: rgba(16,185,129,.3); }
+    .lp-agent-chip.on-call .dot { background: var(--green); }
+    .lp-agent-chip.available .dot { background: var(--blue); }
+    .lp-agent-chip.dnd .dot { background: var(--red); }
+    .lp-agent-chip.busy .dot { background: var(--orange); }
+    .lp-agent-chip.offline { opacity: .45; }
+    .lp-agent-chip.offline .dot { background: var(--tertiary); }
+
+    .lp-empty {
+      padding: 24px 20px;
+      text-align: center;
+      color: var(--tertiary);
+      font-size: 13px;
+    }
+    .lp-refresh-note {
+      font-size: 10px; color: var(--tertiary);
+      padding: 0 20px 10px; text-align: right;
+    }
+
     /* ══════════════ UPCOMING STRIP ══════════════ */
     .up-strip {
       background: var(--surface);
@@ -1620,6 +1789,28 @@
     <button class="alert-cta" onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">Review →</button>
   </div>
 
+  <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
+  <div class="live-panel" id="live-panel" style="display:none">
+    <div class="lp-header" onclick="toggleLivePanel()">
+      <div class="lp-pulse"></div>
+      <div class="lp-title">
+        Live Monitor
+        <span class="lp-title-count" id="lp-call-count">0</span>
+      </div>
+      <div class="lp-meta" id="lp-meta">
+        <span class="lp-stat"><span class="dot green"></span><span class="num" id="lp-on-call">0</span> on call</span>
+        <span class="lp-stat"><span class="dot orange"></span><span class="num" id="lp-available">0</span> available</span>
+        <span class="lp-stat"><span class="dot red"></span><span class="num" id="lp-dnd">0</span> DND</span>
+      </div>
+      <span class="lp-caret">▾</span>
+    </div>
+    <div class="lp-body">
+      <div class="lp-calls-grid" id="lp-calls-grid"></div>
+      <div class="lp-agents-bar" id="lp-agents-bar"></div>
+      <div class="lp-refresh-note" id="lp-refresh-note"></div>
+    </div>
+  </div>
+
   <!-- ══════════════════════ UPCOMING STRIP ══════════════════════ -->
   <div class="up-strip" id="up-strip" style="display:none">
     <div class="up-strip-head">
@@ -2139,10 +2330,21 @@
       </div>`;
     }
 
+    // Campaign tags from call descriptions
+    const campaigns = data.campaigns || {};
+    const campKeys = Object.keys(campaigns);
+    let campaignHtml = "";
+    if (campKeys.length > 0) {
+      campaignHtml = `<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">` +
+        campKeys.map(c => `<span class="campaign-tag" style="font-size:10px;padding:2px 8px;border-radius:6px;background:rgba(139,92,246,.1);color:var(--purple-dk);font-weight:600">${c} <span style="opacity:.6">(${campaigns[c]})</span></span>`).join("") +
+        `</div>`;
+    }
+
     cell.innerHTML = `
       <span class="insights-ai-mark">✨ AI Analysis</span>
       <div class="insights-text">${text}</div>
       <div class="insights-stats">${pills.join("")}</div>
+      ${campaignHtml}
       ${attemptsHtml}
     `;
   }
@@ -3194,6 +3396,225 @@
   initDatePicker();
   loadData();
   setInterval(() => { if (!_customDateActive) loadData(); }, REFRESH_INTERVAL);
+
+  // ══════════════════════════════════════════════════════════════
+  // LIVE MONITOR — RingCX real-time integration
+  // ══════════════════════════════════════════════════════════════
+  let _liveData = null;
+  let _livePanelCollapsed = false;
+  let _liveTimer = null;
+
+  function toggleLivePanel() {
+    const panel = document.getElementById("live-panel");
+    _livePanelCollapsed = !_livePanelCollapsed;
+    panel.classList.toggle("collapsed", _livePanelCollapsed);
+  }
+
+  function formatPhone(num) {
+    if (!num) return "";
+    const d = num.replace(/\D/g, "");
+    if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    if (d.length === 11 && d[0] === "1") return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`;
+    return num;
+  }
+
+  function fmtDuration(sec) {
+    if (!sec || sec < 0) return "0s";
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+
+  function callStateClass(state) {
+    const s = (state || "").toUpperCase();
+    if (s === "ACTIVE") return "active";
+    if (s.includes("DEQUEUE") || s.includes("RING")) return "ringing";
+    if (s.includes("OUTDIAL")) return "outdial";
+    return "active";
+  }
+
+  function callStateLabel(state) {
+    const s = (state || "").toUpperCase();
+    if (s === "ACTIVE") return "On Call";
+    if (s.includes("DEQUEUE")) return "Connecting";
+    if (s.includes("OUTDIAL")) return "Dialing";
+    if (s.includes("RING")) return "Ringing";
+    return state || "Active";
+  }
+
+  function parseCampaign(call) {
+    // Try to extract campaign from the call description or DNIS
+    // Format: "OUT - Scheduled Calls - English" etc.
+    const desc = call.description || call.gate || call.queue_name || "";
+    if (desc) {
+      // Extract campaign name after "OUT - " or just use the gate/queue name
+      const outMatch = desc.match(/OUT\s*-\s*(.+)/i);
+      if (outMatch) return outMatch[1].trim();
+      return desc;
+    }
+    return null;
+  }
+
+  function matchCallToScheduled(call) {
+    // Prefer server-side match (cross-referenced in /api/ringcx/active-calls)
+    if (call.scheduled_match) return call.scheduled_match;
+
+    // Fallback: client-side phone matching
+    if (!_scActivityRecords || !_scActivityRecords.length) return null;
+    const ani = (call.ani || call.from || "").replace(/\D/g, "");
+    const dnis = (call.dnis || call.to || "").replace(/\D/g, "");
+    if (!ani && !dnis) return null;
+
+    for (const rec of _scActivityRecords) {
+      const recPhone = (rec.phone || "").replace(/\D/g, "");
+      if (!recPhone) continue;
+      if ((ani && (ani.endsWith(recPhone) || recPhone.endsWith(ani))) ||
+          (dnis && (dnis.endsWith(recPhone) || recPhone.endsWith(dnis)))) {
+        return rec;
+      }
+    }
+    return null;
+  }
+
+  function renderLivePanel(data) {
+    _liveData = data;
+    const panel = document.getElementById("live-panel");
+    const calls = data.calls || data.active_calls || [];
+    const agents = data.agents || [];
+
+    // Show the panel
+    panel.style.display = "";
+
+    // Header stats
+    const onCall = agents.filter(a => ["CallConnected","Ringing","OnHold"].includes(a.telephony_status));
+    const avail = agents.filter(a => a.status === "Available" && a.telephony_status === "NoCall");
+    const dnd = agents.filter(a => a.dnd_status === "DoNotAcceptAnyCalls" || a.status === "DoNotDisturb");
+
+    document.getElementById("lp-call-count").textContent = calls.length;
+    document.getElementById("lp-on-call").textContent = onCall.length;
+    document.getElementById("lp-available").textContent = avail.length;
+    document.getElementById("lp-dnd").textContent = dnd.length;
+
+    // Calls grid
+    const grid = document.getElementById("lp-calls-grid");
+    if (calls.length === 0) {
+      grid.innerHTML = `<div class="lp-empty">No active calls right now</div>`;
+    } else {
+      // Sort: ACTIVE first, then by duration descending
+      const sorted = [...calls].sort((a, b) => {
+        const stateOrder = s => s === "ACTIVE" ? 0 : 1;
+        const d = stateOrder(a.call_state) - stateOrder(b.call_state);
+        if (d !== 0) return d;
+        return (b.duration_sec || 0) - (a.duration_sec || 0);
+      });
+
+      grid.innerHTML = sorted.map(call => {
+        const matched = matchCallToScheduled(call);
+        const campaign = parseCampaign(call);
+        const dur = call.duration_sec || 0;
+        const durClass = dur > 600 ? " long" : "";
+        const stateC = callStateClass(call.call_state);
+        const isQueued = stateC === "ringing" || stateC === "outdial";
+
+        let matchHtml = "";
+        if (matched) {
+          const sTime = matched.scheduled_time
+            ? new Date(matched.scheduled_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+            : "";
+          matchHtml = `<div class="lp-call-match">📋 Scheduled: ${matched.contact_name || matched.name}${sTime ? " at " + sTime : ""} · ${matched.deal_stage || ""}</div>`;
+        }
+
+        return `<div class="lp-call-card${matched ? " matched" : ""}${isQueued ? " queued" : ""}">
+          <div class="lp-call-dur${durClass}">${fmtDuration(dur)}</div>
+          <div class="lp-call-agent">
+            <span class="lp-call-state ${stateC}">${callStateLabel(call.call_state)}</span>
+            ${call.agent_name || "Unassigned"}
+            ${campaign ? `<span class="campaign-tag" title="${campaign}">${campaign}</span>` : ""}
+          </div>
+          <div class="lp-call-detail">
+            <span>📞</span>
+            <span class="phone">${formatPhone(call.ani || call.from)}</span>
+            <span style="color:var(--tertiary)">→</span>
+            <span class="phone">${formatPhone(call.dnis || call.to)}</span>
+          </div>
+          ${matchHtml}
+        </div>`;
+      }).join("");
+    }
+
+    // Agent status bar — show on-call agents first, then available, then DND, then busy
+    const agentBar = document.getElementById("lp-agents-bar");
+    // Only show human agents (skip departments, queues, system extensions)
+    const humanAgents = agents.filter(a => {
+      const n = (a.name || "").toLowerCase();
+      return !n.includes("department") && !n.includes("agent") && !n.includes("info ")
+        && !n.includes("med spa") && !n.includes("folli md") && !n.includes("meltme")
+        && !n.includes("weightloss") && !n.includes("scheduling") && !n.includes("manychat")
+        && a.status !== "Offline";
+    });
+
+    const agentSorted = [...humanAgents].sort((a, b) => {
+      const order = a => {
+        if (a.telephony_status === "CallConnected") return 0;
+        if (a.telephony_status === "Ringing" || a.telephony_status === "OnHold") return 1;
+        if (a.dnd_status === "DoNotAcceptAnyCalls") return 4;
+        if (a.status === "Busy") return 3;
+        if (a.status === "Available") return 2;
+        return 5;
+      };
+      return order(a) - order(b);
+    });
+
+    agentBar.innerHTML = agentSorted.map(a => {
+      let cls = "available";
+      if (a.telephony_status === "CallConnected") cls = "on-call";
+      else if (a.telephony_status === "Ringing" || a.telephony_status === "OnHold") cls = "on-call";
+      else if (a.dnd_status === "DoNotAcceptAnyCalls") cls = "dnd";
+      else if (a.status === "Busy") cls = "busy";
+      else if (a.status === "Offline") cls = "offline";
+
+      const firstName = (a.name || "").split(" ")[0];
+      return `<span class="lp-agent-chip ${cls}"><span class="dot"></span>${firstName}</span>`;
+    }).join("");
+
+    // Refresh timestamp
+    const ts = data.timestamp ? new Date(data.timestamp) : new Date();
+    document.getElementById("lp-refresh-note").textContent =
+      `Last polled ${ts.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })} · Auto-refreshes every 15s`;
+  }
+
+  async function pollLiveMonitor() {
+    try {
+      // Check if configured first
+      const statusResp = await fetch("/api/ringcx/status");
+      const statusData = await statusResp.json();
+      if (!statusData.configured) {
+        document.getElementById("live-panel").style.display = "none";
+        return;
+      }
+
+      // Fetch active calls (with scheduled-call cross-ref) and agents in parallel
+      const [callsResp, agentsResp] = await Promise.all([
+        fetch("/api/ringcx/active-calls"),
+        fetch("/api/ringcx/agents"),
+      ]);
+      const callsData = await callsResp.json();
+      const agentsData = await agentsResp.json();
+
+      renderLivePanel({
+        calls: callsData.calls || [],
+        agents: agentsData.agents || [],
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn("Live monitor poll failed:", e);
+    }
+  }
+
+  // Start live monitoring
+  pollLiveMonitor();
+  _liveTimer = setInterval(pollLiveMonitor, 15000); // Poll every 15 seconds
 </script>
 </body>
 </html>
