@@ -786,9 +786,19 @@
       font-size: 12px; color: var(--secondary); margin-top: 6px; font-weight: 500;
     }
     .kpi-card .kpi-sub strong { color: var(--text); font-weight: 700; }
-    .kpi-card .kpi-adj {
-      font-size: 11px; color: var(--tertiary); margin-top: 3px; font-weight: 500;
-      font-style: italic; opacity: .7;
+    .kpi-card .kpi-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .kpi-card .kpi-adj-side {
+      text-align: right; border-left: 2px solid var(--sep); padding-left: 14px;
+    }
+    .kpi-card .kpi-adj-val {
+      font-size: 22px; font-weight: 800; color: var(--tertiary); line-height: 1.1;
+      font-feature-settings: "tnum"; opacity: .6;
+    }
+    .kpi-card .kpi-adj-lbl {
+      display: block; font-size: 10px; color: var(--tertiary); font-weight: 500;
+      opacity: .55; margin-top: 2px; white-space: nowrap;
     }
 
     /* ══════════════ UPCOMING STRIP ══════════════ */
@@ -2164,9 +2174,16 @@
       // Completion rate — real-time, of calls due so far
       `<div class="kpi-card ${liveCompletionRate>=85?"green":liveCompletionRate>=60?"orange":"red"}">
         <div class="kpi-lbl">Completion Rate</div>
-        <div class="kpi-val">${liveCompletionRate ?? 0}<span style="font-size:22px">%</span></div>
-        <div class="kpi-sub"><strong>${s.completed}</strong> of ${callsDue} due now</div>
-        ${showAdj ? `<div class="kpi-adj" title="Includes ${resolvedCount} resolved by manager">${adjCompletionRate}% incl. resolved</div>` : ""}
+        <div class="kpi-row">
+          <div>
+            <div class="kpi-val">${liveCompletionRate ?? 0}<span style="font-size:22px">%</span></div>
+            <div class="kpi-sub"><strong>${s.completed}</strong> of ${callsDue} due now</div>
+          </div>
+          ${showAdj ? `<div class="kpi-adj-side" title="Includes ${resolvedCount} resolved by manager">
+            <span class="kpi-adj-val">${adjCompletionRate}%</span>
+            <span class="kpi-adj-lbl">incl. resolved</span>
+          </div>` : ""}
+        </div>
       </div>`,
       // On-time rate
       `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
