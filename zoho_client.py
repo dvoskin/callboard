@@ -201,7 +201,7 @@ class ZohoClient:
         query = (
             "select id, Subject, Call_Start_Time, "
             "Outgoing_call_disposition, Call_Duration_in_seconds, "
-            "Call_Type, Owner, Created_Time "
+            "Call_Type, Owner, Created_Time, Description "
             f"from Calls where Call_Start_Time between '{start_str}' and '{end_str}' "
             f"and ({conditions}) "
             "order by Call_Start_Time desc limit 200"
@@ -227,7 +227,7 @@ class ZohoClient:
             query = (
                 "select id, Subject, Call_Start_Time, "
                 "Outgoing_call_disposition, Call_Duration_in_seconds, "
-                "Call_Type, Owner, Created_Time "
+                "Call_Type, Owner, Created_Time, Description "
                 f"from Calls where Call_Start_Time between '{start_str}' and '{end_str}' "
                 "and id is not null "
                 f"order by Call_Start_Time desc limit 200 offset {offset}"
@@ -252,11 +252,19 @@ class ZohoClient:
             log.warning("Call full-dump capped at 1000 records — some matches may be missing")
         return all_calls
 
-    def _fetch_all_calls_for_phones(self, phones: list[str]) -> dict[str, list[dict]]:
+    def _fetch_all_calls_for_phones(
+        self,
+        phones: list[str],
+        start_dt: Optional[datetime] = None,
+        end_dt: Optional[datetime] = None,
+    ) -> dict[str, list[dict]]:
         """Returns a map of normalized last-10-digit phone → list of matching call records.
 
         Primary strategy: COQL batches of 5 phones using Subject like '%XXXXXXXXXX%'.
         Fallback: fetch all calls in window and match by Subject (capped at 1 000 records).
+
+        If start_dt/end_dt are provided, uses that window; otherwise falls back
+        to the default _call_window() (48 h lookback through end-of-today).
         """
         import logging
         log = logging.getLogger(__name__)
@@ -272,8 +280,13 @@ class ZohoClient:
         if not unique_phones:
             return phone_map
 
-        start_str, end_str = self._call_window()
-        BATCH = 5
+        if start_dt is not None and end_dt is not None:
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        else:
+            start_str, end_str = self._call_window()
+        # Zoho COQL only allows 2 "Subject like" OR conditions per query.
+        BATCH = 2
         used_fallback = False
 
         for i in range(0, len(unique_phones), BATCH):
@@ -740,16 +753,12 @@ class ZohoClient:
         log.info("  → fetching phones for %d contacts...", len(contact_ids))
         contact_phones = self._fetch_contact_phones(contact_ids)
 
-        # Source B: RingCX outbound calls with disposition → actual dials
-        log.info("Fetching RingCX outbound calls with disposition...")
-        ringcx_calls = self._fetch_ringcx_calls_today(start_dt, end_dt)
-
-        # Build phone → RingCX calls map (keyed by normalized last-10 digits extracted from Subject)
-        ringcx_by_phone: dict[str, list[dict]] = {}
-        for call in ringcx_calls:
-            phone = self._phone_from_subject(call.get("Subject", "") or "")
-            if phone:
-                ringcx_by_phone.setdefault(phone, []).append(call)
+        # Source B: Outbound calls (RingCX + MVP) for the phones we care about.
+        # Uses targeted COQL queries by phone number in Subject, avoiding the
+        # Zoho search API's 2000-record limit that caused missed calls.
+        all_phones = [p for p in contact_phones.values() if p]
+        log.info("Fetching outbound calls for %d unique phones...", len(set(all_phones)))
+        ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
 
         nd_phone_to_calls = {}
 
