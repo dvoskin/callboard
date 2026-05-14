@@ -271,8 +271,9 @@
       font-feature-settings: "tnum";
       color: var(--text);
     }
-    td.col-name, td.col-status, td.col-result, td.col-source, td.col-rec, td.col-dials,
+    td.col-status, td.col-result, td.col-source, td.col-rec, td.col-dials,
     td.col-stage { overflow: visible; }
+    td.col-name { overflow: hidden; }
     tr:last-child td { border-bottom: none; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
@@ -2484,8 +2485,8 @@
     const aiBtn = r.id_contact
       ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
       : "";
-    return `<div class="name-cell" style="display:flex;align-items:center;gap:4px;max-width:280px">
-      ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span>${aiBtn}${trailing}
+    return `<div class="name-cell" style="display:flex;align-items:center;gap:4px;max-width:280px;overflow:hidden">
+      ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
     </div>`;
   }
 
