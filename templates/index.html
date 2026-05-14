@@ -1308,8 +1308,9 @@
       th { padding: 10px 10px; }
       td { padding: 10px 10px; max-width: 240px; }
       .name-cell { max-width: 200px; }
-      /* Smaller resize handles but keep usable */
       th .col-resize { width: 4px; }
+      /* Live panel: 2 columns on tablets */
+      .lp-calls-grid { grid-template-columns: repeat(2, 1fr); }
     }
 
     /* ══════════════ MOBILE RESPONSIVE ══════════════ */
@@ -1329,6 +1330,19 @@
       .kpi-card .kpi-lbl { font-size: 10px; }
       .kpi-card .kpi-val { font-size: 26px; }
       .kpi-card .kpi-sub { font-size: 10px; margin-top: 4px; }
+
+      /* Live panel: single column on mobile */
+      .live-panel { margin-bottom: 14px; }
+      .lp-header { padding: 10px 14px; gap: 8px; }
+      .lp-title { font-size: 13px; }
+      .lp-meta { gap: 8px; font-size: 11px; }
+      .lp-calls-grid { grid-template-columns: 1fr; gap: 6px; padding: 10px 14px; max-height: 220px; }
+      .lp-call-card { min-height: 58px; padding: 8px 10px; }
+      .lp-call-agent { font-size: 11px; }
+      .lp-call-detail { font-size: 10px; }
+      .lp-call-dur { font-size: 10px; top: 6px; right: 8px; }
+      .lp-call-match { font-size: 9.5px; }
+      .lp-refresh-note { font-size: 9px; padding: 0 14px 8px; }
 
       /* Alert banner: stack vertically */
       .alert-banner { flex-wrap: wrap; padding: 11px 14px; gap: 10px; }
