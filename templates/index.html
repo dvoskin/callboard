@@ -967,6 +967,22 @@
     .lp-filter-item .agent-status-dot.dnd       { background: var(--red); }
     .lp-filter-item .agent-status-dot.offline   { background: var(--tertiary); }
 
+    .lp-filter-footer {
+      padding: 8px 10px; border-top: 1px solid var(--sep);
+      display: flex; justify-content: flex-end;
+    }
+    .lp-filter-save {
+      font-family: inherit; font-size: 11px; font-weight: 600;
+      color: #fff; background: var(--blue);
+      border: none; border-radius: 5px; padding: 5px 14px;
+      cursor: pointer; transition: background .12s, transform .1s;
+    }
+    .lp-filter-save:hover { background: var(--blue-dk); }
+    .lp-filter-save:active { transform: scale(.97); }
+    .lp-filter-save.saved {
+      background: var(--green); pointer-events: none;
+    }
+
     .lp-body { padding: 0; }
 
     /* Active calls — 3-column grid, max 3 rows visible then scroll */
@@ -2006,7 +2022,7 @@
   </div>
 
   <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
-  <div class="live-panel collapsed" id="live-panel" style="display:none">
+  <div class="live-panel" id="live-panel" style="display:none">
     <div class="lp-header" onclick="toggleLivePanel()">
       <div class="lp-pulse"></div>
       <div class="lp-title">
@@ -2027,6 +2043,9 @@
             <input type="text" class="lp-filter-search" id="lp-filter-search" placeholder="Search agents…" oninput="filterAgentList()">
           </div>
           <div class="lp-filter-list" id="lp-filter-list"></div>
+          <div class="lp-filter-footer">
+            <button class="lp-filter-save" id="lp-filter-save" onclick="saveAgentFilter()">💾 Save Filter</button>
+          </div>
         </div>
       </div>
       <span class="lp-caret">▾</span>
@@ -3889,7 +3908,7 @@
   // LIVE MONITOR — RingCX real-time integration
   // ══════════════════════════════════════════════════════════════
   let _liveData = null;
-  let _livePanelCollapsed = true;  // collapsed by default
+  let _livePanelCollapsed = false;  // expanded by default
   let _liveTimer = null;
   let _liveActiveCalls = []; // stored globally for cross-referencing in the main table
   let _liveSelectedAgents = new Set(); // user filter: selected agent names
@@ -3959,8 +3978,17 @@
     else _liveSelectedAgents.delete(name);
     updateFilterBadge();
     if (_liveData) renderLivePanel(_liveData);
-    // Save to localStorage
+  }
+
+  function saveAgentFilter() {
     localStorage.setItem("lp_selected_agents", JSON.stringify([..._liveSelectedAgents]));
+    const btn = document.getElementById("lp-filter-save");
+    btn.textContent = "✓ Saved";
+    btn.classList.add("saved");
+    setTimeout(() => {
+      btn.textContent = "💾 Save Filter";
+      btn.classList.remove("saved");
+    }, 1500);
   }
 
   function clearUserFilter() {
