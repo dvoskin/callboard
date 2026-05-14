@@ -2192,7 +2192,7 @@
     _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
     _scActivityRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
     renderOverdueTable();
-    drawScTable();  // re-render main table to show "Resolved by manager"
+    drawScTable();  // re-render main table to show "Resolved manually"
     refreshAlertCounts();
   }
   function clearOverdueFilters() {
@@ -2359,7 +2359,7 @@
     const liveCompletionRate = callsDue > 0
       ? Math.round((s.completed / callsDue) * 100)
       : null;
-    // Adjusted completion: count "Resolved by manager" as completed
+    // Adjusted completion: count "Resolved manually" as completed
     const resolvedCount = sc.records.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
     const adjCompleted = s.completed + resolvedCount;
     const adjCompletionRate = callsDue > 0
@@ -2708,7 +2708,7 @@
   async function markResolved(id) {
     const rec = _scOverdueRecords.find(r => r.id === id);
     if (rec) rec.resolved = true;       // optimistic update
-    // Also mark in the activity records so main table shows "Resolved by manager"
+    // Also mark in the activity records so main table shows "Resolved manually"
     const actRec = _scActivityRecords.find(r => r.id === id);
     if (actRec) actRec.resolved = true;
     renderOverdueTable();
@@ -3056,8 +3056,11 @@
       return;
     }
     tbody.innerHTML = rows.map(r => {
+      // Check if this contact is currently on a live call
+      const liveCall = findLiveCallForRecord(r);
+      r._liveCall = liveCall;
+
       // Result column — pure diff between Scheduled and Actual Call columns.
-      // No timezone math, no clamping — just (actual - scheduled) in minutes.
       let result;
       const sign = n => n>=0 ? "+" : "";
       const liveOffset = (r.scheduled_time && r.actual_call_time)
@@ -3065,18 +3068,22 @@
         : null;
 
       // Recompute the bucket from the pure diff so Status badge and Result always agree.
-      // < -5 min  → early, -5..+10 → on time, > +10 → late.
       let bucket = r.status;
       if (liveOffset !== null) {
         if (liveOffset < -5) bucket = "early";
         else if (liveOffset > 10) bucket = "late_call";
         else bucket = "on_time";
       }
-      r._bucket = bucket;  // consumed by statusBadge override below
+      r._bucket = bucket;
 
-      // Resolved by manager — overrides all other result display
-      if (r.resolved && (r.status === "missed" || r.status === "late")) {
-        result = `<span style="color:var(--secondary);font-weight:600">Resolved by manager</span>`;
+      // LIVE CALL — highest priority indicator
+      if (liveCall) {
+        const agent = liveCall.agent_name || "Agent";
+        const dur = fmtDuration(liveCall.duration_sec || 0);
+        result = `<span style="color:var(--green-dk);font-weight:700">🟢 On Call</span> <span style="font-size:11px;color:var(--secondary)">${agent} · ${dur}</span>`;
+      // Resolved manually — overrides all other result display
+      } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
+        result = `<span style="color:var(--secondary);font-weight:600">Resolved manually</span>`;
       } else if (bucket === "on_time" && liveOffset !== null) {
         result = `<span style="color:var(--green-dk);font-weight:700">${sign(liveOffset)}${liveOffset} min from scheduled</span>`;
       } else if (bucket === "early" && liveOffset !== null) {
@@ -3154,14 +3161,19 @@
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
-      return `<tr class="${cls}">
+      // Live call override for status badge
+      const statusHtml = r._liveCall
+        ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
+        : statusBadge(effStatus, effOnTime);
+
+      return `<tr class="${cls}"${r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : ''}>
         <td class="col-name">${nameCell(r, "Contacts", flooredBadge)}</td>
         <td class="phone-cell col-phone">${r.phone||"—"}</td>
         <td class="dim col-scheduled">${fmt(r.scheduled_time)}</td>
         <td class="col-actual">${actualCell}</td>
         <td class="col-lastdial">${lastDialCell}</td>
         <td class="col-source">${sourceCell}</td>
-        <td class="col-status">${statusBadge(effStatus,effOnTime)}</td>
+        <td class="col-status">${statusHtml}</td>
         <td class="col-result">${result}</td>
         <td class="col-stage">${stageCell}</td>
         <td style="text-align:center" class="col-dials">${dialsCell}</td>
@@ -3403,6 +3415,7 @@
   let _liveData = null;
   let _livePanelCollapsed = false;
   let _liveTimer = null;
+  let _liveActiveCalls = []; // stored globally for cross-referencing in the main table
 
   function toggleLivePanel() {
     const panel = document.getElementById("live-panel");
@@ -3452,6 +3465,24 @@
       const outMatch = desc.match(/OUT\s*-\s*(.+)/i);
       if (outMatch) return outMatch[1].trim();
       return desc;
+    }
+    return null;
+  }
+
+  function findLiveCallForRecord(rec) {
+    // Check if this scheduled call record's phone number matches any active RingCX call
+    if (!_liveActiveCalls.length) return null;
+    const recPhone = (rec.phone || "").replace(/\D/g, "");
+    if (recPhone.length < 7) return null;
+    const last10 = recPhone.slice(-10);
+
+    for (const call of _liveActiveCalls) {
+      const ani = (call.ani || call.from || "").replace(/\D/g, "");
+      const dnis = (call.dnis || call.to || "").replace(/\D/g, "");
+      if ((ani.length >= 10 && ani.slice(-10) === last10) ||
+          (dnis.length >= 10 && dnis.slice(-10) === last10)) {
+        return call;
+      }
     }
     return null;
   }
@@ -3602,11 +3633,20 @@
       const callsData = await callsResp.json();
       const agentsData = await agentsResp.json();
 
+      const liveCalls = callsData.calls || [];
+      const prevCount = _liveActiveCalls.length;
+      _liveActiveCalls = liveCalls;
+
       renderLivePanel({
-        calls: callsData.calls || [],
+        calls: liveCalls,
         agents: agentsData.agents || [],
         timestamp: new Date().toISOString(),
       });
+
+      // Re-render the main table if active calls changed (to update live status badges)
+      if (liveCalls.length !== prevCount || liveCalls.length > 0) {
+        drawScTable();
+      }
     } catch (e) {
       console.warn("Live monitor poll failed:", e);
     }

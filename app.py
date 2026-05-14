@@ -28,7 +28,9 @@ _zoho = ZohoClient()
 _ringcx = RingCXClient()
 
 # ────────── Resolved-overdue persistence ──────────
-RESOLVED_PATH = Path(__file__).parent / "resolved_calls.json"
+# Use persistent disk mount if available (Render), fallback to local
+_data_dir = Path("/data") if Path("/data").exists() else Path(__file__).parent
+RESOLVED_PATH = _data_dir / "resolved_calls.json"
 _resolved_lock = threading.Lock()
 
 def _load_resolved() -> dict:
