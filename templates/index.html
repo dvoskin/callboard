@@ -793,12 +793,12 @@
       text-align: right; border-left: 2px solid var(--sep); padding-left: 14px;
     }
     .kpi-card .kpi-adj-val {
-      font-size: 22px; font-weight: 800; color: var(--tertiary); line-height: 1.1;
-      font-feature-settings: "tnum"; opacity: .6;
+      font-size: 22px; font-weight: 800; color: var(--secondary); line-height: 1.1;
+      font-feature-settings: "tnum";
     }
     .kpi-card .kpi-adj-lbl {
-      display: block; font-size: 10px; color: var(--tertiary); font-weight: 500;
-      opacity: .55; margin-top: 2px; white-space: nowrap;
+      display: block; font-size: 10px; color: var(--secondary); font-weight: 500;
+      opacity: .7; margin-top: 2px; white-space: nowrap;
     }
 
     /* ══════════════ LIVE MONITOR PANEL ══════════════ */
@@ -2373,8 +2373,8 @@
         <div class="kpi-val">${total}</div>
         <div class="kpi-sub"><strong>${upcoming.length}</strong> still upcoming · <strong>${callsDue}</strong> due now</div>
       </div>`,
-      // Completion rate — real-time, of calls due so far
-      `<div class="kpi-card ${liveCompletionRate>=85?"green":liveCompletionRate>=60?"orange":"red"}">
+      // Completion rate — tile color based on adjusted rate (incl. resolved) when available
+      `<div class="kpi-card ${(showAdj?adjCompletionRate:liveCompletionRate)>=85?"green":(showAdj?adjCompletionRate:liveCompletionRate)>=60?"orange":"red"}">
         <div class="kpi-lbl">Completion Rate</div>
         <div class="kpi-row">
           <div>
