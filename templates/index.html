@@ -1178,6 +1178,82 @@
       color: var(--tertiary); font-size: 12px; font-weight: 500;
     }
 
+    /* ══════════════ AI INSIGHTS BANNER ══════════════ */
+    .ai-banner {
+      display: none;
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(99,102,241,.2);
+      box-shadow: 0 2px 12px rgba(99,102,241,.08);
+    }
+    .ai-banner.show { display: block; }
+    .ai-banner-header {
+      background: linear-gradient(135deg, rgba(99,102,241,.08) 0%, rgba(139,92,246,.06) 50%, rgba(217,70,239,.04) 100%);
+      padding: 12px 18px;
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; user-select: none;
+      border-bottom: 1px solid rgba(99,102,241,.1);
+      transition: background .15s;
+    }
+    .ai-banner-header:hover { background: linear-gradient(135deg, rgba(99,102,241,.12) 0%, rgba(139,92,246,.08) 50%, rgba(217,70,239,.06) 100%); }
+    .ai-banner-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--ai-grad); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .ai-banner-title {
+      flex: 1; font-size: 13px; font-weight: 700;
+      color: var(--purple-dk);
+    }
+    .ai-banner-title small {
+      font-weight: 500; color: var(--secondary); font-size: 11px;
+      margin-left: 6px;
+    }
+    .ai-banner-caret {
+      font-size: 11px; color: var(--secondary);
+      transition: transform .2s;
+    }
+    .ai-banner.open .ai-banner-caret { transform: rotate(180deg); }
+    .ai-banner-body {
+      max-height: 0; overflow: hidden;
+      transition: max-height .3s ease;
+      background: rgba(99,102,241,.02);
+    }
+    .ai-banner.open .ai-banner-body { max-height: 600px; }
+    .ai-banner-content {
+      padding: 16px 20px 18px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    }
+    .ai-insight-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+    }
+    .ai-insight-card.full { grid-column: 1 / -1; }
+    .ai-insight-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .5px; color: var(--secondary); margin-bottom: 6px;
+    }
+    .ai-insight-val {
+      font-size: 13px; font-weight: 600; color: var(--primary);
+      line-height: 1.5;
+    }
+    .ai-insight-val .good { color: var(--green-dk); }
+    .ai-insight-val .warn { color: var(--orange-dk); }
+    .ai-insight-val .bad  { color: var(--red-dk); }
+    .ai-insight-val .info { color: var(--blue-dk); }
+    .ai-insight-val .neutral { color: var(--secondary); }
+    .ai-tip {
+      font-size: 11px; color: var(--secondary); margin-top: 4px;
+      font-style: italic; font-weight: 400;
+    }
+    @media (max-width: 680px) {
+      .ai-banner-content { grid-template-columns: 1fr; }
+    }
+
     /* ══════════════ CRITICAL ALERT BANNER ══════════════ */
     .alert-banner {
       display: none;
@@ -1879,6 +1955,18 @@
   <!-- ══════════════════════ HERO KPI CARDS ══════════════════════ -->
   <div class="hero-grid" id="hero-grid"></div>
 
+  <!-- ══════════════════════ AI INSIGHTS BANNER ══════════════════════ -->
+  <div class="ai-banner" id="ai-banner">
+    <div class="ai-banner-header" onclick="toggleAiBanner()">
+      <div class="ai-banner-icon">✦</div>
+      <div class="ai-banner-title">Daily Performance Insights <small id="ai-banner-time"></small></div>
+      <span class="ai-banner-caret">▾</span>
+    </div>
+    <div class="ai-banner-body">
+      <div class="ai-banner-content" id="ai-banner-content"></div>
+    </div>
+  </div>
+
   <!-- ══════════════════════ CRITICAL ALERT BANNER ══════════════════════ -->
   <div class="alert-banner" id="alert-banner">
     <div class="alert-icon">!</div>
@@ -1982,6 +2070,9 @@
             </select>
             <select id="sc-disp-filter" onchange="applyScFilters()">
               <option value="">All Dispositions</option>
+            </select>
+            <select id="sc-stage-filter" onchange="applyScFilters()">
+              <option value="">All Stages</option>
             </select>
             <button class="filter-clear" onclick="clearScFilters()">✕ Clear</button>
             <div class="cols-menu-wrap">
@@ -2326,6 +2417,12 @@
     sel.innerHTML=`<option value="">All Dispositions</option>`
       +disps.map(d=>`<option value="${d}"${d===cur?" selected":""}>${d}</option>`).join("");
   }
+  function populateStageFilter(selId, records) {
+    const sel=document.getElementById(selId), cur=sel.value;
+    const stages=[...new Set(records.map(r=>r.deal_stage).filter(Boolean))].sort();
+    sel.innerHTML=`<option value="">All Stages</option>`
+      +stages.map(s=>`<option value="${s}"${s===cur?" selected":""}>${s}</option>`).join("");
+  }
 
   // ─── contact name cell (with hyperlink + AI buttons) ───
   function nameCell(r, module="Contacts", trailing="") {
@@ -2528,6 +2625,123 @@
     }
   }
 
+  // ─── AI insights banner ───
+  let _aiBannerOpen = false;
+  function toggleAiBanner() {
+    _aiBannerOpen = !_aiBannerOpen;
+    document.getElementById("ai-banner").classList.toggle("open", _aiBannerOpen);
+  }
+
+  function renderAiInsights(sc, upcoming, overdue, liveCalls) {
+    const banner = document.getElementById("ai-banner");
+    const s = sc.summary;
+    const total = sc.records.length;
+    if (total === 0) { banner.classList.remove("show"); return; }
+    banner.classList.add("show");
+
+    const callsDue = total - upcoming.length;
+    const completionRate = callsDue > 0 ? Math.round((s.completed / callsDue) * 100) : 0;
+    const resolvedCount = sc.records.filter(r => r.resolved && (r.status==="missed" || r.status==="late")).length;
+    const adjCompleted = s.completed + resolvedCount;
+    const adjRate = callsDue > 0 ? Math.round((adjCompleted / callsDue) * 100) : 0;
+    const overdueUnresolved = overdue.filter(r => !r.resolved).length;
+
+    // Time-based pacing
+    const nowET = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    const nowParsed = new Date(nowET);
+    const hour = nowParsed.getHours();
+    const minuteOfDay = hour * 60 + nowParsed.getMinutes();
+    const workStart = 9 * 60, workEnd = 17 * 60; // 9am-5pm
+    const workElapsed = Math.max(0, Math.min(minuteOfDay - workStart, workEnd - workStart));
+    const workTotal = workEnd - workStart;
+    const dayProgress = workTotal > 0 ? Math.round((workElapsed / workTotal) * 100) : 0;
+
+    // Expected pace
+    const expectedCompleted = callsDue > 0 ? Math.round((dayProgress / 100) * callsDue) : 0;
+    const paceStatus = s.completed >= expectedCompleted ? "ahead" : (s.completed >= expectedCompleted * 0.8 ? "on_pace" : "behind");
+
+    // Avg dial attempts on completed calls
+    const completedRecords = sc.records.filter(r => r.status==="completed" || r.status==="early" || r.status==="completed_via_deal");
+    const avgDials = completedRecords.length > 0
+      ? (completedRecords.reduce((sum,r) => sum + (r.dial_attempts||0), 0) / completedRecords.length).toFixed(1)
+      : "—";
+
+    // Live calls info
+    const liveCount = (liveCalls || []).length;
+
+    // Top disposition
+    const dispMap = {};
+    sc.records.forEach(r => { if (r.disposition) dispMap[r.disposition] = (dispMap[r.disposition]||0) + 1; });
+    const topDisps = Object.entries(dispMap).sort((a,b) => b[1]-a[1]).slice(0, 3);
+
+    // Stage breakdown
+    const stageMap = {};
+    sc.records.forEach(r => { if (r.deal_stage) stageMap[r.deal_stage] = (stageMap[r.deal_stage]||0) + 1; });
+    const topStages = Object.entries(stageMap).sort((a,b) => b[1]-a[1]).slice(0, 4);
+
+    // Build insight cards
+    const cards = [];
+
+    // 1. Pacing
+    const paceIcon = paceStatus === "ahead" ? "🟢" : paceStatus === "on_pace" ? "🟡" : "🔴";
+    const paceClass = paceStatus === "ahead" ? "good" : paceStatus === "on_pace" ? "warn" : "bad";
+    const paceLabel = paceStatus === "ahead" ? "Ahead of schedule" : paceStatus === "on_pace" ? "On pace" : "Behind pace";
+    cards.push(`<div class="ai-insight-card">
+      <div class="ai-insight-label">Daily Pacing</div>
+      <div class="ai-insight-val">${paceIcon} <span class="${paceClass}">${paceLabel}</span></div>
+      <div class="ai-tip">${s.completed} completed vs ${expectedCompleted} expected by ${dayProgress}% through the workday</div>
+    </div>`);
+
+    // 2. Completion snapshot
+    const compClass = completionRate >= 80 ? "good" : completionRate >= 50 ? "warn" : "bad";
+    cards.push(`<div class="ai-insight-card">
+      <div class="ai-insight-label">Completion Snapshot</div>
+      <div class="ai-insight-val"><span class="${compClass}">${completionRate}% complete</span> · ${s.completed} of ${callsDue} due</div>
+      <div class="ai-tip">${resolvedCount > 0 ? `${adjRate}% including ${resolvedCount} manager-resolved` : `${upcoming.length} calls still upcoming`}</div>
+    </div>`);
+
+    // 3. Live calls
+    if (liveCount > 0) {
+      cards.push(`<div class="ai-insight-card">
+        <div class="ai-insight-label">Active Right Now</div>
+        <div class="ai-insight-val"><span class="good">🟢 ${liveCount} live call${liveCount>1?"s":""}</span> in progress</div>
+        <div class="ai-tip">Reps are actively dialing — completion rate will continue to climb</div>
+      </div>`);
+    } else {
+      cards.push(`<div class="ai-insight-card">
+        <div class="ai-insight-label">Active Right Now</div>
+        <div class="ai-insight-val"><span class="neutral">No live calls</span></div>
+        <div class="ai-tip">${overdueUnresolved > 0 ? `${overdueUnresolved} overdue calls still need attention` : "All quiet — scheduled calls are on track"}</div>
+      </div>`);
+    }
+
+    // 4. Attention needed
+    const attnClass = overdueUnresolved === 0 ? "good" : overdueUnresolved <= 3 ? "warn" : "bad";
+    const attnMsg = overdueUnresolved === 0
+      ? "All overdue calls resolved or completed"
+      : `${overdueUnresolved} call${overdueUnresolved>1?"s":""} 60+ min overdue without a dial`;
+    cards.push(`<div class="ai-insight-card">
+      <div class="ai-insight-label">Attention Needed</div>
+      <div class="ai-insight-val"><span class="${attnClass}">${attnMsg}</span></div>
+      <div class="ai-tip">${overdueUnresolved > 0 ? "Review the overdue section below and resolve or re-attempt" : "Great work — the team is staying on top of the schedule"}</div>
+    </div>`);
+
+    // 5. Effort & Efficiency (full width)
+    const effortParts = [];
+    effortParts.push(`Avg <strong>${avgDials}</strong> dials per completed call`);
+    if (s.on_time_rate > 0) effortParts.push(`<span class="${s.on_time_rate>=70?"good":"warn"}">${s.on_time_rate}% on-time rate</span>`);
+    if (s.early > 0) effortParts.push(`<span class="info">${s.early} early call${s.early>1?"s":""}</span>`);
+    cards.push(`<div class="ai-insight-card full">
+      <div class="ai-insight-label">Effort & Efficiency</div>
+      <div class="ai-insight-val">${effortParts.join(" · ")}</div>
+      <div class="ai-tip">${topDisps.length > 0 ? "Top dispositions: " + topDisps.map(([d,c]) => `${d} (${c})`).join(", ") : "No disposition data yet"}${topStages.length > 0 ? " · Stages: " + topStages.map(([st,c]) => `${st} (${c})`).join(", ") : ""}</div>
+    </div>`);
+
+    document.getElementById("ai-banner-content").innerHTML = cards.join("");
+    const timeStr = new Date().toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    document.getElementById("ai-banner-time").textContent = `as of ${timeStr} ET`;
+  }
+
   // (Hourly chart and Caller leaderboard removed)
   function _removed_renderHourlyChart_(records) {
     // bucket by EST hour
@@ -2701,6 +2915,7 @@
     // Manager-focused rollups — only count UNRESOLVED overdue as "needs attention"
     const unresolvedOverdue = overdue.filter(r => !r.resolved);
     renderHeroKpis(sc, upcoming, unresolvedOverdue);
+    renderAiInsights(sc, upcoming, unresolvedOverdue, _liveActiveCalls);
 
     const _callsDue = sc.records.length - upcoming.length;
     const _liveCompletion = _callsDue > 0 ? Math.round((s.completed / _callsDue) * 100) : null;
@@ -2721,6 +2936,7 @@
     ].join("");
 
     populateDisp("sc-disp-filter", past);
+    populateStageFilter("sc-stage-filter", activity);
     drawScTable();
 
     renderOverdueTable();
@@ -3168,7 +3384,8 @@
     const q = (document.getElementById("sc-search")?.value || "").trim();
     const sf = document.getElementById("sc-status-filter")?.value || "";
     const df = document.getElementById("sc-disp-filter")?.value || "";
-    const n = (q ? 1 : 0) + (sf ? 1 : 0) + (df ? 1 : 0);
+    const stf = document.getElementById("sc-stage-filter")?.value || "";
+    const n = (q ? 1 : 0) + (sf ? 1 : 0) + (df ? 1 : 0) + (stf ? 1 : 0);
     const badge = document.getElementById("ft-active-count");
     if (!badge) return;
     badge.textContent = n;
@@ -3176,7 +3393,7 @@
   }
   function applyScFilters() { _updateFiltersActiveCount(); drawScTable(); }
   function clearScFilters() {
-    ["sc-search","sc-status-filter","sc-disp-filter"].forEach(id=>{
+    ["sc-search","sc-status-filter","sc-disp-filter","sc-stage-filter"].forEach(id=>{
       const el=document.getElementById(id);
       if(el.tagName==="INPUT") el.value=""; else el.value="";
     });
@@ -3188,9 +3405,11 @@
     const q  = (document.getElementById("sc-search").value||"").toLowerCase();
     const sf = document.getElementById("sc-status-filter").value;
     const df = document.getElementById("sc-disp-filter").value;
+    const stf = document.getElementById("sc-stage-filter").value;
     let rows = _scActivityRecords.filter(r => {
       if (sf && r.status!==sf) return false;
       if (df && r.disposition!==df) return false;
+      if (stf && (r.deal_stage||"")!==stf) return false;
       if (q  && !((r.name||"").toLowerCase().includes(q)||(r.phone||"").includes(q))) return false;
       return true;
     });
@@ -3488,6 +3707,7 @@
     // Hide alert banner and overdue zone immediately when a new date range is applied
     // so stale data from a previous fetch doesn't linger while the new fetch is in flight.
     document.getElementById("alert-banner").classList.remove("show");
+    document.getElementById("ai-banner").classList.remove("show");
     document.getElementById("sc-overdue-zone").style.display = "none";
     document.getElementById("hero-grid").innerHTML = `
       <div class="kpi-card"><div class="kpi-lbl">Total Today</div><div class="kpi-val dim">—</div></div>
