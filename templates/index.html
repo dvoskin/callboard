@@ -1705,7 +1705,7 @@
       .header-icon { width: 26px; height: 26px; font-size: 12px; border-radius: 7px; }
       header h1 { font-size: 14px; white-space: nowrap; }
       .header-dot-wrap { flex: 0 0 auto; }
-      #last-updated { display: none; }
+      #last-updated { display: none !important; }
       #refresh-btn { padding: 5px 8px; font-size: 10px; }
       .ch-search-btn { font-size: 11px; padding: 5px 8px; }
       .ch-search-btn .ch-label { display: none; }
@@ -1713,21 +1713,57 @@
       /* Layout */
       main { padding: 14px 12px; }
 
-      /* Hero KPIs: 2×2, hide sparklines & context on mobile */
-      .hero-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-      .kpi-card { padding: 12px 13px 10px; }
+      /* ── KPI cards: just label + number, nothing else ── */
+      .hero-grid { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+      .kpi-card { padding: 10px 12px 8px; }
       .kpi-card .kpi-lbl { font-size: 10px; }
-      .kpi-card .kpi-val { font-size: 26px; }
-      .kpi-card .kpi-sub { font-size: 10px; margin-top: 4px; }
-      .kpi-card .kpi-sparkline { display: none; }
-      .kpi-card .kpi-context { display: none; }
-      .kpi-card .kpi-adj-side { display: none; }
-      .stat-pill .adj-note { display: none; }
-      .stat-pill .rate { display: none; }
-      .mgr-grid { display: none; }
+      .kpi-card .kpi-val { font-size: 24px; }
+      .kpi-card .kpi-sub { display: none !important; }
+      .kpi-card .kpi-sparkline { display: none !important; }
+      .kpi-card .kpi-context { display: none !important; }
+      .kpi-card .kpi-adj-side { display: none !important; }
+      .kpi-card .kpi-row { display: block; }
 
-      /* Live panel: single column on mobile */
-      .live-panel { margin-bottom: 14px; }
+      /* ── Hide non-essential sections ── */
+      .ai-banner { display: none !important; }
+      .mgr-grid { display: none !important; }
+      .stat-strip { display: none !important; }
+      .up-strip { display: none !important; }
+
+      /* ── Alert banner: compact ── */
+      .alert-banner { padding: 10px 12px; gap: 8px; border-radius: 10px; }
+      .alert-icon { width: 28px; height: 28px; font-size: 13px; }
+      .alert-text h3 { font-size: 12px; }
+      .alert-text p { display: none; }
+
+      /* ── Schedule modal: full-screen bottom sheet ── */
+      .modal-overlay { align-items: flex-end !important; }
+      .modal-box {
+        width: 100% !important; max-width: 100% !important; border-radius: 16px 16px 0 0 !important;
+        max-height: 92vh !important; display: flex !important; flex-direction: column !important;
+        transform: translateY(100%) !important;
+      }
+      .modal-overlay.open .modal-box { transform: translateY(0) !important; }
+      .modal-head { padding: 14px 16px 12px !important; }
+      .modal-body { padding: 14px 16px 16px !important; overflow-y: auto !important; flex: 1 !important; }
+      .mf-row { flex-direction: column !important; gap: 0 !important; }
+      .mf-group input, .mf-group select { font-size: 16px !important; padding: 10px 12px !important; }
+      .modal-foot { padding: 12px 16px 20px !important; padding-bottom: max(20px, env(safe-area-inset-bottom)) !important; }
+      .modal-foot button { flex: 1 !important; padding: 12px 18px !important; font-size: 14px !important; }
+
+      /* ── Date bar: compact ── */
+      .card-date-bar { padding: 8px 14px; gap: 5px; }
+      .cdb-label { font-size: 10px; }
+      .cdb-input { font-size: 13px; padding: 5px 6px; min-width: 0; flex: 1; }
+      .cdb-sep { font-size: 11px; }
+      .cdb-apply { padding: 6px 10px; font-size: 11px; }
+      .cdb-today { padding: 6px 8px; font-size: 11px; }
+      .cdb-loading { font-size: 11px; }
+      .card-header { flex-wrap: wrap; }
+      .sched-btn { font-size: 11px; padding: 5px 10px; }
+
+      /* ── Live panel: single column ── */
+      .live-panel { margin-bottom: 12px; }
       .lp-header { padding: 10px 14px; gap: 8px; }
       .lp-title { font-size: 12px; }
       .lp-calls-grid { grid-template-columns: 1fr; gap: 6px; padding: 10px 14px; max-height: 220px; }
