@@ -2065,6 +2065,294 @@
       color: var(--red); font-size: 12px; margin-top: 8px;
       padding: 6px 10px; background: rgba(239,68,68,.06); border-radius: 6px;
     }
+
+    /* ══════════════ TELEGRAM CHAT WIDGET ══════════════ */
+    .tg-widget {
+      position: fixed;
+      bottom: 20px;
+      right: 24px;
+      z-index: 500;
+      font-family: "Inter", -apple-system, sans-serif;
+    }
+
+    /* Floating toggle button */
+    .tg-toggle {
+      width: 54px; height: 54px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0088cc 0%, #0077b5 100%);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(0,136,204,.35), 0 2px 6px rgba(0,0,0,.12);
+      transition: transform .2s, box-shadow .2s;
+      position: relative;
+    }
+    .tg-toggle:hover {
+      transform: scale(1.08);
+      box-shadow: 0 6px 24px rgba(0,136,204,.45), 0 3px 8px rgba(0,0,0,.15);
+    }
+    .tg-toggle svg { width: 26px; height: 26px; fill: #fff; }
+    .tg-toggle .tg-badge {
+      position: absolute; top: -2px; right: -2px;
+      background: var(--red);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 18px;
+      height: 18px;
+      line-height: 18px;
+      padding: 0 5px;
+      border-radius: 10px;
+      text-align: center;
+      display: none;
+    }
+    .tg-toggle .tg-badge.show { display: block; }
+
+    /* Chat panel */
+    .tg-panel {
+      position: absolute;
+      bottom: 64px;
+      right: 0;
+      width: 380px;
+      max-height: 520px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      animation: tg-slide-up .2s ease-out;
+    }
+    .tg-panel.open { display: flex; }
+
+    @keyframes tg-slide-up {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Panel header */
+    .tg-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, #0088cc 0%, #0077b5 100%);
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .tg-header-icon {
+      width: 34px; height: 34px;
+      background: rgba(255,255,255,.18);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .tg-header-icon svg { width: 18px; height: 18px; fill: #fff; }
+    .tg-header-info { flex: 1; min-width: 0; }
+    .tg-header-title {
+      font-size: 14px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tg-header-sub {
+      font-size: 11px;
+      opacity: .75;
+    }
+    .tg-header-close {
+      background: rgba(255,255,255,.15);
+      border: none;
+      color: #fff;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s;
+    }
+    .tg-header-close:hover { background: rgba(255,255,255,.3); }
+
+    /* Messages area */
+    .tg-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      min-height: 200px;
+      max-height: 380px;
+      background: var(--surface2);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .tg-messages::-webkit-scrollbar { width: 5px; }
+    .tg-messages::-webkit-scrollbar-thumb {
+      background: rgba(0,0,0,.12); border-radius: 10px;
+    }
+
+    .tg-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      color: var(--tertiary);
+      font-size: 13px;
+      text-align: center;
+      gap: 8px;
+    }
+    .tg-empty svg { width: 32px; height: 32px; fill: var(--tertiary); opacity: .5; }
+
+    /* Date separator */
+    .tg-date-sep {
+      text-align: center;
+      font-size: 10px;
+      color: var(--tertiary);
+      margin: 8px 0 4px;
+      position: relative;
+    }
+    .tg-date-sep span {
+      background: var(--surface2);
+      padding: 0 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .tg-date-sep::before {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; top: 50%;
+      height: 1px;
+      background: var(--sep);
+    }
+
+    /* Message bubble */
+    .tg-msg {
+      max-width: 88%;
+      padding: 7px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      word-break: break-word;
+      position: relative;
+    }
+    .tg-msg-in {
+      background: var(--surface);
+      border: 1px solid var(--sep);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    .tg-msg-out {
+      background: #e3f0ff;
+      border: 1px solid rgba(37,99,235,.12);
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    .tg-msg-name {
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 2px;
+      color: var(--blue);
+    }
+    .tg-msg-text {
+      color: var(--text);
+    }
+    .tg-msg-reply {
+      font-size: 11px;
+      color: var(--secondary);
+      border-left: 2px solid var(--blue);
+      padding-left: 6px;
+      margin-bottom: 3px;
+      max-height: 32px;
+      overflow: hidden;
+    }
+    .tg-msg-time {
+      font-size: 10px;
+      color: var(--tertiary);
+      text-align: right;
+      margin-top: 2px;
+    }
+
+    /* Input area */
+    .tg-input-area {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--sep);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .tg-input-area input {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 8px 14px;
+      font-size: 13px;
+      outline: none;
+      background: var(--surface2);
+      font-family: inherit;
+      transition: border-color .15s;
+    }
+    .tg-input-area input:focus { border-color: var(--blue); }
+    .tg-input-area input::placeholder { color: var(--tertiary); }
+    .tg-send-btn {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: #0088cc;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s, transform .1s;
+      flex-shrink: 0;
+    }
+    .tg-send-btn:hover { background: #0077b5; }
+    .tg-send-btn:active { transform: scale(.93); }
+    .tg-send-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .tg-send-btn svg { width: 16px; height: 16px; fill: #fff; }
+
+    /* Not-configured state */
+    .tg-not-configured {
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--secondary);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .tg-not-configured code {
+      background: var(--surface2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    /* Loading spinner inside chat */
+    .tg-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 30px;
+      gap: 8px;
+      color: var(--tertiary);
+      font-size: 12px;
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 500px) {
+      .tg-panel {
+        width: calc(100vw - 32px);
+        right: -8px;
+        max-height: 70vh;
+      }
+    }
   </style>
 </head>
 <body>
@@ -4620,5 +4908,256 @@
     </div>
   </div>
 </div>
+
+<!-- ══════════════════════ TELEGRAM CHAT WIDGET ══════════════════════ -->
+<div class="tg-widget" id="tg-widget" style="display:none">
+  <!-- Toggle button -->
+  <button class="tg-toggle" id="tg-toggle" onclick="tgToggle()">
+    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+    <span class="tg-badge" id="tg-badge">0</span>
+  </button>
+
+  <!-- Chat panel -->
+  <div class="tg-panel" id="tg-panel">
+    <div class="tg-header">
+      <div class="tg-header-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+      </div>
+      <div class="tg-header-info">
+        <div class="tg-header-title" id="tg-chat-title">Team Chat</div>
+        <div class="tg-header-sub" id="tg-chat-sub">Telegram</div>
+      </div>
+      <button class="tg-header-close" onclick="tgToggle()">&#10005;</button>
+    </div>
+
+    <div class="tg-messages" id="tg-messages">
+      <div class="tg-loading">
+        <span class="mini-spinner"></span> Loading messages...
+      </div>
+    </div>
+
+    <div class="tg-input-area" id="tg-input-area" style="display:none">
+      <input type="text" id="tg-input" placeholder="Type a message..."
+             onkeydown="if(event.key==='Enter')tgSend()" autocomplete="off">
+      <button class="tg-send-btn" onclick="tgSend()" id="tg-send-btn">
+        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ═══════════════════ Telegram Chat Widget ═══════════════════ */
+  let _tgConfigured = false;
+  let _tgAllowSend = false;
+  let _tgMessages = [];
+  let _tgOpen = false;
+  let _tgLastCount = 0;
+  let _tgPollTimer = null;
+  let _tgInitialized = false;
+  let _tgSenderName = localStorage.getItem("tg_sender_name") || "";
+
+  // Assign unique colors to senders
+  const _tgNameColors = [
+    '#2563eb','#059669','#d97706','#dc2626','#7c3aed',
+    '#0891b2','#be185d','#4f46e5','#ea580c','#0d9488'
+  ];
+  const _tgColorMap = {};
+
+  function tgGetColor(name) {
+    if (!_tgColorMap[name]) {
+      const idx = Object.keys(_tgColorMap).length % _tgNameColors.length;
+      _tgColorMap[name] = _tgNameColors[idx];
+    }
+    return _tgColorMap[name];
+  }
+
+  async function tgInit() {
+    if (_tgInitialized) return;
+    _tgInitialized = true;
+    try {
+      const resp = await fetch("/api/telegram/status");
+      const data = await resp.json();
+      if (!data.configured) return; // hide widget entirely
+      _tgConfigured = true;
+      _tgAllowSend = data.allow_send;
+      document.getElementById("tg-widget").style.display = "";
+      if (data.chat_title) {
+        document.getElementById("tg-chat-title").textContent = data.chat_title;
+      }
+      document.getElementById("tg-chat-sub").textContent =
+        "Telegram group chat" + (data.chat_type === "supergroup" ? "" : "");
+      if (_tgAllowSend) {
+        document.getElementById("tg-input-area").style.display = "flex";
+      }
+      tgPoll();
+      _tgPollTimer = setInterval(tgPoll, 15000);
+    } catch (e) {
+      console.warn("Telegram init failed:", e);
+    }
+  }
+
+  async function tgPoll() {
+    if (!_tgConfigured) return;
+    try {
+      const resp = await fetch("/api/telegram/messages?limit=50");
+      const data = await resp.json();
+      const msgs = data.messages || [];
+      if (!_tgOpen && msgs.length > _tgLastCount && _tgLastCount > 0) {
+        const newCount = msgs.length - _tgLastCount;
+        const badge = document.getElementById("tg-badge");
+        badge.textContent = newCount > 99 ? "99+" : newCount;
+        badge.classList.add("show");
+      }
+      _tgMessages = msgs;
+      if (_tgOpen) tgRender();
+    } catch (e) {
+      console.warn("Telegram poll error:", e);
+    }
+  }
+
+  function tgToggle() {
+    _tgOpen = !_tgOpen;
+    const panel = document.getElementById("tg-panel");
+    if (_tgOpen) {
+      panel.classList.add("open");
+      document.getElementById("tg-badge").classList.remove("show");
+      _tgLastCount = _tgMessages.length;
+      tgRender();
+      setTimeout(() => {
+        const input = document.getElementById("tg-input");
+        if (input) input.focus();
+      }, 100);
+    } else {
+      panel.classList.remove("open");
+    }
+  }
+
+  function tgFormatTime(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function tgFormatDate(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return "Today";
+    if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  function tgEscape(str) {
+    const d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function tgRender() {
+    const container = document.getElementById("tg-messages");
+    if (!_tgMessages.length) {
+      container.innerHTML = `
+        <div class="tg-empty">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+          <div>Listening for messages...</div>
+          <div style="font-size:11px">New messages from the team group chat will appear here in real time</div>
+        </div>`;
+      return;
+    }
+
+    let html = "";
+    let lastDate = "";
+
+    for (const msg of _tgMessages) {
+      const msgDate = tgFormatDate(msg.time_iso);
+      if (msgDate && msgDate !== lastDate) {
+        html += `<div class="tg-date-sep"><span>${msgDate}</span></div>`;
+        lastDate = msgDate;
+      }
+
+      // Bot messages = sent from this dashboard
+      const isFromDashboard = msg.is_bot;
+      const cls = isFromDashboard ? "tg-msg tg-msg-out" : "tg-msg tg-msg-in";
+      const color = tgGetColor(msg.from_name || "Unknown");
+
+      let replyHtml = "";
+      if (msg.reply_to) {
+        replyHtml = `<div class="tg-msg-reply">${tgEscape(msg.reply_to.name)}: ${tgEscape(msg.reply_to.text)}</div>`;
+      }
+
+      // For dashboard-sent messages, show "via Dashboard" label
+      let nameHtml = "";
+      if (isFromDashboard) {
+        nameHtml = `<div class="tg-msg-name" style="color:var(--secondary);font-size:10px">via Dashboard</div>`;
+      } else {
+        nameHtml = `<div class="tg-msg-name" style="color:${color}">${tgEscape(msg.from_name || "Unknown")}</div>`;
+      }
+
+      html += `
+        <div class="${cls}">
+          ${nameHtml}
+          ${replyHtml}
+          <div class="tg-msg-text">${tgEscape(msg.text)}</div>
+          <div class="tg-msg-time">${tgFormatTime(msg.time_iso)}</div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+    _tgLastCount = _tgMessages.length;
+  }
+
+  function tgPromptName() {
+    const name = prompt("Enter your name (so the team knows who's messaging from the dashboard):");
+    if (name && name.trim()) {
+      _tgSenderName = name.trim();
+      localStorage.setItem("tg_sender_name", _tgSenderName);
+      return true;
+    }
+    return false;
+  }
+
+  async function tgSend() {
+    const input = document.getElementById("tg-input");
+    const text = (input.value || "").trim();
+    if (!text) return;
+
+    // Ask for name on first send (persisted in localStorage)
+    if (!_tgSenderName) {
+      if (!tgPromptName()) return;
+    }
+
+    const btn = document.getElementById("tg-send-btn");
+    btn.disabled = true;
+    input.value = "";
+
+    try {
+      const resp = await fetch("/api/telegram/send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ text, sender_name: _tgSenderName }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        console.error("Send failed:", err.error);
+      }
+      await tgPoll();
+    } catch (e) {
+      console.error("Telegram send error:", e);
+    } finally {
+      btn.disabled = false;
+      input.focus();
+    }
+  }
+
+  // Initialize on page load
+  document.addEventListener("DOMContentLoaded", () => {
+    tgInit();
+  });
+</script>
+
 </body>
 </html>

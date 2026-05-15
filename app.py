@@ -12,6 +12,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 from flask import Flask, jsonify, render_template, request
 from zoho_client import ZohoClient
 from ringcx_client import RingCXClient
+from telegram_client import TelegramClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ _lock = threading.Lock()
 # Shared clients so access tokens are cached across all requests
 _zoho = ZohoClient()
 _ringcx = RingCXClient()
+_telegram = TelegramClient()
 
 # ────────── Resolved-overdue persistence ──────────
 # Use persistent disk mount if available (Render), fallback to local
@@ -602,6 +604,51 @@ def ringcx_agents():
         return jsonify({"agents": agents, "count": len(agents)})
     except Exception as e:
         log.error("RingCX agents error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ------------------------------------------------------------------ Telegram chat
+
+@app.route("/api/telegram/status")
+def telegram_status():
+    """Check if Telegram integration is configured."""
+    if not _telegram.configured:
+        return jsonify({"configured": False})
+    info = _telegram.get_chat_info()
+    return jsonify({
+        "configured": True,
+        "chat_title": info.get("title", ""),
+        "chat_type": info.get("type", ""),
+        "allow_send": _telegram.allow_send,
+    })
+
+
+@app.route("/api/telegram/messages")
+def telegram_messages():
+    """Fetch recent messages from the team group chat."""
+    if not _telegram.configured:
+        return jsonify({"error": "Telegram not configured"}), 503
+    limit = min(int(request.args.get("limit", 50)), 100)
+    messages = _telegram.get_recent_messages(limit=limit)
+    return jsonify({"messages": messages, "count": len(messages)})
+
+
+@app.route("/api/telegram/send", methods=["POST"])
+def telegram_send():
+    """Send a message to the team group chat."""
+    if not _telegram.configured:
+        return jsonify({"error": "Telegram not configured"}), 503
+    if not _telegram.allow_send:
+        return jsonify({"error": "Sending disabled"}), 403
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Empty message"}), 400
+    sender = (body.get("sender_name") or "").strip()
+    try:
+        msg = _telegram.send_message(text, sender_name=sender, reply_to_message_id=body.get("reply_to"))
+        return jsonify({"message": msg})
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
