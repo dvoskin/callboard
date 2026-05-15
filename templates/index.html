@@ -131,19 +131,19 @@
     #refresh-btn:disabled{ opacity: .5; cursor: default; transform: none; }
 
     /* ══════════════ LAYOUT ══════════════ */
-    main { padding: 24px 28px 48px; max-width: 1760px; margin: 0 auto; }
+    main { padding: 18px 28px 36px; max-width: 1760px; margin: 0 auto; }
 
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow);
-      margin-bottom: 24px;
+      margin-bottom: 16px;
       position: relative;
     }
     /* (top accent removed for cleaner modern look) */
     .card-header {
-      padding: 22px 26px 0;
+      padding: 18px 22px 0;
       display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     }
     .card-header h2 {
@@ -151,7 +151,7 @@
       color: var(--text);
     }
     .card-sub { font-size: 12px; color: var(--secondary); font-weight: 500; }
-    .card-body { padding: 18px 26px 26px; }
+    .card-body { padding: 14px 22px 20px; }
 
     #error-banner {
       background: rgba(255,59,48,.07);
@@ -166,7 +166,7 @@
 
     /* ══════════════ STAT STRIP ══════════════ */
     .stat-strip {
-      display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 18px;
+      display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 12px;
     }
     .stat-pill {
       background: var(--surface);
@@ -223,6 +223,61 @@
       transition: color .15s, border-color .15s, background .15s;
     }
     .filter-clear:hover { color: var(--red); border-color: rgba(255,59,48,.4); background: rgba(255,59,48,.04); }
+    .filter-chip {
+      font-size: 11px; font-weight: 600; font-family: inherit;
+      padding: 6px 11px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--surface);
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+      color: var(--secondary);
+    }
+    .filter-chip:hover { border-color: var(--blue); color: var(--blue); background: rgba(37,99,235,.04); }
+    .filter-chip.active { border-color: var(--blue); color: #fff; background: var(--blue); }
+    .filter-chip .chip-n { font-weight: 800; }
+    /* Anomaly icon in result cells */
+    .anomaly-icon {
+      color: var(--orange); font-size: 12px; margin-right: 2px;
+      cursor: help;
+    }
+    /* Coaching flag button */
+    .flag-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 12px; opacity: .2; transition: opacity .15s;
+      padding: 2px; line-height: 1;
+    }
+    .flag-btn:hover { opacity: .6; }
+    .flag-btn.flagged { opacity: 1; }
+
+    /* Group-by segmented control */
+    .gb-toggle {
+      display: inline-flex; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); overflow: hidden;
+      margin-left: 8px;
+    }
+    .gb-btn {
+      font-size: 11px; font-weight: 600; font-family: inherit;
+      padding: 5px 12px; border: none; cursor: pointer;
+      background: var(--surface); color: var(--secondary);
+      transition: all .12s; white-space: nowrap;
+    }
+    .gb-btn:not(:last-child) { border-right: 1px solid var(--border); }
+    .gb-btn:hover { background: var(--surface2); color: var(--text); }
+    .gb-btn.active { background: var(--blue); color: #fff; }
+    /* Group header rows */
+    .group-header-row td {
+      background: var(--surface2) !important;
+      font-size: 12px; font-weight: 700; color: var(--text);
+      padding: 8px 12px !important;
+      border-bottom: 1px solid var(--border) !important;
+      cursor: pointer; user-select: none;
+    }
+    .group-header-row td .group-stats {
+      font-weight: 500; font-size: 11px; color: var(--secondary); margin-left: 8px;
+    }
+    .group-header-row td .group-caret {
+      font-size: 10px; margin-right: 6px; display: inline-block;
+      transition: transform .15s;
+    }
+    .group-header-row.collapsed td .group-caret { transform: rotate(-90deg); }
 
     /* Filters collapse toggle — hidden on desktop, shown on mobile */
     .filters-toggle { display: none; }
@@ -796,14 +851,14 @@
     .hero-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
+      gap: 12px;
+      margin-bottom: 14px;
     }
     .kpi-card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 20px 22px 18px;
+      padding: 14px 18px 14px;
       box-shadow: var(--shadow);
       position: relative;
       overflow: hidden;
@@ -849,6 +904,31 @@
       display: block; font-size: 10px; color: var(--secondary); font-weight: 500;
       opacity: .7; margin-top: 2px; white-space: nowrap;
     }
+    .kpi-card .kpi-context {
+      font-size: 10.5px; color: var(--tertiary); margin-top: 4px; font-weight: 500;
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    .kpi-card .kpi-context .kpi-target { opacity: .7; }
+    .kpi-card .kpi-context .kpi-delta { font-weight: 600; }
+    .kpi-card .kpi-context .kpi-delta.up { color: var(--green-dk); }
+    .kpi-card .kpi-context .kpi-delta.down { color: var(--red-dk); }
+    .kpi-card .kpi-sparkline {
+      margin-top: 8px; height: 16px; width: 100%;
+      display: flex; align-items: flex-end; gap: 1px;
+    }
+    .kpi-card .kpi-sparkline .spark-bar {
+      flex: 1; min-width: 0; border-radius: 1px 1px 0 0;
+      opacity: .5; transition: opacity .15s;
+    }
+    .kpi-card:hover .kpi-sparkline .spark-bar { opacity: .8; }
+    /* Needs Attention pulse when > 0 */
+    .kpi-card.needs-attn-pulse .kpi-val {
+      animation: attnPulse 2s ease-in-out infinite;
+    }
+    @keyframes attnPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .6; }
+    }
 
     /* ══════════════ LIVE MONITOR PANEL ══════════════ */
     .live-panel {
@@ -856,7 +936,7 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 0;
-      margin-bottom: 20px;
+      margin-bottom: 14px;
       box-shadow: var(--shadow);
       overflow: hidden;
     }
@@ -1022,8 +1102,19 @@
       border-left: 3px solid var(--orange);
       opacity: .8;
     }
+    .lp-call-card.unassigned {
+      border-left: 3px solid var(--orange);
+    }
+    .lp-call-rep {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      margin-bottom: 2px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .lp-call-rep .rep-dials {
+      font-size: 10px; font-weight: 500; color: var(--secondary);
+    }
     .lp-call-agent {
-      font-size: 12px; font-weight: 700; color: var(--text);
+      font-size: 11px; font-weight: 600; color: var(--secondary);
       margin-bottom: 4px;
       display: flex; align-items: center; gap: 5px;
       flex-wrap: wrap;
@@ -2496,14 +2587,19 @@
       <span class="cdb-loading" id="cdb-loading"><span class="mini-spinner"></span>Loading…</span>
     </div>
     <div class="card-body">
-      <div class="stat-strip" id="sc-stats"></div>
+      <div class="stat-strip" id="sc-stats" style="display:none"></div>
 
       <div>
         <!-- activity + overdue -->
         <div>
-          <div class="sub-header">
+          <div class="sub-header" style="flex-wrap:wrap">
             <span class="title">Activity</span>
             <span class="chip" id="sc-activity-count">0</span>
+            <div class="gb-toggle" id="gb-toggle">
+              <button class="gb-btn active" data-gb="time" onclick="setGroupBy('time')">Time</button>
+              <button class="gb-btn" data-gb="rep" onclick="setGroupBy('rep')">Rep</button>
+              <button class="gb-btn" data-gb="status" onclick="setGroupBy('status')">Status</button>
+            </div>
             <button class="filters-toggle" id="filters-toggle" onclick="toggleFilters()" aria-expanded="false">
               <span>⚙ Filters</span>
               <span class="ft-active" id="ft-active-count"></span>
@@ -2527,6 +2623,8 @@
             <select id="sc-stage-filter" onchange="applyScFilters()">
               <option value="">All Stages</option>
             </select>
+            <button class="filter-chip" id="sc-anomaly-chip" onclick="toggleAnomalyFilter()" style="display:none">⚠ Anomalies (<span class="chip-n" id="sc-anomaly-count">0</span>)</button>
+            <button class="filter-chip" id="sc-flagged-chip" onclick="toggleFlaggedFilter()" style="display:none">🚩 Flagged (<span class="chip-n" id="sc-flagged-count">0</span>)</button>
             <button class="filter-clear" onclick="clearScFilters()">✕ Clear</button>
             <div class="cols-menu-wrap">
               <button class="filter-clear" onclick="toggleColsMenu(event)" title="Show / hide columns">⚙ Columns</button>
@@ -2548,6 +2646,7 @@
                   <th class="sortable col-stage" onclick="sortSc('deal_stage')">Deal Stage</th>
                   <th class="sortable col-dials" onclick="sortSc('dial_attempts')">Dials</th>
                   <th class="sortable col-disp" onclick="sortSc('disposition')">Disposition</th>
+                  <th class="col-flag" style="width:36px"></th>
                   <th class="col-rec">Recording</th>
                 </tr>
               </thead>
@@ -2619,6 +2718,13 @@
   let _overdueSelected = new Set();
   let _showResolved = false;
   let _customDateActive = false;
+
+  // Anomaly & coaching flag state (purely client-side)
+  let _anomalyFilterActive = false;
+  let _flaggedFilterActive = false;
+  let _flaggedIds = new Set(JSON.parse(localStorage.getItem("sc_flagged_ids") || "[]"));
+  // Group-by toggle
+  let _groupBy = localStorage.getItem("sc_group_by") || "time";
 
   // ─── date range helpers ───
   function todayISO() {
@@ -3030,15 +3136,32 @@
       ? Math.round((adjCompleted / callsDue) * 100)
       : null;
     const showAdj = resolvedCount > 0;
+    // Sparkline placeholder (7 bars, no data yet — renders muted skeleton)
+    function kpiSparkline(color, values) {
+      if (!values || !values.length) {
+        // Placeholder: 7 low bars
+        return `<div class="kpi-sparkline">${[3,5,4,6,5,7,4].map(h =>
+          `<div class="spark-bar" style="height:${h}px;background:${color};opacity:.18"></div>`
+        ).join("")}</div>`;
+      }
+      const max = Math.max(...values, 1);
+      return `<div class="kpi-sparkline">${values.map(v =>
+        `<div class="spark-bar" style="height:${Math.max(2, (v/max)*16)}px;background:${color}"></div>`
+      ).join("")}</div>`;
+    }
+
+    const crRate = showAdj ? adjCompletionRate : liveCompletionRate;
     const html = [
       // Total today
       `<div class="kpi-card">
         <div class="kpi-lbl">Total Today</div>
         <div class="kpi-val">${total}</div>
         <div class="kpi-sub"><strong>${upcoming.length}</strong> still upcoming · <strong>${callsDue}</strong> due now</div>
+        <div class="kpi-context"><span class="kpi-target">target —</span> <span class="kpi-delta">vs yesterday —</span></div>
+        ${kpiSparkline("var(--blue)", null)}
       </div>`,
-      // Completion rate — tile color based on adjusted rate (incl. resolved) when available
-      `<div class="kpi-card ${(showAdj?adjCompletionRate:liveCompletionRate)>=85?"green":(showAdj?adjCompletionRate:liveCompletionRate)>=60?"orange":"red"}">
+      // Completion rate
+      `<div class="kpi-card ${crRate>=85?"green":crRate>=60?"orange":"red"}">
         <div class="kpi-lbl">Completion Rate</div>
         <div class="kpi-row">
           <div>
@@ -3050,18 +3173,24 @@
             <span class="kpi-adj-lbl">incl. resolved</span>
           </div>` : ""}
         </div>
+        <div class="kpi-context"><span class="kpi-target">target 85%</span> <span class="kpi-delta">vs yesterday —</span></div>
+        ${kpiSparkline(crRate>=85?"var(--green)":crRate>=60?"var(--orange)":"var(--red)", null)}
       </div>`,
       // On-time rate
       `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
         <div class="kpi-lbl">On-Time Rate</div>
         <div class="kpi-val">${s.on_time_rate ?? 0}<span style="font-size:22px">%</span></div>
         <div class="kpi-sub"><strong>${s.on_time}</strong> within ±10 min</div>
+        <div class="kpi-context"><span class="kpi-target">target 70%</span> <span class="kpi-delta">vs yesterday —</span></div>
+        ${kpiSparkline(s.on_time_rate>=70?"var(--green)":s.on_time_rate>=40?"var(--orange)":"var(--red)", null)}
       </div>`,
       // Needs attention
-      `<div class="kpi-card ${overdue.length>0?"red":"green"}">
+      `<div class="kpi-card ${overdue.length>0?"red":"green"}${overdue.length>0?" needs-attn-pulse":""}">
         <div class="kpi-lbl">Needs Attention</div>
         <div class="kpi-val">${overdue.length}</div>
         <div class="kpi-sub">long-overdue calls · <strong>${s.missed}</strong> missed total</div>
+        <div class="kpi-context"><span class="kpi-target">target 0</span> <span class="kpi-delta">vs yesterday —</span></div>
+        ${kpiSparkline(overdue.length>0?"var(--red)":"var(--green)", null)}
       </div>`,
     ].join("");
     document.getElementById("hero-grid").innerHTML = html;
@@ -3853,7 +3982,45 @@
       const el=document.getElementById(id);
       if(el.tagName==="INPUT") el.value=""; else el.value="";
     });
+    _anomalyFilterActive = false;
+    _flaggedFilterActive = false;
+    document.getElementById("sc-anomaly-chip")?.classList.remove("active");
+    document.getElementById("sc-flagged-chip")?.classList.remove("active");
     _updateFiltersActiveCount();
+    drawScTable();
+  }
+
+  function toggleAnomalyFilter() {
+    _anomalyFilterActive = !_anomalyFilterActive;
+    document.getElementById("sc-anomaly-chip").classList.toggle("active", _anomalyFilterActive);
+    drawScTable();
+  }
+  function toggleFlaggedFilter() {
+    _flaggedFilterActive = !_flaggedFilterActive;
+    document.getElementById("sc-flagged-chip").classList.toggle("active", _flaggedFilterActive);
+    drawScTable();
+  }
+  function toggleFlag(recordId, btn) {
+    if (_flaggedIds.has(recordId)) {
+      _flaggedIds.delete(recordId);
+      btn.classList.remove("flagged");
+    } else {
+      _flaggedIds.add(recordId);
+      btn.classList.add("flagged");
+    }
+    localStorage.setItem("sc_flagged_ids", JSON.stringify([..._flaggedIds]));
+    _updateFlagChip();
+  }
+  function _updateFlagChip() {
+    const chip = document.getElementById("sc-flagged-chip");
+    const n = _flaggedIds.size;
+    document.getElementById("sc-flagged-count").textContent = n;
+    chip.style.display = n > 0 ? "" : "none";
+  }
+  function setGroupBy(mode) {
+    _groupBy = mode;
+    localStorage.setItem("sc_group_by", mode);
+    document.querySelectorAll(".gb-btn").forEach(b => b.classList.toggle("active", b.dataset.gb === mode));
     drawScTable();
   }
 
@@ -3869,13 +4036,40 @@
       if (q  && !((r.name||"").toLowerCase().includes(q)||(r.phone||"").includes(q))) return false;
       return true;
     });
+
+    // Compute anomaly counts before filtering so chip always shows total
+    const anomalyCount = rows.filter(r => {
+      const off = (r.scheduled_time && r.actual_call_time)
+        ? Math.abs((new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000)
+        : null;
+      return off !== null && off > 60;
+    }).length;
+    const anomalyChip = document.getElementById("sc-anomaly-chip");
+    document.getElementById("sc-anomaly-count").textContent = anomalyCount;
+    anomalyChip.style.display = anomalyCount > 0 ? "" : "none";
+
+    // Apply anomaly filter
+    if (_anomalyFilterActive) {
+      rows = rows.filter(r => {
+        const off = (r.scheduled_time && r.actual_call_time)
+          ? Math.abs((new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000)
+          : null;
+        return off !== null && off > 60;
+      });
+    }
+    // Apply flagged filter
+    if (_flaggedFilterActive) {
+      rows = rows.filter(r => _flaggedIds.has(r.id));
+    }
+
     rows = sortedBy(rows, _scSort.key, _scSort.dir);
     updateSortHeaders("sc-section", _scSort);
     document.getElementById("sc-activity-count").textContent = rows.length;
+    _updateFlagChip();
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="12" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="13" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -3916,12 +4110,20 @@
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
         const noteSnippet = r.note ? ` <span class="result-sub" title="${r.note.replace(/"/g,'&quot;')}">${r.note.length > 40 ? r.note.slice(0,40)+"…" : r.note}</span>` : "";
         result = `<span class="result-tag r-resolved">Resolved manually${noteSnippet}</span>`;
-      } else if (bucket === "on_time" && liveOffset !== null) {
-        result = `<span class="result-tag r-on-time">${sign(liveOffset)}${liveOffset} min</span>`;
+      } else {
+      // Anomaly detection: |offset| > 60 min
+      const isAnomaly = liveOffset !== null && Math.abs(liveOffset) > 60;
+      const anomalyPrefix = isAnomaly
+        ? `<span class="anomaly-icon" title="Unusually ${liveOffset < 0 ? 'early' : 'late'} — possible scheduling error">⚠</span>`
+        : "";
+      r._isAnomaly = isAnomaly;
+
+      if (bucket === "on_time" && liveOffset !== null) {
+        result = `<span class="result-tag r-on-time">${anomalyPrefix}${sign(liveOffset)}${liveOffset} min</span>`;
       } else if (bucket === "early" && liveOffset !== null) {
-        result = `<span class="result-tag r-early">${Math.abs(liveOffset)} min early</span>`;
+        result = `<span class="result-tag r-early">${anomalyPrefix}${Math.abs(liveOffset)} min early</span>`;
       } else if (bucket === "late_call" && liveOffset !== null) {
-        result = `<span class="result-tag r-late-call">+${liveOffset} min late</span>`;
+        result = `<span class="result-tag r-late-call">${anomalyPrefix}+${liveOffset} min late</span>`;
       } else if (r.status === "completed_via_deal") {
         const diffTag = (liveOffset !== null)
           ? ` <span class="result-sub">${sign(liveOffset)}${liveOffset} min</span>`
@@ -3945,6 +4147,7 @@
       } else {
         result=`<span class="no-data">—</span>`;
       }
+      } // end else (non-live, non-resolved)
       // Deal stage now lives in its own column with semantic colors.
       const stageCell = r.deal_stage
         ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>` +
@@ -4030,20 +4233,61 @@
         <td class="col-stage">${stageCell}</td>
         <td style="text-align:center" class="col-dials">${dialsCell}</td>
         <td class="col-disp">${dispCell}</td>
+        <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
       </tr>`;
     }).join("");
+
+    // Group-by: inject group header rows when Rep or Status is selected
+    if (_groupBy !== "time" && rows.length > 0) {
+      const groupKey = _groupBy === "rep" ? "deal_owner" : "deal_stage";
+      // Gather group stats
+      const groups = {};
+      rows.forEach(r => {
+        const k = r[groupKey] || "Unassigned";
+        if (!groups[k]) groups[k] = [];
+        groups[k].push(r);
+      });
+      // Insert group headers before first row of each group
+      // Walk the existing tbody rows and tag them with data-group
+      const trs = Array.from(tbody.querySelectorAll("tr"));
+      trs.forEach((tr, i) => { tr.dataset.group = rows[i] ? (rows[i][groupKey] || "Unassigned") : ""; });
+      // Build new innerHTML with headers
+      const sortedGroupNames = Object.keys(groups).sort((a, b) => a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
+      let gbHtml = "";
+      for (const gName of sortedGroupNames) {
+        const gRows = groups[gName];
+        const completed = gRows.filter(r => ["completed","early","completed_via_deal","completed_via_workflow"].includes(r.status)).length;
+        const connected = gRows.filter(r => r.actual_call_time).length;
+        const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
+        gbHtml += `<tr class="group-header-row" data-group="${gName}" onclick="toggleGroup(this)">
+          <td colspan="13"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+        trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML; });
+      }
+      tbody.innerHTML = gbHtml;
+    }
+
     applyColVisibility();
 
     // Dynamic footer counter
     const footer = document.getElementById("sc-table-footer");
     const totalCount = _scActivityRecords.length;
     const filtered = rows.length;
-    const isFiltered = q || sf || df || stf;
+    const isFiltered = q || sf || df || stf || _anomalyFilterActive || _flaggedFilterActive;
     if (isFiltered) {
       footer.innerHTML = `Showing <span class="tf-filtered">${filtered}</span> of <span class="tf-count">${totalCount}</span> records`;
     } else {
       footer.innerHTML = `<span class="tf-count">${totalCount}</span> records`;
+    }
+  }
+
+  function toggleGroup(headerRow) {
+    headerRow.classList.toggle("collapsed");
+    const group = headerRow.dataset.group;
+    let next = headerRow.nextElementSibling;
+    while (next && !next.classList.contains("group-header-row")) {
+      next.style.display = headerRow.classList.contains("collapsed") ? "none" : "";
+      next = next.nextElementSibling;
     }
   }
 
@@ -4604,11 +4848,16 @@
           ? `<span class="src-pill src-ringcx" style="font-size:9px;padding:1px 5px">RingCX</span>`
           : `<span class="src-pill src-rex" style="font-size:9px;padding:1px 5px">RingEX</span>`;
 
-        return `<div class="lp-call-card${matched ? " matched" : ""}${isQueued ? " queued" : ""}">
+        const repName = call.agent_name || "Unassigned";
+        const isUnassigned = !call.agent_name;
+        return `<div class="lp-call-card${matched ? " matched" : ""}${isQueued ? " queued" : ""}${isUnassigned ? " unassigned" : ""}">
           <div class="lp-call-dur${durClass}">${fmtDuration(dur)}</div>
+          <div class="lp-call-rep">
+            ${repName}
+            <span class="rep-dials" title="Dial count not available yet">—</span>
+          </div>
           <div class="lp-call-agent">
             <span class="lp-call-state ${stateC}">${callStateLabel(call.call_state)}</span>
-            ${call.agent_name || "Unassigned"}
             ${srcLabel}
             ${campaign ? `<span class="campaign-tag" title="${campaign}">${campaign}</span>` : ""}
           </div>
