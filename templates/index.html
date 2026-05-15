@@ -1713,28 +1713,36 @@
       /* Layout */
       main { padding: 14px 12px; }
 
-      /* ── KPI cards: just label + number, nothing else ── */
-      .hero-grid { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-      .kpi-card { padding: 10px 12px 8px; }
+      /* ── KPI cards: hide sparklines & context ── */
+      .hero-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+      .kpi-card { padding: 12px 13px 10px; }
       .kpi-card .kpi-lbl { font-size: 10px; }
-      .kpi-card .kpi-val { font-size: 24px; }
-      .kpi-card .kpi-sub { display: none !important; }
-      .kpi-card .kpi-sparkline { display: none !important; }
-      .kpi-card .kpi-context { display: none !important; }
-      .kpi-card .kpi-adj-side { display: none !important; }
-      .kpi-card .kpi-row { display: block; }
+      .kpi-card .kpi-val { font-size: 26px; }
+      .kpi-card .kpi-sub { font-size: 10px; margin-top: 4px; }
+      .kpi-card .kpi-sparkline { display: none; }
+      .kpi-card .kpi-context { display: none; }
+      .kpi-card .kpi-adj-side { display: none; }
+      .stat-pill .adj-note { display: none; }
+      .stat-pill .rate { display: none; }
+
+      /* ── AI banner: compact, collapsed by default ── */
+      .ai-banner { margin-bottom: 10px !important; }
+      .ai-banner-header { padding: 8px 12px !important; }
+      .ai-banner-icon { display: none !important; }
+      .ai-banner-title { font-size: 11px; }
+      .ai-banner-title small { font-size: 9px; }
+      .ai-banner-content { grid-template-columns: 1fr !important; padding: 10px 12px 12px !important; gap: 8px !important; }
 
       /* ── Hide non-essential sections ── */
-      .ai-banner { display: none !important; }
       .mgr-grid { display: none !important; }
-      .stat-strip { display: none !important; }
       .up-strip { display: none !important; }
 
       /* ── Alert banner: compact ── */
-      .alert-banner { padding: 10px 12px; gap: 8px; border-radius: 10px; }
+      .alert-banner { flex-wrap: wrap; padding: 10px 12px; gap: 8px; border-radius: 10px; }
       .alert-icon { width: 28px; height: 28px; font-size: 13px; }
       .alert-text h3 { font-size: 12px; }
-      .alert-text p { display: none; }
+      .alert-text p { font-size: 10px; margin-top: 2px; }
+      .alert-cta { width: 100%; text-align: center; padding: 7px 12px; font-size: 11px; }
 
       /* ── Schedule modal: full-screen bottom sheet ── */
       .modal-overlay { align-items: flex-end !important; }
@@ -1752,29 +1760,42 @@
       .modal-foot button { flex: 1 !important; padding: 12px 18px !important; font-size: 14px !important; }
 
       /* ── Card header: compact ── */
-      .card-header { flex-wrap: nowrap; gap: 6px !important; padding: 10px 12px 0 !important; }
-      .card-header h2 { font-size: 13px !important; white-space: nowrap; }
+      .card-header { flex-wrap: nowrap; gap: 6px !important; padding: 12px 14px 0 !important; }
+      .card-header h2 { font-size: 14px !important; white-space: nowrap; }
       .card-sub { display: none !important; }
-      .sched-btn { font-size: 0 !important; padding: 0 !important; width: 28px; height: 28px; border-radius: 50% !important; justify-content: center; flex-shrink: 0; line-height: 28px; text-align: center; }
-      .sched-btn::after { content: "+"; font-size: 18px; font-weight: 700; line-height: 28px; }
+      .sched-btn { font-size: 0 !important; padding: 6px 14px !important; border-radius: 7px !important; flex-shrink: 0; line-height: 1; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+      .sched-btn::after { content: "+ Call"; font-size: 12px; font-weight: 600; letter-spacing: .2px; line-height: 1; }
 
-      /* ── Date bar: compact ── */
-      .card-date-bar { padding: 6px 12px !important; gap: 4px; }
-      .cdb-label { font-size: 9px; }
-      .cdb-input { font-size: 12px; padding: 4px 5px; min-width: 0; flex: 1; }
-      .cdb-sep { font-size: 10px; }
-      .cdb-apply { padding: 5px 8px; font-size: 10px; }
-      .cdb-today { padding: 5px 7px; font-size: 10px; }
-      .cdb-loading { font-size: 10px; }
+      /* ── Date bar ── */
+      .card-date-bar { padding: 8px 14px; gap: 5px; }
+      .cdb-label { display: none !important; }
+      .cdb-input { font-size: 13px; padding: 5px 6px; min-width: 0; flex: 1; }
+      .cdb-sep { font-size: 11px; }
+      .cdb-apply { padding: 6px 12px; font-size: 11px; border-radius: 6px; }
+      .cdb-today { padding: 6px 8px; font-size: 11px; }
+      .cdb-loading { font-size: 11px; }
 
-      /* ── Table: only Contact, Scheduled, Status ── */
+      /* ── Filters: gear icon only ── */
+      .filters-toggle { padding: 6px 8px !important; min-width: 0; font-size: 0 !important; gap: 0 !important; }
+      .filters-toggle span:first-child { font-size: 0 !important; }
+      .filters-toggle span:first-child::before { content: "⚙"; font-size: 15px; }
+      .filters-toggle .ft-caret { display: none !important; }
+      .filters-toggle .ft-active { font-size: 9px !important; }
+
+      /* ── Table: Contact, Scheduled, Status only ── */
       .col-phone, .col-actual, .col-lastdial, .col-source,
       .col-result, .col-stage, .col-dials, .col-disp,
       .col-flag, .col-rec { display: none !important; }
       .expand-btn { display: none !important; }
       .flag-btn { display: none !important; }
-      .name-cell { max-width: 120px !important; }
-      #sc-thead-row th { font-size: 10px; padding: 6px 8px; }
+      .summary-btn { display: none !important; }
+      .zoho-link { display: none !important; }
+      .observed-badge { display: none !important; }
+      .floor-badge { display: none !important; }
+      .anomaly-icon { display: none !important; }
+      .name-cell { max-width: none !important; }
+      #sc-thead-row th { font-size: 10px; padding: 6px 10px; }
+      .col-status { min-width: 70px; }
 
       /* ── Live panel: single column ── */
       .live-panel { margin-bottom: 12px; }
@@ -3939,7 +3960,7 @@
         <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
         <td>${nameCell(r)}</td>
         <td class="phone-cell">${r.phone || '<span class="no-data">—</span>'}</td>
-        <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${fmt(r.scheduled_time)}${odFloorBadge}</td>
+        <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${(document.getElementById("date-start").value === document.getElementById("date-end").value ? fmtTime : fmt)(r.scheduled_time)}${odFloorBadge}</td>
         <td>${odActualCell}</td>
         <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
         <td style="text-align:center">${odDialsCell}</td>
@@ -4557,8 +4578,10 @@
         : (r.disposition
             ? `<span class="disp-text">${r.disposition}</span>`
             : (r.caller ? `<span class="disp-caller">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`));
+      const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
+      const schedFmt = isSingleDay ? fmtTime : fmt;
       const schedCell = r.scheduled_time
-        ? `<span class="ts-cell">${fmt(r.scheduled_time)}</span>`
+        ? `<span class="ts-cell">${schedFmt(r.scheduled_time)}</span>`
         : `<span class="no-data">—</span>`;
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : '';
