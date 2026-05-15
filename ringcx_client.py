@@ -489,12 +489,15 @@ class RingCXClient:
                 if direction:
                     params["direction"] = direction
 
+                url = f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log"
+                log.info("RingEX call-log request: %s params=%s", url, params)
                 resp = requests.get(
-                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log",
+                    url,
                     headers=self._rc_headers(),
                     params=params,
                     timeout=20,
                 )
+                log.info("RingEX call-log response: %d, body=%s", resp.status_code, resp.text[:500])
                 if resp.status_code == 204:
                     break
                 resp.raise_for_status()
@@ -538,7 +541,7 @@ class RingCXClient:
             log.error("RingEX call history search error: %s", e)
             return []
 
-    def search_ringcx_call_history(self, phone: str, days: int = 30) -> list[dict]:
+    def search_ringcx_call_history(self, phone: str, days: int = 30):
         """Search RingCX (Engage Voice) for call detail records matching a phone.
 
         Uses the reportsStreaming endpoint with GLOBAL_CALL_TYPE_DELIMITED

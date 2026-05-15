@@ -1014,7 +1014,7 @@ class ZohoClient:
         #   Sent via:       ringcentralbulksmsextensionforzohocrm__SMS_Sent_Via
         SMS_PREFIX = "ringcentralbulksmsextensionforzohocrm__"
         sms_messages = []
-        sms_module = f"{SMS_PREFIX}RingCentral_SMS_History"
+        sms_module = "CustomModule23"
         contact_phone = normalize_phone(contact.get("phone") or "")
         try:
             sms_records = []
@@ -1114,9 +1114,9 @@ class ZohoClient:
     # ───────────────────────── SMS history search ──────────────────────────
 
     def search_sms_history(self, phone: str) -> list:
-        """Search HelloSend SMS module by phone number."""
+        """Search HelloSend SMS module (CustomModule23) by phone number."""
         SMS_PREFIX = "ringcentralbulksmsextensionforzohocrm__"
-        sms_module = f"{SMS_PREFIX}RingCentral_SMS_History"
+        sms_module = "CustomModule23"
         to_field = f"{SMS_PREFIX}To"
         from_field = f"{SMS_PREFIX}From_Number"
         sms_body_field = f"{SMS_PREFIX}SMS"
@@ -1127,16 +1127,18 @@ class ZohoClient:
         if not digits:
             return []
 
-        phone_variants = [f"+1{digits}", digits]
+        phone_variants = [f"+1{digits}", digits, f"1{digits}"]
         sms_records = []
         existing_ids = set()
 
         for field in [to_field, from_field]:
             or_terms = "or".join(f"({field}:equals:{v})" for v in phone_variants)
-            criteria = f"({or_terms})" if len(phone_variants) > 1 else or_terms
+            criteria = f"({or_terms})"
             try:
+                url = f"{self.base_url}/crm/v6/{sms_module}/search"
+                log.info("SMS search: %s criteria=%s", url, criteria)
                 resp = requests.get(
-                    f"{self.base_url}/crm/v6/{sms_module}/search",
+                    url,
                     headers=self._headers(),
                     params={
                         "criteria": criteria,
@@ -1146,6 +1148,7 @@ class ZohoClient:
                     },
                     timeout=15,
                 )
+                log.info("SMS search response: %d, body=%s", resp.status_code, resp.text[:300])
                 if resp.ok:
                     for r in resp.json().get("data", []):
                         if r["id"] not in existing_ids:
