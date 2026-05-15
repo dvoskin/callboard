@@ -5009,6 +5009,7 @@
     let allCalls = [...calls, ...rexCalls].filter(c => {
       const s = (c.call_state || "").toUpperCase();
       if (s.includes("OUTDIAL") && !c.agent_name) return false;
+      if (s.includes("INTERNAL-APP-HANDOFF")) return false;
       return true;
     });
 
