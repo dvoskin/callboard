@@ -376,6 +376,212 @@ class RingCXClient:
             return self._agents_cache if self._agents_cache else []
 
     # ══════════════════════════════════════════════════════════════
+    # RingEX — Call History Search (account-level call log)
+    # ══════════════════════════════════════════════════════════════
+
+    def search_call_history(self, phone: str, days: int = 30,
+                            direction: str = None) -> list[dict]:
+        """Search the RingEX account-level call log for a phone number.
+
+        This covers BOTH RingEX and RingCX calls since all telephony
+        routes through the RC platform.
+
+        Args:
+            phone: Phone number to search (digits only, last 10 used).
+                   Searches both from AND to fields.
+            days: How many days back to search (max 180).
+            direction: Optional filter — "Inbound", "Outbound", or None for both.
+
+        Returns a list of simplified call records sorted by startTime desc.
+        """
+        try:
+            token = self._ensure_rc_token()
+            # Normalize to E.164-ish (no leading +, just digits)
+            import re
+            digits = re.sub(r"\D", "", phone)
+            if len(digits) > 10:
+                digits = digits[-10:]  # strip country code
+            if len(digits) < 7:
+                log.warning("search_call_history: phone too short: %s", phone)
+                return []
+
+            date_from = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+
+            all_calls = []
+            page = 1
+            while page <= 10:  # safety cap
+                params = {
+                    "phoneNumber": digits,
+                    "dateFrom": date_from,
+                    "view": "Simple",
+                    "perPage": 250,
+                    "page": page,
+                }
+                if direction:
+                    params["direction"] = direction
+
+                resp = requests.get(
+                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log",
+                    headers=self._rc_headers(),
+                    params=params,
+                    timeout=20,
+                )
+                if resp.status_code == 204:
+                    break
+                resp.raise_for_status()
+                data = resp.json()
+                records = data.get("records", [])
+
+                for rec in records:
+                    from_obj = rec.get("from") or {}
+                    to_obj = rec.get("to") or {}
+                    recording = rec.get("recording") or {}
+
+                    all_calls.append({
+                        "id": rec.get("id"),
+                        "session_id": rec.get("sessionId"),
+                        "start_time": rec.get("startTime"),
+                        "duration": rec.get("duration", 0),
+                        "direction": rec.get("direction", ""),
+                        "type": rec.get("type", ""),
+                        "action": rec.get("action", ""),
+                        "result": rec.get("result", ""),
+                        "from_number": from_obj.get("phoneNumber", ""),
+                        "from_name": from_obj.get("name", ""),
+                        "to_number": to_obj.get("phoneNumber", ""),
+                        "to_name": to_obj.get("name", ""),
+                        "recording_id": recording.get("id"),
+                        "recording_url": recording.get("contentUri"),
+                        "source": "ringex",
+                    })
+
+                nav = data.get("navigation", {})
+                if page < nav.get("totalPages", 1):
+                    page += 1
+                else:
+                    break
+
+            log.info("RingEX call history: %d records for %s (last %d days)",
+                     len(all_calls), digits, days)
+            return all_calls
+
+        except Exception as e:
+            log.error("RingEX call history search error: %s", e)
+            return []
+
+    def search_ringcx_call_history(self, phone: str, days: int = 30) -> list[dict]:
+        """Search RingCX (Engage Voice) for call detail records matching a phone.
+
+        Uses the reportsStreaming endpoint with GLOBAL_CALL_TYPE_DELIMITED
+        report to get historical RingCX-specific call data (queue names,
+        agent details, talk time breakdowns).
+
+        Falls back gracefully if the endpoint is unavailable.
+        """
+        try:
+            token = self._ensure_cx_token()
+            if not self._cx_account_id:
+                return []
+
+            import re
+            digits = re.sub(r"\D", "", phone)
+            if len(digits) > 10:
+                digits = digits[-10:]
+
+            date_to = datetime.now(timezone.utc)
+            date_from = date_to - __import__("datetime").timedelta(days=days)
+
+            resp = requests.post(
+                f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming",
+                headers={
+                    **self._cx_headers(),
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
+                    "reportCriteria": {
+                        "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
+                        "startDate": date_from.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                        "endDate": date_to.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                        "containGates": True,
+                        "containCampaigns": True,
+                        "containIvrStudios": False,
+                        "containCloudProfiles": False,
+                        "containTracNumbers": False,
+                        "containAgents": True,
+                    },
+                },
+                timeout=30,
+            )
+            if resp.status_code in (204, 404, 400):
+                log.info("RingCX CDR: no data or endpoint unavailable (%d)", resp.status_code)
+                return []
+            resp.raise_for_status()
+
+            # Response is delimited text (CSV-like)
+            text = resp.text
+            if not text or not text.strip():
+                return []
+
+            lines = text.strip().split("\n")
+            if len(lines) < 2:
+                return []
+
+            # Parse header
+            header = lines[0].split("|")
+            header = [h.strip().strip('"') for h in header]
+
+            cx_calls = []
+            for line in lines[1:]:
+                fields = line.split("|")
+                fields = [f.strip().strip('"') for f in fields]
+                row = dict(zip(header, fields))
+
+                ani = row.get("ANI", "").replace("+", "").replace("-", "")
+                dnis = row.get("DNIS", "").replace("+", "").replace("-", "")
+
+                # Filter: only keep records matching our phone
+                ani_match = ani[-10:] == digits if len(ani) >= 10 else False
+                dnis_match = dnis[-10:] == digits if len(dnis) >= 10 else False
+                if not ani_match and not dnis_match:
+                    continue
+
+                duration = 0
+                try:
+                    duration = int(float(row.get("Call Duration", "0") or "0"))
+                except (ValueError, TypeError):
+                    pass
+
+                cx_calls.append({
+                    "id": row.get("UII", ""),
+                    "session_id": row.get("UII", ""),
+                    "start_time": row.get("Enqueue Time", row.get("Call Start", "")),
+                    "duration": duration,
+                    "direction": row.get("Call Direction", ""),
+                    "type": "Voice",
+                    "action": row.get("Call Type", ""),
+                    "result": row.get("Call Result", row.get("Call Status", "")),
+                    "from_number": ani,
+                    "from_name": "",
+                    "to_number": dnis,
+                    "to_name": "",
+                    "agent_name": row.get("Agent Name", ""),
+                    "queue_name": row.get("Queue Name", row.get("Gate Name", "")),
+                    "talk_time": row.get("Talk Time", ""),
+                    "hold_time": row.get("Hold Time", ""),
+                    "recording_url": row.get("Recording URL", None),
+                    "source": "ringcx",
+                })
+
+            log.info("RingCX CDR: %d records for %s (last %d days)",
+                     len(cx_calls), digits, days)
+            return cx_calls
+
+        except Exception as e:
+            log.error("RingCX CDR search error: %s", e)
+            return []
+
+    # ══════════════════════════════════════════════════════════════
     # Combined live snapshot (both APIs)
     # ══════════════════════════════════════════════════════════════
 

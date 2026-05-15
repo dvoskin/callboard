@@ -2444,6 +2444,174 @@
         max-height: 70vh;
       }
     }
+
+    /* ══════════════ CALL HISTORY SEARCH MODAL ══════════════ */
+    .ch-search-btn {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 7px 14px;
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      color: var(--secondary); cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: all .15s; margin-left: auto; margin-right: 8px;
+    }
+    .ch-search-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(37,99,235,.04); }
+    .ch-search-btn .ch-icon { font-size: 14px; }
+
+    .ch-overlay {
+      position: fixed; inset: 0; z-index: 9000;
+      background: rgba(0,0,0,.45); backdrop-filter: blur(3px);
+      display: none; align-items: flex-start; justify-content: center;
+      padding-top: 60px;
+    }
+    .ch-overlay.open { display: flex; }
+
+    .ch-modal {
+      background: var(--surface); border-radius: var(--radius-lg);
+      box-shadow: 0 24px 48px rgba(0,0,0,.25);
+      width: min(900px, calc(100vw - 40px));
+      max-height: calc(100vh - 120px);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      animation: chSlideIn .2s ease-out;
+    }
+    @keyframes chSlideIn {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .ch-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .ch-header h2 {
+      font-size: 16px; font-weight: 700; color: var(--text);
+      margin: 0; flex: 1;
+    }
+    .ch-close {
+      background: none; border: none; cursor: pointer;
+      font-size: 20px; color: var(--secondary); padding: 4px;
+      line-height: 1;
+    }
+    .ch-close:hover { color: var(--text); }
+
+    .ch-search-bar {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    .ch-search-bar input {
+      flex: 1; min-width: 200px;
+      padding: 9px 14px; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); font-size: 13px;
+      font-family: inherit; background: var(--bg);
+      color: var(--text); outline: none;
+    }
+    .ch-search-bar input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+    .ch-search-bar select {
+      padding: 9px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); font-size: 12px;
+      font-family: inherit; background: var(--surface);
+      color: var(--text); cursor: pointer;
+    }
+    .ch-search-bar button {
+      padding: 9px 18px; border: none; border-radius: var(--radius-sm);
+      background: var(--blue); color: #fff;
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      cursor: pointer; white-space: nowrap;
+    }
+    .ch-search-bar button:hover { filter: brightness(1.1); }
+    .ch-search-bar button:disabled { opacity: .5; cursor: default; }
+
+    .ch-contact-info {
+      padding: 10px 24px; background: rgba(37,99,235,.04);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px; color: var(--secondary);
+      display: none; gap: 12px; align-items: center;
+    }
+    .ch-contact-info.visible { display: flex; }
+    .ch-contact-info .ch-ci-name { font-weight: 700; color: var(--text); font-size: 13px; }
+    .ch-contact-info .ch-ci-phone { font-family: var(--font-mono); }
+
+    .ch-body {
+      flex: 1; overflow-y: auto; padding: 0;
+    }
+    .ch-body table {
+      width: 100%; border-collapse: collapse;
+      font-size: 12px;
+    }
+    .ch-body thead th {
+      position: sticky; top: 0; z-index: 2;
+      background: var(--surface2); padding: 10px 12px;
+      text-align: left; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .04em;
+      color: var(--secondary); border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .ch-body tbody td {
+      padding: 8px 12px; border-bottom: 1px solid rgba(0,0,0,.04);
+      color: var(--text); vertical-align: middle;
+    }
+    .ch-body tbody tr:hover td { background: rgba(37,99,235,.02); }
+
+    .ch-source-tag {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      padding: 2px 5px; border-radius: 3px; letter-spacing: .04em;
+    }
+    .ch-source-tag.ringex { color: #6366f1; background: rgba(99,102,241,.08); }
+    .ch-source-tag.ringcx { color: #ea580c; background: rgba(234,88,12,.08); }
+    .ch-source-tag.zoho { color: #059669; background: rgba(5,150,105,.08); }
+
+    .ch-dir-tag {
+      font-size: 10px; font-weight: 600;
+    }
+    .ch-dir-tag.out { color: var(--blue); }
+    .ch-dir-tag.in { color: var(--green-dk); }
+
+    .ch-result-tag {
+      font-size: 10px; font-weight: 600;
+      padding: 2px 6px; border-radius: 3px;
+    }
+    .ch-result-tag.accepted { color: var(--green-dk); background: rgba(22,163,74,.08); }
+    .ch-result-tag.missed { color: var(--red); background: rgba(255,59,48,.06); }
+    .ch-result-tag.vm { color: var(--orange); background: rgba(245,158,11,.08); }
+    .ch-result-tag.other { color: var(--secondary); background: var(--surface2); }
+
+    .ch-rec-btn {
+      font-size: 10px; color: var(--blue); cursor: pointer;
+      background: none; border: none; font-family: inherit;
+      text-decoration: underline; padding: 0;
+    }
+
+    .ch-empty {
+      text-align: center; padding: 48px 24px;
+      color: var(--tertiary); font-size: 13px;
+    }
+    .ch-loading {
+      text-align: center; padding: 48px 24px;
+      color: var(--secondary); font-size: 13px;
+    }
+
+    .ch-tabs {
+      display: flex; gap: 0; border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    .ch-tab {
+      padding: 10px 16px; font-size: 12px; font-weight: 600;
+      color: var(--secondary); cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .12s; background: none; border-top: none;
+      border-left: none; border-right: none; font-family: inherit;
+    }
+    .ch-tab:hover { color: var(--text); }
+    .ch-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .ch-tab .ch-tab-n { font-weight: 800; margin-left: 4px; }
+
+    .ch-footer {
+      padding: 10px 24px; border-top: 1px solid var(--border);
+      font-size: 11px; color: var(--tertiary);
+      display: flex; justify-content: space-between;
+    }
   </style>
 </head>
 <body>
@@ -2486,6 +2654,7 @@
     <div id="status-dot" class="loading"></div>
     <span id="last-updated">Loading…</span>
   </div>
+  <button class="ch-search-btn" onclick="chOpen()"><span class="ch-icon">🔍</span> Call History</button>
   <button id="refresh-btn" onclick="forceRefresh()">↻ Refresh</button>
 </header>
 
@@ -5162,6 +5331,48 @@
   </div>
 </div>
 
+<!-- ══════════════════════ CALL HISTORY SEARCH MODAL ══════════════════════ -->
+<div class="ch-overlay" id="ch-overlay" onclick="if(event.target===this)chClose()">
+  <div class="ch-modal">
+    <div class="ch-header">
+      <h2>📞 Call & SMS History</h2>
+      <button class="ch-close" onclick="chClose()">✕</button>
+    </div>
+    <div class="ch-search-bar">
+      <input type="text" id="ch-input" placeholder="Enter phone number or contact name…"
+             onkeydown="if(event.key==='Enter')chSearch()" autocomplete="off">
+      <select id="ch-days">
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="60">Last 60 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="180">Last 180 days</option>
+      </select>
+      <button id="ch-go" onclick="chSearch()">Search</button>
+    </div>
+    <div class="ch-contact-info" id="ch-contact-info">
+      <span class="ch-ci-name" id="ch-ci-name"></span>
+      <span class="ch-ci-phone" id="ch-ci-phone"></span>
+    </div>
+    <div class="ch-tabs" id="ch-tabs" style="display:none">
+      <button class="ch-tab active" data-tab="ringcalls" onclick="chSwitchTab('ringcalls')">
+        RingCentral <span class="ch-tab-n" id="ch-tab-ring-n">0</span>
+      </button>
+      <button class="ch-tab" data-tab="zoho" onclick="chSwitchTab('zoho')">
+        Zoho CRM <span class="ch-tab-n" id="ch-tab-zoho-n">0</span>
+      </button>
+    </div>
+    <div class="ch-body" id="ch-body">
+      <div class="ch-empty">Enter a phone number or contact name to search call history across RingEX and RingCX.</div>
+    </div>
+    <div class="ch-footer" id="ch-footer" style="display:none">
+      <span id="ch-footer-info"></span>
+      <span id="ch-footer-source"></span>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════ TELEGRAM CHAT WIDGET ══════════════════════ -->
 <div class="tg-widget" id="tg-widget" style="display:none">
   <!-- Toggle button -->
@@ -5198,6 +5409,215 @@
     </div>
   </div>
 </div>
+
+<script>
+  /* ═══════════════════ Call History Search ═══════════════════ */
+  let _chData = null;     // last search results
+  let _chTab = "ringcalls"; // active tab
+
+  function chOpen() {
+    document.getElementById("ch-overlay").classList.add("open");
+    document.getElementById("ch-input").focus();
+  }
+  function chClose() {
+    document.getElementById("ch-overlay").classList.remove("open");
+  }
+
+  async function chSearch() {
+    const q = document.getElementById("ch-input").value.trim();
+    if (q.length < 2) return;
+    const days = document.getElementById("ch-days").value;
+    const btn = document.getElementById("ch-go");
+    const body = document.getElementById("ch-body");
+
+    btn.disabled = true;
+    btn.textContent = "Searching…";
+    body.innerHTML = `<div class="ch-loading"><span class="mini-spinner"></span> Searching RingEX & RingCX for "${q}"…</div>`;
+    document.getElementById("ch-tabs").style.display = "none";
+    document.getElementById("ch-footer").style.display = "none";
+    document.getElementById("ch-contact-info").classList.remove("visible");
+
+    try {
+      const resp = await fetch(`/api/call-history/search?q=${encodeURIComponent(q)}&days=${days}`);
+      const data = await resp.json();
+      _chData = data;
+
+      if (data.error) {
+        body.innerHTML = `<div class="ch-empty">⚠ ${data.error}</div>`;
+        return;
+      }
+
+      // Contact info bar
+      if (data.contact) {
+        document.getElementById("ch-ci-name").textContent = data.contact.name || "";
+        document.getElementById("ch-ci-phone").textContent = data.contact.phone || data.phone || "";
+        document.getElementById("ch-contact-info").classList.add("visible");
+      } else if (data.phone) {
+        document.getElementById("ch-ci-name").textContent = "";
+        document.getElementById("ch-ci-phone").textContent = data.phone;
+        document.getElementById("ch-contact-info").classList.add("visible");
+      }
+
+      // Tab counts
+      document.getElementById("ch-tab-ring-n").textContent = data.count || 0;
+      document.getElementById("ch-tab-zoho-n").textContent = data.zoho_count || 0;
+      document.getElementById("ch-tabs").style.display = "flex";
+
+      // Footer
+      document.getElementById("ch-footer").style.display = "flex";
+      document.getElementById("ch-footer-info").textContent =
+        `${data.count + (data.zoho_count||0)} total records · last ${days} days`;
+      document.getElementById("ch-footer-source").textContent =
+        `Phone: ${data.phone || q}`;
+
+      _chTab = "ringcalls";
+      chRenderTab();
+
+    } catch (err) {
+      body.innerHTML = `<div class="ch-empty">Error: ${err.message}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Search";
+    }
+  }
+
+  function chSwitchTab(tab) {
+    _chTab = tab;
+    document.querySelectorAll(".ch-tab").forEach(t => {
+      t.classList.toggle("active", t.dataset.tab === tab);
+    });
+    chRenderTab();
+  }
+
+  function chRenderTab() {
+    if (!_chData) return;
+    const body = document.getElementById("ch-body");
+
+    if (_chTab === "ringcalls") {
+      const calls = _chData.calls || [];
+      if (!calls.length) {
+        body.innerHTML = `<div class="ch-empty">No calls found in RingEX/RingCX for this number.</div>`;
+        return;
+      }
+      body.innerHTML = `<table>
+        <thead><tr>
+          <th>Date / Time</th>
+          <th>Direction</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Duration</th>
+          <th>Result</th>
+          <th>Agent / Queue</th>
+          <th>Source</th>
+        </tr></thead>
+        <tbody>${calls.map(chRenderRingRow).join("")}</tbody>
+      </table>`;
+    } else {
+      const calls = _chData.zoho_calls || [];
+      if (!calls.length) {
+        body.innerHTML = `<div class="ch-empty">No calls found in Zoho CRM for this number.</div>`;
+        return;
+      }
+      body.innerHTML = `<table>
+        <thead><tr>
+          <th>Date / Time</th>
+          <th>Subject</th>
+          <th>Disposition</th>
+          <th>Rep</th>
+          <th>Notes</th>
+          <th>Recording</th>
+        </tr></thead>
+        <tbody>${calls.map(chRenderZohoRow).join("")}</tbody>
+      </table>`;
+    }
+  }
+
+  function chFmtTime(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      const mo = d.toLocaleDateString("en-US", {month:"short", day:"numeric"});
+      const tm = d.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit"});
+      return `${mo}, ${tm}`;
+    } catch { return iso; }
+  }
+
+  function chFmtDur(sec) {
+    if (!sec || sec <= 0) return "—";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  function chFmtPhone(num) {
+    if (!num) return "—";
+    const d = num.replace(/\D/g, "");
+    if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    if (d.length === 11 && d[0] === "1") return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`;
+    return num;
+  }
+
+  function chResultClass(result) {
+    if (!result) return "other";
+    const r = result.toLowerCase();
+    if (r.includes("accept") || r.includes("answered") || r.includes("call connected") || r === "answered") return "accepted";
+    if (r.includes("miss") || r.includes("no answer") || r.includes("busy") || r.includes("reject")) return "missed";
+    if (r.includes("voicemail") || r.includes("vm")) return "vm";
+    return "other";
+  }
+
+  function chRenderRingRow(c) {
+    const srcClass = c.source === "ringcx" ? "ringcx" : "ringex";
+    const dirClass = (c.direction||"").toLowerCase().startsWith("out") ? "out" : "in";
+    const dirLabel = dirClass === "out" ? "↗ Out" : "↙ In";
+    const resClass = chResultClass(c.result);
+    const agent = c.agent_name || c.from_name || c.to_name || "";
+    const queue = c.queue_name ? `<span style="font-size:10px;color:var(--tertiary)"> · ${c.queue_name}</span>` : "";
+    const rec = c.recording_url
+      ? `<a href="${c.recording_url}" target="_blank" class="ch-rec-btn">▶ Play</a>`
+      : "";
+
+    return `<tr>
+      <td style="white-space:nowrap">${chFmtTime(c.start_time)}</td>
+      <td><span class="ch-dir-tag ${dirClass}">${dirLabel}</span></td>
+      <td style="font-family:var(--font-mono);font-size:11px">${chFmtPhone(c.from_number)}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${chFmtPhone(c.to_number)}</td>
+      <td>${chFmtDur(c.duration)}</td>
+      <td><span class="ch-result-tag ${resClass}">${c.result || "—"}</span></td>
+      <td>${agent}${queue}</td>
+      <td><span class="ch-source-tag ${srcClass}">${srcClass}</span> ${rec}</td>
+    </tr>`;
+  }
+
+  function chRenderZohoRow(c) {
+    const rec = c.recording_url
+      ? `<a href="${c.recording_url}" target="_blank" class="ch-rec-btn">▶ Play</a>`
+      : "—";
+    const desc = c.description
+      ? `<span title="${(c.description||"").replace(/"/g,'&quot;')}">${c.description.length > 60 ? c.description.slice(0,60)+"…" : c.description}</span>`
+      : "—";
+
+    return `<tr>
+      <td style="white-space:nowrap">${chFmtTime(c.start_time)}</td>
+      <td>${c.subject || "—"}</td>
+      <td><span class="ch-result-tag ${chResultClass(c.disposition)}">${c.disposition || "—"}</span></td>
+      <td>${c.caller || "—"}</td>
+      <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${desc}</td>
+      <td>${rec}</td>
+    </tr>`;
+  }
+
+  // Keyboard shortcut: Ctrl/Cmd+K to open search
+  document.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      chOpen();
+    }
+    if (e.key === "Escape" && document.getElementById("ch-overlay").classList.contains("open")) {
+      chClose();
+    }
+  });
+</script>
 
 <script>
   /* ═══════════════════ Telegram Chat Widget ═══════════════════ */

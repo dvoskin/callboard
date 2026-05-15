@@ -726,6 +726,120 @@ def ringcx_agents():
         return jsonify({"error": str(e)}), 500
 
 
+# ------------------------------------------------------------------ Call & SMS History Search
+
+@app.route("/api/call-history/search")
+def call_history_search():
+    """Search call history across RingEX and RingCX by phone number or contact name.
+
+    Query params:
+      q    — phone number or contact name
+      days — how many days back (default 30, max 180)
+    """
+    import re
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"error": "Query too short (min 2 chars)"}), 400
+
+    days = min(int(request.args.get("days", 30)), 180)
+
+    # Determine if query is a phone number or a name
+    digits = re.sub(r"\D", "", q)
+    phones = []
+    contact = None
+
+    if len(digits) >= 7:
+        # Looks like a phone number — use directly
+        phones = [digits[-10:] if len(digits) >= 10 else digits]
+    else:
+        # Looks like a name — search Zoho contacts to resolve phone(s)
+        try:
+            contacts = _zoho.search_contacts(q)
+            if contacts:
+                contact = contacts[0]  # primary match
+                for c in contacts[:3]:  # check top 3 matches
+                    p = re.sub(r"\D", "", c.get("phone") or "")
+                    if len(p) >= 7:
+                        phones.append(p[-10:] if len(p) >= 10 else p)
+        except Exception as e:
+            log.error("Contact search for call history failed: %s", e)
+
+    if not phones:
+        return jsonify({
+            "calls": [],
+            "contact": contact,
+            "query": q,
+            "message": "No phone number found for this query",
+        })
+
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX/RingEX not configured"}), 503
+
+    # Search both systems in parallel-ish (sequential for simplicity)
+    primary_phone = phones[0]
+
+    # 1. RingEX account-level call log (covers both RingEX and RingCX calls)
+    ringex_calls = _ringcx.search_call_history(primary_phone, days=days)
+
+    # 2. RingCX CDR (Engage Voice — additional detail: queue, agent, talk time)
+    ringcx_calls = _ringcx.search_ringcx_call_history(primary_phone, days=days)
+
+    # Merge and deduplicate by session_id / start_time
+    seen = set()
+    merged = []
+
+    # RingCX calls first (more detail), then RingEX
+    for call in ringcx_calls:
+        key = call.get("session_id") or call.get("start_time", "")
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(call)
+
+    for call in ringex_calls:
+        key = call.get("session_id") or call.get("start_time", "")
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(call)
+
+    # Sort by start_time descending
+    merged.sort(key=lambda c: c.get("start_time") or "", reverse=True)
+
+    # Also get Zoho-logged calls for this phone (for disposition/description data)
+    zoho_calls = []
+    try:
+        from zoho_client import normalize_phone
+        phone_map = _zoho._fetch_all_calls_for_phones([primary_phone])
+        norm = normalize_phone(primary_phone)
+        raw_calls = phone_map.get(norm, []) if norm else []
+        for c in raw_calls:
+            owner = c.get("Owner")
+            caller = (owner.get("name") if isinstance(owner, dict)
+                      else owner if isinstance(owner, str) else None)
+            zoho_calls.append({
+                "id": c.get("id"),
+                "start_time": c.get("Call_Start_Time"),
+                "subject": c.get("Subject"),
+                "disposition": c.get("Outgoing_call_disposition"),
+                "caller": caller,
+                "description": (c.get("Description") or "")[:200],
+                "recording_url": _zoho._extract_recording_url(c.get("Description") or ""),
+                "source": "zoho",
+            })
+    except Exception as e:
+        log.error("Zoho call fetch for history failed: %s", e)
+
+    return jsonify({
+        "calls": merged,
+        "zoho_calls": zoho_calls,
+        "contact": contact,
+        "phone": primary_phone,
+        "query": q,
+        "days": days,
+        "count": len(merged),
+        "zoho_count": len(zoho_calls),
+    })
+
+
 # ------------------------------------------------------------------ Telegram chat
 
 @app.route("/api/telegram/status")
