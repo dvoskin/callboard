@@ -464,22 +464,23 @@ class RingCXClient:
         """
         try:
             token = self._ensure_rc_token()
-            # Normalize to E.164-ish (no leading +, just digits)
             import re
             digits = re.sub(r"\D", "", phone)
             if len(digits) > 10:
-                digits = digits[-10:]  # strip country code
+                digits = digits[-10:]
             if len(digits) < 7:
                 log.warning("search_call_history: phone too short: %s", phone)
                 return []
+
+            e164 = f"+1{digits}" if len(digits) == 10 else f"+{digits}"
 
             date_from = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
 
             all_calls = []
             page = 1
-            while page <= 10:  # safety cap
+            while page <= 10:
                 params = {
-                    "phoneNumber": digits,
+                    "phoneNumber": e164,
                     "dateFrom": date_from,
                     "view": "Simple",
                     "perPage": 250,

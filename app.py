@@ -857,15 +857,24 @@ def call_history_search():
     except Exception as e:
         log.error("Zoho call fetch for history failed: %s", e)
 
+    # 4. HelloSend SMS history
+    sms_messages = []
+    try:
+        sms_messages = _zoho.search_sms_history(primary_phone)
+    except Exception as e:
+        log.error("SMS history search failed: %s", e)
+
     return jsonify({
         "calls": merged,
         "zoho_calls": zoho_calls,
+        "sms": sms_messages,
         "contact": contact,
         "phone": primary_phone,
         "query": q,
         "days": days,
         "count": len(merged),
         "zoho_count": len(zoho_calls),
+        "sms_count": len(sms_messages),
     })
 
 

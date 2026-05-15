@@ -5407,6 +5407,9 @@
       <button class="ch-tab" data-tab="zoho" onclick="chSwitchTab('zoho')">
         Zoho CRM <span class="ch-tab-n" id="ch-tab-zoho-n">0</span>
       </button>
+      <button class="ch-tab" data-tab="sms" onclick="chSwitchTab('sms')">
+        SMS <span class="ch-tab-n" id="ch-tab-sms-n">0</span>
+      </button>
     </div>
     <div class="ch-body" id="ch-body">
       <div class="ch-empty">Enter a phone number or contact name to search call history across RingEX and RingCX.</div>
@@ -5506,12 +5509,13 @@
       // Tab counts
       document.getElementById("ch-tab-ring-n").textContent = data.count || 0;
       document.getElementById("ch-tab-zoho-n").textContent = data.zoho_count || 0;
+      document.getElementById("ch-tab-sms-n").textContent = data.sms_count || 0;
       document.getElementById("ch-tabs").style.display = "flex";
 
       // Footer
       document.getElementById("ch-footer").style.display = "flex";
       document.getElementById("ch-footer-info").textContent =
-        `${data.count + (data.zoho_count||0)} total records · last ${days} days`;
+        `${data.count + (data.zoho_count||0)} call records + ${data.sms_count||0} SMS · last ${days} days`;
       document.getElementById("ch-footer-source").textContent =
         `Phone: ${data.phone || q}`;
 
@@ -5557,7 +5561,7 @@
         </tr></thead>
         <tbody>${calls.map(chRenderRingRow).join("")}</tbody>
       </table>`;
-    } else {
+    } else if (_chTab === "zoho") {
       const calls = _chData.zoho_calls || [];
       if (!calls.length) {
         body.innerHTML = `<div class="ch-empty">No calls found in Zoho CRM for this number.</div>`;
@@ -5573,6 +5577,23 @@
           <th>Recording</th>
         </tr></thead>
         <tbody>${calls.map(chRenderZohoRow).join("")}</tbody>
+      </table>`;
+    } else if (_chTab === "sms") {
+      const msgs = _chData.sms || [];
+      if (!msgs.length) {
+        body.innerHTML = `<div class="ch-empty">No SMS messages found for this number.</div>`;
+        return;
+      }
+      body.innerHTML = `<table>
+        <thead><tr>
+          <th>Date / Time</th>
+          <th>Direction</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Message</th>
+          <th>Sender</th>
+        </tr></thead>
+        <tbody>${msgs.map(chRenderSmsRow).join("")}</tbody>
       </table>`;
     }
   }
@@ -5649,6 +5670,21 @@
       <td>${c.caller || "—"}</td>
       <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${desc}</td>
       <td>${rec}</td>
+    </tr>`;
+  }
+
+  function chRenderSmsRow(s) {
+    const dirClass = (s.direction||"").toLowerCase().startsWith("out") ? "out" : "in";
+    const dirLabel = dirClass === "out" ? "↗ Sent" : "↙ Received";
+    const msg = s.message || "";
+    const truncMsg = msg.length > 120 ? msg.slice(0, 120) + "…" : msg;
+    return `<tr>
+      <td style="white-space:nowrap">${chFmtTime(s.time)}</td>
+      <td><span class="ch-dir-tag ${dirClass}">${dirLabel}</span></td>
+      <td style="font-family:var(--font-mono);font-size:11px">${chFmtPhone(s.from_number)}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${chFmtPhone(s.to_number)}</td>
+      <td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis" title="${msg.replace(/"/g,'&quot;')}">${truncMsg}</td>
+      <td style="font-size:11px">${s.owner || "—"}</td>
     </tr>`;
   }
 
