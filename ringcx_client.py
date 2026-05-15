@@ -277,13 +277,13 @@ class RingCXClient:
                 dest_digits = "1" + dest_digits  # prepend US country code
 
             resp = requests.post(
-                f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}"
+                f"{self.ringcx_url}/voice/api/v1/admin/accounts/{self._cx_account_id}"
                 f"/activeCalls/{uii}/addSessionToCall",
                 headers={
                     **self._cx_headers(),
                     "Content-Type": "application/json",
                 },
-                params={
+                json={
                     "destination": dest_digits,
                     "sessionType": session_type,
                 },

@@ -1130,10 +1130,16 @@
       display: none; /* hidden by default (mobile) */
       gap: 4px; margin-top: 6px; padding-top: 6px;
       border-top: 1px solid rgba(0,0,0,.04);
+      flex-wrap: wrap; align-items: center;
     }
     @media (min-width: 900px) {
       .lp-call-card:hover .lp-monitor { display: flex; }
     }
+    .mon-change-phone {
+      font-size: 9px; color: var(--tertiary); cursor: pointer;
+      margin-left: auto; text-decoration: none;
+    }
+    .mon-change-phone:hover { color: var(--blue); text-decoration: underline; }
     .lp-mon-btn {
       font-size: 10px; font-weight: 600; font-family: inherit;
       padding: 3px 8px; border-radius: 4px; cursor: pointer;
@@ -5080,6 +5086,7 @@
             <button class="lp-mon-btn mon-barge" onclick="monitorCall('${call.uii}','BARGE_IN',event)" title="Barge — join the call (3-way)">
               <span class="mon-icon">📢</span> Barge
             </button>
+            <a class="mon-change-phone" onclick="changeMonitorPhone(event)" title="Change supervisor phone number">📞 Change phone</a>
           </div>` : ""}
         </div>`;
       }).join("");
@@ -5653,32 +5660,33 @@
   });
 
   /* ═══════════════════ Call Monitoring ═══════════════════ */
-  const MON_PHONE_KEY = "monitor_phone";
+  let _monitorPhone = "";
 
-  function getMonitorPhone() {
-    return localStorage.getItem(MON_PHONE_KEY) || "";
+  function promptMonitorPhone(forceNew) {
+    if (!forceNew && _monitorPhone) return _monitorPhone;
+    const current = _monitorPhone ? ` (current: ${_monitorPhone})` : "";
+    const phone = prompt(`Enter your phone number for monitoring.${current}\nThis is where you'll hear the call audio.`);
+    if (!phone) return _monitorPhone;
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      alert("Please enter a valid 10-digit phone number.");
+      return _monitorPhone;
+    }
+    _monitorPhone = digits;
+    return _monitorPhone;
   }
 
-  function setMonitorPhone(phone) {
-    localStorage.setItem(MON_PHONE_KEY, phone);
+  function changeMonitorPhone(evt) {
+    if (evt) evt.stopPropagation();
+    promptMonitorPhone(true);
   }
 
   async function monitorCall(uii, sessionType, evt) {
     evt.stopPropagation();
     const btn = evt.currentTarget;
 
-    // Get or prompt for supervisor phone
-    let phone = getMonitorPhone();
-    if (!phone) {
-      phone = prompt("Enter your phone number for monitoring.\nThis is where you'll hear the call audio.\n\n(Saved for future use)");
-      if (!phone) return;
-      phone = phone.replace(/\D/g, "");
-      if (phone.length < 10) {
-        alert("Please enter a valid 10-digit phone number.");
-        return;
-      }
-      setMonitorPhone(phone);
-    }
+    let phone = promptMonitorPhone(false);
+    if (!phone) return;
 
     const labels = { MONITOR: "Listen", COACHING: "Whisper", BARGE_IN: "Barge" };
     const origText = btn.innerHTML;
