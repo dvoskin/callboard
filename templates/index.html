@@ -1140,6 +1140,40 @@
       margin-left: auto; text-decoration: none;
     }
     .mon-change-phone:hover { color: var(--blue); text-decoration: underline; }
+
+    /* Monitor phone picker modal */
+    .mp-overlay {
+      position: fixed; inset: 0; z-index: 9500;
+      background: rgba(0,0,0,.45); backdrop-filter: blur(3px);
+      display: none; align-items: center; justify-content: center;
+    }
+    .mp-overlay.open { display: flex; }
+    .mp-modal {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg); width: min(420px, calc(100vw - 40px));
+      padding: 24px; animation: chSlideIn .2s ease-out;
+    }
+    .mp-modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+    .mp-modal select {
+      width: 100%; padding: 10px 12px; font-size: 13px; font-family: inherit;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface2); margin-bottom: 12px; cursor: pointer;
+    }
+    .mp-modal .mp-current {
+      font-size: 11px; color: var(--secondary); margin-bottom: 12px;
+    }
+    .mp-modal .mp-actions {
+      display: flex; gap: 8px; justify-content: flex-end;
+    }
+    .mp-modal .mp-actions button {
+      padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px;
+      font-weight: 500; font-family: inherit; cursor: pointer; border: none;
+    }
+    .mp-cancel { background: var(--surface2); color: var(--text); }
+    .mp-cancel:hover { background: var(--border); }
+    .mp-confirm { background: var(--blue); color: #fff; }
+    .mp-confirm:hover { background: var(--blue-dk); }
+    .mp-loading { text-align: center; padding: 20px; color: var(--secondary); font-size: 13px; }
     .lp-mon-btn {
       font-size: 10px; font-weight: 600; font-family: inherit;
       padding: 3px 8px; border-radius: 4px; cursor: pointer;
@@ -5422,6 +5456,20 @@
   </div>
 </div>
 
+<!-- ══════════════════════ MONITOR PHONE PICKER ══════════════════════ -->
+<div class="mp-overlay" id="mp-overlay" onclick="if(event.target===this)mpCancel()">
+  <div class="mp-modal">
+    <h3>📞 Select Monitoring Phone</h3>
+    <div id="mp-body">
+      <div class="mp-loading"><span class="mini-spinner"></span> Loading extensions…</div>
+    </div>
+    <div class="mp-actions">
+      <button class="mp-cancel" onclick="mpCancel()">Cancel</button>
+      <button class="mp-confirm" id="mp-confirm" onclick="mpConfirm()" disabled>Connect</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════ TELEGRAM CHAT WIDGET ══════════════════════ -->
 <div class="tg-widget" id="tg-widget" style="display:none">
   <!-- Toggle button -->
@@ -5702,33 +5750,97 @@
 
   /* ═══════════════════ Call Monitoring ═══════════════════ */
   let _monitorPhone = "";
+  let _monitorPhoneLabel = "";
+  let _mpExtensions = null;
+  let _mpPendingUii = null;
+  let _mpPendingType = null;
+  let _mpPendingBtn = null;
 
-  function promptMonitorPhone(forceNew) {
-    if (!forceNew && _monitorPhone) return _monitorPhone;
-    const current = _monitorPhone ? ` (current: ${_monitorPhone})` : "";
-    const phone = prompt(`Enter your phone number for monitoring.${current}\nThis is where you'll hear the call audio.`);
-    if (!phone) return _monitorPhone;
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      alert("Please enter a valid 10-digit phone number.");
-      return _monitorPhone;
+  async function _mpLoadExtensions() {
+    if (_mpExtensions) return _mpExtensions;
+    try {
+      const resp = await fetch("/api/ringcx/extensions");
+      const data = await resp.json();
+      if (data.extensions) {
+        _mpExtensions = data.extensions.filter(e => e.phones && e.phones.length > 0);
+      }
+    } catch (e) {
+      console.error("Failed to load extensions", e);
     }
-    _monitorPhone = digits;
-    return _monitorPhone;
+    return _mpExtensions || [];
+  }
+
+  function _mpRenderPicker() {
+    const body = document.getElementById("mp-body");
+    const exts = _mpExtensions || [];
+    if (!exts.length) {
+      body.innerHTML = `<div class="mp-loading">No extensions with phone numbers found.</div>`;
+      return;
+    }
+    const current = _monitorPhone
+      ? `<div class="mp-current">Current: ${_monitorPhoneLabel || _monitorPhone}</div>` : "";
+    let opts = exts.map(e => {
+      const direct = e.phones[0];
+      const label = `${e.name} (Ext ${e.ext}) — ${direct}`;
+      return `<option value="${direct}" ${direct === _monitorPhone ? "selected" : ""}>${label}</option>`;
+    }).join("");
+    body.innerHTML = `${current}
+      <select id="mp-select" onchange="document.getElementById('mp-confirm').disabled=!this.value">
+        <option value="">Select an extension…</option>
+        ${opts}
+      </select>`;
+    document.getElementById("mp-confirm").disabled = !document.getElementById("mp-select").value;
+  }
+
+  async function mpOpen(uii, sessionType, btn) {
+    _mpPendingUii = uii;
+    _mpPendingType = sessionType;
+    _mpPendingBtn = btn;
+    document.getElementById("mp-overlay").classList.add("open");
+    document.getElementById("mp-body").innerHTML =
+      `<div class="mp-loading"><span class="mini-spinner"></span> Loading extensions…</div>`;
+    await _mpLoadExtensions();
+    _mpRenderPicker();
+  }
+
+  function mpCancel() {
+    document.getElementById("mp-overlay").classList.remove("open");
+    _mpPendingUii = null;
+    _mpPendingType = null;
+    _mpPendingBtn = null;
+  }
+
+  async function mpConfirm() {
+    const sel = document.getElementById("mp-select");
+    if (!sel || !sel.value) return;
+    _monitorPhone = sel.value;
+    _monitorPhoneLabel = sel.options[sel.selectedIndex].text;
+    document.getElementById("mp-overlay").classList.remove("open");
+    if (_mpPendingUii && _mpPendingType) {
+      await _doMonitor(_mpPendingUii, _mpPendingType, _mpPendingBtn);
+    }
+    _mpPendingUii = null;
+    _mpPendingType = null;
+    _mpPendingBtn = null;
   }
 
   function changeMonitorPhone(evt) {
     if (evt) evt.stopPropagation();
-    promptMonitorPhone(true);
+    mpOpen(null, null, null);
   }
 
   async function monitorCall(uii, sessionType, evt) {
     evt.stopPropagation();
     const btn = evt.currentTarget;
+    if (!_monitorPhone) {
+      await mpOpen(uii, sessionType, btn);
+      return;
+    }
+    await _doMonitor(uii, sessionType, btn);
+  }
 
-    let phone = promptMonitorPhone(false);
-    if (!phone) return;
-
+  async function _doMonitor(uii, sessionType, btn) {
+    if (!uii || !sessionType || !btn) return;
     const labels = { MONITOR: "Listen", COACHING: "Whisper", BARGE_IN: "Barge" };
     const origText = btn.innerHTML;
     btn.innerHTML = `<span class="mini-spinner"></span> Connecting…`;
@@ -5740,7 +5852,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           uii: uii,
-          destination: phone,
+          destination: _monitorPhone,
           session_type: sessionType,
         }),
       });
