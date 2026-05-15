@@ -448,6 +448,34 @@
     /* Dials cell */
     .dials-val { font-weight: 700; font-size: 12px; color: var(--text); font-feature-settings: "tnum"; }
     .dials-src { font-size: 9px; font-weight: 600; color: var(--secondary); background: rgba(142,142,147,.06); border-radius: 3px; padding: 1px 4px; margin-left: 3px; }
+    .dials-wrap { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+    .dials-tip-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: rgba(37,99,235,.08); color: var(--blue); border: 1px solid rgba(37,99,235,.18);
+      font-size: 9px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+      transition: background .12s, border-color .12s;
+    }
+    .dials-tip-btn:hover { background: rgba(37,99,235,.16); border-color: var(--blue); }
+    .dials-tip {
+      display: none; position: absolute; bottom: calc(100% + 6px); right: -8px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-lg);
+      padding: 10px 12px; min-width: 220px; max-width: 300px; z-index: 100;
+      font-size: 11px; line-height: 1.5;
+    }
+    .dials-tip::after {
+      content: ""; position: absolute; top: 100%; right: 14px;
+      border: 5px solid transparent; border-top-color: var(--border);
+    }
+    .dials-wrap:hover .dials-tip,
+    .dials-tip-btn:focus + .dials-tip { display: block; }
+    .dials-tip-title { font-weight: 700; font-size: 10px; color: var(--secondary); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+    .dials-tip-row { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--sep); align-items: baseline; }
+    .dials-tip-row:last-child { border-bottom: none; }
+    .dials-tip-num { font-weight: 700; color: var(--tertiary); min-width: 14px; }
+    .dials-tip-time { font-weight: 600; font-feature-settings: "tnum"; color: var(--text); flex: 1; }
+    .dials-tip-rep { color: var(--secondary); font-size: 10px; text-align: right; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Disposition cell */
     .disp-text { font-size: 12px; font-weight: 500; color: var(--text); }
@@ -1672,21 +1700,31 @@
 
     /* ══════════════ MOBILE RESPONSIVE ══════════════ */
     @media (max-width: 680px) {
-      /* Header */
-      header { padding: 0 14px; gap: 8px; height: 52px; }
-      header h1 { font-size: 14px; }
-      #last-updated { font-size: 11px; max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #refresh-btn { padding: 6px 10px; font-size: 11px; }
+      /* Header — compact, hide status text, icon-only search */
+      header { padding: 0 10px; gap: 6px; height: 46px; }
+      .header-icon { width: 26px; height: 26px; font-size: 12px; border-radius: 7px; }
+      header h1 { font-size: 14px; white-space: nowrap; }
+      .header-dot-wrap { flex: 0 0 auto; }
+      #last-updated { display: none; }
+      #refresh-btn { padding: 5px 8px; font-size: 10px; }
+      .ch-search-btn { font-size: 11px; padding: 5px 8px; }
+      .ch-search-btn .ch-label { display: none; }
 
       /* Layout */
       main { padding: 14px 12px; }
 
-      /* Hero KPIs: 2×2 */
+      /* Hero KPIs: 2×2, hide sparklines & context on mobile */
       .hero-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
       .kpi-card { padding: 12px 13px 10px; }
       .kpi-card .kpi-lbl { font-size: 10px; }
       .kpi-card .kpi-val { font-size: 26px; }
       .kpi-card .kpi-sub { font-size: 10px; margin-top: 4px; }
+      .kpi-card .kpi-sparkline { display: none; }
+      .kpi-card .kpi-context { display: none; }
+      .kpi-card .kpi-adj-side { display: none; }
+      .stat-pill .adj-note { display: none; }
+      .stat-pill .rate { display: none; }
+      .mgr-grid { display: none; }
 
       /* Live panel: single column on mobile */
       .live-panel { margin-bottom: 14px; }
@@ -1868,11 +1906,18 @@
       .sub-header .title { font-size: 12px; }
       .overdue-toolbar { flex-wrap: wrap; gap: 8px; }
 
-      /* Date range bar */
-      .card-date-bar { padding: 10px 14px; gap: 7px; }
-      .cdb-input { font-size: 15px; flex: 1; min-width: 130px; }
-      .cdb-apply { padding: 7px 14px; }
-      .cdb-today { padding: 7px 11px; }
+      /* Date range bar — compact row on mobile */
+      .card-date-bar { padding: 8px 14px; gap: 5px; }
+      .cdb-label { font-size: 10px; }
+      .cdb-input { font-size: 13px; padding: 5px 6px; min-width: 0; flex: 1; }
+      .cdb-sep { font-size: 11px; }
+      .cdb-apply { padding: 6px 10px; font-size: 11px; }
+      .cdb-today { padding: 6px 8px; font-size: 11px; }
+      .cdb-loading { font-size: 11px; }
+
+      /* Card header — wrap schedule button below */
+      .card-header { flex-wrap: wrap; }
+      .sched-btn { font-size: 11px; padding: 5px 10px; }
 
       /* Overdue zone */
       .overdue-zone { margin-top: 16px; padding-top: 14px; }
@@ -1897,13 +1942,13 @@
 
     /* ══════════════ iPhone Pro & smaller (≤ 430px) — fine-tuned ══════════════ */
     @media (max-width: 430px) {
-      /* Header — keep app icon visible, shrink rest */
-      header { padding: 0 12px; gap: 6px; height: 48px; }
-      .header-icon { width: 28px; height: 28px; font-size: 13px; border-radius: 8px; }
-      header h1 { font-size: 13.5px; letter-spacing: -.2px; }
-      #last-updated { font-size: 10px; max-width: 70px; }
-      #refresh-btn { padding: 5px 9px; font-size: 11px; min-width: 0; }
-      #refresh-btn span.btn-label { display: none; } /* if label exists, fall back to icon */
+      /* Header — icon + short title + buttons only */
+      header { padding: 0 8px; gap: 5px; height: 44px; }
+      .header-icon { width: 24px; height: 24px; font-size: 11px; border-radius: 6px; }
+      header h1 { font-size: 12px; letter-spacing: -.2px; }
+      #refresh-btn { padding: 4px 7px; font-size: 10px; min-width: 0; }
+      .ch-search-btn { padding: 3px 6px; font-size: 9px; }
+      .ch-search-btn .ch-icon { font-size: 10px; }
 
       /* Layout — tighter side padding for narrow screens */
       main { padding: 10px 10px 32px; }
@@ -1929,9 +1974,9 @@
       .card-header { padding: 12px 14px 0; gap: 8px; }
       .card-header h2 { font-size: 14px; }
       .card-body { padding: 10px 12px 14px; }
-      .card-date-bar { padding: 8px 12px; gap: 6px; }
-      .cdb-input { font-size: 14px; padding: 6px 8px; }
-      .cdb-apply, .cdb-today { font-size: 11px; padding: 6px 10px; }
+      .card-date-bar { padding: 6px 10px; gap: 4px; }
+      .cdb-input { font-size: 12px; padding: 4px 5px; }
+      .cdb-apply, .cdb-today { font-size: 10px; padding: 5px 8px; }
 
       /* Sub-headers — punchier titles */
       .sub-header .title { font-size: 12.5px; }
@@ -2717,7 +2762,7 @@
     <div id="status-dot" class="loading"></div>
     <span id="last-updated">Loading…</span>
   </div>
-  <button class="ch-search-btn" onclick="chOpen()"><span class="ch-icon">🔍</span> Call History</button>
+  <button class="ch-search-btn" onclick="chOpen()"><span class="ch-icon">🔍</span><span class="ch-label"> Call History</span></button>
   <button id="refresh-btn" onclick="forceRefresh()">↻ Refresh</button>
 </header>
 
@@ -3811,6 +3856,15 @@
       const stagePill = r.deal_stage
         ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>${ownerTag}` : `<span class="no-data">—</span>`;
       const dials = r.dial_attempts??0;
+      const odAttList = r.recent_attempts || [];
+      let odDialsTip = "";
+      if (dials > 0 && odAttList.length > 0) {
+        const tipRows = odAttList.map((a, i) => {
+          const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {hour:"numeric",minute:"2-digit"}) : "—";
+          return `<div class="dials-tip-row"><span class="dials-tip-num">${i+1}</span><span class="dials-tip-time">${t}</span><span class="dials-tip-rep">${a.rep || "—"}</span></div>`;
+        }).join("");
+        odDialsTip = `<button class="dials-tip-btn" tabindex="0" aria-label="Show dial attempts">?</button><div class="dials-tip"><div class="dials-tip-title">Dial attempts</div>${tipRows}</div>`;
+      }
       const odActualCell = r.actual_call_time
         ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum';font-size:12px">${fmt(r.actual_call_time)}</span>`
         : `<span class="no-data">—</span>`;
@@ -3825,9 +3879,11 @@
         : (r.disposition
             ? `<span style="font-size:12px;color:var(--text);font-weight:500">${r.disposition}</span>`
             : (r.caller ? `<span style="color:var(--secondary);font-size:12px">👤 ${r.caller}</span>` : `<span class="no-data">—</span>`));
-      const odDialsCell = dials > 0
-        ? (r.mvp_only ? `<span style="font-weight:700">${dials}</span> <span title="Dialed via RingEX" style="font-size:9.5px;color:var(--secondary);font-weight:600;background:rgba(142,142,147,.08);border-radius:4px;padding:1px 5px">RingEX</span>` : `<span style="font-weight:700">${dials}</span>`)
-        : `<span class="no-data">0</span>`;
+      const odDialsCell = dials === 0
+        ? `<span class="no-data">0</span>`
+        : `<span class="dials-wrap">${r.mvp_only
+            ? `<span class="dials-val">${dials}</span><span class="dials-src">RingEX</span>`
+            : `<span class="dials-val">${dials}</span>`}${odDialsTip}</span>`;
       const isSel = _overdueSelected.has(r.id);
       return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}">
         <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
@@ -4398,11 +4454,21 @@
         ? `<span class="ts-cell ts-actual">${fmt(r.last_attempt_time)}</span>`
         : `<span class="no-data">—</span>`;
       const dials=r.dial_attempts??0;
+      const attList = r.recent_attempts || [];
+      let dialsTip = "";
+      if (dials > 0 && attList.length > 0) {
+        const tipRows = attList.map((a, i) => {
+          const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {hour:"numeric",minute:"2-digit"}) : "—";
+          const rep = a.rep || "—";
+          return `<div class="dials-tip-row"><span class="dials-tip-num">${i+1}</span><span class="dials-tip-time">${t}</span><span class="dials-tip-rep">${rep}</span></div>`;
+        }).join("");
+        dialsTip = `<button class="dials-tip-btn" tabindex="0" aria-label="Show dial attempts">?</button><div class="dials-tip"><div class="dials-tip-title">Dial attempts</div>${tipRows}</div>`;
+      }
       const dialsCell = dials === 0
         ? `<span class="no-data">0</span>`
-        : r.mvp_only
-          ? `<span class="dials-val">${dials}</span><span class="dials-src">RingEX</span>`
-          : `<span class="dials-val">${dials}</span>`;
+        : `<span class="dials-wrap">${r.mvp_only
+            ? `<span class="dials-val">${dials}</span><span class="dials-src">RingEX</span>`
+            : `<span class="dials-val">${dials}</span>`}${dialsTip}</span>`;
       const cls = r.status==="completed"          ? "row-completed"
                 : r.status==="early"               ? "row-early"
                 : r.status==="completed_via_deal"  ? "row-via-deal"
@@ -5115,18 +5181,6 @@
             })()}
           </div>
           ${matchHtml}
-          ${call.uii && call.source === "ringcx" ? `<div class="lp-monitor">
-            <button class="lp-mon-btn mon-listen" onclick="monitorCall('${call.uii}','MONITOR',event)" title="Silent listen — hear both sides">
-              <span class="mon-icon">🎧</span> Listen
-            </button>
-            <button class="lp-mon-btn mon-whisper" onclick="monitorCall('${call.uii}','COACHING',event)" title="Whisper — agent hears you, caller doesn't">
-              <span class="mon-icon">🗣</span> Whisper
-            </button>
-            <button class="lp-mon-btn mon-barge" onclick="monitorCall('${call.uii}','BARGEIN',event)" title="Barge — join the call (3-way)">
-              <span class="mon-icon">📢</span> Barge
-            </button>
-            <a class="mon-change-phone" onclick="changeMonitorPhone(event)" title="Change supervisor phone number">📞 Change phone</a>
-          </div>` : ""}
         </div>`;
       }).join("");
     }
