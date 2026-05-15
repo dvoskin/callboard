@@ -726,6 +726,51 @@ def ringcx_agents():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ringcx/extensions")
+def ringcx_extensions():
+    """List RingCentral extensions with phone numbers for monitoring setup."""
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+    try:
+        import requests as req
+        headers = _ringcx._rc_headers()
+        exts = []
+        page = 1
+        while page <= 5:
+            resp = req.get(
+                f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/extension",
+                headers=headers,
+                params={"type": "User", "status": "Enabled", "perPage": 100, "page": page},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for ext in data.get("records", []):
+                phones = []
+                try:
+                    pr = req.get(
+                        f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/extension/{ext['id']}/phone-number",
+                        headers=headers, timeout=10,
+                    )
+                    if pr.ok:
+                        phones = [p.get("phoneNumber", "") for p in pr.json().get("records", []) if p.get("phoneNumber")]
+                except Exception:
+                    pass
+                exts.append({
+                    "name": ext.get("name", ""),
+                    "ext": ext.get("extensionNumber", ""),
+                    "phones": phones,
+                })
+            if data.get("navigation", {}).get("nextPage"):
+                page += 1
+            else:
+                break
+        return jsonify({"extensions": sorted(exts, key=lambda x: x["name"]), "count": len(exts)})
+    except Exception as e:
+        log.error("Extensions list error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------------------------------------------------------ Call Monitoring
 
 @app.route("/api/ringcx/monitor", methods=["POST"])
