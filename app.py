@@ -882,7 +882,7 @@ def call_history_search():
     # 1. RingEX account-level call log
     try:
         ringex_calls = _ringcx.search_call_history(primary_phone, days=days)
-        debug["ringex"] = f"ok: {len(ringex_calls)} calls"
+        debug["ringex"] = f"ok: {len(ringex_calls)} calls for {primary_phone}"
     except Exception as e:
         ringex_calls = []
         debug["ringex"] = f"error: {e}"
