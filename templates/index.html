@@ -2973,7 +2973,7 @@
             </select>
             <button class="filter-chip" id="sc-anomaly-chip" onclick="toggleAnomalyFilter()" style="display:none">⚠ Anomalies (<span class="chip-n" id="sc-anomaly-count">0</span>)</button>
             <button class="filter-chip" id="sc-flagged-chip" onclick="toggleFlaggedFilter()" style="display:none">🚩 Flagged (<span class="chip-n" id="sc-flagged-count">0</span>)</button>
-            <button class="filter-clear" onclick="clearScFilters()">✕ Clear</button>
+            <button class="filter-clear" id="sc-clear-btn" onclick="clearScFilters()" style="display:none">✕ Clear</button>
             <div class="cols-menu-wrap">
               <button class="filter-clear" onclick="toggleColsMenu(event)" title="Show / hide columns">⚙ Columns</button>
               <div class="cols-menu" id="cols-menu"></div>
@@ -4334,6 +4334,8 @@
     if (!badge) return;
     badge.textContent = n;
     badge.classList.toggle("show", n > 0);
+    const clearBtn = document.getElementById("sc-clear-btn");
+    if (clearBtn) clearBtn.style.display = (n > 0 || _anomalyFilterActive || _flaggedFilterActive) ? "" : "none";
   }
   function applyScFilters() { _updateFiltersActiveCount(); drawScTable(); }
   function clearScFilters() {
