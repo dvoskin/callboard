@@ -5153,10 +5153,13 @@
     }
   }
 
-  // Initialize on page load
-  document.addEventListener("DOMContentLoaded", () => {
+  // Initialize — call immediately since this script is at the bottom of <body>
+  // (DOMContentLoaded may have already fired by the time this script runs)
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => tgInit());
+  } else {
     tgInit();
-  });
+  }
 </script>
 
 </body>
