@@ -472,15 +472,13 @@ class RingCXClient:
                 log.warning("search_call_history: phone too short: %s", phone)
                 return []
 
-            e164 = f"+1{digits}" if len(digits) == 10 else f"+{digits}"
-
             date_from = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
             all_calls = []
             page = 1
             while page <= 10:
                 params = {
-                    "phoneNumber": e164,
+                    "phoneNumber": digits,
                     "dateFrom": date_from,
                     "view": "Detailed",
                     "perPage": 250,
