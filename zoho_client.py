@@ -1153,38 +1153,58 @@ class ZohoClient:
         ]
 
     def search_contacts(self, query: str) -> list[dict]:
-        """Search contacts by name or phone. Returns up to 10 matches."""
-        import logging
-        log = logging.getLogger(__name__)
+        """Search contacts by name or phone. Returns up to 10 matches.
 
-        # Try phone search first if query looks like digits
-        digits = re.sub(r"\D", "", query)
-        if len(digits) >= 4:
-            criteria = f"(Phone:contains:{digits})"
-        else:
-            criteria = f"(Full_Name:contains:{query})"
+        Uses the Zoho 'word' search parameter which matches across
+        multiple fields (name, phone, email).  Falls back to
+        Phone:starts_with for digit-heavy queries.
+        """
+        results: list[dict] = []
+        seen_ids: set[str] = set()
 
+        def _add(data_list: list) -> None:
+            for c in data_list:
+                cid = c.get("id")
+                if cid and cid not in seen_ids:
+                    seen_ids.add(cid)
+                    results.append({
+                        "id": cid,
+                        "name": c.get("Full_Name") or "",
+                        "phone": c.get("Phone") or "",
+                        "email": c.get("Email") or "",
+                    })
+
+        # Strategy 1: word search (works for names and phone numbers)
         resp = requests.get(
             f"{self.base_url}/crm/v6/Contacts/search",
             headers=self._headers(),
             params={
-                "criteria": criteria,
+                "word": query,
                 "fields": "id,Full_Name,Phone,Email",
                 "per_page": 10,
             },
             timeout=15,
         )
-        if resp.status_code == 204 or not resp.ok:
-            return []
-        results = []
-        for c in resp.json().get("data", []):
-            results.append({
-                "id": c.get("id"),
-                "name": c.get("Full_Name") or "",
-                "phone": c.get("Phone") or "",
-                "email": c.get("Email") or "",
-            })
-        return results
+        if resp.ok and resp.status_code != 204:
+            _add(resp.json().get("data", []))
+
+        # Strategy 2: if query has digits, also try Phone:starts_with
+        digits = re.sub(r"\D", "", query)
+        if len(digits) >= 3 and len(results) < 10:
+            resp2 = requests.get(
+                f"{self.base_url}/crm/v6/Contacts/search",
+                headers=self._headers(),
+                params={
+                    "criteria": f"(Phone:starts_with:{digits})",
+                    "fields": "id,Full_Name,Phone,Email",
+                    "per_page": 10,
+                },
+                timeout=15,
+            )
+            if resp2.ok and resp2.status_code != 204:
+                _add(resp2.json().get("data", []))
+
+        return results[:10]
 
     def get_deals_for_contact(self, contact_id: str) -> list[dict]:
         """Get deals linked to a contact for the deal selector."""
