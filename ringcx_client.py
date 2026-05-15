@@ -247,6 +247,74 @@ class RingCXClient:
             return []
 
     # ══════════════════════════════════════════════════════════════
+    # RingCX — Call Monitoring (Engage Voice supervisor features)
+    # ══════════════════════════════════════════════════════════════
+
+    def monitor_call(self, uii: str, destination: str,
+                     session_type: str = "MONITOR") -> dict:
+        """Add a supervisor monitoring session to an active RingCX call.
+
+        Args:
+            uii: Unique Interaction Identifier of the active call.
+            destination: Phone number to ring the supervisor on (E.164 or 10-digit).
+            session_type: One of "MONITOR" (silent listen), "COACHING" (whisper
+                          to agent only), "BARGE_IN" (full 3-way).
+
+        Returns dict with status/error info.
+        """
+        valid_types = ("MONITOR", "COACHING", "BARGE_IN")
+        if session_type not in valid_types:
+            return {"error": f"Invalid session_type. Must be one of {valid_types}"}
+
+        try:
+            token = self._ensure_cx_token()
+            if not self._cx_account_id:
+                return {"error": "RingCX account ID not available"}
+
+            import re
+            dest_digits = re.sub(r"\D", "", destination)
+            if len(dest_digits) == 10:
+                dest_digits = "1" + dest_digits  # prepend US country code
+
+            resp = requests.post(
+                f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}"
+                f"/activeCalls/{uii}/addSessionToCall",
+                headers={
+                    **self._cx_headers(),
+                    "Content-Type": "application/json",
+                },
+                params={
+                    "destination": dest_digits,
+                    "sessionType": session_type,
+                },
+                timeout=15,
+            )
+
+            if resp.status_code == 200 or resp.status_code == 204:
+                log.info("RingCX monitor: %s session started on call %s → %s",
+                         session_type, uii, dest_digits)
+                return {
+                    "status": "ok",
+                    "session_type": session_type,
+                    "uii": uii,
+                    "destination": dest_digits,
+                }
+
+            # Try to parse error
+            try:
+                err_data = resp.json()
+                err_msg = err_data.get("message") or err_data.get("error") or resp.text[:200]
+            except Exception:
+                err_msg = resp.text[:200]
+
+            log.error("RingCX monitor failed %d: %s", resp.status_code, err_msg)
+            return {"error": f"RingCX returned {resp.status_code}: {err_msg}"}
+
+        except Exception as e:
+            log.error("RingCX monitor error: %s", e)
+            return {"error": str(e)}
+
+    # ══════════════════════════════════════════════════════════════
     # RingEX — Agent Presence (standard RC Platform API)
     # ══════════════════════════════════════════════════════════════
 

@@ -1125,6 +1125,29 @@
       background: rgba(139,92,246,.1); color: var(--purple-dk);
       white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;
     }
+    /* Call monitoring controls — desktop only */
+    .lp-monitor {
+      display: none; /* hidden by default (mobile) */
+      gap: 4px; margin-top: 6px; padding-top: 6px;
+      border-top: 1px solid rgba(0,0,0,.04);
+    }
+    @media (min-width: 900px) {
+      .lp-call-card:hover .lp-monitor { display: flex; }
+    }
+    .lp-mon-btn {
+      font-size: 10px; font-weight: 600; font-family: inherit;
+      padding: 3px 8px; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--secondary); transition: all .12s;
+      display: flex; align-items: center; gap: 3px;
+      white-space: nowrap;
+    }
+    .lp-mon-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(37,99,235,.04); }
+    .lp-mon-btn.mon-listen:hover { border-color: #059669; color: #059669; background: rgba(5,150,105,.04); }
+    .lp-mon-btn.mon-whisper:hover { border-color: #d97706; color: #d97706; background: rgba(217,119,6,.04); }
+    .lp-mon-btn.mon-barge:hover { border-color: var(--red); color: var(--red); background: rgba(255,59,48,.04); }
+    .lp-mon-btn .mon-icon { font-size: 11px; }
+
     .lp-call-detail {
       font-size: 11px; color: var(--secondary);
       display: flex; align-items: center; gap: 4px;
@@ -5047,6 +5070,17 @@
             })()}
           </div>
           ${matchHtml}
+          ${call.uii && call.source === "ringcx" ? `<div class="lp-monitor">
+            <button class="lp-mon-btn mon-listen" onclick="monitorCall('${call.uii}','MONITOR',event)" title="Silent listen — hear both sides">
+              <span class="mon-icon">🎧</span> Listen
+            </button>
+            <button class="lp-mon-btn mon-whisper" onclick="monitorCall('${call.uii}','COACHING',event)" title="Whisper — agent hears you, caller doesn't">
+              <span class="mon-icon">🗣</span> Whisper
+            </button>
+            <button class="lp-mon-btn mon-barge" onclick="monitorCall('${call.uii}','BARGE_IN',event)" title="Barge — join the call (3-way)">
+              <span class="mon-icon">📢</span> Barge
+            </button>
+          </div>` : ""}
         </div>`;
       }).join("");
     }
@@ -5617,6 +5651,72 @@
       chClose();
     }
   });
+
+  /* ═══════════════════ Call Monitoring ═══════════════════ */
+  const MON_PHONE_KEY = "monitor_phone";
+
+  function getMonitorPhone() {
+    return localStorage.getItem(MON_PHONE_KEY) || "";
+  }
+
+  function setMonitorPhone(phone) {
+    localStorage.setItem(MON_PHONE_KEY, phone);
+  }
+
+  async function monitorCall(uii, sessionType, evt) {
+    evt.stopPropagation();
+    const btn = evt.currentTarget;
+
+    // Get or prompt for supervisor phone
+    let phone = getMonitorPhone();
+    if (!phone) {
+      phone = prompt("Enter your phone number for monitoring.\nThis is where you'll hear the call audio.\n\n(Saved for future use)");
+      if (!phone) return;
+      phone = phone.replace(/\D/g, "");
+      if (phone.length < 10) {
+        alert("Please enter a valid 10-digit phone number.");
+        return;
+      }
+      setMonitorPhone(phone);
+    }
+
+    const labels = { MONITOR: "Listen", COACHING: "Whisper", BARGE_IN: "Barge" };
+    const origText = btn.innerHTML;
+    btn.innerHTML = `<span class="mini-spinner"></span> Connecting…`;
+    btn.disabled = true;
+
+    try {
+      const resp = await fetch("/api/ringcx/monitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uii: uii,
+          destination: phone,
+          session_type: sessionType,
+        }),
+      });
+      const data = await resp.json();
+
+      if (data.error) {
+        alert(`Monitoring failed: ${data.error}`);
+      } else {
+        btn.innerHTML = `✓ ${labels[sessionType]} started`;
+        btn.style.color = "#059669";
+        btn.style.borderColor = "#059669";
+        setTimeout(() => {
+          btn.innerHTML = origText;
+          btn.style.color = "";
+          btn.style.borderColor = "";
+        }, 5000);
+        return;
+      }
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+
+    btn.innerHTML = origText;
+    btn.disabled = false;
+  }
 </script>
 
 <script>

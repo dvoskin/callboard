@@ -726,6 +726,35 @@ def ringcx_agents():
         return jsonify({"error": str(e)}), 500
 
 
+# ------------------------------------------------------------------ Call Monitoring
+
+@app.route("/api/ringcx/monitor", methods=["POST"])
+def ringcx_monitor():
+    """Initiate a supervisor monitoring session on an active RingCX call.
+
+    Body JSON:
+      uii          — Unique Interaction ID of the active call
+      destination   — Phone number to ring the supervisor on
+      session_type  — "MONITOR", "COACHING", or "BARGE_IN" (default: MONITOR)
+    """
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+    body = request.get_json(silent=True) or {}
+    uii = (body.get("uii") or "").strip()
+    destination = (body.get("destination") or "").strip()
+    session_type = (body.get("session_type") or "MONITOR").upper().strip()
+
+    if not uii:
+        return jsonify({"error": "uii is required"}), 400
+    if not destination:
+        return jsonify({"error": "destination phone number is required"}), 400
+
+    result = _ringcx.monitor_call(uii, destination, session_type)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
 # ------------------------------------------------------------------ Call & SMS History Search
 
 @app.route("/api/call-history/search")
