@@ -5006,7 +5006,11 @@
           source: "ringex",
         };
       });
-    let allCalls = [...calls, ...rexCalls];
+    let allCalls = [...calls, ...rexCalls].filter(c => {
+      const s = (c.call_state || "").toUpperCase();
+      if (s.includes("OUTDIAL") && !c.agent_name) return false;
+      return true;
+    });
 
     // Apply user agent filter
     if (_liveSelectedAgents.size > 0) {
