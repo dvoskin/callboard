@@ -849,14 +849,25 @@ def call_history_search():
     if not _ringcx.configured:
         return jsonify({"error": "RingCX/RingEX not configured"}), 503
 
-    # Search both systems in parallel-ish (sequential for simplicity)
+    # Search both systems
     primary_phone = phones[0]
+    debug = {}
 
-    # 1. RingEX account-level call log (covers both RingEX and RingCX calls)
-    ringex_calls = _ringcx.search_call_history(primary_phone, days=days)
+    # 1. RingEX account-level call log
+    try:
+        ringex_calls = _ringcx.search_call_history(primary_phone, days=days)
+        debug["ringex"] = f"ok: {len(ringex_calls)} calls"
+    except Exception as e:
+        ringex_calls = []
+        debug["ringex"] = f"error: {e}"
 
-    # 2. RingCX CDR (Engage Voice — additional detail: queue, agent, talk time)
-    ringcx_calls = _ringcx.search_ringcx_call_history(primary_phone, days=days)
+    # 2. RingCX CDR
+    try:
+        ringcx_calls = _ringcx.search_ringcx_call_history(primary_phone, days=days)
+        debug["ringcx"] = f"ok: {len(ringcx_calls)} calls"
+    except Exception as e:
+        ringcx_calls = []
+        debug["ringcx"] = f"error: {e}"
 
     # Merge and deduplicate by session_id / start_time
     seen = set()
@@ -920,6 +931,7 @@ def call_history_search():
         "count": len(merged),
         "zoho_count": len(zoho_calls),
         "sms_count": len(sms_messages),
+        "_debug": debug,
     })
 
 

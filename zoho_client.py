@@ -1114,7 +1114,12 @@ class ZohoClient:
     # ───────────────────────── SMS history search ──────────────────────────
 
     def search_sms_history(self, phone: str) -> list:
-        """Search HelloSend SMS module by phone number using COQL."""
+        """Search HelloSend SMS module by phone number.
+
+        Uses two strategies:
+        1. COQL query on Name field (contains contact phone)
+        2. REST search with word parameter as fallback
+        """
         SMS_PREFIX = "ringcentralbulksmsextensionforzohocrm__"
         sms_module = f"{SMS_PREFIX}RingCentral_SMS_History"
         to_field = f"{SMS_PREFIX}To"
@@ -1127,7 +1132,10 @@ class ZohoClient:
         if not digits:
             return []
 
-        messages = []
+        sms_records = []
+        existing_ids = set()
+
+        # Strategy 1: COQL (Name field contains contact phone)
         try:
             query = (
                 f"select Name, {to_field}, {from_field}, {sms_body_field}, "
@@ -1136,41 +1144,65 @@ class ZohoClient:
                 f"where Name like '%{digits}%' "
                 f"order by Created_Time desc limit 200"
             )
-            log.info("SMS COQL query: %s", query)
+            log.info("SMS COQL: searching Name like %%%s%%", digits)
             resp = requests.post(
                 f"{self.base_url}/crm/v6/coql",
                 headers=self._headers(),
                 json={"select_query": query},
                 timeout=20,
             )
-            log.info("SMS COQL response: %d", resp.status_code)
-            if not resp.ok:
-                log.warning("SMS COQL failed: %s", resp.text[:300])
-                return []
-
-            data = resp.json()
-            sms_records = data.get("data", [])
-            log.info("SMS COQL: %d records for %s", len(sms_records), digits)
-
-            for s in sms_records:
-                msg = s.get(sms_body_field) or s.get("Name") or ""
-                sms_type = s.get(sms_type_field) or ""
-                direction = "outbound" if "outbound" in sms_type.lower() else (
-                    "inbound" if "inbound" in sms_type.lower() else sms_type
-                )
-                owner = s.get("Owner") or {}
-                owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
-                messages.append({
-                    "time": s.get("Created_Time"),
-                    "direction": direction,
-                    "message": str(msg)[:500],
-                    "status": s.get(sms_via_field) or "",
-                    "owner": owner_name,
-                    "from_number": s.get(from_field) or "",
-                    "to_number": s.get(to_field) or "",
-                })
+            if resp.ok:
+                for r in resp.json().get("data", []):
+                    if r["id"] not in existing_ids:
+                        sms_records.append(r)
+                        existing_ids.add(r["id"])
+                log.info("SMS COQL: %d records via Name", len(sms_records))
+            else:
+                log.warning("SMS COQL failed %d: %s", resp.status_code, resp.text[:200])
         except Exception as e:
-            log.warning("SMS history search failed: %s", e)
+            log.warning("SMS COQL error: %s", e)
+
+        # Strategy 2: REST word search as fallback
+        if not sms_records:
+            for variant in [f"+1{digits}", digits]:
+                try:
+                    resp = requests.get(
+                        f"{self.base_url}/crm/v6/{sms_module}/search",
+                        headers=self._headers(),
+                        params={"word": variant, "per_page": 100},
+                        timeout=15,
+                    )
+                    if resp.ok:
+                        for r in resp.json().get("data", []):
+                            if r["id"] not in existing_ids:
+                                sms_records.append(r)
+                                existing_ids.add(r["id"])
+                    log.info("SMS REST word=%s: %d total", variant, len(sms_records))
+                    if sms_records:
+                        break
+                except Exception as e:
+                    log.warning("SMS REST search error: %s", e)
+
+        sms_records.sort(key=lambda r: r.get("Created_Time", ""), reverse=True)
+
+        messages = []
+        for s in sms_records:
+            msg = s.get(sms_body_field) or s.get("Name") or ""
+            sms_type = s.get(sms_type_field) or ""
+            direction = "outbound" if "outbound" in sms_type.lower() else (
+                "inbound" if "inbound" in sms_type.lower() else sms_type
+            )
+            owner = s.get("Owner") or {}
+            owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
+            messages.append({
+                "time": s.get("Created_Time"),
+                "direction": direction,
+                "message": str(msg)[:500],
+                "status": s.get(sms_via_field) or "",
+                "owner": owner_name,
+                "from_number": s.get(from_field) or "",
+                "to_number": s.get(to_field) or "",
+            })
 
         log.info("SMS search: %d messages for %s", len(messages), digits)
         return messages
