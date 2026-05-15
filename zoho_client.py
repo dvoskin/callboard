@@ -1151,16 +1151,18 @@ class ZohoClient:
                 json={"select_query": query},
                 timeout=20,
             )
+            log.info("SMS COQL response: %d len=%d", resp.status_code, len(resp.text))
             if resp.ok:
-                for r in resp.json().get("data", []):
+                rdata = resp.json()
+                for r in rdata.get("data", []):
                     if r["id"] not in existing_ids:
                         sms_records.append(r)
                         existing_ids.add(r["id"])
                 log.info("SMS COQL: %d records via Name", len(sms_records))
             else:
-                log.warning("SMS COQL failed %d: %s", resp.status_code, resp.text[:200])
+                log.warning("SMS COQL failed %d: %s", resp.status_code, resp.text[:500])
         except Exception as e:
-            log.warning("SMS COQL error: %s", e)
+            log.warning("SMS COQL error: %s", e, exc_info=True)
 
         # Strategy 2: REST word search as fallback
         if not sms_records:

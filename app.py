@@ -943,8 +943,10 @@ def call_history_search():
     sms_messages = []
     try:
         sms_messages = _zoho.search_sms_history(primary_phone)
+        debug["sms"] = f"ok: {len(sms_messages)} messages"
     except Exception as e:
         log.error("SMS history search failed: %s", e)
+        debug["sms"] = f"error: {e}"
 
     return jsonify({
         "calls": merged,
