@@ -20,7 +20,7 @@ import os
 import time
 import logging
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -474,7 +474,7 @@ class RingCXClient:
 
             e164 = f"+1{digits}" if len(digits) == 10 else f"+{digits}"
 
-            date_from = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)).isoformat()
+            date_from = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
             all_calls = []
             page = 1
@@ -482,7 +482,7 @@ class RingCXClient:
                 params = {
                     "phoneNumber": e164,
                     "dateFrom": date_from,
-                    "view": "Simple",
+                    "view": "Detailed",
                     "perPage": 250,
                     "page": page,
                 }
