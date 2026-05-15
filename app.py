@@ -62,6 +62,127 @@ def resolved_data_full() -> dict:
         return _prune_resolved(_load_resolved())
 
 
+def _annotate_resolved(annotated: dict, rd: dict) -> None:
+    """Annotate scheduled call records with resolved flag, notes, and matched call data."""
+    rids = set(rd.keys())
+    if not annotated.get("scheduled_calls"):
+        return
+    for r in annotated["scheduled_calls"]["records"]:
+        rid = r.get("id")
+        r["resolved"] = rid in rids
+        entry = rd.get(rid, {})
+        r["note"] = entry.get("note", "")
+        # Overlay matched call data if this record was resolved with a call match
+        matched = entry.get("matched_call")
+        if matched and r["resolved"]:
+            if matched.get("actual_call_time"):
+                r["actual_call_time"] = matched["actual_call_time"]
+            if matched.get("disposition"):
+                r["disposition"] = matched["disposition"]
+            if matched.get("caller"):
+                r["caller"] = matched["caller"]
+            if matched.get("offset_minutes") is not None:
+                r["offset_minutes"] = matched["offset_minutes"]
+            if matched.get("recording_url"):
+                r["recording_url"] = matched["recording_url"]
+            # Update status to reflect that a call was found
+            r["status"] = "completed"
+            r["on_time"] = (matched.get("offset_minutes") is not None
+                            and abs(matched["offset_minutes"]) <= 10)
+            r["resolved_with_match"] = True
+
+
+def _find_closest_call_for_record(rec_id: str):
+    """Find the logged call closest to the scheduled time for a given record.
+
+    Looks up the record from the dashboard cache, gets the contact phone,
+    searches Zoho for all outbound calls to that phone, and returns the
+    one whose Call_Start_Time is closest to the scheduled time.
+    """
+    try:
+        # Find the record in cache
+        with _lock:
+            sc_data = (_cache.get("data") or {}).get("scheduled_calls", {})
+            records = sc_data.get("records") or []
+
+        rec = next((r for r in records if r.get("id") == rec_id), None)
+        if not rec:
+            log.warning("resolve: record %s not found in cache", rec_id)
+            return None
+
+        phone = rec.get("phone")
+        scheduled_time_str = rec.get("scheduled_time") or rec.get("created_time")
+        if not phone or not scheduled_time_str:
+            log.warning("resolve: no phone or scheduled time for %s", rec_id)
+            return None
+
+        # Parse scheduled time
+        try:
+            scheduled_dt = datetime.fromisoformat(scheduled_time_str.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+        # Fetch all outbound calls for this phone today
+        calls_by_phone = _zoho._fetch_all_calls_for_phones([phone])
+        from zoho_client import normalize_phone
+        norm_phone = normalize_phone(phone)
+        calls = calls_by_phone.get(norm_phone, []) if norm_phone else []
+
+        if not calls:
+            log.info("resolve: no logged calls found for phone %s", phone)
+            return None
+
+        # Find the call closest to the scheduled time
+        def time_distance(call):
+            t_str = call.get("Call_Start_Time")
+            if not t_str:
+                return float("inf")
+            try:
+                t = datetime.fromisoformat(t_str.replace("Z", "+00:00"))
+                return abs((t - scheduled_dt).total_seconds())
+            except ValueError:
+                return float("inf")
+
+        closest = min(calls, key=time_distance)
+        dist = time_distance(closest)
+        if dist == float("inf"):
+            return None
+
+        owner = closest.get("Owner")
+        caller_name = (
+            owner.get("name") if isinstance(owner, dict)
+            else owner if isinstance(owner, str)
+            else None
+        )
+
+        offset_min = None
+        call_dt_str = closest.get("Call_Start_Time")
+        if call_dt_str:
+            try:
+                call_dt = datetime.fromisoformat(call_dt_str.replace("Z", "+00:00"))
+                offset_min = round((call_dt - scheduled_dt).total_seconds() / 60, 1)
+            except ValueError:
+                pass
+
+        matched = {
+            "actual_call_time": closest.get("Call_Start_Time"),
+            "disposition": closest.get("Outgoing_call_disposition"),
+            "caller": caller_name,
+            "offset_minutes": offset_min,
+            "recording_url": _zoho._extract_recording_url(
+                closest.get("Description") or ""
+            ),
+            "call_id": closest.get("id"),
+        }
+        log.info("resolve: matched call for %s → %s (offset %.1f min)",
+                 rec_id, matched["actual_call_time"], offset_min or 0)
+        return matched
+
+    except Exception as e:
+        log.error("resolve: error finding closest call for %s: %s", rec_id, e)
+        return None
+
+
 def _refresh():
     log.info("Refreshing dashboard data...")
     try:
@@ -138,12 +259,8 @@ def api_data():
             end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
             data = _zoho.get_dashboard_data(start_dt=start_dt, end_dt=end_dt)
             rd = resolved_data_full()
-            rids = set(rd.keys())
             annotated = json.loads(json.dumps(data))
-            if annotated.get("scheduled_calls"):
-                for r in annotated["scheduled_calls"]["records"]:
-                    r["resolved"] = r.get("id") in rids
-                    r["note"] = rd.get(r.get("id"), {}).get("note", "")
+            _annotate_resolved(annotated, rd)
             return jsonify({
                 "status": "ok",
                 "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -164,12 +281,8 @@ def api_data():
         data = _cache["data"]
         # Annotate scheduled call records with resolved flag + notes (does not mutate cache)
         rd = resolved_data_full()
-        rids = set(rd.keys())
         annotated = json.loads(json.dumps(data))  # cheap deep copy
-        if annotated.get("scheduled_calls"):
-            for r in annotated["scheduled_calls"]["records"]:
-                r["resolved"] = r.get("id") in rids
-                r["note"] = rd.get(r.get("id"), {}).get("note", "")
+        _annotate_resolved(annotated, rd)
         return jsonify(
             {
                 "status": "ok",
@@ -182,11 +295,17 @@ def api_data():
 
 @app.route("/api/scheduled-call/<rec_id>/resolve", methods=["POST"])
 def resolve_call(rec_id):
+    # Try to find the closest logged call for this scheduled record
+    matched_call = _find_closest_call_for_record(rec_id)
+
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
-        data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
+        entry = {"at": datetime.now(timezone.utc).isoformat()}
+        if matched_call:
+            entry["matched_call"] = matched_call
+        data[rec_id] = entry
         _save_resolved(data)
-    return jsonify({"status": "resolved", "id": rec_id})
+    return jsonify({"status": "resolved", "id": rec_id, "matched_call": matched_call})
 
 
 @app.route("/api/scheduled-call/<rec_id>/unresolve", methods=["POST"])
