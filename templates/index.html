@@ -196,17 +196,17 @@
     .filter-bar {
       display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
       margin-bottom: 14px;
-      padding: 10px 12px;
+      padding: 10px 14px;
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: 10px;
     }
     .filter-bar input,
     .filter-bar select {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); color: var(--text);
-      font-size: 13px; font-family: inherit; font-weight: 500;
-      padding: 7px 11px; outline: none;
+      border-radius: 8px; color: var(--text);
+      font-size: 12.5px; font-family: inherit; font-weight: 500;
+      padding: 7px 10px; outline: none;
       transition: border-color .15s, box-shadow .15s;
     }
     .filter-bar input:focus,
@@ -214,18 +214,18 @@
       border-color: var(--blue);
       box-shadow: 0 0 0 3px rgba(37,99,235,.12);
     }
-    .filter-bar input { min-width: 200px; }
+    .filter-bar input { min-width: 180px; }
     .filter-clear {
-      font-size: 12px; font-weight: 600; font-family: inherit;
+      font-size: 11.5px; font-weight: 600; font-family: inherit;
       color: var(--secondary); cursor: pointer;
-      padding: 7px 11px; border-radius: var(--radius-sm);
+      padding: 7px 10px; border-radius: 8px;
       border: 1px solid var(--border); background: var(--surface);
       transition: color .15s, border-color .15s, background .15s;
     }
     .filter-clear:hover { color: var(--red); border-color: rgba(255,59,48,.4); background: rgba(255,59,48,.04); }
     .filter-chip {
       font-size: 11px; font-weight: 600; font-family: inherit;
-      padding: 6px 11px; border-radius: var(--radius-sm);
+      padding: 6px 10px; border-radius: 8px;
       border: 1px solid var(--border); background: var(--surface);
       cursor: pointer; transition: all .15s; white-space: nowrap;
       color: var(--secondary);
@@ -1794,8 +1794,31 @@
       .floor-badge { display: none !important; }
       .anomaly-icon { display: none !important; }
       .name-cell { max-width: none !important; }
-      #sc-thead-row th { font-size: 10px; padding: 6px 10px; }
-      .col-status { min-width: 70px; }
+      #sc-thead-row th { font-size: 10px; padding: 6px 8px; }
+      .col-status { min-width: 60px; }
+      .col-status .badge { font-size: 9px; padding: 2px 6px; white-space: nowrap; }
+      #sc-activity-table { table-layout: fixed !important; width: 100% !important; }
+      .col-name { width: 46% !important; }
+      .col-sched { width: 30% !important; }
+      .col-status { width: 24% !important; }
+
+      /* ── Filter bar: stacked on mobile ── */
+      .filter-bar { padding: 10px; gap: 6px; border-radius: 10px; }
+      .filter-bar input { min-width: 0; flex: 1 1 100%; font-size: 14px; padding: 9px 10px; border-radius: 8px; }
+      .filter-bar select { flex: 1 1 calc(50% - 4px); font-size: 13px; padding: 9px 8px; border-radius: 8px; }
+      .filter-clear { flex: 0 0 auto; font-size: 12px; padding: 9px 12px; border-radius: 8px; }
+      .filter-chip { font-size: 11px; padding: 8px 10px; border-radius: 8px; }
+      .cols-menu-wrap { flex: 0 0 auto; }
+
+      /* ── Columns menu: bottom sheet ── */
+      .cols-menu {
+        position: fixed !important; left: 0 !important; right: 0 !important;
+        bottom: 0 !important; top: auto !important;
+        border-radius: 16px 16px 0 0 !important; min-width: 0 !important; width: 100% !important;
+        max-height: 70vh !important;
+        box-shadow: 0 -12px 40px rgba(15,23,42,.18) !important;
+        animation: sheet-up .2s ease-out !important;
+      }
 
       /* ── Live panel: single column ── */
       .live-panel { margin-bottom: 12px; }
@@ -3226,6 +3249,7 @@
       upcoming:           ["Upcoming","badge-blue"],
       late:               ["Overdue","badge-orange"],
       no_schedule:        ["N/A","badge-gray"],
+      handled:            ["✓ Handled","badge-green"],
     };
     const [label, cls] = map[status] || [status,"badge-gray"];
     return `<span class="badge ${cls}">${label}</span>`;
@@ -4562,12 +4586,13 @@
       // For special completed buckets (deal/workflow), keep the backend status.
       let effStatus = r.status;
       let effOnTime = r.on_time;
-      if (r._bucket && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
+      if (r.resolved && (r.status === "missed" || r.status === "late")) {
+        effStatus = "handled";
+      } else if (r._bucket && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
-      // Live call override for status badge
       const statusHtml = r._liveCall
         ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
         : statusBadge(effStatus, effOnTime);
