@@ -1751,16 +1751,30 @@
       .modal-foot { padding: 12px 16px 20px !important; padding-bottom: max(20px, env(safe-area-inset-bottom)) !important; }
       .modal-foot button { flex: 1 !important; padding: 12px 18px !important; font-size: 14px !important; }
 
+      /* ── Card header: compact ── */
+      .card-header { flex-wrap: nowrap; gap: 6px !important; padding: 10px 12px 0 !important; }
+      .card-header h2 { font-size: 13px !important; white-space: nowrap; }
+      .card-sub { display: none !important; }
+      .sched-btn { font-size: 0 !important; padding: 0 !important; width: 28px; height: 28px; border-radius: 50% !important; justify-content: center; flex-shrink: 0; line-height: 28px; text-align: center; }
+      .sched-btn::after { content: "+"; font-size: 18px; font-weight: 700; line-height: 28px; }
+
       /* ── Date bar: compact ── */
-      .card-date-bar { padding: 8px 14px; gap: 5px; }
-      .cdb-label { font-size: 10px; }
-      .cdb-input { font-size: 13px; padding: 5px 6px; min-width: 0; flex: 1; }
-      .cdb-sep { font-size: 11px; }
-      .cdb-apply { padding: 6px 10px; font-size: 11px; }
-      .cdb-today { padding: 6px 8px; font-size: 11px; }
-      .cdb-loading { font-size: 11px; }
-      .card-header { flex-wrap: wrap; }
-      .sched-btn { font-size: 11px; padding: 5px 10px; }
+      .card-date-bar { padding: 6px 12px !important; gap: 4px; }
+      .cdb-label { font-size: 9px; }
+      .cdb-input { font-size: 12px; padding: 4px 5px; min-width: 0; flex: 1; }
+      .cdb-sep { font-size: 10px; }
+      .cdb-apply { padding: 5px 8px; font-size: 10px; }
+      .cdb-today { padding: 5px 7px; font-size: 10px; }
+      .cdb-loading { font-size: 10px; }
+
+      /* ── Table: only Contact, Scheduled, Status ── */
+      .col-phone, .col-actual, .col-lastdial, .col-source,
+      .col-result, .col-stage, .col-dials, .col-disp,
+      .col-flag, .col-rec { display: none !important; }
+      .expand-btn { display: none !important; }
+      .flag-btn { display: none !important; }
+      .name-cell { max-width: 120px !important; }
+      #sc-thead-row th { font-size: 10px; padding: 6px 8px; }
 
       /* ── Live panel: single column ── */
       .live-panel { margin-bottom: 12px; }
