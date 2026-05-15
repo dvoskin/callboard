@@ -1949,6 +1949,122 @@
       background: rgba(16,185,129,.16); transform: scale(1.12);
       box-shadow: 0 2px 8px rgba(16,185,129,.25);
     }
+
+    /* ── Schedule Call Modal ── */
+    .sched-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 6px 14px; border-radius: 7px; border: none; cursor: pointer;
+      font-size: 12.5px; font-weight: 600;
+      background: var(--blue); color: #fff;
+      transition: background .15s, box-shadow .15s;
+      margin-left: auto;
+    }
+    .sched-btn:hover { background: var(--blue-dk); box-shadow: 0 2px 8px rgba(37,99,235,.25); }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 9000;
+      background: rgba(0,0,0,.35); backdrop-filter: blur(2px);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .modal-box {
+      background: #fff; border-radius: 14px; width: 460px; max-width: 95vw;
+      box-shadow: 0 12px 40px rgba(0,0,0,.18); transform: translateY(16px);
+      transition: transform .25s; overflow: hidden;
+    }
+    .modal-overlay.open .modal-box { transform: translateY(0); }
+
+    .modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 22px 14px; border-bottom: 1px solid var(--border);
+    }
+    .modal-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text); }
+    .modal-close {
+      background: none; border: none; font-size: 18px; cursor: pointer;
+      color: var(--secondary); padding: 2px 6px; border-radius: 5px;
+    }
+    .modal-close:hover { background: var(--bg-alt); }
+
+    .modal-body { padding: 18px 22px 22px; }
+
+    .mf-group { margin-bottom: 14px; }
+    .mf-group label {
+      display: block; font-size: 11.5px; font-weight: 600;
+      color: var(--secondary); margin-bottom: 4px; text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+    .mf-group input, .mf-group select {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: 7px; font-size: 13px; color: var(--text);
+      background: #fff; outline: none;
+    }
+    .mf-group input:focus, .mf-group select:focus {
+      border-color: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,.12);
+    }
+    .mf-search-wrap { position: relative; }
+    .mf-search-results {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+      background: #fff; border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 7px 7px; max-height: 180px; overflow-y: auto;
+      box-shadow: 0 6px 16px rgba(0,0,0,.1); display: none;
+    }
+    .mf-search-results.open { display: block; }
+    .mf-sr-item {
+      padding: 8px 10px; cursor: pointer; font-size: 12.5px;
+      border-bottom: 1px solid rgba(0,0,0,.04);
+    }
+    .mf-sr-item:hover { background: rgba(37,99,235,.05); }
+    .mf-sr-item .sr-name { font-weight: 600; color: var(--text); }
+    .mf-sr-item .sr-phone { color: var(--secondary); margin-left: 6px; font-size: 11.5px; }
+    .mf-sr-selected {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      background: rgba(37,99,235,.06); border-radius: 7px; font-size: 13px;
+    }
+    .mf-sr-selected .sr-name { font-weight: 600; }
+    .mf-sr-selected .sr-clear {
+      margin-left: auto; cursor: pointer; color: var(--secondary);
+      font-size: 14px; padding: 0 4px;
+    }
+    .mf-sr-selected .sr-clear:hover { color: var(--red); }
+
+    .mf-deals { margin-top: 6px; }
+    .mf-deal-opt {
+      display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+      border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px;
+      cursor: pointer; font-size: 12px; transition: border-color .1s;
+    }
+    .mf-deal-opt:hover { border-color: var(--blue); }
+    .mf-deal-opt.selected { border-color: var(--blue); background: rgba(37,99,235,.05); }
+    .mf-deal-opt input[type="radio"] { margin: 0; accent-color: var(--blue); }
+    .mf-deal-name { font-weight: 600; color: var(--text); flex: 1; }
+    .mf-deal-stage { font-size: 11px; color: var(--secondary); }
+    .mf-deal-none { font-size: 12px; color: var(--secondary); padding: 4px 0; }
+
+    .mf-row { display: flex; gap: 10px; }
+    .mf-row .mf-group { flex: 1; }
+
+    .modal-foot {
+      padding: 0 22px 18px; display: flex; justify-content: flex-end; gap: 8px;
+    }
+    .modal-foot button {
+      padding: 8px 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
+      cursor: pointer; border: none; transition: background .15s;
+    }
+    .mf-cancel { background: var(--bg-alt); color: var(--text); }
+    .mf-cancel:hover { background: #e2e5ea; }
+    .mf-submit {
+      background: var(--blue); color: #fff;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .mf-submit:hover { background: var(--blue-dk); }
+    .mf-submit:disabled { opacity: .5; cursor: not-allowed; }
+    .mf-submit .mini-spinner { width: 14px; height: 14px; border-width: 2px; }
+    .mf-error {
+      color: var(--red); font-size: 12px; margin-top: 8px;
+      padding: 6px 10px; background: rgba(239,68,68,.06); border-radius: 6px;
+    }
   </style>
 </head>
 <body>
@@ -2076,9 +2192,10 @@
 
   <!-- ══════════════════════ SCHEDULED CALLS ══════════════════════ -->
   <div class="card" id="sc-section">
-    <div class="card-header">
+    <div class="card-header" style="display:flex;align-items:center;gap:10px">
       <h2>🗓 Scheduled Calls</h2>
       <span class="card-sub" id="sc-card-sub">Today · Zoho Admin</span>
+      <button class="sched-btn" onclick="openScheduleModal()">+ Schedule Call</button>
     </div>
     <div class="card-date-bar" id="card-date-bar">
       <span class="cdb-label" id="cdb-label">Date range</span>
@@ -4272,6 +4389,236 @@
   // Start live monitoring
   pollLiveMonitor();
   _liveTimer = setInterval(pollLiveMonitor, 15000); // Poll every 15 seconds
+
+  // ═══════════════════════════════════════════════════════════
+  // Schedule Call Modal
+  // ═══════════════════════════════════════════════════════════
+
+  let _schedOwners = null;  // cached owner list
+  let _schedSelectedContact = null;
+  let _schedSelectedDeal = null;
+  let _schedSearchTimer = null;
+
+  function openScheduleModal() {
+    _schedSelectedContact = null;
+    _schedSelectedDeal = null;
+    const overlay = document.getElementById("sched-modal");
+    overlay.classList.add("open");
+    // Reset form
+    document.getElementById("sm-contact-input").value = "";
+    document.getElementById("sm-contact-input").style.display = "";
+    document.getElementById("sm-contact-selected").style.display = "none";
+    document.getElementById("sm-search-results").innerHTML = "";
+    document.getElementById("sm-search-results").classList.remove("open");
+    document.getElementById("sm-deals").innerHTML = '<div class="mf-deal-none">Select a contact first</div>';
+    document.getElementById("sm-error").style.display = "none";
+    // Set default date/time to now + 1 hour rounded to quarter
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    d.setMinutes(Math.ceil(d.getMinutes()/15)*15, 0, 0);
+    const localISO = new Date(d - d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    document.getElementById("sm-datetime").value = localISO;
+    // Load owners if not cached
+    if (!_schedOwners) {
+      const sel = document.getElementById("sm-owner");
+      sel.innerHTML = '<option value="">Loading…</option>';
+      fetch("/api/zoho/owners").then(r=>r.json()).then(data => {
+        _schedOwners = data.owners || [];
+        sel.innerHTML = '<option value="">(Zoho Admin — default)</option>'
+          + _schedOwners.map(o => `<option value="${o.id}">${o.name}</option>`).join("");
+      }).catch(() => {
+        sel.innerHTML = '<option value="">(default)</option>';
+      });
+    }
+  }
+
+  function closeScheduleModal() {
+    document.getElementById("sched-modal").classList.remove("open");
+  }
+
+  function schedContactSearch(e) {
+    const q = e.target.value.trim();
+    clearTimeout(_schedSearchTimer);
+    if (q.length < 2) {
+      document.getElementById("sm-search-results").classList.remove("open");
+      return;
+    }
+    _schedSearchTimer = setTimeout(() => {
+      fetch(`/api/zoho/contacts/search?q=${encodeURIComponent(q)}`)
+        .then(r=>r.json())
+        .then(data => {
+          const box = document.getElementById("sm-search-results");
+          const contacts = data.contacts || [];
+          if (!contacts.length) {
+            box.innerHTML = '<div class="mf-sr-item" style="color:var(--secondary)">No contacts found</div>';
+          } else {
+            box.innerHTML = contacts.map(c =>
+              `<div class="mf-sr-item" onclick="schedSelectContact(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+                <span class="sr-name">${c.name}</span>
+                <span class="sr-phone">${c.phone || ''}</span>
+              </div>`
+            ).join("");
+          }
+          box.classList.add("open");
+        });
+    }, 300);
+  }
+
+  function schedSelectContact(contact) {
+    _schedSelectedContact = contact;
+    _schedSelectedDeal = null;
+    // Show selected state
+    document.getElementById("sm-contact-input").style.display = "none";
+    document.getElementById("sm-search-results").classList.remove("open");
+    const sel = document.getElementById("sm-contact-selected");
+    sel.style.display = "flex";
+    sel.querySelector(".sr-name").textContent = contact.name;
+    sel.querySelector(".sr-phone").textContent = contact.phone || "";
+    // Load deals
+    const dealsBox = document.getElementById("sm-deals");
+    dealsBox.innerHTML = '<div class="mf-deal-none">Loading deals…</div>';
+    fetch(`/api/zoho/contacts/${contact.id}/deals`)
+      .then(r=>r.json())
+      .then(data => {
+        const deals = data.deals || [];
+        if (!deals.length) {
+          dealsBox.innerHTML = '<div class="mf-deal-none">No deals found for this contact</div>';
+          return;
+        }
+        dealsBox.innerHTML = deals.map((d, i) =>
+          `<label class="mf-deal-opt" onclick="schedSelectDeal('${d.id}', this)">
+            <input type="radio" name="sm-deal" value="${d.id}">
+            <span class="mf-deal-name">${d.name}</span>
+            <span class="mf-deal-stage">${d.stage}</span>
+          </label>`
+        ).join("");
+        // Auto-select the first "Call Scheduled" deal
+        const csIdx = deals.findIndex(d => d.stage === "Call Scheduled");
+        if (csIdx >= 0) {
+          const labels = dealsBox.querySelectorAll(".mf-deal-opt");
+          labels[csIdx].click();
+        }
+      });
+  }
+
+  function schedClearContact() {
+    _schedSelectedContact = null;
+    _schedSelectedDeal = null;
+    document.getElementById("sm-contact-input").style.display = "";
+    document.getElementById("sm-contact-input").value = "";
+    document.getElementById("sm-contact-input").focus();
+    document.getElementById("sm-contact-selected").style.display = "none";
+    document.getElementById("sm-deals").innerHTML = '<div class="mf-deal-none">Select a contact first</div>';
+  }
+
+  function schedSelectDeal(dealId, el) {
+    _schedSelectedDeal = dealId;
+    el.closest(".mf-deals").querySelectorAll(".mf-deal-opt").forEach(o => o.classList.remove("selected"));
+    el.classList.add("selected");
+  }
+
+  async function schedSubmit() {
+    const errEl = document.getElementById("sm-error");
+    errEl.style.display = "none";
+    if (!_schedSelectedContact) {
+      errEl.textContent = "Please select a contact";
+      errEl.style.display = "block";
+      return;
+    }
+    const dt = document.getElementById("sm-datetime").value;
+    if (!dt) {
+      errEl.textContent = "Please select a date and time";
+      errEl.style.display = "block";
+      return;
+    }
+    const btn = document.getElementById("sm-submit");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="mini-spinner"></span> Saving…';
+    try {
+      // Convert local datetime-local to ISO with timezone offset
+      const d = new Date(dt);
+      const tzOff = d.getTimezoneOffset();
+      const sign = tzOff <= 0 ? "+" : "-";
+      const hh = String(Math.floor(Math.abs(tzOff)/60)).padStart(2,"0");
+      const mm = String(Math.abs(tzOff)%60).padStart(2,"0");
+      const isoTime = dt + ":00" + sign + hh + ":" + mm;
+
+      const resp = await fetch("/api/zoho/schedule-call", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          contact_id: _schedSelectedContact.id,
+          contact_name: _schedSelectedContact.name,
+          call_time: isoTime,
+          deal_id: _schedSelectedDeal || "",
+          owner_id: document.getElementById("sm-owner").value || "",
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Failed to create call");
+      closeScheduleModal();
+      // Trigger a data refresh after a short delay
+      setTimeout(() => fetch("/api/refresh", {method:"POST"}), 500);
+      setTimeout(fetchData, 3000);
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = "block";
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Schedule Call";
+    }
+  }
 </script>
+
+<!-- Schedule Call Modal -->
+<div class="modal-overlay" id="sched-modal" onclick="if(event.target===this)closeScheduleModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Schedule a Call</h3>
+      <button class="modal-close" onclick="closeScheduleModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mf-group">
+        <label>Contact</label>
+        <div class="mf-search-wrap">
+          <input type="text" id="sm-contact-input" placeholder="Search by name or phone…"
+                 oninput="schedContactSearch(event)" autocomplete="off">
+          <div class="mf-search-results" id="sm-search-results"></div>
+        </div>
+        <div class="mf-sr-selected" id="sm-contact-selected" style="display:none;margin-top:6px">
+          <span class="sr-name"></span>
+          <span class="sr-phone" style="color:var(--secondary);font-size:12px"></span>
+          <span class="sr-clear" onclick="schedClearContact()" title="Change contact">✕</span>
+        </div>
+      </div>
+
+      <div class="mf-row">
+        <div class="mf-group">
+          <label>Date & Time</label>
+          <input type="datetime-local" id="sm-datetime">
+        </div>
+        <div class="mf-group">
+          <label>Call Owner</label>
+          <select id="sm-owner">
+            <option value="">(Zoho Admin — default)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mf-group">
+        <label>Link to Deal</label>
+        <div class="mf-deals" id="sm-deals">
+          <div class="mf-deal-none">Select a contact first</div>
+        </div>
+      </div>
+
+      <div class="mf-error" id="sm-error" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="mf-cancel" onclick="closeScheduleModal()">Cancel</button>
+      <button class="mf-submit" id="sm-submit" onclick="schedSubmit()">Schedule Call</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

@@ -460,6 +460,71 @@ Write your briefing now. Be direct — "Called 3x on May 13, no answer" not "Mul
         return jsonify({"insights": f"Error: {e}"}), 500
 
 
+# ------------------------------------------------------------------ Schedule call
+
+@app.route("/api/zoho/owners")
+def zoho_owners():
+    """List CRM users for call owner dropdown."""
+    try:
+        owners = _zoho.get_crm_owners()
+        return jsonify({"owners": owners})
+    except Exception as e:
+        log.error("Owners fetch error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/zoho/contacts/search")
+def zoho_contact_search():
+    """Search contacts by name or phone."""
+    q = request.args.get("q", "").strip()
+    if len(q) < 2:
+        return jsonify({"contacts": []})
+    try:
+        contacts = _zoho.search_contacts(q)
+        return jsonify({"contacts": contacts})
+    except Exception as e:
+        log.error("Contact search error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/zoho/contacts/<contact_id>/deals")
+def zoho_contact_deals(contact_id):
+    """Get deals linked to a contact."""
+    try:
+        deals = _zoho.get_deals_for_contact(contact_id)
+        return jsonify({"deals": deals})
+    except Exception as e:
+        log.error("Contact deals error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/zoho/schedule-call", methods=["POST"])
+def zoho_schedule_call():
+    """Create a scheduled call record in Zoho CRM."""
+    body = request.get_json(silent=True) or {}
+    contact_id = body.get("contact_id", "").strip()
+    contact_name = body.get("contact_name", "").strip()
+    call_time = body.get("call_time", "").strip()
+
+    if not contact_id or not call_time:
+        return jsonify({"error": "contact_id and call_time are required"}), 400
+
+    try:
+        result = _zoho.create_scheduled_call(
+            contact_id=contact_id,
+            contact_name=contact_name or "Unknown",
+            call_time=call_time,
+            deal_id=body.get("deal_id", "").strip() or None,
+            owner_id=body.get("owner_id", "").strip() or None,
+        )
+        # Trigger a cache refresh so the new call shows up
+        threading.Thread(target=_refresh, daemon=True).start()
+        return jsonify(result)
+    except Exception as e:
+        log.error("Schedule call error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------------------------------------------------------ RingCX live monitoring
 
 @app.route("/api/ringcx/status")

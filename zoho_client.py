@@ -1111,3 +1111,149 @@ class ZohoClient:
             },
         }
 
+    # ───────────────────────── schedule call support ────────────────────────
+
+    def get_crm_owners(self) -> list[dict]:
+        """Fetch CRM users from Deal owners (REST gives full names).
+
+        The /users endpoint requires ZohoCRM.users.READ scope, which the
+        current token doesn't have.  Instead, we pull unique Owner names
+        from the "Call Scheduled" stage deals via REST search.
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        owners: dict[str, str] = {}
+        page = 1
+        while page <= 3:
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/Deals/search",
+                headers=self._headers(),
+                params={
+                    "criteria": "(Stage:equals:Call Scheduled)",
+                    "fields": "id,Owner",
+                    "per_page": 200,
+                    "page": page,
+                },
+                timeout=20,
+            )
+            if resp.status_code == 204 or not resp.ok:
+                break
+            for d in resp.json().get("data", []):
+                o = d.get("Owner") or {}
+                if isinstance(o, dict) and o.get("id") and o.get("name"):
+                    owners[o["id"]] = o["name"]
+            if not resp.json().get("info", {}).get("more_records"):
+                break
+            page += 1
+        log.info("CRM owners: %d users found", len(owners))
+        return [
+            {"id": oid, "name": name}
+            for oid, name in sorted(owners.items(), key=lambda x: x[1])
+            if name != "Zoho Admin"
+        ]
+
+    def search_contacts(self, query: str) -> list[dict]:
+        """Search contacts by name or phone. Returns up to 10 matches."""
+        import logging
+        log = logging.getLogger(__name__)
+
+        # Try phone search first if query looks like digits
+        digits = re.sub(r"\D", "", query)
+        if len(digits) >= 4:
+            criteria = f"(Phone:contains:{digits})"
+        else:
+            criteria = f"(Full_Name:contains:{query})"
+
+        resp = requests.get(
+            f"{self.base_url}/crm/v6/Contacts/search",
+            headers=self._headers(),
+            params={
+                "criteria": criteria,
+                "fields": "id,Full_Name,Phone,Email",
+                "per_page": 10,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 204 or not resp.ok:
+            return []
+        results = []
+        for c in resp.json().get("data", []):
+            results.append({
+                "id": c.get("id"),
+                "name": c.get("Full_Name") or "",
+                "phone": c.get("Phone") or "",
+                "email": c.get("Email") or "",
+            })
+        return results
+
+    def get_deals_for_contact(self, contact_id: str) -> list[dict]:
+        """Get deals linked to a contact for the deal selector."""
+        resp = requests.get(
+            f"{self.base_url}/crm/v6/Deals/search",
+            headers=self._headers(),
+            params={
+                "criteria": f"(Contact_Name:equals:{contact_id})",
+                "fields": "id,Deal_Name,Stage,Owner",
+                "sort_by": "Modified_Time",
+                "sort_order": "desc",
+                "per_page": 10,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 204 or not resp.ok:
+            return []
+        results = []
+        for d in resp.json().get("data", []):
+            owner = d.get("Owner") or {}
+            results.append({
+                "id": d.get("id"),
+                "name": d.get("Deal_Name") or "",
+                "stage": d.get("Stage") or "",
+                "owner": owner.get("name") if isinstance(owner, dict) else "",
+            })
+        return results
+
+    def create_scheduled_call(
+        self,
+        contact_id: str,
+        contact_name: str,
+        call_time: str,
+        deal_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
+    ) -> dict:
+        """Create a scheduled call record in Zoho CRM.
+
+        Args:
+            contact_id: Zoho Contact record ID
+            contact_name: Contact display name (for Subject)
+            call_time: ISO 8601 datetime string
+            deal_id: Optional Zoho Deal ID to link
+            owner_id: Optional Zoho user ID for Call Owner
+        """
+        call_data: dict = {
+            "Subject": f"Scheduled Call: {contact_name}",
+            "Call_Type": "Outbound",
+            "Call_Start_Time": call_time,
+            "$se_module": "Deals" if deal_id else "Contacts",
+            "Who_Id": contact_id,
+        }
+        if deal_id:
+            call_data["What_Id"] = deal_id
+        if owner_id:
+            call_data["Owner"] = owner_id
+
+        resp = requests.post(
+            f"{self.base_url}/crm/v6/Calls",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json={"data": [call_data]},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("data", [{}])[0]
+        if result.get("status") != "success":
+            raise RuntimeError(f"Call creation failed: {result.get('message', 'unknown error')}")
+        return {
+            "id": result.get("details", {}).get("id"),
+            "status": "created",
+        }
+
