@@ -726,72 +726,66 @@ def ringcx_agents():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/ringex/test-calllog")
-def test_calllog():
-    """Debug endpoint: test RingEX call-log API."""
-    if not _ringcx.configured:
-        return jsonify({"error": "not configured"}), 503
-    import requests as req
-    from datetime import datetime, timezone, timedelta
-    try:
-        headers = _ringcx._rc_headers()
-        phone = request.args.get("phone", "")
-        date_from = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-        params = {"dateFrom": date_from, "view": "Simple", "perPage": 5}
-        if phone:
-            params["phoneNumber"] = phone
-        url = f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/call-log"
-        resp = req.get(url, headers=headers, params=params, timeout=15)
-        return jsonify({
-            "status_code": resp.status_code,
-            "url": url,
-            "params": params,
-            "body": resp.json() if resp.ok else resp.text[:500],
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
+_extensions_cache = {"data": None, "expires": 0}
 
 @app.route("/api/ringcx/extensions")
 def ringcx_extensions():
-    """List RingCentral extensions with phone numbers for monitoring setup."""
+    """List RingCentral extensions for monitoring phone picker. Cached 10 min."""
     if not _ringcx.configured:
         return jsonify({"error": "RingCX not configured"}), 503
+
+    now = time.time()
+    if _extensions_cache["data"] and now < _extensions_cache["expires"]:
+        return jsonify(_extensions_cache["data"])
+
     try:
         import requests as req
         headers = _ringcx._rc_headers()
-        exts = []
+        ext_names = _ringcx._fetch_extension_names()
+
+        # Fetch ALL account phone numbers in one call and map by extension
+        ext_phones = {}
         page = 1
-        while page <= 5:
+        while page <= 10:
             resp = req.get(
-                f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/extension",
+                f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/phone-number",
                 headers=headers,
-                params={"type": "User", "status": "Enabled", "perPage": 100, "page": page},
+                params={"perPage": 250, "page": page, "usageType": "DirectNumber"},
                 timeout=15,
             )
-            resp.raise_for_status()
+            if not resp.ok:
+                break
             data = resp.json()
-            for ext in data.get("records", []):
-                phones = []
-                try:
-                    pr = req.get(
-                        f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/extension/{ext['id']}/phone-number",
-                        headers=headers, timeout=10,
-                    )
-                    if pr.ok:
-                        phones = [p.get("phoneNumber", "") for p in pr.json().get("records", []) if p.get("phoneNumber")]
-                except Exception:
-                    pass
-                exts.append({
-                    "name": ext.get("name", ""),
-                    "ext": ext.get("extensionNumber", ""),
-                    "phones": phones,
-                })
-            if data.get("navigation", {}).get("nextPage"):
+            for pn in data.get("records", []):
+                ext_obj = pn.get("extension") or {}
+                eid = str(ext_obj.get("id", ""))
+                phone = pn.get("phoneNumber", "")
+                if eid and phone and eid in ext_names:
+                    if eid not in ext_phones:
+                        ext_phones[eid] = phone
+            nav = data.get("paging") or data.get("navigation") or {}
+            total = nav.get("totalPages", 1)
+            if page < total:
                 page += 1
             else:
                 break
-        return jsonify({"extensions": sorted(exts, key=lambda x: x["name"]), "count": len(exts)})
+
+        exts = []
+        for eid, info in ext_names.items():
+            if not info.get("name"):
+                continue
+            phone = ext_phones.get(eid, "")
+            exts.append({
+                "name": info["name"],
+                "ext": info["extensionNumber"],
+                "phones": [phone] if phone else [],
+            })
+        exts.sort(key=lambda x: x["name"])
+        result = {"extensions": exts, "count": len(exts)}
+        _extensions_cache["data"] = result
+        _extensions_cache["expires"] = now + 600
+        return jsonify(result)
     except Exception as e:
         log.error("Extensions list error: %s", e)
         return jsonify({"error": str(e)}), 500
@@ -875,78 +869,84 @@ def call_history_search():
     if not _ringcx.configured:
         return jsonify({"error": "RingCX/RingEX not configured"}), 503
 
-    # Search both systems
+    from concurrent.futures import ThreadPoolExecutor
     primary_phone = phones[0]
     debug = {}
 
-    # 1. RingEX account-level call log
-    try:
-        ringex_calls = _ringcx.search_call_history(primary_phone, days=days)
-        debug["ringex"] = f"ok: {len(ringex_calls)} calls for {primary_phone}"
-    except Exception as e:
-        ringex_calls = []
-        debug["ringex"] = f"error: {e}"
+    # Run all searches in parallel
+    def _search_ringex():
+        try:
+            r = _ringcx.search_call_history(primary_phone, days=days)
+            return r, f"ok: {len(r)} calls"
+        except Exception as e:
+            return [], f"error: {e}"
 
-    # 2. RingCX CDR
-    try:
-        ringcx_calls = _ringcx.search_ringcx_call_history(primary_phone, days=days)
-        debug["ringcx"] = f"ok: {len(ringcx_calls)} calls"
-    except Exception as e:
-        ringcx_calls = []
-        debug["ringcx"] = f"error: {e}"
+    def _search_ringcx():
+        try:
+            r = _ringcx.search_ringcx_call_history(primary_phone, days=days)
+            return r, f"ok: {len(r)} calls"
+        except Exception as e:
+            return [], f"error: {e}"
+
+    def _search_zoho_calls():
+        try:
+            from zoho_client import normalize_phone
+            phone_map = _zoho._fetch_all_calls_for_phones([primary_phone])
+            norm = normalize_phone(primary_phone)
+            raw = phone_map.get(norm, []) if norm else []
+            result = []
+            for c in raw:
+                owner = c.get("Owner")
+                caller = (owner.get("name") if isinstance(owner, dict)
+                          else owner if isinstance(owner, str) else None)
+                result.append({
+                    "id": c.get("id"),
+                    "start_time": c.get("Call_Start_Time"),
+                    "subject": c.get("Subject"),
+                    "disposition": c.get("Outgoing_call_disposition"),
+                    "caller": caller,
+                    "description": (c.get("Description") or "")[:200],
+                    "recording_url": _zoho._extract_recording_url(c.get("Description") or ""),
+                    "source": "zoho",
+                })
+            return result, None
+        except Exception as e:
+            return [], str(e)
+
+    def _search_sms():
+        try:
+            r = _zoho.search_sms_history(primary_phone)
+            return r, f"ok: {len(r)} messages"
+        except Exception as e:
+            return [], f"error: {e}"
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        f_rex = pool.submit(_search_ringex)
+        f_rcx = pool.submit(_search_ringcx)
+        f_zoho = pool.submit(_search_zoho_calls)
+        f_sms = pool.submit(_search_sms)
+
+        ringex_calls, debug["ringex"] = f_rex.result(timeout=30)
+        ringcx_calls, debug["ringcx"] = f_rcx.result(timeout=30)
+        zoho_calls, zoho_err = f_zoho.result(timeout=30)
+        if zoho_err:
+            log.error("Zoho call fetch for history failed: %s", zoho_err)
+        sms_messages, debug["sms"] = f_sms.result(timeout=30)
 
     # Merge and deduplicate by session_id / start_time
     seen = set()
     merged = []
-
-    # RingCX calls first (more detail), then RingEX
     for call in ringcx_calls:
         key = call.get("session_id") or call.get("start_time", "")
         if key and key not in seen:
             seen.add(key)
             merged.append(call)
-
     for call in ringex_calls:
         key = call.get("session_id") or call.get("start_time", "")
         if key and key not in seen:
             seen.add(key)
             merged.append(call)
-
-    # Sort by start_time descending
     merged.sort(key=lambda c: c.get("start_time") or "", reverse=True)
-
-    # Also get Zoho-logged calls for this phone (for disposition/description data)
-    zoho_calls = []
-    try:
-        from zoho_client import normalize_phone
-        phone_map = _zoho._fetch_all_calls_for_phones([primary_phone])
-        norm = normalize_phone(primary_phone)
-        raw_calls = phone_map.get(norm, []) if norm else []
-        for c in raw_calls:
-            owner = c.get("Owner")
-            caller = (owner.get("name") if isinstance(owner, dict)
-                      else owner if isinstance(owner, str) else None)
-            zoho_calls.append({
-                "id": c.get("id"),
-                "start_time": c.get("Call_Start_Time"),
-                "subject": c.get("Subject"),
-                "disposition": c.get("Outgoing_call_disposition"),
-                "caller": caller,
-                "description": (c.get("Description") or "")[:200],
-                "recording_url": _zoho._extract_recording_url(c.get("Description") or ""),
-                "source": "zoho",
-            })
-    except Exception as e:
-        log.error("Zoho call fetch for history failed: %s", e)
-
-    # 4. HelloSend SMS history
-    sms_messages = []
-    try:
-        sms_messages = _zoho.search_sms_history(primary_phone)
-        debug["sms"] = f"ok: {len(sms_messages)} messages"
-    except Exception as e:
-        log.error("SMS history search failed: %s", e)
-        debug["sms"] = f"error: {e}"
 
     return jsonify({
         "calls": merged,

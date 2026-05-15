@@ -5122,7 +5122,7 @@
             <button class="lp-mon-btn mon-whisper" onclick="monitorCall('${call.uii}','COACHING',event)" title="Whisper — agent hears you, caller doesn't">
               <span class="mon-icon">🗣</span> Whisper
             </button>
-            <button class="lp-mon-btn mon-barge" onclick="monitorCall('${call.uii}','BARGE_IN',event)" title="Barge — join the call (3-way)">
+            <button class="lp-mon-btn mon-barge" onclick="monitorCall('${call.uii}','BARGEIN',event)" title="Barge — join the call (3-way)">
               <span class="mon-icon">📢</span> Barge
             </button>
             <a class="mon-change-phone" onclick="changeMonitorPhone(event)" title="Change supervisor phone number">📞 Change phone</a>
@@ -5774,15 +5774,17 @@
     const body = document.getElementById("mp-body");
     const exts = _mpExtensions || [];
     if (!exts.length) {
-      body.innerHTML = `<div class="mp-loading">No extensions with phone numbers found.</div>`;
+      body.innerHTML = `<div class="mp-loading">No extensions found.</div>`;
       return;
     }
     const current = _monitorPhone
       ? `<div class="mp-current">Current: ${_monitorPhoneLabel || _monitorPhone}</div>` : "";
     let opts = exts.map(e => {
-      const direct = e.phones[0];
-      const label = `${e.name} (Ext ${e.ext}) — ${direct}`;
-      return `<option value="${direct}" ${direct === _monitorPhone ? "selected" : ""}>${label}</option>`;
+      const phone = (e.phones && e.phones[0]) || "";
+      const val = phone || e.ext;
+      const phoneLabel = phone ? ` — ${phone}` : "";
+      const label = `${e.name} (Ext ${e.ext})${phoneLabel}`;
+      return `<option value="${val}" ${val === _monitorPhone ? "selected" : ""}>${label}</option>`;
     }).join("");
     body.innerHTML = `${current}
       <select id="mp-select" onchange="document.getElementById('mp-confirm').disabled=!this.value">
@@ -5841,7 +5843,7 @@
 
   async function _doMonitor(uii, sessionType, btn) {
     if (!uii || !sessionType || !btn) return;
-    const labels = { MONITOR: "Listen", COACHING: "Whisper", BARGE_IN: "Barge" };
+    const labels = { MONITOR: "Listen", COACHING: "Whisper", BARGEIN: "Barge" };
     const origText = btn.innerHTML;
     btn.innerHTML = `<span class="mini-spinner"></span> Connecting…`;
     btn.disabled = true;
