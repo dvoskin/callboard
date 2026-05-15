@@ -726,6 +726,32 @@ def ringcx_agents():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ringex/test-calllog")
+def test_calllog():
+    """Debug endpoint: test RingEX call-log API."""
+    if not _ringcx.configured:
+        return jsonify({"error": "not configured"}), 503
+    import requests as req
+    from datetime import datetime, timezone, timedelta
+    try:
+        headers = _ringcx._rc_headers()
+        phone = request.args.get("phone", "")
+        date_from = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        params = {"dateFrom": date_from, "view": "Simple", "perPage": 5}
+        if phone:
+            params["phoneNumber"] = phone
+        url = f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/call-log"
+        resp = req.get(url, headers=headers, params=params, timeout=15)
+        return jsonify({
+            "status_code": resp.status_code,
+            "url": url,
+            "params": params,
+            "body": resp.json() if resp.ok else resp.text[:500],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/ringcx/extensions")
 def ringcx_extensions():
     """List RingCentral extensions with phone numbers for monitoring setup."""
