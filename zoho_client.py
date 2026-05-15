@@ -1120,6 +1120,7 @@ class ZohoClient:
         1. COQL query on Name field (contains contact phone)
         2. REST search with word parameter as fallback
         """
+        log = logging.getLogger(__name__)
         SMS_PREFIX = "ringcentralbulksmsextensionforzohocrm__"
         sms_module = f"{SMS_PREFIX}RingCentral_SMS_History"
         to_field = f"{SMS_PREFIX}To"
