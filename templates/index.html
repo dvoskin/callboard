@@ -691,6 +691,8 @@
     .note-input:hover { background: var(--surface2); border-color: var(--sep); }
     .note-input:focus { background: var(--surface); border-color: var(--blue); outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
     .note-input.saved { border-color: var(--green); background: rgba(16,185,129,.06); }
+    .note-input.note-required { border-color: var(--red) !important; background: rgba(255,59,48,.06) !important; box-shadow: 0 0 0 2px rgba(255,59,48,.15) !important; animation: shake .3s ease; }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
     tr.is-selected td { background: rgba(37,99,235,.05) !important; }
     tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
 
@@ -3317,6 +3319,20 @@
   async function bulkResolveSelected() {
     const ids = [..._overdueSelected];
     if (!ids.length) return;
+    const missing = [];
+    ids.forEach(id => {
+      const noteInput = document.querySelector(`.note-input[data-id="${id}"]`);
+      if (!noteInput?.value?.trim()) missing.push(noteInput);
+    });
+    if (missing.length) {
+      missing.forEach(el => {
+        el?.focus();
+        el?.classList.add("note-required");
+        setTimeout(() => el?.classList.remove("note-required"), 2000);
+      });
+      if (missing[0]) missing[0].focus();
+      return;
+    }
     await Promise.all(ids.map(id =>
       fetch(`/api/scheduled-call/${id}/resolve`, { method: "POST" })
     ));
@@ -3324,11 +3340,10 @@
     _updateBulkBtn();
     document.getElementById("od-select-all").checked = false;
     document.getElementById("od-select-all").indeterminate = false;
-    // Optimistically mark resolved and re-render without a full reload
     _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
     _scActivityRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
     renderOverdueTable();
-    drawScTable();  // re-render main table to show "Resolved manually"
+    drawScTable();
     refreshAlertCounts();
   }
   function clearOverdueFilters() {
@@ -3994,7 +4009,7 @@
           <div class="note-wrap">
             <input type="text" class="note-input" data-id="${r.id}"
               value="${(r.note||'').replace(/"/g,'&quot;')}"
-              placeholder="Add note…"
+              placeholder="Your name + note (required to resolve)"
               onblur="saveNote(this)"
               onkeydown="if(event.key==='Enter'){this.blur()}"
             >
@@ -4018,21 +4033,27 @@
 
   async function markResolved(id) {
     const rec = _scOverdueRecords.find(r => r.id === id);
-    if (rec) rec.resolved = true;       // optimistic update
-    // Also mark in the activity records so main table shows "Resolved manually"
+    const noteInput = document.querySelector(`.note-input[data-id="${id}"]`);
+    const note = noteInput?.value?.trim();
+    if (!note) {
+      noteInput?.focus();
+      noteInput?.classList.add("note-required");
+      setTimeout(() => noteInput?.classList.remove("note-required"), 2000);
+      return;
+    }
+    if (rec) rec.resolved = true;
     const actRec = _scActivityRecords.find(r => r.id === id);
     if (actRec) actRec.resolved = true;
     renderOverdueTable();
-    drawScTable();  // re-render main table
+    drawScTable();
     try {
       await fetch(`/api/scheduled-call/${id}/resolve`, { method: "POST" });
     } catch (e) {
-      if (rec) rec.resolved = false;     // rollback on error
+      if (rec) rec.resolved = false;
       if (actRec) actRec.resolved = false;
       renderOverdueTable();
       drawScTable();
     }
-    // Refresh alert banner numbers
     refreshAlertCounts();
   }
 
