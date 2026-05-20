@@ -4607,7 +4607,7 @@
       // For special completed buckets (deal/workflow), keep the backend status.
       let effStatus = r.status;
       let effOnTime = r.on_time;
-      if (r.resolved && (r.status === "missed" || r.status === "late") && r.actual_call_time) {
+      if (r.resolved_with_match) {
         effStatus = "handled";
       } else if (r._bucket && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
