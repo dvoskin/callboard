@@ -72,9 +72,11 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
         r["resolved"] = rid in rids
         entry = rd.get(rid, {})
         r["note"] = entry.get("note", "")
+        if not r["resolved"]:
+            continue
         # Overlay matched call data if this record was resolved with a call match
         matched = entry.get("matched_call")
-        if matched and r["resolved"]:
+        if matched:
             if matched.get("actual_call_time"):
                 r["actual_call_time"] = matched["actual_call_time"]
             if matched.get("disposition"):
@@ -85,10 +87,13 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
                 r["offset_minutes"] = matched["offset_minutes"]
             if matched.get("recording_url"):
                 r["recording_url"] = matched["recording_url"]
-            # Update status to reflect that a call was found
             r["status"] = "completed"
             r["on_time"] = (matched.get("offset_minutes") is not None
                             and abs(matched["offset_minutes"]) <= 10)
+            r["resolved_with_match"] = True
+        elif r.get("actual_call_time"):
+            # No stored match, but the normal refresh cycle found a call for this
+            # record — mark it as handled
             r["resolved_with_match"] = True
 
 
