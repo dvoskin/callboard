@@ -3042,10 +3042,10 @@
           </div>
           <div class="table-footer" id="sc-table-footer"></div>
 
-          <!-- 60+ min overdue -->
+          <!-- Overdue calls -->
           <div class="overdue-zone" id="sc-overdue-zone" style="display:none;scroll-margin-top:80px">
             <div class="sub-header overdue-zone">
-              <span class="title">⚠ Long Overdue — 60+ min</span>
+              <span class="title">⚠ Overdue Calls</span>
               <span class="chip" id="sc-overdue-count">0</span>
               <span class="sh-right">
                 <span class="resolved-count" id="sc-resolved-count"></span>
@@ -3095,7 +3095,7 @@
 <script>
   const REFRESH_INTERVAL = {{ refresh_interval }} * 1000;
   const ZOHO_ORG = "goalsplasticsurgery";
-  const OVERDUE_MIN = 60;
+  const OVERDUE_MIN = 0;
 
   let _upcomingCalls = [];
   let _scActivityRecords = [];
@@ -3606,7 +3606,7 @@
     if (overdue.length > 0) {
       ab.classList.add("show");
       document.getElementById("alert-title").textContent =
-        `${overdue.length} call${overdue.length>1?"s":""} are 60+ minutes overdue`;
+        `${overdue.length} call${overdue.length>1?"s":""} overdue`;
       document.getElementById("alert-desc").textContent =
         `These contacts haven't been dialed since their scheduled slot. Some may be closed through manual outreach already.`;
     } else {
@@ -3708,7 +3708,7 @@
     const attnClass = overdueUnresolved === 0 ? "good" : overdueUnresolved <= 3 ? "warn" : "bad";
     const attnMsg = overdueUnresolved === 0
       ? "All overdue calls resolved or completed"
-      : `${overdueUnresolved} call${overdueUnresolved>1?"s":""} 60+ min overdue without a dial`;
+      : `${overdueUnresolved} call${overdueUnresolved>1?"s":""} overdue without a dial`;
     cards.push(`<div class="ai-insight-card">
       <div class="ai-insight-label">Attention Needed</div>
       <div class="ai-insight-val"><span class="${attnClass}">${attnMsg}</span></div>
@@ -3870,11 +3870,11 @@
                 && new Date(r.scheduled_time).getTime() > nowMs)
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
     const past = sc.records.filter(r => r.status !== "upcoming");
-    // Long-overdue = still missed (not closed via deal or workflow) AND >60 min overdue
+    // Overdue = still missed (not closed via deal or workflow) AND past scheduled time
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    const HIDE_FROM_MAIN_MIN = 90; // hide from main list if >90 min overdue (unless resolved)
+    const HIDE_FROM_MAIN_MIN = 30; // hide from main list if >30 min overdue (unless resolved)
     const isHiddenOverdue = r => r.status==="missed" && (r.minutes_overdue||0) > HIDE_FROM_MAIN_MIN && !r.completed_via_workflow && !r.resolved;
-    // Activity table: hide 90+ min overdue calls (they live in the overdue zone),
+    // Activity table: hide overdue calls after 30 min (they live in the overdue zone),
     // but show them back if they've been resolved by manager
     const activity = sc.records.filter(r => !isHiddenOverdue(r));
     const overdue  = past.filter(r =>  isOverdueRow(r));
@@ -4206,7 +4206,7 @@
     if (unresolved > 0) {
       ab.classList.add("show");
       document.getElementById("alert-title").textContent =
-        `${unresolved} call${unresolved>1?"s":""} are 60+ minutes overdue`;
+        `${unresolved} call${unresolved>1?"s":""} overdue`;
     } else {
       ab.classList.remove("show");
     }
