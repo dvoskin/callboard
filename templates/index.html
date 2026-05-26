@@ -4617,12 +4617,22 @@
         result = `<span class="result-tag r-live">🟢 On Call <span class="result-sub">${agent} · ${dur}</span></span>`;
       // Resolved manually (no matching call found) — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
-        const noteSnippet = r.note ? ` <span class="result-sub" title="${r.note.replace(/"/g,'&quot;')}">${r.note.length > 40 ? r.note.slice(0,40)+"…" : r.note}</span>` : "";
-        result = `<span class="result-tag r-resolved">Resolved manually${noteSnippet}</span>`;
+        const tipParts = [];
+        if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+        if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
+        if (r.note) tipParts.push(`Note: ${r.note}`);
+        const tip = tipParts.length ? tipParts.join(' · ') : '';
+        const sub = r.resolved_by ? ` <span class="result-sub">by ${r.resolved_by}</span>` : "";
+        result = `<span class="result-tag r-resolved"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>Resolved manually${sub}</span>`;
       // Resolved WITH a matched call — show call data with a "resolved" note
       } else if (r.resolved_with_match && liveOffset !== null) {
-        const noteSnippet = r.note ? ` · ${r.note.length > 30 ? r.note.slice(0,30)+"…" : r.note}` : "";
-        result = `<span class="result-tag r-on-time">${sign(liveOffset)}${liveOffset} min <span class="result-sub">resolved ✓${noteSnippet}</span></span>`;
+        const tipParts = [];
+        if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+        if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
+        if (r.note) tipParts.push(`Note: ${r.note}`);
+        const tip = tipParts.length ? tipParts.join(' · ') : '';
+        const sub = r.resolved_by ? ` · by ${r.resolved_by}` : "";
+        result = `<span class="result-tag r-on-time"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>${sign(liveOffset)}${liveOffset} min <span class="result-sub">resolved ✓${sub}</span></span>`;
       } else {
       // Anomaly detection: |offset| > 60 min
       const isAnomaly = liveOffset !== null && Math.abs(liveOffset) > 60;
