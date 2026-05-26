@@ -21,15 +21,18 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex())
+app.config["PREFERRED_URL_SCHEME"] = "https"
 
 # Trust reverse-proxy headers (Render) so url_for generates https:// URLs
 from werkzeug.middleware.proxy_fix import ProxyFix
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_for=1)
 
 # ────────── Google OAuth SSO ──────────
 ALLOWED_DOMAIN = "goalsplasticsurgery.com"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
 
 oauth = OAuth(app)
 oauth.register(
@@ -287,6 +290,19 @@ def _background_loop():
 # ------------------------------------------------------------------ routes
 
 
+@app.route("/auth/debug")
+def auth_debug():
+    """Show what redirect URI would be generated — for debugging OAuth."""
+    generated = url_for("auth_callback", _external=True, _scheme="https")
+    env_val = GOOGLE_REDIRECT_URI
+    return jsonify({
+        "url_for_generated": generated,
+        "env_override": env_val or "(not set)",
+        "will_use": env_val or generated,
+        "google_client_id_set": bool(GOOGLE_CLIENT_ID),
+    })
+
+
 @app.route("/login")
 def login():
     if not GOOGLE_CLIENT_ID:
@@ -298,11 +314,8 @@ def login():
 
 @app.route("/auth/google")
 def auth_google():
-    # Hardcode to guarantee it matches Google Console exactly
-    redirect_uri = os.environ.get(
-        "GOOGLE_REDIRECT_URI",
-        url_for("auth_callback", _external=True, _scheme="https"),
-    )
+    redirect_uri = GOOGLE_REDIRECT_URI or url_for("auth_callback", _external=True, _scheme="https")
+    log.info("OAuth redirect_uri: %s", redirect_uri)
     return oauth.google.authorize_redirect(redirect_uri)
 
 
