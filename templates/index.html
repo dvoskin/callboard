@@ -4999,6 +4999,8 @@
       if (startDate) url += `&start=${startDate}&end=${endDate || startDate}`;
       const resp = await fetch(url);
       cdbLoading.classList.remove("show");
+      // Session expired — redirect to login
+      if (resp.status === 401) { window.location.href = "/login"; return; }
       // Guard against non-JSON responses (e.g. Render 502/504 HTML error pages)
       const contentType = resp.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {

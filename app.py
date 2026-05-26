@@ -9,7 +9,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-from flask import Flask, jsonify, render_template, request
+import functools
+from flask import Flask, jsonify, render_template, request, redirect, session, url_for
+from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient
 from ringcx_client import RingCXClient
 from telegram_client import TelegramClient
@@ -18,6 +20,35 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex())
+
+# ────────── Google OAuth SSO ──────────
+ALLOWED_DOMAIN = "goalsplasticsurgery.com"
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+oauth = OAuth(app)
+oauth.register(
+    name="google",
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
+
+
+def login_required(f):
+    """Decorator: redirect to /login if not authenticated."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if not GOOGLE_CLIENT_ID:
+            return f(*args, **kwargs)  # SSO disabled if no credentials
+        if not session.get("user"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "unauthorized"}), 401
+            return redirect("/login")
+        return f(*args, **kwargs)
+    return wrapper
 
 REFRESH_INTERVAL_SECONDS = 120
 
@@ -252,7 +283,47 @@ def _background_loop():
 # ------------------------------------------------------------------ routes
 
 
+@app.route("/login")
+def login():
+    if not GOOGLE_CLIENT_ID:
+        return redirect("/")
+    if session.get("user"):
+        return redirect("/")
+    return render_template("login.html")
+
+
+@app.route("/auth/google")
+def auth_google():
+    redirect_uri = url_for("auth_callback", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/callback")
+def auth_callback():
+    token = oauth.google.authorize_access_token()
+    userinfo = token.get("userinfo") or oauth.google.userinfo()
+    email = (userinfo.get("email") or "").lower()
+    if not email.endswith(f"@{ALLOWED_DOMAIN}"):
+        log.warning("Login rejected for %s (not @%s)", email, ALLOWED_DOMAIN)
+        return render_template("login.html",
+                               error=f"Access restricted to @{ALLOWED_DOMAIN} accounts."), 403
+    session["user"] = {
+        "email": email,
+        "name": userinfo.get("name", email.split("@")[0]),
+        "picture": userinfo.get("picture", ""),
+    }
+    log.info("User logged in: %s", email)
+    return redirect("/")
+
+
+@app.route("/logout")
+def logout():
+    session.pop("user", None)
+    return redirect("/login")
+
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html", refresh_interval=REFRESH_INTERVAL_SECONDS)
 
@@ -279,6 +350,7 @@ def _parse_local_date_to_utc(
 
 
 @app.route("/api/data")
+@login_required
 def api_data():
     start_param = request.args.get("start")   # YYYY-MM-DD local date
     end_param   = request.args.get("end")     # YYYY-MM-DD local date
@@ -328,6 +400,7 @@ def api_data():
 
 
 @app.route("/api/scheduled-call/<rec_id>/resolve", methods=["POST"])
+@login_required
 def resolve_call(rec_id):
     body = request.get_json(silent=True) or {}
     resolved_by = (body.get("resolved_by") or "").strip()
@@ -349,6 +422,7 @@ def resolve_call(rec_id):
 
 
 @app.route("/api/scheduled-call/<rec_id>/unresolve", methods=["POST"])
+@login_required
 def unresolve_call(rec_id):
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
@@ -358,6 +432,7 @@ def unresolve_call(rec_id):
 
 
 @app.route("/api/scheduled-call/<rec_id>/note", methods=["POST"])
+@login_required
 def save_note(rec_id):
     """Save a note for a scheduled call record. Persists across deploys."""
     body = request.get_json(silent=True) or {}
@@ -373,6 +448,7 @@ def save_note(rec_id):
 
 
 @app.route("/api/scheduled-call/<rec_id>/resolved-by", methods=["POST"])
+@login_required
 def save_resolved_by(rec_id):
     """Save the resolved-by name for an overdue call record."""
     body = request.get_json(silent=True) or {}
@@ -387,6 +463,7 @@ def save_resolved_by(rec_id):
 
 
 @app.route("/api/scheduled-call/<rec_id>/assigned-to", methods=["POST"])
+@login_required
 def save_assigned_to(rec_id):
     """Save the assigned-to name for an overdue call record."""
     body = request.get_json(silent=True) or {}
@@ -401,6 +478,7 @@ def save_assigned_to(rec_id):
 
 
 @app.route("/api/refresh", methods=["POST"])
+@login_required
 def api_refresh():
     threading.Thread(target=_refresh, daemon=True).start()
     return jsonify({"status": "refreshing"})
@@ -426,6 +504,7 @@ def api_diag():
 
 
 @app.route("/api/contact/<contact_id>/summary")
+@login_required
 def contact_summary(contact_id):
     import anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -494,6 +573,7 @@ Write your response as plain prose — no bullet points, no headers. Be direct a
 
 
 @app.route("/api/contact/<contact_id>/insights")
+@login_required
 def contact_insights(contact_id):
     """Direct, digestible AI analysis with live record stats for inline expansion."""
     import anthropic
@@ -652,6 +732,7 @@ Write your briefing now. Be direct — "Called 3x on May 13, no answer" not "Mul
 # ------------------------------------------------------------------ Schedule call
 
 @app.route("/api/zoho/owners")
+@login_required
 def zoho_owners():
     """List CRM users for call owner dropdown."""
     try:
@@ -663,6 +744,7 @@ def zoho_owners():
 
 
 @app.route("/api/zoho/contacts/search")
+@login_required
 def zoho_contact_search():
     """Search contacts by name or phone."""
     q = request.args.get("q", "").strip()
@@ -677,6 +759,7 @@ def zoho_contact_search():
 
 
 @app.route("/api/zoho/contacts/<contact_id>/deals")
+@login_required
 def zoho_contact_deals(contact_id):
     """Get deals linked to a contact."""
     try:
@@ -688,6 +771,7 @@ def zoho_contact_deals(contact_id):
 
 
 @app.route("/api/zoho/schedule-call", methods=["POST"])
+@login_required
 def zoho_schedule_call():
     """Create a scheduled call record in Zoho CRM."""
     body = request.get_json(silent=True) or {}
@@ -717,12 +801,14 @@ def zoho_schedule_call():
 # ------------------------------------------------------------------ RingCX live monitoring
 
 @app.route("/api/ringcx/status")
+@login_required
 def ringcx_status():
     """Check if RingCX integration is configured."""
     return jsonify({"configured": _ringcx.configured})
 
 
 @app.route("/api/ringcx/live")
+@login_required
 def ringcx_live():
     """Full live snapshot: active calls + agent statuses."""
     if not _ringcx.configured:
@@ -739,6 +825,7 @@ def ringcx_live():
 
 
 @app.route("/api/ringcx/active-calls")
+@login_required
 def ringcx_active_calls():
     """Active calls with scheduled-call cross-reference."""
     if not _ringcx.configured:
@@ -782,6 +869,7 @@ def ringcx_active_calls():
 
 
 @app.route("/api/ringcx/agents")
+@login_required
 def ringcx_agents():
     """Agent presence statuses."""
     if not _ringcx.configured:
@@ -798,6 +886,7 @@ def ringcx_agents():
 _extensions_cache = {"data": None, "expires": 0}
 
 @app.route("/api/ringcx/extensions")
+@login_required
 def ringcx_extensions():
     """List RingCentral extensions for monitoring phone picker. Cached 10 min."""
     if not _ringcx.configured:
@@ -862,6 +951,7 @@ def ringcx_extensions():
 # ------------------------------------------------------------------ Call Monitoring
 
 @app.route("/api/ringcx/monitor", methods=["POST"])
+@login_required
 def ringcx_monitor():
     """Initiate a supervisor monitoring session on an active RingCX call.
 
@@ -891,6 +981,7 @@ def ringcx_monitor():
 # ------------------------------------------------------------------ Call & SMS History Search
 
 @app.route("/api/call-history/search")
+@login_required
 def call_history_search():
     """Search call history across RingEX and RingCX by phone number or contact name.
 
@@ -1034,6 +1125,7 @@ def call_history_search():
 # ------------------------------------------------------------------ Telegram chat
 
 @app.route("/api/telegram/status")
+@login_required
 def telegram_status():
     """Check if Telegram integration is configured."""
     if not _telegram.configured:
@@ -1048,6 +1140,7 @@ def telegram_status():
 
 
 @app.route("/api/telegram/messages")
+@login_required
 def telegram_messages():
     """Fetch recent messages from the team group chat."""
     if not _telegram.configured:
@@ -1058,6 +1151,7 @@ def telegram_messages():
 
 
 @app.route("/api/telegram/send", methods=["POST"])
+@login_required
 def telegram_send():
     """Send a message to the team group chat."""
     if not _telegram.configured:
