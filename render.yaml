@@ -29,6 +29,6 @@ services:
       - key: FLASK_SECRET_KEY
         sync: false
       - key: GOOGLE_REDIRECT_URI
-        value: https://call-tracker.onrender.com/auth/callback
+        value: https://call-tracker-3z6t.onrender.com/auth/callback
       - key: PYTHON_VERSION
         value: "3.11.9"
