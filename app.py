@@ -63,10 +63,16 @@ def resolved_data_full() -> dict:
 
 
 def _annotate_resolved(annotated: dict, rd: dict) -> None:
-    """Annotate scheduled call records with resolved flag, notes, and matched call data."""
+    """Annotate scheduled call records with resolved flag, notes, and matched call data.
+
+    If a resolved-manually record later has a call observed in the system
+    (via normal refresh), we upgrade it to resolved_with_match and persist
+    the match back so it sticks.
+    """
     rids = set(rd.keys())
     if not annotated.get("scheduled_calls"):
         return
+    newly_matched = {}  # {rec_id: matched_call_data} — to persist back
     for r in annotated["scheduled_calls"]["records"]:
         rid = r.get("id")
         r["resolved"] = rid in rids
@@ -94,9 +100,30 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
                             and abs(matched["offset_minutes"]) <= 10)
             r["resolved_with_match"] = True
         elif r.get("actual_call_time"):
-            # No stored match, but the normal refresh cycle found a call for this
-            # record — mark it as handled
+            # A call appeared in the system after manual resolution — upgrade it
             r["resolved_with_match"] = True
+            r["status"] = "completed"
+            # Build match data from the refresh-provided fields
+            offset = r.get("offset_minutes")
+            r["on_time"] = offset is not None and abs(offset) <= 10
+            newly_matched[rid] = {
+                "actual_call_time": r["actual_call_time"],
+                "disposition": r.get("disposition"),
+                "caller": r.get("caller"),
+                "offset_minutes": offset,
+                "recording_url": r.get("recording_url"),
+            }
+
+    # Persist any newly-observed call matches back to resolved_calls.json
+    if newly_matched:
+        with _resolved_lock:
+            data = _load_resolved()
+            for rid, match in newly_matched.items():
+                if rid in data:
+                    data[rid]["matched_call"] = match
+                    log.info("Auto-matched call for resolved record %s → %s",
+                             rid, match.get("actual_call_time"))
+            _save_resolved(data)
 
 
 def _find_closest_call_for_record(rec_id: str):
