@@ -32,16 +32,22 @@ ALLOWED_DOMAIN = "goalsplasticsurgery.com"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
-GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
+GOOGLE_REDIRECT_URI = os.environ.get(
+    "GOOGLE_REDIRECT_URI",
+    "https://call-tracker-3z6t.onrender.com/auth/callback",
+)
 
 oauth = OAuth(app)
-oauth.register(
-    name="google",
-    client_id=GOOGLE_CLIENT_ID,
-    client_secret=GOOGLE_CLIENT_SECRET,
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-    client_kwargs={"scope": "openid email profile"},
-)
+_google_reg = {
+    "name": "google",
+    "client_id": GOOGLE_CLIENT_ID,
+    "client_secret": GOOGLE_CLIENT_SECRET,
+    "server_metadata_url": "https://accounts.google.com/.well-known/openid-configuration",
+    "client_kwargs": {"scope": "openid email profile"},
+}
+if GOOGLE_REDIRECT_URI:
+    _google_reg["redirect_uri"] = GOOGLE_REDIRECT_URI
+oauth.register(**_google_reg)
 
 
 def login_required(f):
@@ -321,7 +327,8 @@ def auth_google():
 
 @app.route("/auth/callback")
 def auth_callback():
-    token = oauth.google.authorize_access_token()
+    # Must pass the same redirect_uri used in authorize_redirect
+    token = oauth.google.authorize_access_token(redirect_uri=GOOGLE_REDIRECT_URI or None)
     userinfo = token.get("userinfo") or oauth.google.userinfo()
     email = (userinfo.get("email") or "").lower()
     if not email.endswith(f"@{ALLOWED_DOMAIN}"):
