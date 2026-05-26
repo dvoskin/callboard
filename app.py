@@ -298,7 +298,11 @@ def login():
 
 @app.route("/auth/google")
 def auth_google():
-    redirect_uri = url_for("auth_callback", _external=True, _scheme="https")
+    # Hardcode to guarantee it matches Google Console exactly
+    redirect_uri = os.environ.get(
+        "GOOGLE_REDIRECT_URI",
+        url_for("auth_callback", _external=True, _scheme="https"),
+    )
     return oauth.google.authorize_redirect(redirect_uri)
 
 
