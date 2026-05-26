@@ -327,8 +327,11 @@ def auth_google():
 
 @app.route("/auth/callback")
 def auth_callback():
-    # Must pass the same redirect_uri used in authorize_redirect
-    token = oauth.google.authorize_access_token(redirect_uri=GOOGLE_REDIRECT_URI or None)
+    try:
+        token = oauth.google.authorize_access_token()
+    except Exception as e:
+        log.error("OAuth token exchange failed: %s", e)
+        return render_template("login.html", error=f"Login failed: {e}"), 500
     userinfo = token.get("userinfo") or oauth.google.userinfo()
     email = (userinfo.get("email") or "").lower()
     if not email.endswith(f"@{ALLOWED_DOMAIN}"):
