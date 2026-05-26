@@ -72,6 +72,8 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
         r["resolved"] = rid in rids
         entry = rd.get(rid, {})
         r["note"] = entry.get("note", "")
+        r["resolved_by"] = entry.get("resolved_by", "")
+        r["assigned_to"] = entry.get("assigned_to", "")
         if not r["resolved"]:
             continue
         # Overlay matched call data if this record was resolved with a call match
@@ -300,12 +302,18 @@ def api_data():
 
 @app.route("/api/scheduled-call/<rec_id>/resolve", methods=["POST"])
 def resolve_call(rec_id):
+    body = request.get_json(silent=True) or {}
+    resolved_by = (body.get("resolved_by") or "").strip()
+
     # Try to find the closest logged call for this scheduled record
     matched_call = _find_closest_call_for_record(rec_id)
 
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
-        entry = {"at": datetime.now(timezone.utc).isoformat()}
+        entry = data.get(rec_id, {})
+        entry["at"] = datetime.now(timezone.utc).isoformat()
+        if resolved_by:
+            entry["resolved_by"] = resolved_by
         if matched_call:
             entry["matched_call"] = matched_call
         data[rec_id] = entry
@@ -335,6 +343,34 @@ def save_note(rec_id):
         data[rec_id]["note"] = note_text
         _save_resolved(data)
     return jsonify({"status": "ok", "id": rec_id, "note": note_text})
+
+
+@app.route("/api/scheduled-call/<rec_id>/resolved-by", methods=["POST"])
+def save_resolved_by(rec_id):
+    """Save the resolved-by name for an overdue call record."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("resolved_by") or "").strip()
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        if rec_id not in data:
+            data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
+        data[rec_id]["resolved_by"] = name
+        _save_resolved(data)
+    return jsonify({"status": "ok", "id": rec_id, "resolved_by": name})
+
+
+@app.route("/api/scheduled-call/<rec_id>/assigned-to", methods=["POST"])
+def save_assigned_to(rec_id):
+    """Save the assigned-to name for an overdue call record."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("assigned_to") or "").strip()
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        if rec_id not in data:
+            data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
+        data[rec_id]["assigned_to"] = name
+        _save_resolved(data)
+    return jsonify({"status": "ok", "id": rec_id, "assigned_to": name})
 
 
 @app.route("/api/refresh", methods=["POST"])

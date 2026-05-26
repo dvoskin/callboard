@@ -693,6 +693,12 @@
     .note-input.saved { border-color: var(--green); background: rgba(16,185,129,.06); }
     .note-input.note-required { border-color: var(--red) !important; background: rgba(255,59,48,.06) !important; box-shadow: 0 0 0 2px rgba(255,59,48,.15) !important; animation: shake .3s ease; }
     @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+    .od-outcome-tag { font-size: 11px; font-weight: 500; white-space: nowrap; }
+    .od-outcome-cell { max-width: 180px; }
+    .od-assigned-cell { min-width: 100px; }
+    .od-assigned-input { max-width: 120px; }
+    .od-resolvedby-cell { min-width: 100px; }
+    .od-resolvedby-input { max-width: 120px; }
     tr.is-selected td { background: rgba(37,99,235,.05) !important; }
     tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
 
@@ -1847,7 +1853,11 @@
       .lp-filter-item { padding: 10px 12px; font-size: 14px; }
       .lp-filter-item input[type="checkbox"] { width: 18px; height: 18px; }
 
-      /* Notes column in overdue — also hide on mobile */
+      /* Hide Assigned To, Outcome, Resolved By on mobile */
+      #sc-overdue-zone table thead th:nth-child(8),
+      #sc-overdue-zone table tbody td:nth-child(8),
+      #sc-overdue-zone table thead th:nth-child(9),
+      #sc-overdue-zone table tbody td:nth-child(9),
       #sc-overdue-zone table thead th:nth-child(10),
       #sc-overdue-zone table tbody td:nth-child(10) { display: none; }
 
@@ -1970,8 +1980,12 @@
       #sc-overdue-zone table tbody td:nth-child(3),
       #sc-overdue-zone table thead th:nth-child(5),
       #sc-overdue-zone table tbody td:nth-child(5),
-      #sc-overdue-zone table thead th:nth-child(7),
-      #sc-overdue-zone table tbody td:nth-child(7) { display: none; }
+      #sc-overdue-zone table thead th:nth-child(8),
+      #sc-overdue-zone table tbody td:nth-child(8),
+      #sc-overdue-zone table thead th:nth-child(9),
+      #sc-overdue-zone table tbody td:nth-child(9),
+      #sc-overdue-zone table thead th:nth-child(10),
+      #sc-overdue-zone table tbody td:nth-child(10) { display: none; }
 
       /* Cols menu becomes a bottom sheet on small screens */
       .cols-menu {
@@ -3058,10 +3072,10 @@
                     <th class="sortable" onclick="sortOverdue('scheduled_time')">Scheduled (EST)</th>
                     <th>Actual Call (EST)</th>
                     <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
-                    <th class="sortable" onclick="sortOverdue('dial_attempts')">Dials</th>
                     <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
-                    <th>Disposition</th>
-                    <th>Notes</th>
+                    <th>Assigned To</th>
+                    <th>Outcome</th>
+                    <th>Resolved By</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -3321,8 +3335,8 @@
     if (!ids.length) return;
     const missing = [];
     ids.forEach(id => {
-      const noteInput = document.querySelector(`.note-input[data-id="${id}"]`);
-      if (!noteInput?.value?.trim()) missing.push(noteInput);
+      const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
+      if (!rbInput?.value?.trim()) missing.push(rbInput);
     });
     if (missing.length) {
       missing.forEach(el => {
@@ -3333,9 +3347,14 @@
       if (missing[0]) missing[0].focus();
       return;
     }
-    await Promise.all(ids.map(id =>
-      fetch(`/api/scheduled-call/${id}/resolve`, { method: "POST" })
-    ));
+    await Promise.all(ids.map(id => {
+      const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
+      return fetch(`/api/scheduled-call/${id}/resolve`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({resolved_by: rbInput?.value?.trim() || ""}),
+      });
+    }));
     _overdueSelected.clear();
     _updateBulkBtn();
     document.getElementById("od-select-all").checked = false;
@@ -4002,18 +4021,23 @@
         <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${(document.getElementById("date-start").value === document.getElementById("date-end").value ? fmtTime : fmt)(r.scheduled_time)}${odFloorBadge}</td>
         <td>${odActualCell}</td>
         <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
-        <td style="text-align:center">${odDialsCell}</td>
         <td>${stagePill}</td>
-        <td>${odDispCell}</td>
-        <td class="note-cell">
-          <div class="note-wrap">
-            <input type="text" class="note-input" data-id="${r.id}"
-              value="${(r.note||'').replace(/"/g,'&quot;')}"
-              placeholder="Your name + note (required to resolve)"
-              onblur="saveNote(this)"
-              onkeydown="if(event.key==='Enter'){this.blur()}"
-            >
-          </div>
+        <td class="od-assigned-cell">
+          <input type="text" class="note-input od-assigned-input" data-id="${r.id}"
+            value="${(r.assigned_to || r.deal_owner || '').replace(/"/g,'&quot;')}"
+            placeholder="Assign to…"
+            onblur="saveAssignedTo(this)"
+            onkeydown="if(event.key==='Enter'){this.blur()}"
+          >
+        </td>
+        <td class="od-outcome-cell">${odOutcome(r)}</td>
+        <td class="od-resolvedby-cell">
+          <input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+            value="${(r.resolved_by||'').replace(/"/g,'&quot;')}"
+            placeholder="Your name"
+            onblur="saveResolvedBy(this)"
+            onkeydown="if(event.key==='Enter'){this.blur()}"
+          >
         </td>
         <td style="text-align:right">${action}</td>
       </tr>`;
@@ -4033,21 +4057,25 @@
 
   async function markResolved(id) {
     const rec = _scOverdueRecords.find(r => r.id === id);
-    const noteInput = document.querySelector(`.note-input[data-id="${id}"]`);
-    const note = noteInput?.value?.trim();
-    if (!note) {
-      noteInput?.focus();
-      noteInput?.classList.add("note-required");
-      setTimeout(() => noteInput?.classList.remove("note-required"), 2000);
+    const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
+    const resolvedBy = rbInput?.value?.trim();
+    if (!resolvedBy) {
+      rbInput?.focus();
+      rbInput?.classList.add("note-required");
+      setTimeout(() => rbInput?.classList.remove("note-required"), 2000);
       return;
     }
-    if (rec) rec.resolved = true;
+    if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; }
     const actRec = _scActivityRecords.find(r => r.id === id);
-    if (actRec) actRec.resolved = true;
+    if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; }
     renderOverdueTable();
     drawScTable();
     try {
-      await fetch(`/api/scheduled-call/${id}/resolve`, { method: "POST" });
+      await fetch(`/api/scheduled-call/${id}/resolve`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({resolved_by: resolvedBy}),
+      });
     } catch (e) {
       if (rec) rec.resolved = false;
       if (actRec) actRec.resolved = false;
@@ -4094,6 +4122,81 @@
     } catch (e) {
       console.error("Failed to save note:", e);
     }
+  }
+
+  async function saveResolvedBy(input) {
+    const id = input.dataset.id;
+    const name = input.value.trim();
+    const rec = _scOverdueRecords.find(r => r.id === id);
+    if (rec) rec.resolved_by = name;
+    const actRec = _scActivityRecords.find(r => r.id === id);
+    if (actRec) actRec.resolved_by = name;
+    input.classList.add("saved");
+    setTimeout(() => input.classList.remove("saved"), 1200);
+    try {
+      await fetch(`/api/scheduled-call/${id}/resolved-by`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({resolved_by: name}),
+      });
+    } catch (e) {
+      console.error("Failed to save resolved_by:", e);
+    }
+  }
+
+  async function saveAssignedTo(input) {
+    const id = input.dataset.id;
+    const name = input.value.trim();
+    const rec = _scOverdueRecords.find(r => r.id === id);
+    if (rec) rec.assigned_to = name;
+    const actRec = _scActivityRecords.find(r => r.id === id);
+    if (actRec) actRec.assigned_to = name;
+    input.classList.add("saved");
+    setTimeout(() => input.classList.remove("saved"), 1200);
+    try {
+      await fetch(`/api/scheduled-call/${id}/assigned-to`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({assigned_to: name}),
+      });
+    } catch (e) {
+      console.error("Failed to save assigned_to:", e);
+    }
+  }
+
+  function odOutcome(r) {
+    const parts = [];
+    const dials = r.dial_attempts ?? 0;
+
+    // Call status
+    if (r.actual_call_time) {
+      parts.push("Called");
+    } else if (dials > 0) {
+      parts.push(`${dials} dial${dials>1?"s":""}`);
+    } else {
+      parts.push("No dials");
+    }
+
+    // Disposition / result
+    if (r.disposition) {
+      parts.push(r.disposition);
+    } else if (r.actual_call_time && !r.disposition) {
+      parts.push("Connected");
+    } else if (dials > 0) {
+      parts.push("No answer");
+    }
+
+    // Deal stage as context
+    if (r.deal_stage) {
+      const short = r.deal_stage.length > 18 ? r.deal_stage.slice(0,16) + "…" : r.deal_stage;
+      parts.push(short);
+    }
+
+    if (!parts.length) return `<span class="no-data">—</span>`;
+
+    // Color code: green if called, orange if dialed but no answer, red if no dials
+    const color = r.actual_call_time ? "var(--green-dk)" : dials > 0 ? "var(--orange-dk)" : "var(--red-dk)";
+    return `<span class="od-outcome-tag" style="color:${color}">${parts.join(" · ")}</span>`;
   }
 
   function refreshAlertCounts() {
