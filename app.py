@@ -22,6 +22,10 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex())
 
+# Trust reverse-proxy headers (Render) so url_for generates https:// URLs
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 # ────────── Google OAuth SSO ──────────
 ALLOWED_DOMAIN = "goalsplasticsurgery.com"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
@@ -294,7 +298,7 @@ def login():
 
 @app.route("/auth/google")
 def auth_google():
-    redirect_uri = url_for("auth_callback", _external=True)
+    redirect_uri = url_for("auth_callback", _external=True, _scheme="https")
     return oauth.google.authorize_redirect(redirect_uri)
 
 
