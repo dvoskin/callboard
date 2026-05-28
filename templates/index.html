@@ -2830,6 +2830,41 @@
       font-size: 11px; color: var(--tertiary);
       display: flex; justify-content: space-between;
     }
+    /* ══════════════ FLOATING OVERDUE PILL (top-right) ══════════════ */
+    .od-float-pill {
+      position: fixed; top: 16px; right: 16px; z-index: 9999;
+      display: none; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      color: #fff; padding: 10px 16px 10px 14px;
+      border-radius: 40px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 0 rgba(220,38,38,.5);
+      cursor: pointer; user-select: none;
+      animation: od-pill-glow 2s ease-in-out infinite;
+      transition: transform .15s, opacity .2s;
+    }
+    .od-float-pill:hover { transform: scale(1.05); }
+    .od-float-pill.show { display: flex; }
+    .od-float-pill .od-pill-icon {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: rgba(255,255,255,.2); display: flex;
+      align-items: center; justify-content: center; font-size: 12px;
+    }
+    .od-float-pill .od-pill-count {
+      background: #fff; color: #dc2626; font-weight: 700;
+      min-width: 22px; height: 22px; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; padding: 0 6px;
+    }
+    .od-float-pill .od-pill-mute {
+      opacity: .6; margin-left: 2px; font-size: 15px;
+      cursor: pointer; padding: 2px;
+    }
+    .od-float-pill .od-pill-mute:hover { opacity: 1; }
+    @keyframes od-pill-glow {
+      0%, 100% { box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 0 rgba(220,38,38,.4); }
+      50%      { box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 8px rgba(220,38,38,0); }
+    }
+
   </style>
 </head>
 <body>
@@ -2902,6 +2937,16 @@
       <p id="alert-desc"></p>
     </div>
     <button class="alert-cta" onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">Review →</button>
+  </div>
+
+  <!-- ══════════════════════ FLOATING OVERDUE PILL ══════════════════════ -->
+  <div class="od-float-pill" id="od-float-pill"
+       onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">
+    <span class="od-pill-icon">!</span>
+    <span id="od-pill-label">Overdue</span>
+    <span class="od-pill-count" id="od-pill-count">0</span>
+    <span class="od-pill-mute" id="od-pill-mute" title="Mute alert sound"
+          onclick="event.stopPropagation(); toggleOverdueMute();">🔔</span>
   </div>
 
   <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
@@ -4199,6 +4244,56 @@
     return `<span class="od-outcome-tag" style="color:${color}">${parts.join(" · ")}</span>`;
   }
 
+  // ─── Overdue alert tone ───
+  let _odMuted = localStorage.getItem("od_muted") === "1";
+  let _odToneInterval = null;
+  const _odAudioCtx = typeof AudioContext !== "undefined" ? new AudioContext() : null;
+
+  function playOverdueTone() {
+    if (_odMuted || !_odAudioCtx) return;
+    // Resume context if suspended (browser autoplay policy)
+    if (_odAudioCtx.state === "suspended") _odAudioCtx.resume();
+    const osc = _odAudioCtx.createOscillator();
+    const gain = _odAudioCtx.createGain();
+    osc.connect(gain); gain.connect(_odAudioCtx.destination);
+    osc.frequency.value = 880;
+    osc.type = "sine";
+    gain.gain.setValueAtTime(0.12, _odAudioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, _odAudioCtx.currentTime + 0.4);
+    osc.start(_odAudioCtx.currentTime);
+    osc.stop(_odAudioCtx.currentTime + 0.4);
+    // Second beep after short pause
+    setTimeout(() => {
+      const osc2 = _odAudioCtx.createOscillator();
+      const g2 = _odAudioCtx.createGain();
+      osc2.connect(g2); g2.connect(_odAudioCtx.destination);
+      osc2.frequency.value = 1100;
+      osc2.type = "sine";
+      g2.gain.setValueAtTime(0.10, _odAudioCtx.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.001, _odAudioCtx.currentTime + 0.3);
+      osc2.start(_odAudioCtx.currentTime);
+      osc2.stop(_odAudioCtx.currentTime + 0.3);
+    }, 150);
+  }
+
+  function startOverdueToneLoop() {
+    if (_odToneInterval) return;
+    playOverdueTone();
+    _odToneInterval = setInterval(playOverdueTone, 12000); // every 12s
+  }
+
+  function stopOverdueToneLoop() {
+    if (_odToneInterval) { clearInterval(_odToneInterval); _odToneInterval = null; }
+  }
+
+  function toggleOverdueMute() {
+    _odMuted = !_odMuted;
+    localStorage.setItem("od_muted", _odMuted ? "1" : "0");
+    document.getElementById("od-pill-mute").textContent = _odMuted ? "🔇" : "🔔";
+    if (_odMuted) stopOverdueToneLoop();
+    else if ((_scOverdueRecords || []).filter(r => !r.resolved).length > 0) startOverdueToneLoop();
+  }
+
   function refreshAlertCounts() {
     // Recompute alert banner using current unresolved overdue count
     const unresolved = _scOverdueRecords.filter(r => !r.resolved).length;
@@ -4209,6 +4304,19 @@
         `${unresolved} call${unresolved>1?"s":""} overdue`;
     } else {
       ab.classList.remove("show");
+    }
+    // Floating pill
+    const pill = document.getElementById("od-float-pill");
+    if (unresolved > 0) {
+      pill.classList.add("show");
+      document.getElementById("od-pill-count").textContent = unresolved;
+      document.getElementById("od-pill-label").textContent =
+        unresolved === 1 ? "Overdue" : "Overdue";
+      document.getElementById("od-pill-mute").textContent = _odMuted ? "🔇" : "🔔";
+      startOverdueToneLoop();
+    } else {
+      pill.classList.remove("show");
+      stopOverdueToneLoop();
     }
     // Update hero KPI "needs attention" card if it exists
     const k = document.querySelector("#hero-grid .kpi-card:last-child");
