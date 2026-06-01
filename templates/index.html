@@ -4714,6 +4714,22 @@
       // Check for a past observation (purely informational — does NOT change status/result)
       const obs = r.id ? getObservation(r.id) : null;
 
+      // ── Pre-mark as On Time if a call was observed within 10 min of schedule ──
+      // This covers the gap between live observation and Zoho logging the call.
+      if (obs && !r.actual_call_time && r.scheduled_time
+          && ["pending","missed","late","upcoming"].includes(r.status)) {
+        const obsTime = new Date(obs.time);
+        const schedTime = new Date(r.scheduled_time);
+        const obsOffset = (obsTime - schedTime) / 60000; // minutes
+        if (Math.abs(obsOffset) <= 10) {
+          r.actual_call_time = obs.time;
+          r.status = "completed";
+          r.on_time = true;
+          r.caller = obs.agent || r.caller;
+          r._observedOnTime = true; // flag so we can annotate the badge
+        }
+      }
+
       // Result column — pure diff between Scheduled and Actual Call columns.
       let result;
       const sign = n => n>=0 ? "+" : "";
@@ -4762,7 +4778,8 @@
       r._isAnomaly = isAnomaly;
 
       if (bucket === "on_time" && liveOffset !== null) {
-        result = `<span class="result-tag r-on-time">${anomalyPrefix}${sign(liveOffset)}${liveOffset} min</span>`;
+        const obsNote = r._observedOnTime ? ` <span class="result-sub">observed</span>` : "";
+        result = `<span class="result-tag r-on-time">${anomalyPrefix}${sign(liveOffset)}${liveOffset} min${obsNote}</span>`;
       } else if (bucket === "early" && liveOffset !== null) {
         result = `<span class="result-tag r-early">${anomalyPrefix}${Math.abs(liveOffset)} min early</span>`;
       } else if (bucket === "late_call" && liveOffset !== null) {
