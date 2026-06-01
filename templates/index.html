@@ -338,6 +338,7 @@
     tr.row-early     td:first-child  { box-shadow: inset 2.5px 0 0 var(--teal);   }
     tr.row-via-deal     td:first-child  { box-shadow: inset 2.5px 0 0 var(--purple); }
     tr.row-via-workflow td:first-child  { box-shadow: inset 2.5px 0 0 var(--teal);   }
+    tr.row-pending   td:first-child { box-shadow: inset 2.5px 0 0 var(--yellow); }
     tr.row-missed    td:first-child { box-shadow: inset 2.5px 0 0 var(--red);    }
     tr.row-late      td:first-child { box-shadow: inset 2.5px 0 0 var(--orange); }
     tr.row-overdue   td:first-child { box-shadow: inset 2.5px 0 0 #ff3b30;       }
@@ -422,6 +423,7 @@
     .result-tag.r-on-time   { color: var(--green-dk); }
     .result-tag.r-early     { color: var(--teal-dk); }
     .result-tag.r-late-call { color: var(--orange-dk); }
+    .result-tag.r-pending   { color: var(--yellow-dk); font-weight: 600; }
     .result-tag.r-missed    { color: var(--red-dk); }
     .result-tag.r-overdue   { color: var(--orange-dk); }
     .result-tag.r-deal      { color: var(--purple-dk); }
@@ -3901,11 +3903,21 @@
       if (r.status === "upcoming" && r.scheduled_time) {
         const t = new Date(r.scheduled_time).getTime();
         if (t <= nowMs) {
-          // Compute minutes overdue and promote to late/missed
           const overdueMin = (nowMs - t) / 60000;
           r.minutes_overdue = +overdueMin.toFixed(1);
           r.minutes_until = null;
-          r.status = overdueMin > 10 ? "missed" : "late";
+          // 0-15 min: "pending" (stays in main list), 15+: "missed" (moves to overdue)
+          if (overdueMin <= 15)       r.status = "pending";
+          else                        r.status = "missed";
+        }
+      }
+      // Also reclassify backend-reported statuses for the pending window
+      if ((r.status === "missed" || r.status === "late") && r.scheduled_time && !r.actual_call_time) {
+        const t = new Date(r.scheduled_time).getTime();
+        const overdueMin = (nowMs - t) / 60000;
+        if (overdueMin >= 0 && overdueMin <= 15) {
+          r.status = "pending";
+          r.minutes_overdue = +overdueMin.toFixed(1);
         }
       }
     });
@@ -3914,10 +3926,10 @@
                 && r.scheduled_time
                 && new Date(r.scheduled_time).getTime() > nowMs)
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
-    const past = sc.records.filter(r => r.status !== "upcoming");
-    // Overdue = still missed (not closed via deal or workflow) AND past scheduled time
+    const past = sc.records.filter(r => r.status !== "upcoming" && r.status !== "pending");
+    // Pending calls (0-15 min) stay in main list; missed (15+ min) go to overdue
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    const HIDE_FROM_MAIN_MIN = 30; // hide from main list if >30 min overdue (unless resolved)
+    const HIDE_FROM_MAIN_MIN = 15; // hide from main list once past 15 min pending window
     const isHiddenOverdue = r => r.status==="missed" && (r.minutes_overdue||0) > HIDE_FROM_MAIN_MIN && !r.completed_via_workflow && !r.resolved;
     // Activity table: hide overdue calls after 30 min (they live in the overdue zone),
     // but show them back if they've been resolved by manager
@@ -4764,6 +4776,10 @@
         const wfDesc = (r.sched_description||"").slice(0,120).trim();
         result = `<span class="result-tag r-workflow">Auto-completed</span>`
              + (wfDesc ? ` <span class="result-sub" title="${wfDesc.replace(/"/g,'&quot;')}">${wfDesc.length>50?wfDesc.slice(0,50)+"…":wfDesc}</span>` : "");
+      } else if (r.status === "pending" && r.scheduled_time) {
+        const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
+        const remaining = Math.max(0, Math.ceil(15 - od));
+        result = `<span class="result-tag r-pending">${remaining} min to dial</span>`;
       } else if (r.status === "missed" && r.scheduled_time) {
         const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
         result = `<span class="result-tag r-missed">${od} min overdue <span class="result-sub">no dial</span></span>`;
@@ -4812,6 +4828,7 @@
                 : r.status==="early"               ? "row-early"
                 : r.status==="completed_via_deal"  ? "row-via-deal"
                 : r.status==="completed_via_workflow" ? "row-via-workflow"
+                : r.status==="pending"             ? "row-pending"
                 : r.status==="missed"              ? "row-missed"
                 : r.status==="late"                ? "row-late" : "";
       const actualCell = r.actual_call_time
