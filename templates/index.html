@@ -3046,7 +3046,7 @@
               <option value="">All Statuses</option>
               <option value="completed">Completed</option>
               <option value="early">Early</option>
-              <option value="completed_via_deal">Other (Deal)</option>
+              <!-- completed_via_deal removed: status now depends on calls -->
               <option value="completed_via_workflow">Workflow Auto-completed</option>
               <option value="missed">Missed</option>
               <option value="late">Overdue</option>
@@ -3697,7 +3697,7 @@
     const paceStatus = s.completed >= expectedCompleted ? "ahead" : (s.completed >= expectedCompleted * 0.8 ? "on_pace" : "behind");
 
     // Avg dial attempts on completed calls
-    const completedRecords = sc.records.filter(r => r.status==="completed" || r.status==="early" || r.status==="completed_via_deal");
+    const completedRecords = sc.records.filter(r => r.status==="completed" || r.status==="early");
     const avgDials = completedRecords.length > 0
       ? (completedRecords.reduce((sum,r) => sum + (r.dial_attempts||0), 0) / completedRecords.length).toFixed(1)
       : "—";
@@ -3786,13 +3786,12 @@
       if (!r.scheduled_time) return;
       const d = new Date(r.scheduled_time);
       const estHour = parseInt(d.toLocaleString("en-US", { timeZone: TZ, hour:"2-digit", hour12:false }), 10);
-      if (!hours[estHour]) hours[estHour] = { hour:estHour, on_time:0, late:0, early:0, missed:0, via_deal:0, upcoming:0 };
+      if (!hours[estHour]) hours[estHour] = { hour:estHour, on_time:0, late:0, early:0, missed:0, upcoming:0 };
       const h = hours[estHour];
       if (r.status === "completed" && r.on_time) h.on_time++;
       else if (r.status === "completed") h.late++;
       else if (r.status === "early") h.early++;
       else if (r.status === "missed") h.missed++;
-      else if (r.status === "completed_via_deal") h.via_deal++;
       else if (r.status === "upcoming") h.upcoming++;
     });
     const sorted = Object.values(hours).sort((a,b) => a.hour - b.hour);
@@ -3812,7 +3811,7 @@
           { label: "On Time",  data: sorted.map(h=>h.on_time),  backgroundColor:"#10b981", stack:"x" },
           { label: "Late",     data: sorted.map(h=>h.late),     backgroundColor:"#f59e0b", stack:"x" },
           { label: "Early",    data: sorted.map(h=>h.early),    backgroundColor:"#06b6d4", stack:"x" },
-          { label: "Other",    data: sorted.map(h=>h.via_deal), backgroundColor:"#8b5cf6", stack:"x" },
+          // via_deal chart bar removed — status now depends on calls
           { label: "Missed",   data: sorted.map(h=>h.missed),   backgroundColor:"#ef4444", stack:"x" },
           { label: "Upcoming", data: sorted.map(h=>h.upcoming), backgroundColor:"#cbd5e1", stack:"x" },
         ],
@@ -3976,7 +3975,7 @@
       statPill("Completed",      s.completed,  "green",  _pct(s.completed), _resolvedN > 0 ? `${_adjCompletion}% w/ resolved` : null),
       statPill("On Time",        s.on_time,    s.on_time===s.completed&&s.completed>0?"green":"orange", _pct(s.on_time)),
       statPill("Early",          s.early,      s.early>0?"teal":"green", _pct(s.early)),
-      statPill("Other",          s.via_deal,        s.via_deal>0?"purple":"green", _pct(s.via_deal)),
+      // via_deal stat pill removed — deal movement no longer changes call status
       statPill("Workflow",       s.via_workflow||0, (s.via_workflow||0)>0?"teal":"green", _pct(s.via_workflow||0)),
       statPill("Missed",         s.missed,     s.missed>0?"red":"green", _pct(s.missed)),
       statPill("Overdue",        s.late,       s.late>0?"orange":"green", _pct(s.late)),
@@ -4784,21 +4783,6 @@
         result = `<span class="result-tag r-early">${anomalyPrefix}${Math.abs(liveOffset)} min early</span>`;
       } else if (bucket === "late_call" && liveOffset !== null) {
         result = `<span class="result-tag r-late-call">${anomalyPrefix}+${liveOffset} min late</span>`;
-      } else if (r.status === "completed_via_deal") {
-        const diffTag = (liveOffset !== null)
-          ? ` <span class="result-sub">${sign(liveOffset)}${liveOffset} min</span>`
-          : "";
-        // Show call data if a dial was logged even though deal resolved it
-        let dealCallInfo = "";
-        const dealCallTime = r.actual_call_time || r.last_attempt_time;
-        if (dealCallTime && r.scheduled_time) {
-          const dealOffset = Math.round((new Date(dealCallTime) - new Date(r.scheduled_time)) / 60000 * 10) / 10;
-          dealCallInfo = ` <span class="result-sub">${sign(dealOffset)}${Math.abs(dealOffset)} min</span>`;
-        }
-        if (r.dial_attempts > 0 && !dealCallInfo && r.caller) {
-          dealCallInfo = ` <span class="result-sub">by ${r.caller}</span>`;
-        }
-        result = `<span class="result-tag r-deal">Via Deal${diffTag || dealCallInfo}</span>`;
       } else if (r.status === "completed_via_workflow") {
         const wfDesc = (r.sched_description||"").slice(0,120).trim();
         result = `<span class="result-tag r-workflow">Auto-completed</span>`
@@ -4853,12 +4837,11 @@
             : `<span class="dials-val">${dials}</span>`}${dialsTip}</span>`;
       const cls = r.status==="completed"          ? "row-completed"
                 : r.status==="early"               ? "row-early"
-                : r.status==="completed_via_deal"  ? "row-via-deal"
                 : r.status==="completed_via_workflow" ? "row-via-workflow"
                 : r.status==="pending"             ? "row-pending"
                 : r.status==="missed"              ? "row-missed"
                 : r.status==="late"                ? "row-late" : "";
-      const effectiveActual = r.actual_call_time || (r.status === "completed_via_deal" && r.last_attempt_time ? r.last_attempt_time : null);
+      const effectiveActual = r.actual_call_time || r.last_attempt_time;
       const actualCell = effectiveActual
         ? `<span class="ts-cell ts-actual">${fmt(effectiveActual)}</span>`
         : `<span class="no-data">—</span>`;
@@ -4875,7 +4858,7 @@
       let effOnTime = r.on_time;
       if (r.resolved_with_match) {
         effStatus = "handled";
-      } else if (r._bucket && r.status !== "completed_via_deal" && r.status !== "completed_via_workflow") {
+      } else if (r._bucket && r.status !== "completed_via_workflow") {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
@@ -4946,7 +4929,7 @@
       let gbHtml = "";
       for (const gName of sortedGroupNames) {
         const gRows = groups[gName];
-        const completed = gRows.filter(r => ["completed","early","completed_via_deal","completed_via_workflow"].includes(r.status)).length;
+        const completed = gRows.filter(r => ["completed","early","completed_via_workflow"].includes(r.status)).length;
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row" data-group="${gName}" onclick="toggleGroup(this)">

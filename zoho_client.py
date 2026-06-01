@@ -845,13 +845,12 @@ class ZohoClient:
                 # Surface the deal owner for high-value stages
                 if stage in self.OWNER_VISIBLE_STAGES and owner:
                     r["deal_owner"] = owner
-                # Auto-resolve any overdue scheduled call whose deal has moved
-                # past the "Call Scheduled" stage (rep handled it via the deal).
+                # Flag that the deal has moved on, but don't change call status —
+                # status should reflect whether a call was actually made.
                 if (stage
                         and stage not in ("New Deal", "Call Scheduled")
                         and r.get("status") in ("missed", "late")):
                     r["deal_moved_on"] = True
-                    r["status"] = "completed_via_deal"
 
         # Workflow auto-completion detection: for overdue calls with 0 dials,
         # check if the Zoho scheduled call was marked Completed by workflow
@@ -882,12 +881,12 @@ class ZohoClient:
         )
 
         def summary(results, mode="new"):
-            # "early", "completed_via_deal", and "completed_via_workflow" count toward completion
-            called = [r for r in results if r["status"] in ("completed", "early", "completed_via_deal", "completed_via_workflow")]
+            # "early" and "completed_via_workflow" count toward completion
+            called = [r for r in results if r["status"] in ("completed", "early", "completed_via_workflow")]
             completed    = [r for r in results if r["status"] == "completed"]
             early        = [r for r in results if r["status"] == "early"]
-            via_deal     = [r for r in results if r["status"] == "completed_via_deal"]
             via_workflow = [r for r in results if r["status"] == "completed_via_workflow"]
+            deal_moved   = [r for r in results if r.get("deal_moved_on")]
             on_time      = [r for r in completed if r.get("on_time")]
             missed       = [r for r in results if r["status"] == "missed"]
             s = {
@@ -895,7 +894,7 @@ class ZohoClient:
                 "completed": len(called),
                 "on_time": len(on_time),
                 "early": len(early),
-                "via_deal": len(via_deal),
+                "via_deal": len(deal_moved),  # count for display, not a status
                 "via_workflow": len(via_workflow),
                 "missed": len(missed),
                 "on_time_rate": round(len(on_time) / len(called) * 100) if called else None,
