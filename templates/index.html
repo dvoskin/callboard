@@ -4858,7 +4858,16 @@
       } else if (bucket === "late_call" && liveOffset !== null) {
         result = `<span class="result-tag r-late-call">${anomalyPrefix}+${liveOffset} min late</span>`;
       } else if (r.status === "completed_via_workflow") {
-        result = `<span class="result-tag r-workflow">Auto-completed</span>`;
+        // Flag if workflow completed the record >15 min before the scheduled call
+        let earlyWf = false;
+        if (r.record_modified && r.scheduled_time) {
+          const modTime = new Date(r.record_modified);
+          const schedTime = new Date(r.scheduled_time);
+          const leadMin = (schedTime - modTime) / 60000;
+          if (leadMin > 15) earlyWf = true;
+        }
+        const earlyTag = earlyWf ? ` <span class="result-sub" title="Completed by workflow more than 15 min before scheduled call time">pre-scheduled</span>` : "";
+        result = `<span class="result-tag r-workflow">Auto-completed${earlyTag}</span>`;
       } else if (r.status === "pending" && r.scheduled_time) {
         const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
         const remaining = Math.max(0, Math.ceil(15 - od));

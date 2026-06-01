@@ -543,7 +543,7 @@ class ZohoClient:
                         f"and((Call_Start_Time:greater_equal:{window_start})"
                         f"and(Call_Start_Time:less_equal:{window_end}))"
                     ),
-                    "fields": "id,Subject,Call_Start_Time,Created_Time,Who_Id,What_Id,Owner,Description,Call_Status",
+                    "fields": "id,Subject,Call_Start_Time,Created_Time,Modified_Time,Who_Id,What_Id,Owner,Description,Call_Status",
                     "per_page": 200,
                     "page": page,
                 },
@@ -816,6 +816,7 @@ class ZohoClient:
                 "phone": phone,
                 "created_time": rec.get("Call_Start_Time"),
                 "record_created": rec.get("Created_Time"),
+                "record_modified": rec.get("Modified_Time"),
                 "last_minute": last_minute,
                 "owner": "Zoho Admin",
                 "call_status": rec.get("Call_Status") or "",
