@@ -455,8 +455,14 @@ def resolve_call(rec_id):
     body = request.get_json(silent=True) or {}
     resolved_by = (body.get("resolved_by") or "").strip()
 
+    # Accept an observed call from the live monitor (already validated on client)
+    observed_call = body.get("observed_call")
+
     # Try to find the closest logged call for this scheduled record
     matched_call = _find_closest_call_for_record(rec_id)
+
+    # Prefer a Zoho-logged call, fall back to the live-observed call
+    final_match = matched_call or observed_call
 
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
@@ -464,11 +470,11 @@ def resolve_call(rec_id):
         entry["at"] = datetime.now(timezone.utc).isoformat()
         if resolved_by:
             entry["resolved_by"] = resolved_by
-        if matched_call:
-            entry["matched_call"] = matched_call
+        if final_match:
+            entry["matched_call"] = final_match
         data[rec_id] = entry
         _save_resolved(data)
-    return jsonify({"status": "resolved", "id": rec_id, "matched_call": matched_call})
+    return jsonify({"status": "resolved", "id": rec_id, "matched_call": final_match})
 
 
 @app.route("/api/scheduled-call/<rec_id>/unresolve", methods=["POST"])

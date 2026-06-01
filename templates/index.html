@@ -4784,9 +4784,7 @@
       } else if (bucket === "late_call" && liveOffset !== null) {
         result = `<span class="result-tag r-late-call">${anomalyPrefix}+${liveOffset} min late</span>`;
       } else if (r.status === "completed_via_workflow") {
-        const wfDesc = (r.sched_description||"").slice(0,120).trim();
-        result = `<span class="result-tag r-workflow">Auto-completed</span>`
-             + (wfDesc ? ` <span class="result-sub" title="${wfDesc.replace(/"/g,'&quot;')}">${wfDesc.length>50?wfDesc.slice(0,50)+"…":wfDesc}</span>` : "");
+        result = `<span class="result-tag r-workflow">Auto-completed</span>`;
       } else if (r.status === "pending" && r.scheduled_time) {
         const od = Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10);
         const remaining = Math.max(0, Math.ceil(15 - od));
@@ -5376,14 +5374,38 @@
 
   function recordObservation(recId, call) {
     if (!recId || _observedCalls[recId]) return; // don't overwrite
+    const obsTime = new Date().toISOString();
     _observedCalls[recId] = {
       agent: call.agent_name || "",
-      time: new Date().toISOString(),
+      time: obsTime,
       duration: call.duration_sec || 0,
       source: call.source || "unknown",
       phone: call.ani || call.from || call.dnis || call.to || "",
     };
     _saveObserved();
+
+    // If observed within 10 min of scheduled time, persist as resolved+matched
+    // so it's permanently marked as On Time even after page reload / other users
+    const rec = (_scActivityRecords || []).find(r => r.id === recId)
+             || (_scOverdueRecords || []).find(r => r.id === recId);
+    if (rec && rec.scheduled_time) {
+      const offset = (new Date(obsTime) - new Date(rec.scheduled_time)) / 60000;
+      if (Math.abs(offset) <= 10) {
+        fetch(`/api/scheduled-call/${recId}/resolve`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            resolved_by: "live-monitor",
+            observed_call: {
+              actual_call_time: obsTime,
+              caller: call.agent_name || null,
+              offset_minutes: Math.round(offset * 10) / 10,
+              disposition: call.disposition || null,
+            },
+          }),
+        }).catch(() => {});
+      }
+    }
   }
 
   function getObservation(recId) {
