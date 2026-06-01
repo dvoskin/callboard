@@ -318,6 +318,25 @@ def login():
     return render_template("login.html")
 
 
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "ringcx2026")
+
+
+@app.route("/auth/password", methods=["POST"])
+def auth_password():
+    body = request.get_json(silent=True) or {}
+    pw = (body.get("password") or "").strip()
+    if pw == ADMIN_PASSWORD:
+        session["user"] = {
+            "email": "admin@goalsplasticsurgery.com",
+            "name": "Admin",
+            "picture": "",
+        }
+        log.info("Admin login via password")
+        return jsonify({"ok": True})
+    log.warning("Failed admin password attempt")
+    return jsonify({"ok": False, "error": "Invalid password"}), 401
+
+
 @app.route("/auth/google")
 def auth_google():
     redirect_uri = GOOGLE_REDIRECT_URI or url_for("auth_callback", _external=True, _scheme="https")
