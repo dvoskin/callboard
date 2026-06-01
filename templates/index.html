@@ -4771,7 +4771,17 @@
         const diffTag = (liveOffset !== null)
           ? ` <span class="result-sub">${sign(liveOffset)}${liveOffset} min</span>`
           : "";
-        result = `<span class="result-tag r-deal">Via Deal${diffTag}</span>`;
+        // Show call data if a dial was logged even though deal resolved it
+        let dealCallInfo = "";
+        const dealCallTime = r.actual_call_time || r.last_attempt_time;
+        if (dealCallTime && r.scheduled_time) {
+          const dealOffset = Math.round((new Date(dealCallTime) - new Date(r.scheduled_time)) / 60000 * 10) / 10;
+          dealCallInfo = ` <span class="result-sub">${sign(dealOffset)}${Math.abs(dealOffset)} min</span>`;
+        }
+        if (r.dial_attempts > 0 && !dealCallInfo && r.caller) {
+          dealCallInfo = ` <span class="result-sub">by ${r.caller}</span>`;
+        }
+        result = `<span class="result-tag r-deal">Via Deal${diffTag || dealCallInfo}</span>`;
       } else if (r.status === "completed_via_workflow") {
         const wfDesc = (r.sched_description||"").slice(0,120).trim();
         result = `<span class="result-tag r-workflow">Auto-completed</span>`
@@ -4831,8 +4841,9 @@
                 : r.status==="pending"             ? "row-pending"
                 : r.status==="missed"              ? "row-missed"
                 : r.status==="late"                ? "row-late" : "";
-      const actualCell = r.actual_call_time
-        ? `<span class="ts-cell ts-actual">${fmt(r.actual_call_time)}</span>`
+      const effectiveActual = r.actual_call_time || (r.status === "completed_via_deal" && r.last_attempt_time ? r.last_attempt_time : null);
+      const actualCell = effectiveActual
+        ? `<span class="ts-cell ts-actual">${fmt(effectiveActual)}</span>`
         : `<span class="no-data">—</span>`;
       // Tooltip badge for calls originally scheduled before 9 AM
       const flooredBadge = r._floored && r._scheduled_original
