@@ -543,7 +543,7 @@ class ZohoClient:
                         f"and((Call_Start_Time:greater_equal:{window_start})"
                         f"and(Call_Start_Time:less_equal:{window_end}))"
                     ),
-                    "fields": "id,Subject,Call_Start_Time,Who_Id,What_Id,Owner,Description,Call_Status",
+                    "fields": "id,Subject,Call_Start_Time,Created_Time,Who_Id,What_Id,Owner,Description,Call_Status",
                     "per_page": 200,
                     "page": page,
                 },
@@ -798,6 +798,14 @@ class ZohoClient:
             # What_Id links to the related record (usually a Deal)
             what = rec.get("What_Id") or {}
             what_id = what.get("id") if isinstance(what, dict) else None
+            # Detect last-minute scheduling: created_time vs scheduled_time
+            sched_dt = self._parse_dt(rec.get("Call_Start_Time"))
+            record_created_dt = self._parse_dt(rec.get("Created_Time"))
+            last_minute = False
+            if sched_dt and record_created_dt:
+                lead_min = (sched_dt - record_created_dt).total_seconds() / 60
+                last_minute = 0 <= lead_min <= 15
+
             return {
                 "id": rec["id"],
                 "id_contact": cid,
@@ -805,6 +813,8 @@ class ZohoClient:
                 "name": who.get("name") if isinstance(who, dict) else "—",
                 "phone": phone,
                 "created_time": rec.get("Call_Start_Time"),
+                "record_created": rec.get("Created_Time"),
+                "last_minute": last_minute,
                 "owner": "Zoho Admin",
                 "call_status": rec.get("Call_Status") or "",
                 "sched_description": rec.get("Description") or "",
