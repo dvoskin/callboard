@@ -440,6 +440,14 @@
       padding: 1px 5px; cursor: help; vertical-align: middle;
       margin-left: 4px;
     }
+    .lang-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; letter-spacing: .5px;
+      border-radius: 3px; padding: 1px 4px;
+      vertical-align: middle; line-height: 1;
+    }
+    .lang-en { background: rgba(37,99,235,.10); color: var(--blue-dk); }
+    .lang-es { background: rgba(245,158,11,.12); color: var(--orange-dk); }
     .last-min-badge {
       display: inline-flex; align-items: center;
       font-size: 10px; cursor: help; vertical-align: middle;
@@ -4076,12 +4084,16 @@
             ? `<span class="dials-val">${dials}</span><span class="dials-src">RingEX</span>`
             : `<span class="dials-val">${dials}</span>`}${odDialsTip}</span>`;
       const isSel = _overdueSelected.has(r.id);
+      const odLang = (r.language || "").toLowerCase();
+      const odLangTag = odLang.startsWith("sp") || odLang.startsWith("es")
+        ? `<span class="lang-badge lang-es">ES</span>`
+        : `<span class="lang-badge lang-en">EN</span>`;
       const odLastMin = r.last_minute
         ? ` <span class="last-min-badge" title="Last-minute: created less than 15 min before scheduled time">⚡</span>`
         : "";
       return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}">
         <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
-        <td>${nameCell(r, "Contacts", odLastMin)}</td>
+        <td>${nameCell(r, "Contacts", odLangTag + odLastMin)}</td>
         <td class="phone-cell">${r.phone || '<span class="no-data">—</span>'}</td>
         <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${(document.getElementById("date-start").value === document.getElementById("date-end").value ? fmtTime : fmt)(r.scheduled_time)}${odFloorBadge}</td>
         <td>${odActualCell}</td>
@@ -4890,7 +4902,11 @@
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : '';
       // Small trailing icons for name cell
-      let trailingIcons = flooredBadge;
+      const lang = (r.language || "").toLowerCase();
+      const langTag = lang.startsWith("sp") || lang.startsWith("es")
+        ? `<span class="lang-badge lang-es">ES</span>`
+        : `<span class="lang-badge lang-en">EN</span>`;
+      let trailingIcons = langTag + flooredBadge;
       if (r.last_minute) {
         const createdFmt = r.record_created ? fmt(r.record_created) : "?";
         trailingIcons += ` <span class="last-min-badge" title="Last-minute: created at ${createdFmt}, less than 15 min before scheduled time">⚡</span>`;

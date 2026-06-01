@@ -614,7 +614,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "ids": ids_param,
-                    "fields": "id,Stage,Owner",
+                    "fields": "id,Stage,Owner,Language",
                 },
                 timeout=20,
             )
@@ -626,9 +626,11 @@ class ZohoClient:
                 if did:
                     owner = deal.get("Owner") or {}
                     owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
+                    lang_raw = (deal.get("Language") or "").strip()
                     result[did] = {
                         "stage": deal.get("Stage") or "",
                         "owner": owner_name,
+                        "language": lang_raw if lang_raw and lang_raw != "Unselected" else "",
                     }
         log.info("  → deal stages fetched by ID for %d deals", len(result))
         return result
@@ -855,6 +857,9 @@ class ZohoClient:
                 # Surface the deal owner for high-value stages
                 if stage in self.OWNER_VISIBLE_STAGES and owner:
                     r["deal_owner"] = owner
+                # Language from deal record
+                if info.get("language"):
+                    r["language"] = info["language"]
                 # Flag that the deal has moved on, but don't change call status —
                 # status should reflect whether a call was actually made.
                 if (stage
