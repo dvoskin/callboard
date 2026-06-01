@@ -1278,6 +1278,58 @@
       font-size: 13px; font-weight: 500;
       grid-column: 1 / -1;
     }
+    /* Agent roster */
+    .lp-agents-roster {
+      padding: 10px 20px 6px; border-top: 1px solid var(--sep);
+      background: var(--surface);
+    }
+    .lp-roster-title {
+      font-size: 11px; font-weight: 700; color: var(--secondary);
+      text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .lp-roster-title .lp-roster-counts {
+      font-weight: 500; text-transform: none; letter-spacing: 0;
+      font-size: 10px; color: var(--tertiary);
+    }
+    .lp-roster-grid {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .lp-agent-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 20px;
+      font-size: 11px; font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      transition: all .15s;
+    }
+    .lp-agent-chip.on-call {
+      background: rgba(16,185,129,.08); border-color: rgba(16,185,129,.3);
+      color: var(--green-dk); font-weight: 600;
+    }
+    .lp-agent-chip.available {
+      background: rgba(37,99,235,.05); border-color: rgba(37,99,235,.15);
+      color: var(--blue-dk);
+    }
+    .lp-agent-chip.away {
+      background: rgba(245,158,11,.06); border-color: rgba(245,158,11,.2);
+      color: var(--orange-dk);
+    }
+    .lp-agent-chip.offline {
+      opacity: .45;
+    }
+    .lp-agent-chip .agent-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .lp-agent-chip .agent-dot.on-call   { background: var(--green); }
+    .lp-agent-chip .agent-dot.available  { background: var(--blue); }
+    .lp-agent-chip .agent-dot.busy       { background: var(--red); }
+    .lp-agent-chip .agent-dot.away       { background: var(--orange); }
+    .lp-agent-chip .agent-dot.offline    { background: var(--tertiary); }
+    .lp-agent-chip .agent-sub {
+      font-size: 9px; color: var(--tertiary); font-weight: 400;
+    }
+
     .lp-refresh-note {
       font-size: 10px; color: var(--tertiary); font-weight: 500;
       padding: 6px 20px 10px; text-align: right;
@@ -2996,6 +3048,7 @@
     </div>
     <div class="lp-body">
       <div class="lp-calls-grid" id="lp-calls-grid"></div>
+      <div class="lp-agents-roster" id="lp-agents-roster"></div>
       <div class="lp-refresh-note" id="lp-refresh-note"></div>
     </div>
   </div>
@@ -5606,6 +5659,61 @@
           ${matchHtml}
         </div>`;
       }).join("");
+    }
+
+    // ── Agent roster ──
+    const roster = document.getElementById("lp-agents-roster");
+    let filteredAgents = agents.slice();
+    if (_liveSelectedAgents.size > 0) {
+      filteredAgents = filteredAgents.filter(a => _liveSelectedAgents.has(a.name || ""));
+    }
+    if (filteredAgents.length > 0) {
+      // Categorize
+      const onCallNames = new Set(allCalls.map(c => (c.agent_name || "").toLowerCase()));
+      const categorize = a => {
+        if (onCallNames.has((a.name || "").toLowerCase())) return "on-call";
+        const tel = (a.telephony_status || "").toLowerCase();
+        if (tel === "ringing" || tel === "callconnected" || tel === "onhold") return "on-call";
+        const st = (a.status || "").toLowerCase();
+        if (st === "offline") return "offline";
+        if (st === "away" || a.dnd_status === "DoNotAcceptAnyCalls") return "away";
+        if (st === "busy") return "away";
+        return "available";
+      };
+      // Sort: on-call first, then available, away, offline
+      const order = { "on-call": 0, "available": 1, "away": 2, "offline": 3 };
+      const sorted = filteredAgents.slice().sort((a, b) => {
+        const ca = categorize(a), cb = categorize(b);
+        return (order[ca] ?? 9) - (order[cb] ?? 9) || (a.name || "").localeCompare(b.name || "");
+      });
+      const counts = { "on-call": 0, available: 0, away: 0, offline: 0 };
+      sorted.forEach(a => counts[categorize(a)]++);
+      const countStr = [
+        counts["on-call"] ? `${counts["on-call"]} on call` : "",
+        counts.available ? `${counts.available} available` : "",
+        counts.away ? `${counts.away} away` : "",
+        counts.offline ? `${counts.offline} offline` : "",
+      ].filter(Boolean).join(" · ");
+
+      roster.innerHTML = `
+        <div class="lp-roster-title">Team <span class="lp-roster-counts">${countStr}</span></div>
+        <div class="lp-roster-grid">${sorted.map(a => {
+          const cat = categorize(a);
+          const dotClass = cat === "on-call" ? "on-call"
+            : cat === "available" ? "available"
+            : cat === "away" ? (a.dnd_status === "DoNotAcceptAnyCalls" ? "busy" : "away")
+            : "offline";
+          const sub = cat === "on-call" ? "On Call"
+            : cat === "away" ? (a.dnd_status === "DoNotAcceptAnyCalls" ? "DND" : "Away")
+            : cat === "offline" ? "Offline"
+            : "";
+          return `<span class="lp-agent-chip ${cat}">
+            <span class="agent-dot ${dotClass}"></span>
+            ${a.name}${sub ? ` <span class="agent-sub">${sub}</span>` : ""}
+          </span>`;
+        }).join("")}</div>`;
+    } else {
+      roster.innerHTML = "";
     }
 
     // Refresh timestamp
