@@ -3987,6 +3987,22 @@
         }
       }
     });
+    // Pre-mark observed calls as completed before splitting into upcoming vs activity.
+    // This catches calls observed before their scheduled time (e.g., 5 min early).
+    sc.records.forEach(r => {
+      if (!r.id || r.actual_call_time) return;
+      const obs = getObservation(r.id);
+      if (!obs || !r.scheduled_time) return;
+      const obsOffset = (new Date(obs.time) - new Date(r.scheduled_time)) / 60000;
+      if (Math.abs(obsOffset) <= 10) {
+        r.actual_call_time = obs.time;
+        r.status = "completed";
+        r.on_time = true;
+        r.caller = obs.agent || r.caller;
+        r._observedOnTime = true;
+      }
+    });
+
     const upcoming = sc.records
       .filter(r => r.status === "upcoming"
                 && r.scheduled_time
@@ -5070,6 +5086,11 @@
     document.getElementById("up-strip-next-name").textContent = _upcomingCalls[0].name;
 
     track.innerHTML = _upcomingCalls.map((r, i) => {
+      // Check for live call on upcoming records
+      const liveCall = findLiveCallForRecord(r);
+      if (liveCall && r.id) {
+        recordObservation(r.id, liveCall);
+      }
       const isNext = i === 0;
       const url = crmUrl("Contacts", r.id_contact);
       const nameEl = url
@@ -5478,7 +5499,8 @@
     // If observed within 10 min of scheduled time, persist as resolved+matched
     // so it's permanently marked as On Time even after page reload / other users
     const rec = (_scActivityRecords || []).find(r => r.id === recId)
-             || (_scOverdueRecords || []).find(r => r.id === recId);
+             || (_scOverdueRecords || []).find(r => r.id === recId)
+             || (_upcomingCalls || []).find(r => r.id === recId);
     if (rec && rec.scheduled_time) {
       const offset = (new Date(obsTime) - new Date(rec.scheduled_time)) / 60000;
       if (Math.abs(offset) <= 10) {
