@@ -5278,6 +5278,7 @@
       dot.className = "";
       document.getElementById("last-updated").textContent = "Updated " + relTime(json.last_updated);
       renderScheduledCalls(json.data.scheduled_calls);
+      syncExistingObservations();
     } catch(e) {
       cdbLoading.classList.remove("show");
       dot.className = "error"; showError(e.message);
@@ -5482,6 +5483,39 @@
 
   function _saveObserved() {
     try { localStorage.setItem(_OBSERVED_KEY, JSON.stringify(_observedCalls)); } catch (e) {}
+  }
+
+  let _observedSyncDone = false;
+  function syncExistingObservations() {
+    // One-time backfill: persist any localStorage observations that weren't
+    // previously saved to the backend (recorded before persist logic existed).
+    if (_observedSyncDone) return;
+    _observedSyncDone = true;
+    const allRecs = [
+      ...(_scActivityRecords || []),
+      ...(_scOverdueRecords || []),
+      ...(_upcomingCalls || []),
+    ];
+    for (const [recId, obs] of Object.entries(_observedCalls)) {
+      const rec = allRecs.find(r => r.id === recId);
+      if (!rec || !rec.scheduled_time || rec.resolved_with_match) continue;
+      const offset = (new Date(obs.time) - new Date(rec.scheduled_time)) / 60000;
+      if (Math.abs(offset) <= 10) {
+        fetch(`/api/scheduled-call/${recId}/resolve`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            resolved_by: "live-monitor",
+            observed_call: {
+              actual_call_time: obs.time,
+              caller: obs.agent || null,
+              offset_minutes: Math.round(offset * 10) / 10,
+              disposition: null,
+            },
+          }),
+        }).catch(() => {});
+      }
+    }
   }
 
   function recordObservation(recId, call) {
