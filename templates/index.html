@@ -3657,17 +3657,49 @@
   }
 
   // ─── Manager: Hero KPIs ───
+  // Filter records to only those matching the selected agents in the live monitor filter.
+  // Matches against caller (who dialed) and deal_owner (rep assigned to the deal).
+  function filterBySelectedAgents(records) {
+    if (!_liveSelectedAgents || _liveSelectedAgents.size === 0) return records;
+    return records.filter(r => {
+      const caller = (r.caller || "").toLowerCase();
+      const owner = (r.deal_owner || "").toLowerCase();
+      for (const agent of _liveSelectedAgents) {
+        const a = agent.toLowerCase();
+        if ((caller && caller.includes(a)) || (owner && owner.includes(a))) return true;
+      }
+      return false;
+    });
+  }
+
+  // Recompute summary stats for a filtered subset of records
+  function recomputeSummary(records) {
+    let on_time = 0, early = 0, completed = 0, missed = 0;
+    records.forEach(r => {
+      if (r.status === "completed" || r.status === "early") {
+        completed++;
+        if (r.status === "early") early++;
+        else if (r.on_time) on_time++;
+      } else if (r.status === "missed") missed++;
+    });
+    const on_time_rate = completed > 0 ? Math.round((on_time + early) / completed * 100) : 0;
+    return { ...({total: records.length, completed, on_time, early, missed, on_time_rate}) };
+  }
+
   function renderHeroKpis(sc, upcoming, overdue) {
-    const s = sc.summary;
-    const total = sc.records.length;
+    // Apply agent filter if active
+    const filteredRecords = filterBySelectedAgents(sc.records);
+    const s = _liveSelectedAgents.size > 0 ? recomputeSummary(filteredRecords) : sc.summary;
+    const total = filteredRecords.length;
     // "Due now" = everything except records still in the future (status=upcoming).
     // Completion rate is real-time: completed / due-now, ignoring future-scheduled calls.
-    const callsDue = total - upcoming.length;
+    const filteredUpcoming = filteredRecords.filter(r => r.status === "upcoming");
+    const callsDue = total - filteredUpcoming.length;
     const liveCompletionRate = callsDue > 0
       ? Math.round((s.completed / callsDue) * 100)
       : null;
     // Adjusted completion: count "Resolved manually" as completed
-    const resolvedCount = sc.records.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
+    const resolvedCount = filteredRecords.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
     const adjCompleted = s.completed + resolvedCount;
     const adjCompletionRate = callsDue > 0
       ? Math.round((adjCompleted / callsDue) * 100)
@@ -3754,14 +3786,17 @@
 
   function renderAiInsights(sc, upcoming, overdue, liveCalls) {
     const banner = document.getElementById("ai-banner");
-    const s = sc.summary;
-    const total = sc.records.length;
+    // Apply agent filter
+    const filteredRecords = filterBySelectedAgents(sc.records);
+    const s = _liveSelectedAgents.size > 0 ? recomputeSummary(filteredRecords) : sc.summary;
+    const total = filteredRecords.length;
     if (total === 0) { banner.classList.remove("show"); return; }
     banner.classList.add("show");
 
-    const callsDue = total - upcoming.length;
+    const filteredUpcoming = filteredRecords.filter(r => r.status === "upcoming");
+    const callsDue = total - filteredUpcoming.length;
     const completionRate = callsDue > 0 ? Math.round((s.completed / callsDue) * 100) : 0;
-    const resolvedCount = sc.records.filter(r => r.resolved && (r.status==="missed" || r.status==="late")).length;
+    const resolvedCount = filteredRecords.filter(r => r.resolved && (r.status==="missed" || r.status==="late")).length;
     const adjCompleted = s.completed + resolvedCount;
     const adjRate = callsDue > 0 ? Math.round((adjCompleted / callsDue) * 100) : 0;
     const overdueUnresolved = overdue.filter(r => !r.resolved).length;
@@ -3781,22 +3816,27 @@
     const paceStatus = s.completed >= expectedCompleted ? "ahead" : (s.completed >= expectedCompleted * 0.8 ? "on_pace" : "behind");
 
     // Avg dial attempts on completed calls
-    const completedRecords = sc.records.filter(r => r.status==="completed" || r.status==="early");
+    const completedRecords = filteredRecords.filter(r => r.status==="completed" || r.status==="early");
     const avgDials = completedRecords.length > 0
       ? (completedRecords.reduce((sum,r) => sum + (r.dial_attempts||0), 0) / completedRecords.length).toFixed(1)
       : "—";
 
-    // Live calls info
-    const liveCount = (liveCalls || []).length;
+    // Live calls info — filter by selected agents
+    let filteredLive = liveCalls || [];
+    if (_liveSelectedAgents.size > 0) {
+      filteredLive = filteredLive.filter(c =>
+        _liveSelectedAgents.has(c.agent_name || ""));
+    }
+    const liveCount = filteredLive.length;
 
     // Top disposition
     const dispMap = {};
-    sc.records.forEach(r => { if (r.disposition) dispMap[r.disposition] = (dispMap[r.disposition]||0) + 1; });
+    filteredRecords.forEach(r => { if (r.disposition) dispMap[r.disposition] = (dispMap[r.disposition]||0) + 1; });
     const topDisps = Object.entries(dispMap).sort((a,b) => b[1]-a[1]).slice(0, 3);
 
     // Stage breakdown
     const stageMap = {};
-    sc.records.forEach(r => { if (r.deal_stage) stageMap[r.deal_stage] = (stageMap[r.deal_stage]||0) + 1; });
+    filteredRecords.forEach(r => { if (r.deal_stage) stageMap[r.deal_stage] = (stageMap[r.deal_stage]||0) + 1; });
     const topStages = Object.entries(stageMap).sort((a,b) => b[1]-a[1]).slice(0, 4);
 
     // Build insight cards
