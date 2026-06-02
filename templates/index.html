@@ -4868,23 +4868,30 @@
         const agent = liveCall.agent_name || "Agent";
         const dur = fmtDuration(liveCall.duration_sec || 0);
         result = `<span class="result-tag r-live">🟢 On Call <span class="result-sub">${agent} · ${dur}</span></span>`;
+      // Live-monitor observed call — show as Handled with time diff
+      } else if (r.resolved_by === "live-monitor" && r.resolved && (r.status === "missed" || r.status === "late")) {
+        // Try to compute offset from observation data
+        const obsData = r.id ? getObservation(r.id) : null;
+        const obsActual = r.actual_call_time || (obsData ? obsData.time : null);
+        let monOffset = null;
+        if (obsActual && r.scheduled_time) {
+          monOffset = Math.round(((new Date(obsActual) - new Date(r.scheduled_time)) / 60000) * 10) / 10;
+        }
+        const tipParts = ["Detected via live call monitor"];
+        if (obsActual) tipParts.push(`Call observed: ${fmt(obsActual)}`);
+        if (r.caller || (obsData && obsData.agent)) tipParts.push(`Agent: ${r.caller || obsData.agent}`);
+        if (r.scheduled_time) tipParts.push(`Scheduled: ${fmt(r.scheduled_time)}`);
+        const tip = tipParts.join(' · ');
+        const diffTag = monOffset !== null ? `${sign(monOffset)}${monOffset} min` : "";
+        result = `<span class="result-tag r-on-time" title="${tip.replace(/"/g,'&quot;')}">✓ Handled ${diffTag ? `<span class="result-sub">${diffTag}</span>` : ""}</span>`;
       // Resolved manually (no matching call found) — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
         const tipParts = [];
-        if (r.resolved_by === "live-monitor") {
-          tipParts.push("Detected via live call monitor");
-          if (r.actual_call_time) tipParts.push(`Call observed: ${fmt(r.actual_call_time)}`);
-          if (r.caller) tipParts.push(`Agent: ${r.caller}`);
-          if (r.scheduled_time) tipParts.push(`Scheduled: ${fmt(r.scheduled_time)}`);
-        } else {
-          if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
-        }
+        if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
         if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
         if (r.note) tipParts.push(`Note: ${r.note}`);
         const tip = tipParts.length ? tipParts.join(' · ') : '';
-        const sub = r.resolved_by === "live-monitor"
-          ? ` <span class="result-sub">via monitor</span>`
-          : (r.resolved_by ? ` <span class="result-sub">by ${r.resolved_by}</span>` : "");
+        const sub = r.resolved_by ? ` <span class="result-sub">by ${r.resolved_by}</span>` : "";
         result = `<span class="result-tag r-resolved"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>Resolved manually${sub}</span>`;
       // Resolved WITH a matched call — show call data with a "resolved" note
       } else if (r.resolved_with_match && liveOffset !== null) {
@@ -5013,6 +5020,9 @@
         if (r._bucket === "early")          { effStatus = "early";     effOnTime = false; }
         else if (r._bucket === "late_call") { effStatus = "completed"; effOnTime = false; }
         else                                { effStatus = "completed"; effOnTime = true;  }
+      } else if (r.resolved_by === "live-monitor" && r.resolved && (r.status === "missed" || r.status === "late")) {
+        // Live-monitor observed but not yet logged in Zoho — show as Handled
+        effStatus = "handled";
       } else if (r.resolved_with_match) {
         effStatus = "handled";
       } else if (r._bucket && r.status !== "completed_via_workflow") {
