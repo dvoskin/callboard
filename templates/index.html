@@ -4843,20 +4843,37 @@
       // Resolved manually (no matching call found) — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
         const tipParts = [];
-        if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+        if (r.resolved_by === "live-monitor") {
+          tipParts.push("Detected via live call monitor");
+          if (r.actual_call_time) tipParts.push(`Call observed: ${fmt(r.actual_call_time)}`);
+          if (r.caller) tipParts.push(`Agent: ${r.caller}`);
+          if (r.scheduled_time) tipParts.push(`Scheduled: ${fmt(r.scheduled_time)}`);
+        } else {
+          if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+        }
         if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
         if (r.note) tipParts.push(`Note: ${r.note}`);
         const tip = tipParts.length ? tipParts.join(' · ') : '';
-        const sub = r.resolved_by ? ` <span class="result-sub">by ${r.resolved_by}</span>` : "";
+        const sub = r.resolved_by === "live-monitor"
+          ? ` <span class="result-sub">via monitor</span>`
+          : (r.resolved_by ? ` <span class="result-sub">by ${r.resolved_by}</span>` : "");
         result = `<span class="result-tag r-resolved"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>Resolved manually${sub}</span>`;
       // Resolved WITH a matched call — show call data with a "resolved" note
       } else if (r.resolved_with_match && liveOffset !== null) {
         const tipParts = [];
-        if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+        if (r.resolved_by === "live-monitor") {
+          tipParts.push("Detected via live call monitor");
+          if (r.actual_call_time) tipParts.push(`Call observed: ${fmt(r.actual_call_time)}`);
+          if (r.caller) tipParts.push(`Agent: ${r.caller}`);
+        } else {
+          if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+        }
         if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
         if (r.note) tipParts.push(`Note: ${r.note}`);
         const tip = tipParts.length ? tipParts.join(' · ') : '';
-        const sub = r.resolved_by ? ` · by ${r.resolved_by}` : "";
+        const sub = r.resolved_by === "live-monitor"
+          ? ` · via monitor`
+          : (r.resolved_by ? ` · by ${r.resolved_by}` : "");
         result = `<span class="result-tag r-on-time"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>${sign(liveOffset)}${liveOffset} min <span class="result-sub">resolved ✓${sub}</span></span>`;
       } else {
       // Anomaly detection: |offset| > 60 min
@@ -4867,7 +4884,11 @@
       r._isAnomaly = isAnomaly;
 
       if (bucket === "on_time" && liveOffset !== null) {
-        const obsNote = r._observedOnTime ? ` <span class="result-sub">observed</span>` : "";
+        let obsNote = "";
+        if (r._observedOnTime) {
+          const obsTip = `Detected via live monitor at ${fmt(r.actual_call_time)}${r.caller ? ' · Agent: ' + r.caller : ''}`;
+          obsNote = ` <span class="result-sub" title="${obsTip.replace(/"/g,'&quot;')}" style="cursor:help">observed</span>`;
+        }
         result = `<span class="result-tag r-on-time">${anomalyPrefix}${sign(liveOffset)}${liveOffset} min${obsNote}</span>`;
       } else if (bucket === "early" && liveOffset !== null) {
         result = `<span class="result-tag r-early">${anomalyPrefix}${Math.abs(liveOffset)} min early</span>`;
