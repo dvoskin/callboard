@@ -3921,7 +3921,7 @@
       // Use pure-diff to determine on_time (matches Result column logic)
       if (r.scheduled_time && r.actual_call_time) {
         const diff = (new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000;
-        if (diff >= -10 && diff <= 10) s.on_time++;
+        if (diff >= -15 && diff <= 15) s.on_time++;
       } else if (r.status === "completed" && r.on_time) s.on_time++;
     });
     const arr = Object.values(stats)
@@ -4006,7 +4006,7 @@
       const obs = getObservation(r.id);
       if (!obs || !r.scheduled_time) return;
       const obsOffset = (new Date(obs.time) - new Date(r.scheduled_time)) / 60000;
-      if (Math.abs(obsOffset) <= 10) {
+      if (Math.abs(obsOffset) <= 15) {
         r.actual_call_time = obs.time;
         r.status = "completed";
         r.on_time = true;
@@ -4041,8 +4041,8 @@
     sc.records.forEach(r => {
       if (!r.scheduled_time || !r.actual_call_time) return;
       const diff = (new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000;
-      if (diff < -10)      csEarly++;
-      else if (diff > 10)  csLateCall++;
+      if (diff < -15)      csEarly++;
+      else if (diff > 15)  csLateCall++;
       else                 csOnTime++;
     });
     // Patch the summary object so every downstream consumer sees correct counts
@@ -4838,7 +4838,7 @@
         const obsTime = new Date(obs.time);
         const schedTime = new Date(r.scheduled_time);
         const obsOffset = (obsTime - schedTime) / 60000; // minutes
-        if (Math.abs(obsOffset) <= 10) {
+        if (Math.abs(obsOffset) <= 15) {
           r.actual_call_time = obs.time;
           r.status = "completed";
           r.on_time = true;
@@ -4857,8 +4857,8 @@
       // Recompute the bucket from the pure diff so Status badge and Result always agree.
       let bucket = r.status;
       if (liveOffset !== null) {
-        if (liveOffset < -10) bucket = "early";
-        else if (liveOffset > 10) bucket = "late_call";
+        if (liveOffset < -15) bucket = "early";
+        else if (liveOffset > 15) bucket = "late_call";
         else bucket = "on_time";
       }
       r._bucket = bucket;
@@ -5561,7 +5561,7 @@
       const rec = allRecs.find(r => r.id === recId);
       if (!rec || !rec.scheduled_time || rec.resolved_with_match) continue;
       const offset = (new Date(obs.time) - new Date(rec.scheduled_time)) / 60000;
-      if (Math.abs(offset) <= 10) {
+      if (Math.abs(offset) <= 15) {
         fetch(`/api/scheduled-call/${recId}/resolve`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -5598,7 +5598,7 @@
              || (_upcomingCalls || []).find(r => r.id === recId);
     if (rec && rec.scheduled_time) {
       const offset = (new Date(obsTime) - new Date(rec.scheduled_time)) / 60000;
-      if (Math.abs(offset) <= 10) {
+      if (Math.abs(offset) <= 15) {
         fetch(`/api/scheduled-call/${recId}/resolve`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},

@@ -142,7 +142,7 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
                 r["recording_url"] = matched["recording_url"]
             r["status"] = "completed"
             r["on_time"] = (matched.get("offset_minutes") is not None
-                            and abs(matched["offset_minutes"]) <= 10)
+                            and abs(matched["offset_minutes"]) <= 15)
             r["resolved_with_match"] = True
         elif r.get("actual_call_time"):
             # A call appeared in the system after manual resolution — upgrade it
@@ -150,7 +150,7 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
             r["status"] = "completed"
             # Build match data from the refresh-provided fields
             offset = r.get("offset_minutes")
-            r["on_time"] = offset is not None and abs(offset) <= 10
+            r["on_time"] = offset is not None and abs(offset) <= 15
             newly_matched[rid] = {
                 "actual_call_time": r["actual_call_time"],
                 "disposition": r.get("disposition"),

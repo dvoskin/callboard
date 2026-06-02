@@ -11,11 +11,11 @@ load_dotenv()
 NEW_DEAL_WINDOW_MINUTES = 5
 NEW_DEAL_LOOKBACK_HOURS = 48
 # Timing thresholds for scheduled call classification:
-#   < -EARLY_BEFORE_MIN  → "early"           (more than 10 min before scheduled)
-#   -EARLY_BEFORE_MIN to +ON_TIME_AFTER_MIN  → "completed" on_time=True  (-10 to +10 min)
-#   > +ON_TIME_AFTER_MIN → "completed" on_time=False  (late, > 10 min after)
-EARLY_BEFORE_MIN     = int(os.getenv("EARLY_BEFORE_MIN", "10"))
-ON_TIME_AFTER_MIN    = int(os.getenv("ON_TIME_AFTER_MIN", "10"))
+#   < -EARLY_BEFORE_MIN  → "early"           (more than 15 min before scheduled)
+#   -EARLY_BEFORE_MIN to +ON_TIME_AFTER_MIN  → "completed" on_time=True  (-15 to +15 min)
+#   > +ON_TIME_AFTER_MIN → "completed" on_time=False  (late, > 15 min after)
+EARLY_BEFORE_MIN     = int(os.getenv("EARLY_BEFORE_MIN", "15"))
+ON_TIME_AFTER_MIN    = int(os.getenv("ON_TIME_AFTER_MIN", "15"))
 # Earliest hour (local time) at which dialing begins. Calls scheduled before
 # this hour are treated as if they were scheduled at this hour for classification.
 DIAL_START_HOUR      = int(os.getenv("DIAL_START_HOUR", "9"))
