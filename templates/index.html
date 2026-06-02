@@ -3717,7 +3717,7 @@
       `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
         <div class="kpi-lbl">On-Time Rate</div>
         <div class="kpi-val">${s.on_time_rate ?? 0}<span style="font-size:22px">%</span></div>
-        <div class="kpi-sub"><strong>${s.on_time + (s.early||0)}</strong> on time or early</div>
+        <div class="kpi-sub"><strong>${s.on_time}</strong> on time${s.early ? ` · <strong>${s.early}</strong> early` : ""}</div>
         <div class="kpi-context"><span class="kpi-target">target 70%</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline(s.on_time_rate>=70?"var(--green)":s.on_time_rate>=40?"var(--orange)":"var(--red)", null)}
       </div>`,
