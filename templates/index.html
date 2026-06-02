@@ -4860,21 +4860,27 @@
         result = `<span class="result-tag r-resolved"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>Resolved manually${sub}</span>`;
       // Resolved WITH a matched call — show call data with a "resolved" note
       } else if (r.resolved_with_match && liveOffset !== null) {
-        const tipParts = [];
-        if (r.resolved_by === "live-monitor") {
-          tipParts.push("Detected via live call monitor");
-          if (r.actual_call_time) tipParts.push(`Call observed: ${fmt(r.actual_call_time)}`);
-          if (r.caller) tipParts.push(`Agent: ${r.caller}`);
+        // If live-monitor observation was later confirmed by a Zoho-logged call, show as normal On Time
+        if (r.resolved_by === "live-monitor" && r.logged_via) {
+          const obsNote = ` <span class="result-sub" title="Originally detected via live monitor" style="cursor:help">confirmed</span>`;
+          result = `<span class="result-tag r-on-time">${sign(liveOffset)}${liveOffset} min${obsNote}</span>`;
         } else {
-          if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+          const tipParts = [];
+          if (r.resolved_by === "live-monitor") {
+            tipParts.push("Detected via live call monitor");
+            if (r.actual_call_time) tipParts.push(`Call observed: ${fmt(r.actual_call_time)}`);
+            if (r.caller) tipParts.push(`Agent: ${r.caller}`);
+          } else {
+            if (r.resolved_by) tipParts.push(`Resolved by: ${r.resolved_by}`);
+          }
+          if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
+          if (r.note) tipParts.push(`Note: ${r.note}`);
+          const tip = tipParts.length ? tipParts.join(' · ') : '';
+          const sub = r.resolved_by === "live-monitor"
+            ? ` · via monitor`
+            : (r.resolved_by ? ` · by ${r.resolved_by}` : "");
+          result = `<span class="result-tag r-on-time"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>${sign(liveOffset)}${liveOffset} min <span class="result-sub">resolved ✓${sub}</span></span>`;
         }
-        if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
-        if (r.note) tipParts.push(`Note: ${r.note}`);
-        const tip = tipParts.length ? tipParts.join(' · ') : '';
-        const sub = r.resolved_by === "live-monitor"
-          ? ` · via monitor`
-          : (r.resolved_by ? ` · by ${r.resolved_by}` : "");
-        result = `<span class="result-tag r-on-time"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>${sign(liveOffset)}${liveOffset} min <span class="result-sub">resolved ✓${sub}</span></span>`;
       } else {
       // Anomaly detection: |offset| > 60 min
       const isAnomaly = liveOffset !== null && Math.abs(liveOffset) > 60;
@@ -4974,7 +4980,12 @@
       // For special completed buckets (deal/workflow), keep the backend status.
       let effStatus = r.status;
       let effOnTime = r.on_time;
-      if (r.resolved_with_match) {
+      if (r.resolved_with_match && r.resolved_by === "live-monitor" && r.logged_via) {
+        // Live-monitor observation upgraded by a real Zoho-logged call — show actual status
+        if (r._bucket === "early")          { effStatus = "early";     effOnTime = false; }
+        else if (r._bucket === "late_call") { effStatus = "completed"; effOnTime = false; }
+        else                                { effStatus = "completed"; effOnTime = true;  }
+      } else if (r.resolved_with_match) {
         effStatus = "handled";
       } else if (r._bucket && r.status !== "completed_via_workflow") {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
@@ -5013,11 +5024,11 @@
       if (r.note && r.resolved) {
         trailingIcons += ` <span class="observed-badge" title="${r.note.replace(/"/g,'&quot;')}">📝</span>`;
       }
-      if (obs && !r._liveCall) {
+      if (obs && !r._liveCall && !r._observedOnTime) {
         const obsSrc = obs.source === "ringcx" ? "RingCX" : obs.source === "ringex" ? "RingEX" : "live monitor";
         const obsTime = new Date(obs.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
         const obsAgent = obs.agent ? ` by ${obs.agent}` : "";
-        trailingIcons += ` <span class="observed-badge" title="Call observed via ${obsSrc} at ${obsTime}${obsAgent} — may not be reflected in logged data">👁</span>`;
+        trailingIcons += ` <span class="floor-badge" title="Call observed via ${obsSrc} at ${obsTime}${obsAgent}">ⓘ</span>`;
       }
       return `<tr class="${cls}"${rowBg}>
         <td class="col-name">${nameCell(r, "Contacts", trailingIcons)}</td>
