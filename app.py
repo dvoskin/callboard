@@ -124,6 +124,7 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
         r["note"] = entry.get("note", "")
         r["resolved_by"] = entry.get("resolved_by", "")
         r["assigned_to"] = entry.get("assigned_to", "")
+        r["distributed"] = entry.get("distributed", False)
         if not r["resolved"]:
             continue
         # Overlay matched call data if this record was resolved with a call match
@@ -531,6 +532,21 @@ def save_assigned_to(rec_id):
         data[rec_id]["assigned_to"] = name
         _save_resolved(data)
     return jsonify({"status": "ok", "id": rec_id, "assigned_to": name})
+
+
+@app.route("/api/scheduled-call/<rec_id>/distributed", methods=["POST"])
+@login_required
+def save_distributed(rec_id):
+    """Toggle the manually-distributed flag for a scheduled call."""
+    body = request.get_json(silent=True) or {}
+    distributed = bool(body.get("distributed", False))
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        if rec_id not in data:
+            data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
+        data[rec_id]["distributed"] = distributed
+        _save_resolved(data)
+    return jsonify({"status": "ok", "id": rec_id, "distributed": distributed})
 
 
 @app.route("/api/refresh", methods=["POST"])

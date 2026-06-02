@@ -448,6 +448,17 @@
     }
     .lang-en { background: rgba(37,99,235,.10); color: var(--blue-dk); }
     .lang-es { background: rgba(245,158,11,.12); color: var(--orange-dk); }
+    .dist-btn {
+      background: none; border: 1px solid var(--border); border-radius: 4px;
+      width: 22px; height: 22px; display: inline-flex; align-items: center;
+      justify-content: center; cursor: pointer; font-size: 11px;
+      color: var(--tertiary); transition: all .15s; padding: 0;
+    }
+    .dist-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(37,99,235,.04); }
+    .dist-btn.is-distributed {
+      background: rgba(37,99,235,.10); border-color: var(--blue);
+      color: var(--blue); font-weight: 700;
+    }
     .last-min-badge {
       display: inline-flex; align-items: center;
       font-size: 10px; cursor: help; vertical-align: middle;
@@ -1861,7 +1872,7 @@
       /* ── Table: Contact, Scheduled, Status only ── */
       .col-phone, .col-actual, .col-lastdial, .col-source,
       .col-result, .col-stage, .col-dials, .col-disp,
-      .col-flag, .col-rec { display: none !important; }
+      .col-dist, .col-flag, .col-rec { display: none !important; }
       .expand-btn { display: none !important; }
       .flag-btn { display: none !important; }
       .summary-btn { display: none !important; }
@@ -3147,6 +3158,7 @@
                   <th class="sortable col-stage" onclick="sortSc('deal_stage')">Deal Stage</th>
                   <th class="sortable col-dials" onclick="sortSc('dial_attempts')">Dials</th>
                   <th class="sortable col-disp" onclick="sortSc('disposition')">Disposition</th>
+                  <th class="col-dist" style="width:36px" title="Manually distributed">✋</th>
                   <th class="col-flag" style="width:36px"></th>
                   <th class="col-rec">Recording</th>
                 </tr>
@@ -4442,6 +4454,7 @@
     { key: "stage",      label: "Deal Stage",       default: true  },
     { key: "dials",      label: "Dials",            default: true  },
     { key: "disp",       label: "Disposition",      default: true  },
+    { key: "dist",       label: "Distributed",      default: true  },
     { key: "rec",        label: "Recording",        default: true  },
   ];
   function _colIsVisible(c) {
@@ -4729,6 +4742,21 @@
     localStorage.setItem("sc_flagged_ids", JSON.stringify([..._flaggedIds]));
     _updateFlagChip();
   }
+  function toggleDistributed(recId, btn) {
+    const isNow = !btn.classList.contains("is-distributed");
+    btn.classList.toggle("is-distributed", isNow);
+    btn.title = isNow ? "Manually distributed ✓" : "Mark as manually distributed";
+    fetch(`/api/scheduled-call/${recId}/distributed`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ distributed: isNow }),
+    }).catch(() => {});
+    // Update local record so re-renders keep state
+    const rec = (_scActivityRecords || []).find(r => r.id === recId)
+             || (_scOverdueRecords || []).find(r => r.id === recId);
+    if (rec) rec.distributed = isNow;
+  }
+
   function _updateFlagChip() {
     const chip = document.getElementById("sc-flagged-chip");
     const n = _flaggedIds.size;
@@ -4787,7 +4815,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="13" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="14" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -5042,6 +5070,7 @@
         <td class="col-stage">${stageCell}</td>
         <td style="text-align:center" class="col-dials">${dialsCell}</td>
         <td class="col-disp">${dispCell}</td>
+        <td style="text-align:center" class="col-dist"><button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? 'Manually distributed ✓' : 'Mark as manually distributed'}">✋</button></td>
         <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
       </tr>`;
@@ -5070,7 +5099,7 @@
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row" data-group="${gName}" onclick="toggleGroup(this)">
-          <td colspan="13"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+          <td colspan="14"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
         trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML; });
       }
       tbody.innerHTML = gbHtml;
