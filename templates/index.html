@@ -4860,6 +4860,13 @@
       if (r.scheduled_time) {
         const schedMs = new Date(r.scheduled_time).getTime();
         const candidates = [r.actual_call_time, r.last_attempt_time];
+        // Include individual attempt times
+        if (r.recent_attempts) {
+          for (const a of r.recent_attempts) {
+            if (a.time) candidates.push(a.time);
+          }
+        }
+        // Include observation
         const obsLocal = r.id ? getObservation(r.id) : null;
         if (obsLocal && obsLocal.time) candidates.push(obsLocal.time);
         let bestDist = Infinity;

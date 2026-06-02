@@ -439,16 +439,17 @@ class ZohoClient:
             if all_with_time else None
         )
 
-        # ── Find the RingCX call closest to scheduled time ─────────────
-        # This is the single source of truth for actual_call_time.
-        # No arbitrary time-window cap — same_local_date already scopes
-        # to the correct calendar day.
-        closest_ringcx = (
-            min(all_dialed, key=mins_from_schedule) if all_dialed else None
+        # ── Find the call closest to scheduled time ─────────────────────
+        # Consider ALL calls (RingCX + MVP) and pick the one closest to
+        # the scheduled time. This is the single source of truth for
+        # actual_call_time and timing classification.
+        all_calls_today = all_dialed + mvp_calls
+        closest_call = (
+            min(all_calls_today, key=mins_from_schedule) if all_calls_today else None
         )
 
-        if closest_ringcx:
-            call_dt = self._parse_dt(closest_ringcx.get("Call_Start_Time"))
+        if closest_call:
+            call_dt = self._parse_dt(closest_call.get("Call_Start_Time"))
             offset_min = (
                 (call_dt - effective_scheduled).total_seconds() / 60
                 if call_dt else None
@@ -456,19 +457,21 @@ class ZohoClient:
             is_early = offset_min is not None and offset_min < -EARLY_BEFORE_MIN
             on_time  = (offset_min is not None
                         and -EARLY_BEFORE_MIN <= offset_min <= ON_TIME_AFTER_MIN)
+            is_mvp = not closest_call.get("Outgoing_call_disposition")
             return {
                 "status": "early" if is_early else "completed",
                 "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
-                "actual_call_time": closest_ringcx.get("Call_Start_Time"),
+                "actual_call_time": closest_call.get("Call_Start_Time"),
                 "offset_minutes": round(offset_min, 1) if offset_min is not None else None,
                 "on_time": on_time,
                 "dial_attempts": dial_attempts,
-                "disposition": closest_ringcx.get("Outgoing_call_disposition"),
-                "caller": self._caller_name(closest_ringcx),
+                "disposition": closest_call.get("Outgoing_call_disposition"),
+                "caller": self._caller_name(closest_call),
                 "recording_url": self._extract_recording_url(
-                    closest_ringcx.get("Description") or ""
+                    closest_call.get("Description") or ""
                 ),
-                "logged_via": "ringcx",
+                "logged_via": "mvp" if is_mvp else "ringcx",
+                "mvp_only": is_mvp,
                 "last_attempt_time": (last_attempt.get("Call_Start_Time")
                                       if last_attempt else None),
             }
