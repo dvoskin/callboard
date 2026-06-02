@@ -913,7 +913,7 @@ class ZohoClient:
                 "via_deal": len(deal_moved),  # count for display, not a status
                 "via_workflow": len(via_workflow),
                 "missed": len(missed),
-                "on_time_rate": round(len(on_time) / len(called) * 100) if called else None,
+                "on_time_rate": round((len(on_time) + len(early)) / len(called) * 100) if called else None,
                 "completion_rate": round(len(called) / len(results) * 100) if results else None,
             }
             if mode == "new":

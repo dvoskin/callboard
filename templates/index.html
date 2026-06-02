@@ -3717,7 +3717,7 @@
       `<div class="kpi-card ${s.on_time_rate>=70?"green":s.on_time_rate>=40?"orange":"red"}">
         <div class="kpi-lbl">On-Time Rate</div>
         <div class="kpi-val">${s.on_time_rate ?? 0}<span style="font-size:22px">%</span></div>
-        <div class="kpi-sub"><strong>${s.on_time}</strong> within ±10 min</div>
+        <div class="kpi-sub"><strong>${s.on_time + (s.early||0)}</strong> on time or early</div>
         <div class="kpi-context"><span class="kpi-target">target 70%</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline(s.on_time_rate>=70?"var(--green)":s.on_time_rate>=40?"var(--orange)":"var(--red)", null)}
       </div>`,
@@ -3850,7 +3850,6 @@
     const effortParts = [];
     effortParts.push(`Avg <strong>${avgDials}</strong> dials per completed call`);
     if (s.on_time_rate > 0) effortParts.push(`<span class="${s.on_time_rate>=70?"good":"warn"}">${s.on_time_rate}% on-time rate</span>`);
-    if (s.early > 0) effortParts.push(`<span class="info">${s.early} early call${s.early>1?"s":""}</span>`);
     cards.push(`<div class="ai-insight-card full">
       <div class="ai-insight-label">Effort & Efficiency</div>
       <div class="ai-insight-val">${effortParts.join(" · ")}</div>
@@ -4055,7 +4054,7 @@
     s.on_time = csOnTime;
     s.early   = csEarly;
     const csCompleted = s.completed;  // backend completed count is still authoritative
-    s.on_time_rate = csCompleted > 0 ? Math.round(csOnTime / csCompleted * 100) : 0;
+    s.on_time_rate = csCompleted > 0 ? Math.round((csOnTime + csEarly) / csCompleted * 100) : 0;
 
     // Manager-focused rollups — only count UNRESOLVED overdue as "needs attention"
     const unresolvedOverdue = overdue.filter(r => !r.resolved);
