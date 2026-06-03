@@ -3231,6 +3231,7 @@
 
 <script>
   const REFRESH_INTERVAL = {{ refresh_interval }} * 1000;
+  const CURRENT_USER_NAME = {{ (current_user.name or '')|tojson }};
   const ZOHO_ORG = "goalsplasticsurgery";
   const OVERDUE_MIN = 0;
 
@@ -4804,17 +4805,21 @@
   }
   function toggleDistributed(recId, btn) {
     const isNow = !btn.classList.contains("is-distributed");
+    const userName = CURRENT_USER_NAME || "Unknown";
     btn.classList.toggle("is-distributed", isNow);
-    btn.title = isNow ? "Manually distributed ✓" : "Mark as manually distributed";
+    btn.title = isNow ? `Distributed by ${userName}` : "Mark as manually distributed";
     fetch(`/api/scheduled-call/${recId}/distributed`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ distributed: isNow }),
+      body: JSON.stringify({ distributed: isNow, distributed_by: userName }),
     }).catch(() => {});
     // Update local record so re-renders keep state
     const rec = (_scActivityRecords || []).find(r => r.id === recId)
              || (_scOverdueRecords || []).find(r => r.id === recId);
-    if (rec) rec.distributed = isNow;
+    if (rec) {
+      rec.distributed = isNow;
+      rec.distributed_by = isNow ? userName : "";
+    }
   }
 
   function _updateFlagChip() {
@@ -5174,7 +5179,7 @@
         <td class="col-stage">${stageCell}</td>
         <td style="text-align:center" class="col-dials">${dialsCell}</td>
         <td class="col-disp">${dispCell}</td>
-        <td style="text-align:center" class="col-dist"><button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? 'Manually distributed ✓' : 'Mark as manually distributed'}">✋</button></td>
+        <td style="text-align:center" class="col-dist"><button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? `Distributed by ${r.distributed_by || 'unknown'}` : 'Mark as manually distributed'}">✋</button></td>
         <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
       </tr>`;

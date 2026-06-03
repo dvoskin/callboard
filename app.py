@@ -125,6 +125,7 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
         r["resolved_by"] = entry.get("resolved_by", "")
         r["assigned_to"] = entry.get("assigned_to", "")
         r["distributed"] = entry.get("distributed", False)
+        r["distributed_by"] = entry.get("distributed_by", "")
         if not r["resolved"]:
             continue
         # Overlay matched call data if this record was resolved with a call match
@@ -376,7 +377,8 @@ def logout():
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html", refresh_interval=REFRESH_INTERVAL_SECONDS)
+    user = session.get("user") or {}
+    return render_template("index.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
 
 
 def _parse_local_date_to_utc(
@@ -540,11 +542,16 @@ def save_distributed(rec_id):
     """Toggle the manually-distributed flag for a scheduled call."""
     body = request.get_json(silent=True) or {}
     distributed = bool(body.get("distributed", False))
+    distributed_by = (body.get("distributed_by") or "").strip()
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
         if rec_id not in data:
             data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
         data[rec_id]["distributed"] = distributed
+        if distributed and distributed_by:
+            data[rec_id]["distributed_by"] = distributed_by
+        elif not distributed:
+            data[rec_id].pop("distributed_by", None)
         _save_resolved(data)
     return jsonify({"status": "ok", "id": rec_id, "distributed": distributed})
 
