@@ -338,6 +338,12 @@
     tr.row-early     td:first-child  { box-shadow: inset 2.5px 0 0 var(--teal);   }
     tr.row-via-deal     td:first-child  { box-shadow: inset 2.5px 0 0 var(--purple); }
     tr.row-via-workflow td:first-child  { box-shadow: inset 2.5px 0 0 var(--teal);   }
+    tr.row-converted {
+      background: rgba(16,185,129,.04);
+    }
+    tr.row-converted td:last-child::after {
+      content: ""; display: none;
+    }
     tr.row-imminent {
       background: rgba(37,99,235,.03);
     }
@@ -3385,6 +3391,15 @@
     return "neutral";
   }
 
+  // Deals that have advanced to a converted/won stage
+  function _isConvertedStage(stage) {
+    if (!stage) return false;
+    const s = stage.toLowerCase();
+    return s.includes("quote sent") || s.includes("retainer sent")
+        || s.includes("payment received") || s.includes("payment recieved")
+        || s.includes("closed won") || s.includes("surgery scheduled");
+  }
+
   function statusBadge(status, onTime) {
     const map = {
       completed:          onTime ? ["✓ On Time","badge-green"] : ["✓ Late","badge-orange"],
@@ -4216,7 +4231,8 @@
       const odLastMin = r.last_minute
         ? ` <span class="last-min-badge" title="Last-minute: created less than 15 min before scheduled time">⚡</span>`
         : "";
-      return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}">
+      const odConverted = r.deal_stage && _isConvertedStage(r.deal_stage);
+      return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}${odConverted?" row-converted":""}">
         <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
         <td>${nameCell(r, "Contacts", odLangTag + odLastMin)}</td>
         <td class="phone-cell">${r.phone || '<span class="no-data">—</span>'}</td>
@@ -5068,13 +5084,16 @@
       const isImminent = r.status === "upcoming" && r.scheduled_time
         && ((new Date(r.scheduled_time).getTime() - Date.now()) / 60000) <= 7
         && ((new Date(r.scheduled_time).getTime() - Date.now()) / 60000) > 0;
-      const cls = (isImminent                              ? "row-imminent"
+      // Check if deal has converted (advanced stage)
+      const isConverted = r.deal_stage && _isConvertedStage(r.deal_stage);
+      let cls = (isImminent                              ? "row-imminent"
                 : r.status==="completed"                   ? "row-completed"
                 : r.status==="early"                       ? "row-early"
                 : r.status==="completed_via_workflow"       ? "row-via-workflow"
                 : r.status==="pending"                     ? "row-pending"
                 : r.status==="missed"                      ? "row-missed"
                 : r.status==="late"                        ? "row-late" : "");
+      if (isConverted) cls += " row-converted";
       const effectiveActual = r.actual_call_time || r.last_attempt_time;
       const actualCell = effectiveActual
         ? `<span class="ts-cell ts-actual">${fmt(effectiveActual)}</span>`
