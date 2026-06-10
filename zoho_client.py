@@ -594,6 +594,61 @@ class ZohoClient:
         "Retainer Invoice Sent",
     }
 
+    PIPELINE_STAGES = [
+        "Quote Sent",
+        "Retainer Invoice Sent",
+        "Payment Received",
+    ]
+
+    def get_pipeline_counts(self) -> dict:
+        """Returns {stage: [{owner, count}]} for deals at each pipeline stage modified today."""
+        log = logging.getLogger(__name__)
+        local_tz = timezone(timedelta(hours=TZ_OFFSET_HOURS))
+        now_local = datetime.now(local_tz)
+        today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        lookback = today_start.strftime("%Y-%m-%dT%H:%M:%S%z")
+        lookback = lookback[:-2] + ":" + lookback[-2:]
+
+        result = {}
+        for stage in self.PIPELINE_STAGES:
+            criteria = f"((Stage:equals:{stage})and(Modified_Time:greater_equal:{lookback}))"
+            all_deals, page = [], 1
+            while True:
+                resp = requests.get(
+                    f"{self.base_url}/crm/v6/Deals/search",
+                    headers=self._headers(),
+                    params={
+                        "criteria": criteria,
+                        "fields": "id,Deal_Name,Owner",
+                        "per_page": 200,
+                        "page": page,
+                    },
+                    timeout=20,
+                )
+                if resp.status_code == 204 or not resp.ok:
+                    break
+                data = resp.json()
+                all_deals.extend(data.get("data", []))
+                if not data.get("info", {}).get("more_records"):
+                    break
+                page += 1
+
+            by_owner = {}
+            for d in all_deals:
+                owner_info = d.get("Owner") or {}
+                if isinstance(owner_info, dict):
+                    owner = owner_info.get("name") or "Unassigned"
+                else:
+                    owner = str(owner_info) if owner_info else "Unassigned"
+                by_owner[owner] = by_owner.get(owner, 0) + 1
+            sorted_owners = sorted(by_owner.items(), key=lambda x: -x[1])
+            result[stage] = {
+                "total": len(all_deals),
+                "by_agent": [{"name": n, "count": c} for n, c in sorted_owners],
+            }
+            log.info("Pipeline stage '%s': %d deals", stage, len(all_deals))
+        return result
+
     # Stages where the deal owner's name should be surfaced on the record
     OWNER_VISIBLE_STAGES = {
         "Quote Sent",

@@ -877,6 +877,20 @@ def zoho_schedule_call():
         return jsonify({"error": str(e)}), 500
 
 
+# ------------------------------------------------------------------ Pipeline stage counts
+
+@app.route("/api/pipeline")
+@login_required
+def api_pipeline():
+    """Deal pipeline stage counts for today, broken down by owner."""
+    try:
+        counts = _zoho.get_pipeline_counts()
+        return jsonify(counts)
+    except Exception as e:
+        log.exception("Pipeline counts error")
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------------------------------------------------------ RingCX live monitoring
 
 @app.route("/api/ringcx/status")

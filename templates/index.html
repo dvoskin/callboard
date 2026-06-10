@@ -1004,6 +1004,68 @@
       50% { opacity: .6; }
     }
 
+    /* ══════════════ PIPELINE COUNTER TILES ══════════════ */
+    .pipeline-tiles {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .pipe-tile {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px 12px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+      transition: transform .12s, box-shadow .12s;
+    }
+    .pipe-tile:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+    .pipe-tile::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    }
+    .pipe-tile.pt-green::before  { background: var(--green); }
+    .pipe-tile.pt-blue::before   { background: var(--blue); }
+    .pipe-tile.pt-purple::before { background: var(--purple); }
+    .pipe-tile.pt-teal::before   { background: var(--teal); }
+    .pipe-tile .pt-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .pipe-tile .pt-lbl {
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--secondary);
+    }
+    .pipe-tile .pt-total {
+      font-size: 22px; font-weight: 800; letter-spacing: -.5px;
+    }
+    .pipe-tile.pt-green .pt-total  { color: var(--green-dk); }
+    .pipe-tile.pt-blue .pt-total   { color: var(--blue-dk); }
+    .pipe-tile.pt-purple .pt-total { color: var(--purple-dk); }
+    .pipe-tile.pt-teal .pt-total   { color: var(--teal-dk); }
+    .pipe-tile .pt-agents {
+      display: flex; flex-direction: column; gap: 3px;
+      margin-top: 6px;
+    }
+    .pipe-tile .pt-agent-row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; color: var(--secondary);
+      padding: 2px 0;
+      border-bottom: 1px solid var(--sep);
+    }
+    .pipe-tile .pt-agent-row:last-child { border-bottom: none; }
+    .pipe-tile .pt-agent-name {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 70%; font-weight: 500;
+    }
+    .pipe-tile .pt-agent-count {
+      font-weight: 700; color: var(--text); font-size: 13px;
+    }
+    .pipe-tile .pt-empty {
+      font-size: 11px; color: var(--tertiary); font-style: italic; margin-top: 4px;
+    }
+
     /* ══════════════ LIVE MONITOR PANEL ══════════════ */
     .live-panel {
       background: var(--surface);
@@ -1788,6 +1850,7 @@
       .col-lastdial, .col-source, .col-rec { display: none !important; }
       main { padding: 20px 18px 36px; }
       .hero-grid { grid-template-columns: repeat(2, 1fr); }
+      .pipeline-tiles { grid-template-columns: repeat(2, 1fr); }
       th { padding: 10px 10px; }
       td { padding: 10px 10px; max-width: 240px; }
       .name-cell { max-width: 200px; }
@@ -1813,6 +1876,11 @@
 
       /* ── KPI cards: hide sparklines & context ── */
       .hero-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+      .pipeline-tiles { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+      .pipe-tile { padding: 10px 12px 8px; }
+      .pipe-tile .pt-total { font-size: 18px; }
+      .pipe-tile .pt-lbl { font-size: 9.5px; }
+      .pipe-tile .pt-agent-row { font-size: 11px; }
       .kpi-card { padding: 12px 13px 10px; }
       .kpi-card .kpi-lbl { font-size: 10px; }
       .kpi-card .kpi-val { font-size: 26px; }
@@ -3007,6 +3075,9 @@
   <!-- ══════════════════════ HERO KPI CARDS ══════════════════════ -->
   <div class="hero-grid" id="hero-grid"></div>
 
+  <!-- ══════════════════════ PIPELINE COUNTER TILES ══════════════════════ -->
+  <div class="pipeline-tiles" id="pipeline-tiles"></div>
+
   <!-- ══════════════════════ AI INSIGHTS BANNER ══════════════════════ -->
   <div class="ai-banner" id="ai-banner">
     <div class="ai-banner-header" onclick="toggleAiBanner()">
@@ -3793,6 +3864,68 @@
     }
   }
 
+  // ─── Pipeline counter tiles ───
+  let _pipelineData = null;
+
+  function fetchPipelineCounts() {
+    fetch("/api/pipeline").then(r => r.ok ? r.json() : null).then(data => {
+      if (!data || data.error) return;
+      _pipelineData = data;
+      renderPipelineTiles(_lastScRecords || []);
+    }).catch(() => {});
+  }
+
+  let _lastScRecords = [];
+
+  function renderPipelineTiles(records) {
+    _lastScRecords = records;
+    const filtered = filterBySelectedAgents(records);
+    const el = document.getElementById("pipeline-tiles");
+
+    // "Calls Completed" from scheduled call records
+    const completedHits = filtered.filter(r => r.status === "completed" || r.status === "early");
+    const completedByAgent = {};
+    completedHits.forEach(r => {
+      const agent = r.caller || r.deal_owner || "Unassigned";
+      completedByAgent[agent] = (completedByAgent[agent] || 0) + 1;
+    });
+    const completedSorted = Object.entries(completedByAgent).sort((a,b) => b[1] - a[1]);
+
+    function buildTile(label, color, total, agentList) {
+      const agentRows = agentList.length > 0
+        ? agentList.map(([name, count]) =>
+            `<div class="pt-agent-row"><span class="pt-agent-name">${name}</span><span class="pt-agent-count">${count}</span></div>`
+          ).join("")
+        : `<div class="pt-empty">None today</div>`;
+      return `<div class="pipe-tile ${color}">
+        <div class="pt-header"><span class="pt-lbl">${label}</span></div>
+        <div class="pt-total">${total}</div>
+        <div class="pt-agents">${agentRows}</div>
+      </div>`;
+    }
+
+    // Deal-stage tiles from API
+    const stageMap = [
+      { apiKey: "Quote Sent",                   label: "Quotes Sent Today",       color: "pt-blue" },
+      { apiKey: "Retainer Invoice Sent",        label: "Quotes Signed Today",     color: "pt-purple" },
+      { apiKey: "Payment Received",             label: "Retainers Paid Today",    color: "pt-teal" },
+    ];
+
+    const tiles = [buildTile("Calls Completed", "pt-green", completedHits.length, completedSorted)];
+
+    stageMap.forEach(s => {
+      const d = _pipelineData && _pipelineData[s.apiKey];
+      if (d) {
+        const agents = d.by_agent.map(a => [a.name, a.count]);
+        tiles.push(buildTile(s.label, s.color, d.total, agents));
+      } else {
+        tiles.push(buildTile(s.label, s.color, "—", []));
+      }
+    });
+
+    el.innerHTML = tiles.join("");
+  }
+
   // ─── AI insights banner ───
   let _aiBannerOpen = false;
   function toggleAiBanner() {
@@ -4115,6 +4248,7 @@
     // Manager-focused rollups — only count UNRESOLVED overdue as "needs attention"
     const unresolvedOverdue = overdue.filter(r => !r.resolved);
     renderHeroKpis(sc, upcoming, unresolvedOverdue);
+    renderPipelineTiles(sc.records);
     renderAiInsights(sc, upcoming, unresolvedOverdue, _liveActiveCalls);
 
     const _callsDue = sc.records.length - upcoming.length;
@@ -5448,6 +5582,7 @@
       dot.className = "";
       document.getElementById("last-updated").textContent = "Updated " + relTime(json.last_updated);
       renderScheduledCalls(json.data.scheduled_calls);
+      fetchPipelineCounts();
       syncExistingObservations();
     } catch(e) {
       cdbLoading.classList.remove("show");
