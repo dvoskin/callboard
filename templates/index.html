@@ -1072,6 +1072,16 @@
       border-top: 1px solid var(--sep);
     }
     .pipe-tile .pt-show-more:hover { text-decoration: underline; }
+    .pipe-tile.pt-blurred .pt-total,
+    .pipe-tile.pt-blurred .pt-agents,
+    .pipe-tile.pt-blurred .pt-show-more { filter: blur(6px); user-select: none; pointer-events: none; }
+    .pipe-tile.pt-blurred { pointer-events: none; }
+    .pipe-tile.pt-blurred .pt-invalid {
+      position: absolute; inset: 28px 10px 10px; display: flex;
+      align-items: center; justify-content: center; text-align: center;
+      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      color: var(--secondary); text-transform: uppercase;
+    }
 
     /* Pipeline modal */
     .pt-modal-overlay {
@@ -3951,7 +3961,7 @@
     });
     const completedSorted = Object.entries(completedByAgent).sort((a,b) => b[1] - a[1]);
 
-    function buildTile(label, color, total, agentList) {
+    function buildTile(label, color, total, agentList, blurred) {
       const MAX_VISIBLE = window.innerWidth <= 680 ? 2 : 4;
       const visible = agentList.slice(0, MAX_VISIBLE);
       const overflow = agentList.length - MAX_VISIBLE;
@@ -3966,11 +3976,14 @@
         _pipeTileData[key] = { label, color, total, agentList };
         showMore = `<div class="pt-show-more" onclick="openPipelineModal('${key}')">+${overflow} more</div>`;
       }
-      return `<div class="pipe-tile ${color}">
+      const blurredCls = blurred ? " pt-blurred" : "";
+      const overlay = blurred ? `<div class="pt-invalid">Data invalid — hidden</div>` : "";
+      return `<div class="pipe-tile ${color}${blurredCls}">
         <div class="pt-header"><span class="pt-lbl">${label}</span></div>
         <div class="pt-total">${total}</div>
         <div class="pt-agents">${agentRows}</div>
         ${showMore}
+        ${overlay}
       </div>`;
     }
 
@@ -4000,7 +4013,7 @@
     const stageMap = [
       { apiKey: "Quote Sent",                   label: "Quotes Sent Today",       color: "pt-blue" },
       { apiKey: "Retainer Invoice Sent",        label: "Quotes Signed Today",     color: "pt-purple" },
-      { apiKey: "Closed Won - Surgery Scheduled", label: "Retainers Paid Today",   color: "pt-teal" },
+      { apiKey: "Closed Won - Surgery Scheduled", label: "Retainers Paid Today",   color: "pt-teal", blurred: true },
     ];
 
     const tiles = [buildTile("Calls Completed", "pt-green", completedHits.length, completedSorted)];
@@ -4009,9 +4022,9 @@
       const d = _pipelineData && _pipelineData[s.apiKey];
       if (d) {
         const agents = d.by_agent.map(a => [a.name, a.count]);
-        tiles.push(buildTile(s.label, s.color, d.total, agents));
+        tiles.push(buildTile(s.label, s.color, d.total, agents, s.blurred));
       } else {
-        tiles.push(buildTile(s.label, s.color, "—", []));
+        tiles.push(buildTile(s.label, s.color, "—", [], s.blurred));
       }
     });
 
