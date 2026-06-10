@@ -1020,6 +1020,7 @@
       position: relative;
       overflow: hidden;
       transition: transform .12s, box-shadow .12s;
+      display: flex; flex-direction: column;
     }
     .pipe-tile:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
     .pipe-tile::before {
@@ -1046,7 +1047,7 @@
     .pipe-tile.pt-teal .pt-total   { color: var(--teal-dk); }
     .pipe-tile .pt-agents {
       display: flex; flex-direction: column; gap: 3px;
-      margin-top: 6px;
+      margin-top: 6px; flex: 1;
     }
     .pipe-tile .pt-agent-row {
       display: flex; align-items: center; justify-content: space-between;
@@ -1065,6 +1066,46 @@
     .pipe-tile .pt-empty {
       font-size: 11px; color: var(--tertiary); font-style: italic; margin-top: 4px;
     }
+    .pipe-tile .pt-show-more {
+      font-size: 11px; color: var(--blue); font-weight: 600; cursor: pointer;
+      margin-top: 6px; text-align: center; padding: 4px 0;
+      border-top: 1px solid var(--sep);
+    }
+    .pipe-tile .pt-show-more:hover { text-decoration: underline; }
+
+    /* Pipeline modal */
+    .pt-modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,.45); align-items: center; justify-content: center;
+    }
+    .pt-modal-overlay.open { display: flex; }
+    .pt-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; min-width: 340px; max-width: 440px;
+      width: 90%; max-height: 70vh; overflow-y: auto;
+      box-shadow: 0 20px 50px rgba(0,0,0,.25); position: relative;
+    }
+    .pt-modal .pt-modal-close {
+      position: absolute; top: 12px; right: 14px; cursor: pointer;
+      font-size: 18px; color: var(--tertiary); background: none; border: none;
+      line-height: 1; padding: 4px;
+    }
+    .pt-modal .pt-modal-close:hover { color: var(--text); }
+    .pt-modal .pt-modal-title {
+      font-size: 13px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--secondary); margin-bottom: 4px;
+    }
+    .pt-modal .pt-modal-total {
+      font-size: 26px; font-weight: 800; margin-bottom: 14px;
+    }
+    .pt-modal .pt-agent-row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; color: var(--secondary); padding: 5px 0;
+      border-bottom: 1px solid var(--sep);
+    }
+    .pt-modal .pt-agent-row:last-child { border-bottom: none; }
+    .pt-modal .pt-agent-name { font-weight: 500; }
+    .pt-modal .pt-agent-count { font-weight: 700; color: var(--text); font-size: 14px; }
 
     /* ══════════════ LIVE MONITOR PANEL ══════════════ */
     .live-panel {
@@ -1876,11 +1917,16 @@
 
       /* ── KPI cards: hide sparklines & context ── */
       .hero-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-      .pipeline-tiles { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-      .pipe-tile { padding: 10px 12px 8px; }
-      .pipe-tile .pt-total { font-size: 18px; }
-      .pipe-tile .pt-lbl { font-size: 9.5px; }
-      .pipe-tile .pt-agent-row { font-size: 11px; }
+      .pipeline-tiles { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+      .pipe-tile { padding: 8px 10px 6px; }
+      .pipe-tile .pt-header { margin-bottom: 4px; }
+      .pipe-tile .pt-total { font-size: 16px; }
+      .pipe-tile .pt-lbl { font-size: 9px; }
+      .pipe-tile .pt-agents { margin-top: 4px; gap: 1px; }
+      .pipe-tile .pt-agent-row { font-size: 10.5px; padding: 1px 0; }
+      .pipe-tile .pt-agent-count { font-size: 11px; }
+      .pipe-tile .pt-show-more { font-size: 10px; margin-top: 4px; padding: 2px 0; }
+      .pipe-tile .pt-empty { font-size: 10px; }
       .kpi-card { padding: 12px 13px 10px; }
       .kpi-card .kpi-lbl { font-size: 10px; }
       .kpi-card .kpi-val { font-size: 26px; }
@@ -3078,6 +3124,16 @@
   <!-- ══════════════════════ PIPELINE COUNTER TILES ══════════════════════ -->
   <div class="pipeline-tiles" id="pipeline-tiles"></div>
 
+  <!-- Pipeline "show more" modal -->
+  <div class="pt-modal-overlay" id="pt-modal-overlay" onclick="closePipelineModal(event)">
+    <div class="pt-modal" onclick="event.stopPropagation()">
+      <button class="pt-modal-close" onclick="closePipelineModal()">&times;</button>
+      <div class="pt-modal-title" id="pt-modal-title"></div>
+      <div class="pt-modal-total" id="pt-modal-total"></div>
+      <div id="pt-modal-agents"></div>
+    </div>
+  </div>
+
   <!-- ══════════════════════ AI INSIGHTS BANNER ══════════════════════ -->
   <div class="ai-banner" id="ai-banner">
     <div class="ai-banner-header" onclick="toggleAiBanner()">
@@ -3876,9 +3932,13 @@
   }
 
   let _lastScRecords = [];
+  let _pipeTileData = {};
+  let _pipeTileIdx = 0;
 
   function renderPipelineTiles(records) {
     _lastScRecords = records;
+    _pipeTileIdx = 0;
+    _pipeTileData = {};
     const filtered = filterBySelectedAgents(records);
     const el = document.getElementById("pipeline-tiles");
 
@@ -3892,23 +3952,55 @@
     const completedSorted = Object.entries(completedByAgent).sort((a,b) => b[1] - a[1]);
 
     function buildTile(label, color, total, agentList) {
-      const agentRows = agentList.length > 0
-        ? agentList.map(([name, count]) =>
+      const MAX_VISIBLE = window.innerWidth <= 680 ? 2 : 4;
+      const visible = agentList.slice(0, MAX_VISIBLE);
+      const overflow = agentList.length - MAX_VISIBLE;
+      const agentRows = visible.length > 0
+        ? visible.map(([name, count]) =>
             `<div class="pt-agent-row"><span class="pt-agent-name">${name}</span><span class="pt-agent-count">${count}</span></div>`
           ).join("")
         : `<div class="pt-empty">None today</div>`;
+      let showMore = "";
+      if (overflow > 0) {
+        const key = "pt_" + (_pipeTileIdx++);
+        _pipeTileData[key] = { label, color, total, agentList };
+        showMore = `<div class="pt-show-more" onclick="openPipelineModal('${key}')">+${overflow} more</div>`;
+      }
       return `<div class="pipe-tile ${color}">
         <div class="pt-header"><span class="pt-lbl">${label}</span></div>
         <div class="pt-total">${total}</div>
         <div class="pt-agents">${agentRows}</div>
+        ${showMore}
       </div>`;
     }
+
+    // Pipeline modal helpers
+    window.openPipelineModal = function(key) {
+      const d = _pipeTileData[key];
+      if (!d) return;
+      const overlay = document.getElementById("pt-modal-overlay");
+      document.getElementById("pt-modal-title").textContent = d.label;
+      const totalEl = document.getElementById("pt-modal-total");
+      totalEl.textContent = d.total;
+      totalEl.className = "pt-modal-total";
+      const colorMap = {"pt-green":"var(--green-dk)","pt-blue":"var(--blue-dk)","pt-purple":"var(--purple-dk)","pt-teal":"var(--teal-dk)"};
+      totalEl.style.color = colorMap[d.color] || "var(--text)";
+      const agentsEl = document.getElementById("pt-modal-agents");
+      agentsEl.innerHTML = d.agentList.map(([name, count]) =>
+        `<div class="pt-agent-row"><span class="pt-agent-name">${name}</span><span class="pt-agent-count">${count}</span></div>`
+      ).join("");
+      overlay.classList.add("open");
+    };
+    window.closePipelineModal = function(e) {
+      if (e && e.target !== e.currentTarget) return;
+      document.getElementById("pt-modal-overlay").classList.remove("open");
+    };
 
     // Deal-stage tiles from API
     const stageMap = [
       { apiKey: "Quote Sent",                   label: "Quotes Sent Today",       color: "pt-blue" },
       { apiKey: "Retainer Invoice Sent",        label: "Quotes Signed Today",     color: "pt-purple" },
-      { apiKey: "Payment Received",             label: "Retainers Paid Today",    color: "pt-teal" },
+      { apiKey: "Closed Won - Surgery Scheduled", label: "Retainers Paid Today",   color: "pt-teal" },
     ];
 
     const tiles = [buildTile("Calls Completed", "pt-green", completedHits.length, completedSorted)];

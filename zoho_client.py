@@ -332,6 +332,15 @@ class ZohoClient:
             return owner.get("name")
         return owner if isinstance(owner, str) else None
 
+    @staticmethod
+    def _caller_owner_id(call: Optional[dict]) -> Optional[str]:
+        if not call:
+            return None
+        owner = call.get("Owner")
+        if isinstance(owner, dict):
+            return owner.get("id")
+        return None
+
     def _classify_new_deal(self, deal: dict, calls: list[dict]) -> dict:
         created = self._parse_dt(deal.get("Created_Time"))
         now = datetime.now(timezone.utc)
@@ -467,6 +476,7 @@ class ZohoClient:
                 "dial_attempts": dial_attempts,
                 "disposition": closest_call.get("Outgoing_call_disposition"),
                 "caller": self._caller_name(closest_call),
+                "_caller_owner_id": self._caller_owner_id(closest_call),
                 "recording_url": self._extract_recording_url(
                     closest_call.get("Description") or ""
                 ),
@@ -487,6 +497,7 @@ class ZohoClient:
                 "dial_attempts": dial_attempts,
                 "caller": (self._caller_name(most_recent_any)
                            if most_recent_any else None),
+                "_caller_owner_id": self._caller_owner_id(most_recent_any),
             }
 
         # Overdue / missed — no RingCX call, so actual_call_time stays
@@ -504,6 +515,7 @@ class ZohoClient:
             "disposition": (most_recent_ringcx.get("Outgoing_call_disposition")
                             if most_recent_ringcx else None),
             "caller": self._caller_name(most_recent_any),
+            "_caller_owner_id": self._caller_owner_id(most_recent_any),
             "recording_url": None,
             "logged_via": "mvp" if mvp_calls else None,
             "last_attempt_time": (last_attempt.get("Call_Start_Time")
@@ -597,7 +609,7 @@ class ZohoClient:
     PIPELINE_STAGES = [
         "Quote Sent",
         "Retainer Invoice Sent",
-        "Payment Received",
+        "Closed Won - Surgery Scheduled",
     ]
 
     def get_pipeline_counts(self) -> dict:
@@ -684,10 +696,12 @@ class ZohoClient:
                 if did:
                     owner = deal.get("Owner") or {}
                     owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
+                    owner_id = owner.get("id") if isinstance(owner, dict) else None
                     lang_raw = (deal.get("Language") or "").strip()
                     result[did] = {
                         "stage": deal.get("Stage") or "",
                         "owner": owner_name,
+                        "owner_id": owner_id,
                         "language": lang_raw if lang_raw and lang_raw != "Unselected" else "",
                     }
         log.info("  → deal stages fetched by ID for %d deals", len(result))
@@ -901,7 +915,58 @@ class ZohoClient:
             log.info("Fetching deal stages by deal ID for %d linked deals...", len(linked_deal_ids))
             deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
 
+        # Build a user ID → name map from deal owners (REST returns full names)
+        _user_id_to_name = {}
+        for dinfo in deal_by_id_map.values():
+            if dinfo.get("owner") and dinfo.get("owner_id"):
+                _user_id_to_name[str(dinfo["owner_id"])] = dinfo["owner"]
+
+        # First pass: collect unresolved IDs
+        unresolved_ids = set()
         for r in sc_results:
+            if not r.get("caller"):
+                cid = r.get("_caller_owner_id")
+                if cid and str(cid) not in _user_id_to_name:
+                    unresolved_ids.add(str(cid))
+
+        # Resolve missing user IDs via REST Deals search (returns full Owner.name)
+        if unresolved_ids:
+            for uid in list(unresolved_ids):
+                try:
+                    resp = requests.get(
+                        f"{self.base_url}/crm/v6/Deals/search",
+                        headers=self._headers(),
+                        params={"criteria": f"(Owner:equals:{uid})",
+                                "fields": "Owner", "per_page": 1},
+                        timeout=10,
+                    )
+                    if resp.ok:
+                        rows = resp.json().get("data", [])
+                        if rows:
+                            owner = rows[0].get("Owner")
+                            if isinstance(owner, dict) and owner.get("name"):
+                                _user_id_to_name[uid] = owner["name"]
+                                log.info("Resolved user %s → %s via deal search",
+                                         uid, owner["name"])
+                except Exception:
+                    pass
+            resolved_now = unresolved_ids & set(_user_id_to_name.keys())
+            still_missing = unresolved_ids - resolved_now
+            if resolved_now:
+                log.info("Resolved %d user IDs via deal search", len(resolved_now))
+            if still_missing:
+                log.warning("Could not resolve %d caller owner IDs: %s",
+                            len(still_missing), still_missing)
+
+        # Second pass: apply resolved names
+        for r in sc_results:
+            if not r.get("caller"):
+                caller_id = r.pop("_caller_owner_id", None)
+                if caller_id and str(caller_id) in _user_id_to_name:
+                    r["caller"] = _user_id_to_name[str(caller_id)]
+            else:
+                r.pop("_caller_owner_id", None)
+
             info = None
             did = r.get("id_deal")
             if did and did in deal_by_id_map:
@@ -913,8 +978,8 @@ class ZohoClient:
                 # Surface the stage whenever it's moved beyond the initial "New Deal" stage
                 if stage and stage != "New Deal":
                     r["deal_stage"] = stage
-                # Surface the deal owner for high-value stages
-                if stage in self.OWNER_VISIBLE_STAGES and owner:
+                # Always surface the deal owner for pipeline attribution
+                if owner:
                     r["deal_owner"] = owner
                 # Language from deal record
                 if info.get("language"):
