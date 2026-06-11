@@ -1852,3 +1852,71 @@ class ZohoClient:
             "status": "created",
         }
 
+    def get_deal_contact(self, deal_id: str) -> dict:
+        """Return contact_id, contact_name, owner_id, owner_name for a Deal."""
+        resp = requests.get(
+            f"{self.base_url}/crm/v6/Deals/{deal_id}",
+            headers=self._headers(),
+            params={"fields": "id,Contact_Name,Owner,Deal_Name"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            log.warning("get_deal_contact %s → %s", deal_id, resp.status_code)
+            return {}
+        rows = resp.json().get("data") or []
+        if not rows:
+            return {}
+        data = rows[0]
+        contact = data.get("Contact_Name") or {}
+        owner = data.get("Owner") or {}
+        return {
+            "contact_id": contact.get("id", "") if isinstance(contact, dict) else "",
+            "contact_name": contact.get("name", "") if isinstance(contact, dict) else str(contact),
+            "owner_id": owner.get("id", "") if isinstance(owner, dict) else "",
+            "owner_name": owner.get("name", "") if isinstance(owner, dict) else str(owner),
+            "deal_name": data.get("Deal_Name", ""),
+        }
+
+    def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
+        """Return Zoho CRM Call records with Call_Status='Scheduled' in [start_iso, end_iso]."""
+        query = (
+            "SELECT id, Subject, Call_Start_Time, Call_Status, Call_Type, Who_Id, What_Id, "
+            "Owner, Description, Duration_Min_Sec "
+            "FROM Calls "
+            f"WHERE Call_Start_Time >= '{start_iso}' AND Call_Start_Time <= '{end_iso}' "
+            "AND Call_Status = 'Scheduled' "
+            "ORDER BY Call_Start_Time ASC LIMIT 200 OFFSET 0"
+        )
+        resp = requests.post(
+            f"{self.base_url}/crm/v6/coql",
+            headers=self._headers(),
+            json={"select_query": query},
+            timeout=20,
+        )
+        if resp.status_code == 204:
+            return []
+        if not resp.ok:
+            log.warning("get_scheduled_followup_calls error %s: %s", resp.status_code, resp.text[:200])
+            return []
+        data = resp.json().get("data") or []
+        out = []
+        for c in data:
+            who = c.get("Who_Id") or {}
+            what = c.get("What_Id") or {}
+            owner = c.get("Owner") or {}
+            out.append({
+                "id": c.get("id"),
+                "subject": c.get("Subject") or "",
+                "call_time": c.get("Call_Start_Time"),
+                "status": c.get("Call_Status"),
+                "contact_id": who.get("id", "") if isinstance(who, dict) else "",
+                "contact_name": who.get("name", "") if isinstance(who, dict) else "",
+                "deal_id": what.get("id", "") if isinstance(what, dict) else "",
+                "deal_name": what.get("name", "") if isinstance(what, dict) else "",
+                "owner_id": owner.get("id", "") if isinstance(owner, dict) else "",
+                "owner_name": owner.get("name", "") if isinstance(owner, dict) else "",
+                "notes": c.get("Description") or "",
+                "duration": c.get("Duration_Min_Sec") or "",
+            })
+        return out
+

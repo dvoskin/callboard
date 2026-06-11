@@ -1406,6 +1406,89 @@ def api_quotes():
     })
 
 
+# ------------------------------------------------------------------ Follow-up call endpoints
+
+@app.route("/api/deal-info/<deal_id>")
+@login_required
+def api_deal_info(deal_id):
+    """Return contact_id and owner_id for a CRM deal (used by follow-up modal)."""
+    try:
+        info = _zoho.get_deal_contact(deal_id)
+        return jsonify(info)
+    except Exception as e:
+        log.error("deal-info %s: %s", deal_id, e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/followup-call", methods=["POST"])
+@login_required
+def api_create_followup_call():
+    """Create a scheduled follow-up call in Zoho CRM."""
+    body = request.get_json(force=True) or {}
+    contact_id   = body.get("contact_id", "")
+    contact_name = body.get("contact_name", "")
+    deal_id      = body.get("deal_id", "")
+    owner_id     = body.get("owner_id", "")
+    call_time    = body.get("call_time", "")
+    notes        = body.get("notes", "")
+    subject      = body.get("subject") or f"Follow-up: {contact_name}"
+
+    if not call_time:
+        return jsonify({"error": "call_time is required"}), 400
+
+    try:
+        result = _zoho.create_scheduled_call(
+            contact_id=contact_id,
+            contact_name=contact_name,
+            call_time=call_time,
+            deal_id=deal_id,
+            owner_id=owner_id,
+        )
+        # If notes or a custom subject were provided, Zoho's create_scheduled_call
+        # doesn't accept them — patch the record via update.
+        if result.get("id") and (notes or subject):
+            patch_payload = {}
+            if notes:
+                patch_payload["Description"] = notes
+            if subject:
+                patch_payload["Subject"] = subject
+            if patch_payload:
+                try:
+                    import requests as _req
+                    _req.put(
+                        f"{_zoho.base_url}/crm/v6/Calls/{result['id']}",
+                        headers=_zoho._headers(),
+                        json={"data": [patch_payload]},
+                        timeout=10,
+                    )
+                except Exception as pe:
+                    log.warning("followup-call patch failed: %s", pe)
+        return jsonify(result)
+    except Exception as e:
+        log.error("create_followup_call: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/followup-calls")
+@login_required
+def api_followup_calls():
+    """List Zoho CRM scheduled follow-up calls for a date range."""
+    today = datetime.now(timezone.utc).date()
+    date_start = request.args.get("start") or today.isoformat()
+    date_end   = request.args.get("end") or date_start
+
+    # Build ISO range (full day, UTC)
+    start_iso = f"{date_start}T00:00:00+00:00"
+    end_iso   = f"{date_end}T23:59:59+00:00"
+
+    try:
+        calls = _zoho.get_scheduled_followup_calls(start_iso, end_iso)
+        return jsonify({"status": "ok", "calls": calls, "count": len(calls)})
+    except Exception as e:
+        log.error("followup-calls: %s", e)
+        return jsonify({"status": "error", "error": str(e), "calls": []}), 500
+
+
 # ------------------------------------------------------------------ Telegram chat
 
 @app.route("/api/telegram/status")
