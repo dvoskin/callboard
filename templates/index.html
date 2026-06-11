@@ -6534,7 +6534,7 @@
       closeScheduleModal();
       // Trigger a data refresh after a short delay
       setTimeout(() => fetch("/api/refresh", {method:"POST"}), 500);
-      setTimeout(fetchData, 3000);
+      setTimeout(() => loadData(), 3000);
     } catch (e) {
       errEl.textContent = e.message;
       errEl.style.display = "block";
