@@ -1004,6 +1004,26 @@
       50% { opacity: .6; }
     }
 
+    /* Card-header compaction — Scheduled Calls and Follow Up Tracker. */
+    #sc-section .card-header,
+    #quotes-section .card-header { padding: 8px 14px; }
+    #sc-section .card-header h2,
+    #quotes-section .card-header h2 { font-size: 15px; }
+    #sc-section .card-date-bar,
+    #quotes-section .card-date-bar { padding: 6px 14px; }
+
+    /* "N need attention" pill — explicit spacing so the count + label don't collide */
+    .q-attn-pill { padding: 2px 8px; line-height: 1.5; }
+
+    /* Quote vs Retainer badge */
+    .q-kind-badge {
+      display: inline-block; padding: 1px 5px; border-radius: 3px;
+      font-size: 9.5px; font-weight: 500; text-transform: uppercase;
+      letter-spacing: .04em; vertical-align: 1px;
+    }
+    .q-kind-badge.quote    { background: rgba(99,102,241,.10); color: #4f46e5; }
+    .q-kind-badge.retainer { background: rgba(6,182,212,.12);  color: #0e7490; }
+
     /* Quotes Sent panel — compact rows */
     table.quotes-compact { font-size: 12px; }
     table.quotes-compact thead th {
@@ -1030,8 +1050,25 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    table.quotes-compact .q-note-cell { max-width: 260px; }
+    table.quotes-compact .q-note-cell { max-width: 280px; }
     table.quotes-compact .q-note-text { font-size: 12px; }
+    /* Attention rows — single visual signal: a 3px left-border accent. Row
+       background stays clean so the table reads as a list, not a stoplight. */
+    table.quotes-compact tr.q-attn-watch  { box-shadow: inset 3px 0 0 0 #eab308; }
+    table.quotes-compact tr.q-attn-urgent { box-shadow: inset 3px 0 0 0 #ef4444; background: rgba(239,68,68,.025); }
+    table.quotes-compact tr.q-attn-acked  { opacity: .42; box-shadow: inset 3px 0 0 0 #94a3b8; background: transparent; }
+    /* Icon-only action button in the last column. Larger hit target via padding,
+       restrained color so it doesn't shout for attention while idle. */
+    table.quotes-compact .q-attn-action {
+      width: 24px; height: 22px; padding: 0; line-height: 22px;
+      font-size: 13px; color: var(--secondary);
+      cursor: pointer; border-radius: 4px;
+      background: none; border: 1px solid transparent;
+    }
+    table.quotes-compact tr.q-attn-urgent .q-attn-action { color: #b91c1c; border-color: rgba(239,68,68,.18); background: rgba(255,255,255,.6); }
+    table.quotes-compact tr.q-attn-watch  .q-attn-action { color: #854d0e; border-color: rgba(234,179,8,.22); background: rgba(255,255,255,.6); }
+    table.quotes-compact .q-attn-action:hover { border-color: rgba(0,0,0,.18); background: rgba(0,0,0,.04); }
+    table.quotes-compact .q-attn-action.acked { color: var(--secondary); border-color: transparent; }
 
     /* ══════════════ PIPELINE COUNTER TILES ══════════════ */
     .pipeline-tiles {
@@ -3394,36 +3431,46 @@
 
   <!-- ══════════════════════ QUOTES SENT (Zoho Books) ══════════════════════ -->
   <div class="card" id="quotes-section">
-    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <h2>💸 Quotes Sent</h2>
-      <span class="card-sub">Zoho Books estimates · follow-up tracking</span>
+    <div class="card-header q-tight-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">🎯 Follow Up Tracker</h2>
       <span class="chip" id="quotes-count">0</span>
-      <span class="cdb-label" id="quotes-range-label" style="font-weight:400;color:var(--secondary);font-size:12px"></span>
+      <button id="quotes-attn-chip"
+              class="stage-tag s-noanswer q-attn-pill"
+              style="display:none;cursor:pointer;border:1px solid rgba(239,68,68,.25)"
+              onclick="_qToggleAttentionFilter()"
+              title="Show only items that need team-lead attention">
+        🚩&nbsp;<span id="quotes-attn-count">0</span>&nbsp;need follow-up
+      </button>
+      <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
+      <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()">↻</button>
+    </div>
+    <div class="card-date-bar">
+      <span class="cdb-label">Sent date</span>
+      <input type="date" id="quotes-date-start" class="cdb-input">
+      <span class="cdb-sep">→</span>
+      <input type="date" id="quotes-date-end" class="cdb-input">
+      <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
+      <button class="cdb-today" onclick="resetQuotesToDefault()">↩ Last 3 days</button>
       <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
-      <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px"></span>
-      <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()" style="margin-left:auto">↻ Refresh</button>
+      <span class="cdb-label" id="quotes-range-label" style="font-weight:400;color:var(--secondary);font-size:12px"></span>
     </div>
     <div class="card-body">
       <div class="table-wrap">
         <table id="quotes-table" class="quotes-compact">
           <thead>
             <tr>
-              <th style="width:20px"></th>
-              <th>Quote #</th>
+              <th style="width:16px"></th>
               <th>Customer</th>
-              <th>Deal</th>
-              <th>Sent</th>
-              <th>Days</th>
-              <th>Salesperson</th>
-              <th style="text-align:right">Amount</th>
-              <th>Viewed</th>
-              <th>Activity</th>
+              <th style="white-space:nowrap">Sent</th>
+              <th style="text-align:right">$</th>
+              <th>Rep</th>
               <th>Next Step</th>
-              <th style="min-width:200px">Latest Note</th>
+              <th style="min-width:240px">Latest Note</th>
+              <th style="width:32px" title="Mark followed up"></th>
             </tr>
           </thead>
           <tbody id="quotes-tbody">
-            <tr><td colspan="12" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
+            <tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
           </tbody>
         </table>
       </div>
@@ -3491,9 +3538,8 @@
     const label = start === end ? fmtDateLabel(start) : `${fmtDateLabel(start)} – ${fmtDateLabel(end)}`;
     _setDateBarCustom(label);
     loadData(start, end);
-    // Keep pipeline tiles and the Quotes panel in lock-step with this range.
+    // Pipeline tiles still mirror the master date range; Quotes panel has its own filter.
     fetchPipelineCounts();
-    if (typeof loadQuotes === "function") loadQuotes();
   }
   function resetToToday() {
     _customDateActive = false;
@@ -3504,7 +3550,6 @@
     _clearStaleUI();
     loadData();
     fetchPipelineCounts();
-    if (typeof loadQuotes === "function") loadQuotes();
   }
 
   // ─── utils ───
@@ -4498,7 +4543,7 @@
 
     if (!visible.length) {
       document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="12" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
+        `<tr><td colspan="8" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
       // Reset select-all
       const allCb = document.getElementById("od-select-all");
       allCb.checked = false; allCb.indeterminate = false;
@@ -5768,7 +5813,6 @@
       document.getElementById("last-updated").textContent = "Updated " + relTime(json.last_updated);
       renderScheduledCalls(json.data.scheduled_calls);
       fetchPipelineCounts();
-      if (typeof loadQuotes === "function") loadQuotes();
       syncExistingObservations();
     } catch(e) {
       cdbLoading.classList.remove("show");
@@ -7280,10 +7324,116 @@
     if (n >= 3) return "stage-tag s-paid";
     return "stage-tag s-followup";
   }
+  // ── Attention detection + ack persistence ──────────────────────────────
+  const _Q_ACK_KEY = "quotesPanel:ackedFollowups:v1";
+  let   _qAttentionFilterOn = false;
+  let   _qLastQuotes = [];
+  function _qLoadAcked() {
+    try { return JSON.parse(localStorage.getItem(_Q_ACK_KEY) || "{}"); }
+    catch { return {}; }
+  }
+  function _qSaveAcked(map) {
+    try { localStorage.setItem(_Q_ACK_KEY, JSON.stringify(map)); } catch {}
+  }
+  function _qAttentionLevel(q) {
+    // Returns { level: "urgent"|"watch"|null, reason: string|null }
+    const nf = q.next_followup || {};
+    const days = _qDaysSince(q.date);
+    // Urgent: any quote/retainer that's been "forgotten" is at risk of being
+    // abandoned. We don't wait for it to age — the absence of a plan IS the risk.
+    if (nf.status === "scheduled" && nf.when) {
+      const whenDt = new Date(nf.when);
+      if (!isNaN(whenDt) && whenDt < new Date()) {
+        return { level: "urgent", reason: `FU was due ${_qFmtTime(nf.when)} — overdue` };
+      }
+    }
+    if (nf.status === "forgotten") {
+      const ageStr = days == null ? "sent today" : days === 0 ? "sent today" : `${days}d old`;
+      return { level: "urgent", reason: `${ageStr} · at risk — no follow-up scheduled` };
+    }
+    // Watch: only mentioned in a note, no concrete plan. Worth a second look.
+    if (nf.status === "mentioned") {
+      return { level: "watch", reason: "Note mentions follow-up but no date set" };
+    }
+    return { level: null, reason: null };
+  }
+  function _qAttentionRows() {
+    // Active attention = level set AND not acked
+    const acked = _qLoadAcked();
+    return _qLastQuotes.filter(q => {
+      const lvl = _qAttentionLevel(q).level;
+      return lvl && !acked[q.estimate_id];
+    });
+  }
+  function _qUpdateAttentionChip() {
+    const n = _qAttentionRows().length;
+    const chip = document.getElementById("quotes-attn-chip");
+    const cnt = document.getElementById("quotes-attn-count");
+    if (cnt) cnt.textContent = n;
+    if (chip) chip.style.display = n > 0 || _qAttentionFilterOn ? "" : "none";
+  }
+  function _qToggleAttentionFilter() {
+    _qAttentionFilterOn = !_qAttentionFilterOn;
+    const chip = document.getElementById("quotes-attn-chip");
+    if (chip) chip.style.outline = _qAttentionFilterOn ? "2px solid rgba(239,68,68,.35)" : "";
+    _qRerender();
+  }
+  function _qAckFollowup(estimate_id, btnEl) {
+    const acked = _qLoadAcked();
+    acked[estimate_id] = {
+      at: new Date().toISOString(),
+      by: CURRENT_USER_NAME || "you",
+    };
+    _qSaveAcked(acked);
+    _qRerender();
+  }
+  function _qUnackFollowup(estimate_id) {
+    const acked = _qLoadAcked();
+    delete acked[estimate_id];
+    _qSaveAcked(acked);
+    _qRerender();
+  }
+  function _qRerender() {
+    const tbody = document.getElementById("quotes-tbody");
+    if (!tbody || !_qLastQuotes) return;
+    const acked = _qLoadAcked();
+    const rows = _qAttentionFilterOn
+      ? _qLastQuotes.filter(q => {
+          const lvl = _qAttentionLevel(q).level;
+          return lvl && !acked[q.estimate_id];
+        })
+      : _qLastQuotes;
+    tbody.innerHTML = rows.length
+      ? rows.map((q, i) => _qRenderRow(q, _qLastQuotes.indexOf(q))).join("")
+      : `<tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">No quotes matching filter.</td></tr>`;
+    _qUpdateAttentionChip();
+  }
+
+  function _qFmtIsoDate(d) { return d.toISOString().slice(0, 10); }
+  function _qInitDefaultRange() {
+    // Default: last 3 days (today minus 2 → today, inclusive = 3 calendar days)
+    const sEl = document.getElementById("quotes-date-start");
+    const eEl = document.getElementById("quotes-date-end");
+    if (!sEl || !eEl) return;
+    if (!sEl.value || !eEl.value) {
+      const end = new Date();
+      const start = new Date(); start.setDate(start.getDate() - 2);
+      sEl.value = _qFmtIsoDate(start);
+      eEl.value = _qFmtIsoDate(end);
+    }
+  }
+  function resetQuotesToDefault() {
+    const end = new Date();
+    const start = new Date(); start.setDate(start.getDate() - 2);
+    document.getElementById("quotes-date-start").value = _qFmtIsoDate(start);
+    document.getElementById("quotes-date-end").value   = _qFmtIsoDate(end);
+    loadQuotes();
+  }
   function _qCurrentRange() {
-    // Always mirror the dashboard's master date range (Scheduled Calls bar).
-    const start = document.getElementById("date-start")?.value;
-    const end   = document.getElementById("date-end")?.value || start;
+    // Read from the panel's own date inputs — independent of the dashboard's.
+    _qInitDefaultRange();
+    const start = document.getElementById("quotes-date-start")?.value;
+    const end   = document.getElementById("quotes-date-end")?.value || start;
     return { start, end };
   }
   function _qRenderRangeLabel() {
@@ -7312,64 +7462,88 @@
       const resp = await fetch(`/api/quotes?start=${start}&end=${end}`);
       const data = await resp.json();
       if (data.status === "not_configured") {
-        tbody.innerHTML = `<tr><td colspan="12" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       if (data.status !== "ok") {
-        tbody.innerHTML = `<tr><td colspan="12" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       countEl.textContent = data.count;
       status.textContent = data.source === "cache" ? "· local snapshot" : "";
       if (!data.quotes.length) {
-        tbody.innerHTML = `<tr><td colspan="12" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
         return;
       }
+      _qLastQuotes = data.quotes;
       tbody.innerHTML = data.quotes.map((q, i) => _qRenderRow(q, i)).join("");
+      _qUpdateAttentionChip();
     } catch (e) {
       console.error("loadQuotes error", e);
-      tbody.innerHTML = `<tr><td colspan="12" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
     } finally {
       loading.style.display = "none";
     }
   }
   function _qRenderRow(q, i) {
     const days = _qDaysSince(q.date);
-    const daysCell = days == null ? "—" : days === 0 ? "today" : `${days}d`;
+    const daysLabel = days == null ? "" : days === 0 ? "today" : `${days}d ago`;
     const amount = q.total != null
       ? new Intl.NumberFormat(undefined, { style: "currency", currency: q.currency || "USD", maximumFractionDigits: 0 }).format(q.total)
       : "—";
-    const viewed = q.is_viewed_by_client
-      ? `<span class="stage-tag s-paid" title="${_qEsc(q.mail_first_viewed_time)}">✓ viewed</span>`
-      : `<span class="stage-tag s-noanswer">not viewed</span>`;
-    const chip = `<span class="${_qActivityChipClass(q.activity_count)}">${q.activity_count} activit${q.activity_count === 1 ? "y" : "ies"}</span>`;
-    const dealCell = q.deal_id
-      ? `<a href="https://crm.zoho.com/crm/${ZOHO_ORG}/tab/Potentials/${_qEsc(q.deal_id)}" target="_blank" rel="noopener">${_qEsc(q.deal_name || q.deal_id)}</a>`
-      : "—";
     const expandable = q.activities && q.activities.length;
-    const caret = expandable ? `<span style="cursor:pointer;color:var(--secondary)" onclick="_qToggle(${i})">▸</span>` : "";
-    const detailRow = expandable
-      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="11" style="background:rgba(0,0,0,.02);padding:8px 12px">${_qRenderActivities(q.activities)}</td></tr>`
+    const caret = expandable
+      ? `<span style="cursor:pointer;color:var(--secondary);user-select:none" onclick="_qToggle(${i})">▸</span>`
       : "";
-    const nextStep = _qRenderNextStep(q.next_followup);
-    const noteCell = _qRenderLatestNote(q);
-    const rowTint = q.next_followup && q.next_followup.status === "forgotten" && q.activity_count === 0
-      ? ' style="background:rgba(239,68,68,.04)"' : "";
-    return `<tr id="q-row-${i}"${rowTint}>
+    const detailRow = expandable
+      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="7" style="background:rgba(0,0,0,.02);padding:8px 12px">${_qRenderActivities(q.activities)}</td></tr>`
+      : "";
+
+    const attn = _qAttentionLevel(q);
+    const acked = _qLoadAcked()[q.estimate_id];
+    let rowClass = "";
+    if (attn.level && acked) rowClass = "q-attn-acked";
+    else if (attn.level === "urgent") rowClass = "q-attn-urgent";
+    else if (attn.level === "watch")  rowClass = "q-attn-watch";
+
+    // Ack column — icon only, tooltip carries context. Empty cell when no attention level.
+    let ackCell = "";
+    if (acked) {
+      ackCell = `<button class="q-attn-action acked" onclick="_qUnackFollowup('${_qEsc(q.estimate_id)}')" title="Followed up by ${_qEsc(acked.by)} at ${_qEsc(_qFmtClock(acked.at))} — click to undo">↺</button>`;
+    } else if (attn.level) {
+      ackCell = `<button class="q-attn-action" onclick="_qAckFollowup('${_qEsc(q.estimate_id)}', this)" title="${_qEsc(attn.reason || "Mark as followed up")}">✓</button>`;
+    }
+
+    // Customer cell: name (with kind badge + Zoho deal link) and deal name as subtitle.
+    const dealLink = q.deal_id
+      ? `<a href="https://crm.zoho.com/crm/${ZOHO_ORG}/tab/Potentials/${_qEsc(q.deal_id)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" title="Open deal in Zoho CRM">${_qEsc(q.customer_name || "—")}</a>`
+      : _qEsc(q.customer_name || "—");
+    const kindClass = q.kind === "retainer" ? "retainer" : "quote";
+    const kindLabel = q.kind === "retainer" ? "RET" : "QTE";
+    const kindBadge = `<span class="q-kind-badge ${kindClass}" title="${q.kind === "retainer" ? "Retainer invoice" : "Quote / estimate"}">${kindLabel}</span>`;
+    const dealSubtitle = q.deal_name
+      ? `<div class="q-truncate" style="max-width:260px;font-size:11px;color:var(--secondary)" title="${_qEsc(q.deal_name)}">${_qEsc(q.deal_name)}</div>`
+      : "";
+
+    return `<tr id="q-row-${i}" class="${rowClass}">
       <td>${caret}</td>
-      <td><strong>${_qEsc(q.estimate_number || "—")}</strong></td>
-      <td>${_qEsc(q.customer_name || "—")}</td>
-      <td class="q-truncate" style="max-width:180px" title="${_qEsc(q.deal_name || "")}">${dealCell}</td>
-      <td title="${_qEsc(q.sent_at)}" style="white-space:nowrap">${_qFmtDate(q.date)}<span style="color:var(--secondary);margin-left:6px">${_qFmtClock(q.sent_at)}</span></td>
-      <td>${daysCell}</td>
-      <td>${_qEsc(q.salesperson || "—")}</td>
-      <td style="text-align:right">${amount}</td>
-      <td>${viewed}</td>
-      <td>${chip}</td>
-      <td>${nextStep}</td>
-      <td>${noteCell}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <strong>${dealLink}</strong>${kindBadge}
+        </div>
+        ${dealSubtitle}
+      </td>
+      <td title="${_qEsc(q.sent_at)}" style="white-space:nowrap">
+        ${_qFmtDate(q.date)}
+        <div style="font-size:10.5px;color:var(--secondary);margin-top:1px">${daysLabel}</div>
+      </td>
+      <td style="text-align:right;color:var(--secondary)">${amount}</td>
+      <td class="q-truncate" style="max-width:110px" title="${_qEsc(q.salesperson || "")}">${_qEsc(q.salesperson || "—")}</td>
+      <td>${_qRenderNextStep(q.next_followup)}</td>
+      <td>${_qRenderLatestNote(q)}</td>
+      <td style="text-align:center">${ackCell}</td>
     </tr>${detailRow}`;
   }
   function _qRenderLatestNote(q) {
@@ -7432,8 +7606,10 @@
     const caret = row.querySelector("td:first-child span");
     if (caret) caret.textContent = open ? "▸" : "▾";
   }
-  // Render the range label as soon as the master date inputs are populated.
+  // Populate the panel's own date inputs (last 3 days), then auto-load once.
+  _qInitDefaultRange();
   _qRenderRangeLabel();
+  loadQuotes();
 </script>
 
 </body>

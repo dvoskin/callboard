@@ -1257,38 +1257,73 @@ def api_quotes():
 
     try:
         estimates = _books.list_sent_estimates(date_start, date_end, max_records=max_records)
+        retainers = _books.list_sent_retainer_invoices(date_start, date_end, max_records=max_records)
     except Exception as e:
-        log.error("Books estimate fetch failed: %s", e)
+        log.error("Books fetch failed: %s", e)
         return jsonify({"status": "error", "message": str(e), "quotes": []}), 500
 
-    # Fetch CRM signals in parallel — 3 related-list calls per quote, so 8 workers
-    # ≈ 24 concurrent HTTP requests. Zoho has its own rate limits but is fine
-    # at this concurrency for the volumes we see.
-    def _fetch_signals_for(est):
-        deal_id = est.get("zcrm_potential_id") or ""
-        sent_at = est.get("last_modified_time") or est.get("created_time") or ""
+    # Dedupe by CRM deal id. Rules:
+    #  1. A retainer always wins over a quote on the same deal (later in funnel).
+    #  2. Multiple records of the same kind on one deal collapse to the most
+    #     recently modified one (rep often sends multiple quote variants per deal).
+    # Records without a deal_id are kept as-is (no way to dedupe them safely).
+    def _sent_ts(doc):
+        return doc.get("last_modified_time") or doc.get("created_time") or ""
+    best_by_deal: dict = {}  # deal_id → (kind, doc)
+    orphans: list = []        # records with no deal_id
+    # Process retainers first so they win ties at the same timestamp.
+    for r in retainers:
+        did = r.get("zcrm_potential_id")
+        if not did:
+            orphans.append(("retainer", r)); continue
+        prev = best_by_deal.get(did)
+        if not prev or _sent_ts(r) > _sent_ts(prev[1]):
+            best_by_deal[did] = ("retainer", r)
+    for e in estimates:
+        did = e.get("zcrm_potential_id")
+        if not did:
+            orphans.append(("quote", e)); continue
+        prev = best_by_deal.get(did)
+        # Skip if a retainer already claimed this deal (retainer always wins).
+        if prev and prev[0] == "retainer":
+            continue
+        if not prev or _sent_ts(e) > _sent_ts(prev[1]):
+            best_by_deal[did] = ("quote", e)
+    merged = list(best_by_deal.values()) + orphans
+    merged.sort(key=lambda x: x[1].get("date") or "", reverse=True)
+    merged = merged[:max_records]
+
+    # Fetch CRM signals in parallel — 3 related-list calls per item, so 8 workers
+    # ≈ 24 concurrent HTTP requests.
+    def _fetch_signals_for(item):
+        kind, doc = item
+        deal_id = doc.get("zcrm_potential_id") or ""
+        sent_at = doc.get("last_modified_time") or doc.get("created_time") or ""
         if not (include_activity and deal_id and sent_at):
-            return est, [], {"status": "forgotten", "when": None, "by": None,
-                             "summary": None, "kind": None, "source": None}
+            return item, [], {"status": "forgotten", "when": None, "by": None,
+                              "summary": None, "kind": None, "source": None}
         try:
             sig = _zoho.get_deal_post_quote_signals(deal_id, sent_at)
-            return est, sig["activities"], sig["next_followup"]
-        except Exception as e:
-            log.warning("Activity fetch failed for deal %s: %s", deal_id, e)
-            return est, [], {"status": "forgotten", "when": None, "by": None,
-                             "summary": None, "kind": None, "source": None}
+            return item, sig["activities"], sig["next_followup"]
+        except Exception as ex:
+            log.warning("Activity fetch failed for deal %s: %s", deal_id, ex)
+            return item, [], {"status": "forgotten", "when": None, "by": None,
+                              "summary": None, "kind": None, "source": None}
 
     results_by_id = {}
-    if estimates:
+    if merged:
         with ThreadPoolExecutor(max_workers=8) as pool:
-            for est, activities, next_followup in pool.map(_fetch_signals_for, estimates):
-                results_by_id[est.get("estimate_id")] = (activities, next_followup)
+            for item, activities, next_followup in pool.map(_fetch_signals_for, merged):
+                _, doc = item
+                doc_id = doc.get("estimate_id") or doc.get("invoice_id")
+                results_by_id[doc_id] = (activities, next_followup)
 
     quotes = []
-    for est in estimates:
-        deal_id = est.get("zcrm_potential_id") or ""
-        sent_at = est.get("last_modified_time") or est.get("created_time") or ""
-        activities, next_followup = results_by_id.get(est.get("estimate_id"),
+    for kind, doc in merged:
+        deal_id = doc.get("zcrm_potential_id") or ""
+        sent_at = doc.get("last_modified_time") or doc.get("created_time") or ""
+        doc_id = doc.get("estimate_id") or doc.get("invoice_id")
+        activities, next_followup = results_by_id.get(doc_id,
                                                        ([], {"status": "forgotten",
                                                              "when": None, "by": None,
                                                              "summary": None,
@@ -1307,20 +1342,22 @@ def api_quotes():
             latest_note_summary = " ".join(latest_note_summary.split())
 
         quotes.append({
-            "estimate_id": est.get("estimate_id"),
-            "estimate_number": est.get("estimate_number"),
+            "kind": kind,  # "quote" | "retainer"
+            "estimate_id": doc_id,  # keeps the existing API field name for stable client keying
+            "estimate_number": doc.get("estimate_number") or doc.get("invoice_number"),
             "deal_id": deal_id,
-            "deal_name": est.get("zcrm_potential_name"),
-            "customer_name": est.get("customer_name"),
-            "salesperson": est.get("salesperson_name"),
-            "date": est.get("date"),
+            "deal_name": doc.get("zcrm_potential_name"),
+            "customer_name": doc.get("customer_name"),
+            "salesperson": doc.get("salesperson_name"),
+            "date": doc.get("date"),
             "sent_at": sent_at,
-            "total": est.get("total"),
-            "currency": est.get("currency_code"),
-            "is_viewed_by_client": est.get("is_viewed_by_client"),
-            "mail_first_viewed_time": est.get("mail_first_viewed_time") or "",
-            "expiry_date": est.get("expiry_date"),
-            "status": est.get("status"),
+            "total": doc.get("total"),
+            "balance": doc.get("balance"),  # only present on retainer invoices
+            "currency": doc.get("currency_code"),
+            "is_viewed_by_client": doc.get("is_viewed_by_client"),
+            "mail_first_viewed_time": doc.get("mail_first_viewed_time") or "",
+            "expiry_date": doc.get("expiry_date") or doc.get("due_date"),
+            "status": doc.get("status"),
             "activity_count": len(activities),
             "activities": activities,
             "next_followup": next_followup,
