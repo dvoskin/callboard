@@ -65,7 +65,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return wrapper
 
-REFRESH_INTERVAL_SECONDS = 120
+REFRESH_INTERVAL_SECONDS = 60
 
 _cache: dict = {"data": None, "last_updated": None, "error": None}
 _lock = threading.Lock()
@@ -76,9 +76,35 @@ _ringcx = RingCXClient()
 _telegram = TelegramClient()
 _books = BooksClient()
 
-# ────────── Resolved-overdue persistence ──────────
+# ────────── Persistent disk (Render /data mount) ──────────
 # Use persistent disk mount if available (Render), fallback to local
 _data_dir = Path("/data") if Path("/data").exists() else Path(__file__).parent
+CACHE_PERSIST_PATH = _data_dir / "dashboard_cache.json"
+
+def _persist_cache(data: dict, last_updated: str) -> None:
+    """Write dashboard data to disk so it survives restarts."""
+    try:
+        CACHE_PERSIST_PATH.write_text(json.dumps(
+            {"data": data, "last_updated": last_updated}, separators=(",", ":")
+        ))
+    except Exception as e:
+        log.warning("Could not persist cache to disk: %s", e)
+
+def _load_persisted_cache() -> None:
+    """Pre-warm in-memory cache from disk on startup (instant first response)."""
+    if not CACHE_PERSIST_PATH.exists():
+        return
+    try:
+        blob = json.loads(CACHE_PERSIST_PATH.read_text())
+        with _lock:
+            _cache["data"] = blob["data"]
+            _cache["last_updated"] = blob.get("last_updated")
+            _cache["stale"] = True   # flag so UI can show "updating…"
+        log.info("Pre-warmed cache from disk (%s)", CACHE_PERSIST_PATH.name)
+    except Exception as e:
+        log.warning("Could not load persisted cache: %s", e)
+
+# ────────── Resolved-overdue persistence ──────────
 RESOLVED_PATH = _data_dir / "resolved_calls.json"
 _resolved_lock = threading.Lock()
 
@@ -270,10 +296,13 @@ def _refresh():
     log.info("Refreshing dashboard data...")
     try:
         data = _zoho.get_dashboard_data()
+        ts = datetime.now(timezone.utc).isoformat()
         with _lock:
             _cache["data"] = data
-            _cache["last_updated"] = datetime.now(timezone.utc).isoformat()
+            _cache["last_updated"] = ts
             _cache["error"] = None
+            _cache["stale"] = False
+        _persist_cache(data, ts)
         log.info("Refresh complete.")
     except Exception as exc:
         log.error("Refresh failed: %s", exc)
@@ -442,6 +471,7 @@ def api_data():
             return jsonify({"status": "error", "message": _cache["error"]}), 500
         data = _cache["data"]
         # Annotate scheduled call records with resolved flag + notes (does not mutate cache)
+        is_stale = _cache.get("stale", False)
         rd = resolved_data_full()
         annotated = json.loads(json.dumps(data))  # cheap deep copy
         _annotate_resolved(annotated, rd)
@@ -449,6 +479,7 @@ def api_data():
             {
                 "status": "ok",
                 "last_updated": _cache["last_updated"],
+                "stale": is_stale,
                 "error": _cache["error"],
                 "data": annotated,
             }
@@ -1439,7 +1470,8 @@ def _ensure_background_thread():
         t.start()
         _bg_started = True
 
-# Start on import (gunicorn workers, flask reloader, etc.)
+# Load persisted cache from disk so first request is instant, then start background loop.
+_load_persisted_cache()
 _ensure_background_thread()
 
 if __name__ == "__main__":
