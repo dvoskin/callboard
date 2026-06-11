@@ -871,7 +871,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "ids": ids_param,
-                    "fields": "id,Stage,Owner,Language",
+                    "fields": "id,Deal_Name,Stage,Owner,Language",
                 },
                 timeout=20,
             )
@@ -887,6 +887,7 @@ class ZohoClient:
                     lang_raw = (deal.get("Language") or "").strip()
                     result[did] = {
                         "stage": deal.get("Stage") or "",
+                        "name": deal.get("Deal_Name") or "",
                         "owner": owner_name,
                         "owner_id": owner_id,
                         "language": lang_raw if lang_raw and lang_raw != "Unselected" else "",
@@ -1318,6 +1319,8 @@ class ZohoClient:
                 # Always surface the deal owner for pipeline attribution
                 if owner:
                     r["deal_owner"] = owner
+                if info.get("name"):
+                    r["deal_name"] = info["name"]
                 # Language from deal record
                 if info.get("language"):
                     r["language"] = info["language"]

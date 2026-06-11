@@ -1027,6 +1027,23 @@
     .q-kind-badge.quote    { background: rgba(99,102,241,.10); color: #4f46e5; }
     .q-kind-badge.retainer { background: rgba(6,182,212,.12);  color: #0e7490; }
 
+    /* Books status badge in activity table */
+    .books-badge {
+      display: inline-block; font-size: 10px; font-weight: 600;
+      padding: 2px 6px; border-radius: 10px; white-space: nowrap;
+    }
+    .books-badge.b-closed   { background: rgba(22,163,74,.12);  color: #15803d; }
+    .books-badge.b-retained { background: rgba(6,182,212,.12);  color: #0e7490; }
+    .books-badge.b-quoted   { background: rgba(139,92,246,.12); color: #7c3aed; }
+    .books-badge.b-none     { color: var(--secondary); }
+    /* Follow-up row button */
+    .fu-row-btn {
+      background: none; border: 1px solid rgba(99,102,241,.25);
+      border-radius: 6px; cursor: pointer; padding: 2px 6px;
+      font-size: 13px; color: var(--accent); transition: background .15s;
+    }
+    .fu-row-btn:hover { background: rgba(99,102,241,.08); }
+
     /* Quotes Sent panel — compact rows */
     table.quotes-compact { font-size: 12px; }
     table.quotes-compact thead th {
@@ -3426,11 +3443,13 @@
                 <th class="sortable col-status" onclick="sortSc('status')">Status</th>
                 <th class="sortable col-result" onclick="sortSc('offset_minutes')">Result</th>
                 <th class="sortable col-stage" onclick="sortSc('deal_stage')">Deal Stage</th>
+                <th class="col-books" style="width:84px" title="Zoho Books / funnel status">Books</th>
                 <th class="sortable col-dials" onclick="sortSc('dial_attempts')">Dials</th>
                 <th class="sortable col-disp" onclick="sortSc('disposition')">Disposition</th>
                 <th class="col-dist" style="width:36px" title="Manually distributed">✋</th>
                 <th class="col-flag" style="width:36px"></th>
                 <th class="col-rec">Recording</th>
+                <th class="col-fu" style="width:36px" title="Schedule follow-up call">📞</th>
               </tr>
             </thead>
             <tbody id="sc-tbody"></tbody>
@@ -5496,6 +5515,23 @@
         const obsAgent = obs.agent ? ` by ${obs.agent}` : "";
         trailingIcons += ` <span class="floor-badge" title="Call observed via ${obsSrc} at ${obsTime}${obsAgent}">ⓘ</span>`;
       }
+      // Books status badge based on deal stage
+      const booksStage = (r.deal_stage || "").toLowerCase();
+      const booksIcon = booksStage.includes("closed won") || booksStage.includes("surgery scheduled")
+        ? `<span class="books-badge b-closed" title="Closed Won">✅ Closed</span>`
+        : booksStage.includes("retainer") || booksStage.includes("invoice")
+          ? `<span class="books-badge b-retained" title="Retainer Invoice Sent">💳 Retained</span>`
+          : booksStage.includes("quote")
+            ? `<span class="books-badge b-quoted" title="Quote Sent">📋 Quoted</span>`
+            : `<span class="books-badge b-none" title="No quote/retainer yet">—</span>`;
+      // Follow-up button
+      const fuData = JSON.stringify({
+        estimate_id: "", deal_id: r.id_deal || "", customer_name: r.name || r.contact_name || "",
+        deal_name: r.deal_name || "", salesperson: r.deal_owner || r.caller || "", latest_note: ""
+      }).replace(/"/g, "&quot;");
+      const fuBtn = r.id_deal
+        ? `<button class="fu-row-btn" onclick="openFuModal('${fuData}')" title="Schedule follow-up call">📞</button>`
+        : `<span class="no-data" title="No linked deal">—</span>`;
       return `<tr class="${cls}"${rowBg}>
         <td class="col-name">${nameCell(r, "Contacts", trailingIcons)}</td>
         <td class="col-phone">${phoneCell}</td>
@@ -5506,11 +5542,13 @@
         <td class="col-status">${statusHtml}</td>
         <td class="col-result">${result}</td>
         <td class="col-stage">${stageCell}</td>
+        <td style="text-align:center" class="col-books">${booksIcon}</td>
         <td style="text-align:center" class="col-dials">${dialsCell}</td>
         <td class="col-disp">${dispCell}</td>
         <td style="text-align:center" class="col-dist"><button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? `Distributed by ${r.distributed_by || 'unknown'}` : 'Mark as manually distributed'}">✋</button></td>
         <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
+        <td style="text-align:center" class="col-fu">${fuBtn}</td>
       </tr>`;
     }).join("");
 
@@ -5537,7 +5575,7 @@
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row collapsed" data-group="${gName}" onclick="toggleGroup(this)">
-          <td colspan="14"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+          <td colspan="16"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
         trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML.replace('<tr ', '<tr style="display:none" '); });
       }
       tbody.innerHTML = gbHtml;
