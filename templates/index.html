@@ -3160,38 +3160,6 @@
       50%      { box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 8px rgba(220,38,38,0); }
     }
 
-    /* ══════════════ PERFORMANCE HUB ══════════════ */
-    /* Daily Goals panel */
-    .perf-hub { margin-bottom: 14px; }
-    .perf-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); box-shadow: var(--shadow);
-      padding: 16px 18px;
-    }
-    .perf-card-hdr {
-      font-size: 10.5px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .08em; color: var(--secondary);
-      margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
-    }
-    .perf-card-hdr .perf-hdr-right {
-      margin-left: auto; font-size: 10px; color: var(--tertiary);
-      font-weight: 500; text-transform: none; letter-spacing: 0;
-    }
-    .goal2-row { padding: 5px 0; border-bottom: 1px solid var(--sep); }
-    .goal2-row:last-child { border-bottom: none; }
-    .goal2-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-    .goal2-name { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .goal2-count { font-size: 12px; font-weight: 700; font-feature-settings:"tnum"; flex-shrink: 0; }
-    .goal2-count .g-done { color: var(--text); }
-    .goal2-count .g-sep  { color: var(--tertiary); }
-    .goal2-count .g-goal { color: var(--tertiary); }
-    .goal2-edit { background: none; border: none; padding: 0 2px; cursor: pointer; font-size: 11px; color: var(--tertiary); transition: color .15s; flex-shrink: 0; }
-    .goal2-edit:hover { color: var(--blue); }
-    .goal2-track { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
-    .goal2-fill { height: 100%; border-radius: 3px; transition: width .5s ease; background: var(--green); }
-    .goal2-fill.warn { background: var(--orange); }
-    .goal2-fill.bad  { background: var(--red); }
-    .goal2-foot { font-size: 10px; color: var(--tertiary); margin-top: 2px; display: flex; justify-content: space-between; }
 
   </style>
 </head>
@@ -3268,14 +3236,6 @@
       <div class="pt-modal-title" id="pt-modal-title"></div>
       <div class="pt-modal-total" id="pt-modal-total"></div>
       <div id="pt-modal-agents"></div>
-    </div>
-  </div>
-
-  <!-- ══════════════════════ PERFORMANCE HUB ══════════════════════ -->
-  <div class="perf-hub" id="perf-hub" style="display:none">
-    <div class="perf-card">
-      <div class="perf-card-hdr">📅 Daily Goals <span class="perf-hdr-right">click ✎ to set target</span></div>
-      <div id="perf-goals-body"></div>
     </div>
   </div>
 
@@ -4172,7 +4132,6 @@
       if (!data || data.error) return;
       _pipelineData = data;
       renderPipelineTiles(_lastScRecords || []);
-      renderPerfHub(_lastScRecords || [], _pipelineData);
     }).catch(() => {});
   }
 
@@ -4267,65 +4226,6 @@
 
     el.innerHTML = tiles.join("");
   }
-
-  // ══════════════════════ PERFORMANCE HUB ══════════════════════
-  const DAILY_GOAL_DEFAULT = 30;
-  function _perfGoals() {
-    try { return JSON.parse(localStorage.getItem("rep_goals") || "{}"); } catch { return {}; }
-  }
-  function _perfSetGoal(name, val) {
-    try { const g = _perfGoals(); if (val > 0) g[name] = val; else delete g[name]; localStorage.setItem("rep_goals", JSON.stringify(g)); } catch {}
-  }
-
-  function renderPerfHub(records, pipelineData) {
-    const hub = document.getElementById("perf-hub");
-    if (!hub) return;
-    const filtered = filterBySelectedAgents(records);
-    const statsMap = {};
-    filtered.forEach(r => {
-      const name = r.caller || r.deal_owner;
-      if (!name) return;
-      if (!statsMap[name]) statsMap[name] = { name, total: 0, done: 0 };
-      const s = statsMap[name];
-      s.total++;
-      if (r.status === "completed" || r.status === "early") s.done++;
-    });
-    const reps = Object.values(statsMap).filter(s => s.total > 0).sort((a, b) => b.done - a.done);
-    if (!reps.length) { hub.style.display = "none"; return; }
-    hub.style.display = "";
-    _renderPerfGoals(reps);
-  }
-
-  function _renderPerfGoals(reps) {
-    const el = document.getElementById("perf-goals-body");
-    if (!el) return;
-    const goals = _perfGoals();
-    el.innerHTML = reps.map(s => {
-      const goal = goals[s.name] || DAILY_GOAL_DEFAULT;
-      const pct  = Math.min(100, Math.round(s.done / goal * 100));
-      const cls  = pct >= 80 ? "" : pct >= 50 ? "warn" : "bad";
-      const first = s.name.split(" ")[0];
-      const onTrack = pct >= 80 ? "✓ On track" : pct >= 50 ? "Behind" : "⚠ Far behind";
-      return `<div class="goal2-row">
-        <div class="goal2-top">
-          <span class="goal2-name" title="${s.name}">${first}</span>
-          <span class="goal2-count"><span class="g-done">${s.done}</span><span class="g-sep"> / </span><span class="g-goal">${goal}</span></span>
-          <button class="goal2-edit" onclick="_editGoal('${s.name.replace(/'/g,"\\'")}',${goal})" title="Edit daily target">✎</button>
-        </div>
-        <div class="goal2-track"><div class="goal2-fill ${cls}" style="width:${pct}%"></div></div>
-        <div class="goal2-foot"><span>${onTrack}</span><span>${pct}%</span></div>
-      </div>`;
-    }).join("");
-  }
-
-  window._editGoal = function(name, current) {
-    const val = prompt(`Daily call goal for ${name.split(" ")[0]}:`, current);
-    const n = parseInt(val);
-    if (!isNaN(n) && n > 0) {
-      _perfSetGoal(name, n);
-      renderPerfHub(_lastScRecords, _pipelineData);
-    }
-  };
 
   // ─── AI insights banner ───
   let _aiBannerOpen = false;
@@ -4555,7 +4455,6 @@
     const unresolvedOverdue = overdue.filter(r => !r.resolved);
     renderHeroKpis(sc, upcoming, unresolvedOverdue);
     renderPipelineTiles(sc.records);
-    renderPerfHub(sc.records, _pipelineData);
     renderAiInsights(sc, upcoming, unresolvedOverdue, _liveActiveCalls);
 
     const _callsDue = sc.records.length - upcoming.length;
