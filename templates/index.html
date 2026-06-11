@@ -1004,13 +1004,29 @@
       50% { opacity: .6; }
     }
 
-    /* Card-header compaction — Scheduled Calls and Follow Up Tracker. */
-    #sc-section .card-header,
-    #quotes-section .card-header { padding: 8px 14px; }
-    #sc-section .card-header h2,
-    #quotes-section .card-header h2 { font-size: 15px; }
-    #sc-section .card-date-bar,
-    #quotes-section .card-date-bar { padding: 6px 14px; }
+    /* Card-header compaction — Scheduled Calls */
+    #sc-section .card-header { padding: 8px 14px; }
+    #sc-section .card-header h2 { font-size: 15px; }
+    #sc-section .card-date-bar { padding: 6px 14px; }
+
+    /* Scheduled Calls tab bar */
+    .sc-tab-bar {
+      display: flex; align-items: center; gap: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 0 14px;
+      background: var(--surface);
+    }
+    .sc-tab-btn {
+      padding: 8px 14px; font-size: 13px; font-weight: 500;
+      color: var(--secondary); background: none; border: none;
+      border-bottom: 2px solid transparent; cursor: pointer;
+      margin-bottom: -1px; transition: color .15s, border-color .15s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .sc-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .sc-tab-btn:hover:not(.active) { color: var(--text); }
+    .sc-tab-content { display: none; }
+    .sc-tab-content.active { display: block; }
 
     /* "N need attention" pill — explicit spacing so the count + label don't collide */
     .q-attn-pill { padding: 2px 8px; line-height: 1.5; }
@@ -3302,7 +3318,17 @@
       <span class="card-sub" id="sc-card-sub">Today · Zoho Admin</span>
       <button class="sched-btn" onclick="openScheduleModal()">+ Schedule Call</button>
     </div>
-    <div class="card-date-bar" id="card-date-bar">
+    <!-- Tab bar -->
+    <div class="sc-tab-bar">
+      <button class="sc-tab-btn active" id="sc-tab-btn-activity" onclick="switchScTab('activity')">📅 Activity</button>
+      <button class="sc-tab-btn" id="sc-tab-btn-followup" onclick="switchScTab('followup')">
+        🎯 Follow-Up Tracker
+        <span class="chip" id="quotes-count" style="font-size:10px;padding:1px 6px">0</span>
+        <span id="quotes-attn-chip-tab" style="display:none;background:rgba(239,68,68,.12);color:#b91c1c;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600"></span>
+      </button>
+    </div>
+    <!-- Activity tab date bar -->
+    <div id="sc-tab-activity-datebar" class="card-date-bar" id="card-date-bar">
       <span class="cdb-label" id="cdb-label">Date range</span>
       <input type="date" id="date-start" class="cdb-input">
       <span class="cdb-sep">→</span>
@@ -3315,7 +3341,8 @@
     <div class="card-body">
       <div class="stat-strip" id="sc-stats" style="display:none"></div>
 
-      <div>
+      <!-- ── Activity tab ── -->
+      <div class="sc-tab-content active" id="sc-tab-activity">
         <!-- activity + overdue -->
         <div>
           <div class="sub-header" style="flex-wrap:wrap">
@@ -3424,58 +3451,53 @@
             </div>
           </div>
         </div>
+      </div><!-- /sc-tab-activity -->
 
-      </div>
-    </div>
-  </div>
+      <!-- ── Follow-Up Tracker tab ── -->
+      <div class="sc-tab-content" id="sc-tab-followup">
+        <div class="card-date-bar" style="border-top:none">
+          <span class="cdb-label">Sent date</span>
+          <input type="date" id="quotes-date-start" class="cdb-input">
+          <span class="cdb-sep">→</span>
+          <input type="date" id="quotes-date-end" class="cdb-input">
+          <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
+          <button class="cdb-today" onclick="resetQuotesToDefault()">↩ Last 3 days</button>
+          <button id="quotes-attn-chip"
+                  class="stage-tag s-noanswer q-attn-pill"
+                  style="display:none;cursor:pointer;border:1px solid rgba(239,68,68,.25)"
+                  onclick="_qToggleAttentionFilter()"
+                  title="Show only items that need team-lead attention">
+            🚩&nbsp;<span id="quotes-attn-count">0</span>&nbsp;need follow-up
+          </button>
+          <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
+          <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:8px"></span>
+          <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()" style="margin-left:auto">↻</button>
+        </div>
+        <div class="table-wrap" style="padding:0 0 8px">
+          <table id="quotes-table" class="quotes-compact">
+            <thead>
+              <tr>
+                <th style="width:16px"></th>
+                <th>Customer</th>
+                <th style="white-space:nowrap">Sent</th>
+                <th>Deal Status</th>
+                <th style="text-align:right">Quoted</th>
+                <th style="text-align:right">Balance</th>
+                <th>Rep</th>
+                <th>Next Step</th>
+                <th style="min-width:220px">Latest Note</th>
+                <th style="width:32px" title="Mark followed up"></th>
+              </tr>
+            </thead>
+            <tbody id="quotes-tbody">
+              <tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- /sc-tab-followup -->
 
-  <!-- ══════════════════════ QUOTES SENT (Zoho Books) ══════════════════════ -->
-  <div class="card" id="quotes-section">
-    <div class="card-header q-tight-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <h2 style="margin:0">🎯 Follow Up Tracker</h2>
-      <span class="chip" id="quotes-count">0</span>
-      <button id="quotes-attn-chip"
-              class="stage-tag s-noanswer q-attn-pill"
-              style="display:none;cursor:pointer;border:1px solid rgba(239,68,68,.25)"
-              onclick="_qToggleAttentionFilter()"
-              title="Show only items that need team-lead attention">
-        🚩&nbsp;<span id="quotes-attn-count">0</span>&nbsp;need follow-up
-      </button>
-      <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
-      <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()">↻</button>
-    </div>
-    <div class="card-date-bar">
-      <span class="cdb-label">Sent date</span>
-      <input type="date" id="quotes-date-start" class="cdb-input">
-      <span class="cdb-sep">→</span>
-      <input type="date" id="quotes-date-end" class="cdb-input">
-      <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
-      <button class="cdb-today" onclick="resetQuotesToDefault()">↩ Last 3 days</button>
-      <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
-      <span class="cdb-label" id="quotes-range-label" style="font-weight:400;color:var(--secondary);font-size:12px"></span>
-    </div>
-    <div class="card-body">
-      <div class="table-wrap">
-        <table id="quotes-table" class="quotes-compact">
-          <thead>
-            <tr>
-              <th style="width:16px"></th>
-              <th>Customer</th>
-              <th style="white-space:nowrap">Sent</th>
-              <th style="text-align:right">$</th>
-              <th>Rep</th>
-              <th>Next Step</th>
-              <th style="min-width:240px">Latest Note</th>
-              <th style="width:32px" title="Mark followed up"></th>
-            </tr>
-          </thead>
-          <tbody id="quotes-tbody">
-            <tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+    </div><!-- /card-body -->
+  </div><!-- /sc-section -->
 
 </main>
 
@@ -7371,6 +7393,12 @@
     const cnt = document.getElementById("quotes-attn-count");
     if (cnt) cnt.textContent = n;
     if (chip) chip.style.display = n > 0 || _qAttentionFilterOn ? "" : "none";
+    // Update tab badge
+    const tabChip = document.getElementById("quotes-attn-chip-tab");
+    if (tabChip) {
+      tabChip.textContent = n > 0 ? `🚩${n}` : "";
+      tabChip.style.display = n > 0 ? "" : "none";
+    }
   }
   function _qToggleAttentionFilter() {
     _qAttentionFilterOn = !_qAttentionFilterOn;
@@ -7405,7 +7433,7 @@
       : _qLastQuotes;
     tbody.innerHTML = rows.length
       ? rows.map((q, i) => _qRenderRow(q, _qLastQuotes.indexOf(q))).join("")
-      : `<tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">No quotes matching filter.</td></tr>`;
+      : `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">No quotes matching filter.</td></tr>`;
     _qUpdateAttentionChip();
   }
 
@@ -7462,19 +7490,19 @@
       const resp = await fetch(`/api/quotes?start=${start}&end=${end}`);
       const data = await resp.json();
       if (data.status === "not_configured") {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       if (data.status !== "ok") {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       countEl.textContent = data.count;
       status.textContent = data.source === "cache" ? "· local snapshot" : "";
       if (!data.quotes.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
         return;
       }
       _qLastQuotes = data.quotes;
@@ -7482,7 +7510,7 @@
       _qUpdateAttentionChip();
     } catch (e) {
       console.error("loadQuotes error", e);
-      tbody.innerHTML = `<tr><td colspan="8" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
     } finally {
       loading.style.display = "none";
     }
@@ -7498,7 +7526,7 @@
       ? `<span style="cursor:pointer;color:var(--secondary);user-select:none" onclick="_qToggle(${i})">▸</span>`
       : "";
     const detailRow = expandable
-      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="7" style="background:rgba(0,0,0,.02);padding:8px 12px">${_qRenderActivities(q.activities)}</td></tr>`
+      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="9" style="background:rgba(0,0,0,.02);padding:8px 12px">${_qRenderActivities(q.activities)}</td></tr>`
       : "";
 
     const attn = _qAttentionLevel(q);
@@ -7527,6 +7555,17 @@
       ? `<div class="q-truncate" style="max-width:260px;font-size:11px;color:var(--secondary)" title="${_qEsc(q.deal_name)}">${_qEsc(q.deal_name)}</div>`
       : "";
 
+    // Deal Status pill: paid > partial > retainer_sent > quote_accepted > quote_viewed > quote_sent
+    const statusCell = _qRenderDealStatus(q);
+
+    // Balance cell: only meaningful for retainer invoices
+    const fmt = new Intl.NumberFormat(undefined, { style: "currency", currency: q.currency || "USD", maximumFractionDigits: 0 });
+    const balanceCell = q.balance != null
+      ? (q.balance == 0
+          ? `<span style="color:#16a34a;font-weight:600">$0</span>`
+          : `<span style="color:var(--secondary)">${fmt.format(q.balance)}</span>`)
+      : `<span style="color:var(--secondary)">—</span>`;
+
     return `<tr id="q-row-${i}" class="${rowClass}">
       <td>${caret}</td>
       <td>
@@ -7539,13 +7578,42 @@
         ${_qFmtDate(q.date)}
         <div style="font-size:10.5px;color:var(--secondary);margin-top:1px">${daysLabel}</div>
       </td>
+      <td>${statusCell}</td>
       <td style="text-align:right;color:var(--secondary)">${amount}</td>
+      <td style="text-align:right">${balanceCell}</td>
       <td class="q-truncate" style="max-width:110px" title="${_qEsc(q.salesperson || "")}">${_qEsc(q.salesperson || "—")}</td>
       <td>${_qRenderNextStep(q.next_followup)}</td>
       <td>${_qRenderLatestNote(q)}</td>
       <td style="text-align:center">${ackCell}</td>
     </tr>${detailRow}`;
   }
+  function _qRenderDealStatus(q) {
+    const s = (q.status || "").toLowerCase();
+    const isPaid      = s === "paid" || (q.kind === "retainer" && q.balance != null && q.balance == 0);
+    const isPartial   = q.kind === "retainer" && q.balance != null && q.balance > 0 && q.total != null && q.balance < q.total;
+    const isOverdue   = s === "overdue";
+    if (isPaid)    return `<span class="stage-tag" style="background:rgba(22,163,74,.12);color:#15803d;white-space:nowrap">✅ Paid</span>`;
+    if (isPartial) return `<span class="stage-tag" style="background:rgba(234,179,8,.12);color:#854d0e;white-space:nowrap">⏳ Partial</span>`;
+    if (isOverdue) return `<span class="stage-tag" style="background:rgba(239,68,68,.12);color:#b91c1c;white-space:nowrap">⚠ Overdue</span>`;
+    if (q.kind === "retainer") {
+      if (s === "viewed") return `<span class="stage-tag" style="background:rgba(6,182,212,.12);color:#0e7490;white-space:nowrap">👁 INV Viewed</span>`;
+      return `<span class="stage-tag" style="background:rgba(6,182,212,.15);color:#0e7490;white-space:nowrap">📋 Inv Sent</span>`;
+    }
+    if (s === "accepted") return `<span class="stage-tag" style="background:rgba(99,102,241,.12);color:#4338ca;white-space:nowrap">✓ Accepted</span>`;
+    if (s === "viewed")   return `<span class="stage-tag" style="background:rgba(99,102,241,.08);color:#4f46e5;white-space:nowrap">👁 Viewed</span>`;
+    if (s === "declined" || s === "expired") return `<span class="stage-tag" style="background:rgba(239,68,68,.08);color:#b91c1c;white-space:nowrap">✕ ${s.charAt(0).toUpperCase()+s.slice(1)}</span>`;
+    return `<span class="stage-tag" style="background:rgba(148,163,184,.12);color:var(--secondary);white-space:nowrap">📄 Quote Sent</span>`;
+  }
+
+  function switchScTab(tab) {
+    document.querySelectorAll(".sc-tab-content").forEach(el => el.classList.remove("active"));
+    document.querySelectorAll(".sc-tab-btn").forEach(el => el.classList.remove("active"));
+    document.getElementById(`sc-tab-${tab}`).classList.add("active");
+    document.getElementById(`sc-tab-btn-${tab}`).classList.add("active");
+    // Auto-load follow-up data on first switch to that tab
+    if (tab === "followup" && !_qLastQuotes) loadQuotes();
+  }
+
   function _qRenderLatestNote(q) {
     if (!q.latest_note) return `<span style="color:var(--secondary);font-size:11px">—</span>`;
     const when = q.latest_note_ts ? _qFmtClock(q.latest_note_ts) : "";
@@ -7609,7 +7677,6 @@
   // Populate the panel's own date inputs (last 3 days), then auto-load once.
   _qInitDefaultRange();
   _qRenderRangeLabel();
-  loadQuotes();
 </script>
 
 </body>
