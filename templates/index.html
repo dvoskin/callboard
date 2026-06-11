@@ -2149,12 +2149,12 @@
       .lp-filter-item input[type="checkbox"] { width: 18px; height: 18px; }
 
       /* Hide Assigned To, Outcome, Resolved By on mobile */
-      #sc-overdue-zone table thead th:nth-child(8),
-      #sc-overdue-zone table tbody td:nth-child(8),
-      #sc-overdue-zone table thead th:nth-child(9),
-      #sc-overdue-zone table tbody td:nth-child(9),
-      #sc-overdue-zone table thead th:nth-child(10),
-      #sc-overdue-zone table tbody td:nth-child(10) { display: none; }
+      #sc-tab-overdue table thead th:nth-child(8),
+      #sc-tab-overdue table tbody td:nth-child(8),
+      #sc-tab-overdue table thead th:nth-child(9),
+      #sc-tab-overdue table tbody td:nth-child(9),
+      #sc-tab-overdue table thead th:nth-child(10),
+      #sc-tab-overdue table tbody td:nth-child(10) { display: none; }
 
       /* Alert banner: stack vertically */
       .alert-banner { flex-wrap: wrap; padding: 11px 14px; gap: 10px; }
@@ -2271,16 +2271,16 @@
       .col-stage, .col-actual { display: none !important; }
 
       /* Overdue table is its own beast — hide same columns there */
-      #sc-overdue-zone table thead th:nth-child(3),
-      #sc-overdue-zone table tbody td:nth-child(3),
-      #sc-overdue-zone table thead th:nth-child(5),
-      #sc-overdue-zone table tbody td:nth-child(5),
-      #sc-overdue-zone table thead th:nth-child(8),
-      #sc-overdue-zone table tbody td:nth-child(8),
-      #sc-overdue-zone table thead th:nth-child(9),
-      #sc-overdue-zone table tbody td:nth-child(9),
-      #sc-overdue-zone table thead th:nth-child(10),
-      #sc-overdue-zone table tbody td:nth-child(10) { display: none; }
+      #sc-tab-overdue table thead th:nth-child(3),
+      #sc-tab-overdue table tbody td:nth-child(3),
+      #sc-tab-overdue table thead th:nth-child(5),
+      #sc-tab-overdue table tbody td:nth-child(5),
+      #sc-tab-overdue table thead th:nth-child(8),
+      #sc-tab-overdue table tbody td:nth-child(8),
+      #sc-tab-overdue table thead th:nth-child(9),
+      #sc-tab-overdue table tbody td:nth-child(9),
+      #sc-tab-overdue table thead th:nth-child(10),
+      #sc-tab-overdue table tbody td:nth-child(10) { display: none; }
 
       /* Cols menu becomes a bottom sheet on small screens */
       .cols-menu {
@@ -3258,12 +3258,12 @@
       <h3 id="alert-title">Needs attention</h3>
       <p id="alert-desc"></p>
     </div>
-    <button class="alert-cta" onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">Review →</button>
+    <button class="alert-cta" onclick="switchScTab('overdue')">Review →</button>
   </div>
 
   <!-- ══════════════════════ FLOATING OVERDUE PILL ══════════════════════ -->
   <div class="od-float-pill" id="od-float-pill"
-       onclick="document.getElementById('sc-overdue-zone').scrollIntoView({behavior:'smooth'})">
+       onclick="switchScTab('overdue')">
     <span class="od-pill-icon">!</span>
     <span id="od-pill-label">Overdue</span>
     <span class="od-pill-count" id="od-pill-count">0</span>
@@ -3333,6 +3333,10 @@
     </div>
     <!-- Tab bar -->
     <div class="sc-tab-bar">
+      <button class="sc-tab-btn" id="sc-tab-btn-overdue" onclick="switchScTab('overdue')" style="display:none">
+        ⚠️ Overdue
+        <span class="chip" id="sc-overdue-count" style="font-size:10px;padding:1px 6px;background:rgba(239,68,68,.15);color:#b91c1c">0</span>
+      </button>
       <button class="sc-tab-btn active" id="sc-tab-btn-activity" onclick="switchScTab('activity')">📅 Activity</button>
       <button class="sc-tab-btn" id="sc-tab-btn-followup" onclick="switchScTab('followup')">
         🎯 Follow-Up Tracker
@@ -3357,6 +3361,42 @@
     </div>
     <div class="card-body">
       <div class="stat-strip" id="sc-stats" style="display:none"></div>
+
+      <!-- ── Overdue tab ── -->
+      <div class="sc-tab-content" id="sc-tab-overdue">
+        <div class="overdue-controls" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+          <input type="text" id="od-search" placeholder="🔍  Name or phone…" oninput="renderOverdueTable()">
+          <select id="od-stage-filter" onchange="renderOverdueTable()">
+            <option value="">All Stages</option>
+          </select>
+          <button class="od-clear-btn" onclick="clearOverdueFilters()">✕</button>
+          <div class="od-spacer"></div>
+          <span class="resolved-count" id="sc-resolved-count"></span>
+          <button class="toggle-resolved" id="sc-toggle-resolved" onclick="toggleShowResolved()" style="display:none">Show resolved</button>
+          <button class="bulk-resolve-btn" id="sc-bulk-resolve" onclick="bulkResolveSelected()">✓ Resolve (<span id="sc-sel-count">0</span>)</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="overdue-cb-col"><input type="checkbox" id="od-select-all" onchange="toggleSelectAll(this)" title="Select all"></th>
+                <th class="sortable" onclick="sortOverdue('name')">Contact</th>
+                <th>Phone</th>
+                <th class="sortable" onclick="sortOverdue('scheduled_time')">Scheduled (EST)</th>
+                <th>Actual Call (EST)</th>
+                <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
+                <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
+                <th>Assigned To</th>
+                <th>Outcome</th>
+                <th>Resolved By</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="sc-overdue-tbody"></tbody>
+          </table>
+        </div>
+        <div style="padding:8px 12px;font-size:11px;color:var(--tertiary)" id="overdue-empty-msg" style="display:none">No overdue calls.</div>
+      </div><!-- /sc-tab-overdue -->
 
       <!-- ── Activity tab ── -->
       <div class="sc-tab-content active" id="sc-tab-activity">
@@ -3426,46 +3466,6 @@
           </div>
           <div class="table-footer" id="sc-table-footer"></div>
 
-          <!-- Overdue calls -->
-          <div class="overdue-zone" id="sc-overdue-zone" style="display:none;scroll-margin-top:80px">
-            <div class="sub-header overdue-zone">
-              <span class="title">⚠ Overdue Calls</span>
-              <span class="chip" id="sc-overdue-count">0</span>
-              <span class="sh-right">
-                <span class="resolved-count" id="sc-resolved-count"></span>
-                <button class="toggle-resolved" id="sc-toggle-resolved" onclick="toggleShowResolved()" style="display:none">Show resolved</button>
-              </span>
-            </div>
-            <div class="overdue-controls">
-              <input type="text" id="od-search" placeholder="🔍  Name or phone…" oninput="renderOverdueTable()">
-              <select id="od-stage-filter" onchange="renderOverdueTable()">
-                <option value="">All Stages</option>
-              </select>
-              <button class="od-clear-btn" onclick="clearOverdueFilters()">✕</button>
-              <div class="od-spacer"></div>
-              <button class="bulk-resolve-btn" id="sc-bulk-resolve" onclick="bulkResolveSelected()">✓ Resolve (<span id="sc-sel-count">0</span>)</button>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th class="overdue-cb-col"><input type="checkbox" id="od-select-all" onchange="toggleSelectAll(this)" title="Select all"></th>
-                    <th class="sortable" onclick="sortOverdue('name')">Contact</th>
-                    <th>Phone</th>
-                    <th class="sortable" onclick="sortOverdue('scheduled_time')">Scheduled (EST)</th>
-                    <th>Actual Call (EST)</th>
-                    <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
-                    <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
-                    <th>Assigned To</th>
-                    <th>Outcome</th>
-                    <th>Resolved By</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="sc-overdue-tbody"></tbody>
-              </table>
-            </div>
-          </div>
         </div>
       </div><!-- /sc-tab-activity -->
 
@@ -3490,6 +3490,8 @@
           <span id="quotes-range-label" style="color:var(--secondary);font-size:12px;margin-left:4px"></span>
           <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()" style="margin-left:auto">↻</button>
         </div>
+        <!-- Coverage summary for team lead -->
+        <div id="fu-coverage-bar" style="display:none;padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px"></div>
         <div class="table-wrap" style="padding:0 0 8px">
           <table id="quotes-table" class="quotes-compact">
             <thead>
@@ -4487,7 +4489,6 @@
   }
 
   function renderOverdueTable() {
-    const zone = document.getElementById("sc-overdue-zone");
     const all  = _scOverdueRecords;
     const resolvedN = all.filter(r => r.resolved).length;
 
@@ -4502,8 +4503,20 @@
       toggleBtn.style.display = "none";
     }
 
-    if (!all.length) { zone.style.display = "none"; return; }
-    zone.style.display = "";
+    // Show/hide overdue tab button
+    const overdueTabBtn = document.getElementById("sc-tab-btn-overdue");
+    if (!all.length) {
+      if (overdueTabBtn) overdueTabBtn.style.display = "none";
+      return;
+    }
+    if (overdueTabBtn) {
+      overdueTabBtn.style.display = "";
+      // Auto-switch to overdue tab if currently on activity tab
+      const activeTab = document.querySelector(".sc-tab-content.active");
+      if (activeTab && activeTab.id === "sc-tab-activity") {
+        switchScTab("overdue");
+      }
+    }
 
     // Populate stage filter
     populateOverdueStages(all);
@@ -4528,7 +4541,7 @@
 
     // Apply sort
     const sorted = sortedBy(visible, _overdueSort.key, _overdueSort.dir);
-    updateSortHeaders("sc-overdue-zone", _overdueSort);
+    updateSortHeaders("sc-tab-overdue", _overdueSort);
 
     document.getElementById("sc-overdue-tbody").innerHTML = sorted.map(r => {
       const ownerTag = r.deal_owner
@@ -5547,9 +5560,9 @@
         const completed = gRows.filter(r => ["completed","early","completed_via_workflow"].includes(r.status)).length;
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
-        gbHtml += `<tr class="group-header-row" data-group="${gName}" onclick="toggleGroup(this)">
+        gbHtml += `<tr class="group-header-row collapsed" data-group="${gName}" onclick="toggleGroup(this)">
           <td colspan="14"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
-        trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML; });
+        trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML.replace('<tr ', '<tr style="display:none" '); });
       }
       tbody.innerHTML = gbHtml;
     }
@@ -5732,7 +5745,8 @@
   function _clearStaleUI() {
     document.getElementById("alert-banner").classList.remove("show");
     document.getElementById("ai-banner").classList.remove("show");
-    document.getElementById("sc-overdue-zone").style.display = "none";
+    const _odTabBtn = document.getElementById("sc-tab-btn-overdue");
+    if (_odTabBtn) _odTabBtn.style.display = "none";
     document.getElementById("hero-grid").innerHTML = `
       <div class="kpi-card"><div class="kpi-lbl">Total Today</div><div class="kpi-val dim">—</div></div>
       <div class="kpi-card"><div class="kpi-lbl">Completion Rate</div><div class="kpi-val dim">—</div></div>
@@ -7505,6 +7519,7 @@
       _qLastQuotes = data.quotes;
       tbody.innerHTML = data.quotes.map((q, i) => _qRenderRow(q, i)).join("");
       _qUpdateAttentionChip();
+      _qRenderCoverageSummary(data.quotes);
     } catch (e) {
       console.error("loadQuotes error", e);
       tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
@@ -7580,7 +7595,7 @@
       <td style="text-align:right;color:var(--secondary)">${amount}</td>
       <td style="text-align:right">${balanceCell}</td>
       <td class="q-truncate" style="max-width:110px" title="${_qEsc(q.salesperson || "")}">${_qEsc(q.salesperson || "—")}</td>
-      <td>${_qRenderNextStep(q.next_followup)}</td>
+      <td>${_qRenderNextStep(q.next_followup, q.auto_scheduled_followup)}</td>
       <td>${_qRenderLatestNote(q)}</td>
       <td style="text-align:center;white-space:nowrap">
         ${ackCell}
@@ -7609,8 +7624,13 @@
   function switchScTab(tab) {
     document.querySelectorAll(".sc-tab-content").forEach(el => el.classList.remove("active"));
     document.querySelectorAll(".sc-tab-btn").forEach(el => el.classList.remove("active"));
-    document.getElementById(`sc-tab-${tab}`).classList.add("active");
-    document.getElementById(`sc-tab-btn-${tab}`).classList.add("active");
+    const tabEl = document.getElementById(`sc-tab-${tab}`);
+    const btnEl = document.getElementById(`sc-tab-btn-${tab}`);
+    if (tabEl) tabEl.classList.add("active");
+    if (btnEl) btnEl.classList.add("active");
+    // Show/hide date bar — only for activity tab
+    const dateBar = document.getElementById("card-date-bar");
+    if (dateBar) dateBar.style.display = tab === "activity" ? "" : "none";
     if (tab === "followup" && !_qLastQuotes) loadQuotes();
     if (tab === "followupcalls" && !_fuCallsLoaded) {
       const t = todayISO();
@@ -7620,6 +7640,31 @@
       if (e && !e.value) e.value = t;
       loadFollowupCalls();
     }
+  }
+
+  function _qRenderCoverageSummary(quotes) {
+    const bar = document.getElementById("fu-coverage-bar");
+    if (!bar) return;
+    const total = quotes.length;
+    if (!total) { bar.style.display = "none"; return; }
+    const scheduled = quotes.filter(q =>
+      (q.next_followup?.status === "scheduled") || q.auto_scheduled_followup
+    ).length;
+    const autoCount = quotes.filter(q => q.auto_scheduled_followup).length;
+    const missing = total - scheduled;
+    const pct = Math.round(scheduled / total * 100);
+    const color = pct === 100 ? "#16a34a" : pct >= 60 ? "#b45309" : "#b91c1c";
+    bar.style.display = "flex";
+    bar.innerHTML = `
+      <span style="font-weight:700;color:${color}">${scheduled}/${total}</span>
+      <span style="color:var(--secondary)">quotes/retainers have a follow-up call scheduled</span>
+      <div style="flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;min-width:80px">
+        <div style="height:100%;border-radius:3px;background:${color};width:${pct}%;transition:width .4s ease"></div>
+      </div>
+      <span style="font-weight:600;color:${color}">${pct}%</span>
+      ${autoCount ? `<span style="color:var(--accent);background:rgba(99,102,241,.1);padding:1px 8px;border-radius:10px">${autoCount} auto-scheduled</span>` : ""}
+      ${missing ? `<span style="color:#b91c1c;font-weight:600">⚠ ${missing} missing</span>` : `<span style="color:#16a34a;font-weight:600">✓ Full coverage</span>`}
+    `;
   }
 
   function _qRenderLatestNote(q) {
@@ -7633,8 +7678,14 @@
       <div style="font-size:10px;color:var(--secondary);margin-top:1px">${_qEsc(date)} ${when}${by}</div>
     </div>`;
   }
-  function _qRenderNextStep(nf) {
+  function _qRenderNextStep(nf, autoScheduled) {
     if (!nf) return "—";
+    if (autoScheduled) {
+      const dt = new Date(autoScheduled);
+      const timeStr = dt.toLocaleString("en-US", {timeZone:"America/New_York", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+      return `<div><span class="stage-tag" style="background:rgba(99,102,241,.1);color:#4f46e5">📞 Auto-scheduled</span>
+        <div style="font-size:11px;color:var(--secondary);margin-top:2px">${timeStr} ET</div></div>`;
+    }
     if (nf.status === "scheduled") {
       const when = _qFmtTime(nf.when);
       const by = nf.by ? ` · ${_qEsc(nf.by)}` : "";

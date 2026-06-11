@@ -105,6 +105,90 @@ def _load_persisted_cache() -> None:
         log.warning("Could not load persisted cache: %s", e)
 
 # ────────── Resolved-overdue persistence ──────────
+_AUTO_FU_LOG_PATH = _data_dir / "auto_followup_log.json"
+
+def _load_auto_fu_log() -> dict:
+    """Return {deal_id: scheduled_iso} of deals that were auto-scheduled."""
+    try:
+        if _AUTO_FU_LOG_PATH.exists():
+            return json.loads(_AUTO_FU_LOG_PATH.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_auto_fu_log(data: dict):
+    try:
+        _AUTO_FU_LOG_PATH.write_text(json.dumps(data))
+    except Exception as e:
+        log.warning("Failed to save auto_followup_log: %s", e)
+
+def _auto_schedule_followup(q: dict, auto_fu_log: dict) -> None:
+    """Create a Zoho CRM scheduled follow-up call for a single quote/retainer.
+    Runs in a background thread — errors are logged, never raised.
+    """
+    from zoneinfo import ZoneInfo
+    deal_id = q.get("deal_id") or ""
+    sent_at = q.get("date") or ""
+    try:
+        from datetime import date as _date
+        if (datetime.now(timezone.utc).date() - _date.fromisoformat(sent_at)).days > 14:
+            return
+    except Exception:
+        return
+    # Next business day at 10am ET
+    et = ZoneInfo("America/New_York")
+    fu_dt = datetime.now(et).replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    while fu_dt.weekday() >= 5:
+        fu_dt += timedelta(days=1)
+    fu_iso = fu_dt.astimezone(timezone.utc).isoformat()
+    try:
+        deal_info = _zoho.get_deal_contact(deal_id)
+        contact_id = deal_info.get("contact_id", "")
+        contact_name = q.get("customer_name") or deal_info.get("contact_name", "")
+        owner_id = deal_info.get("owner_id", "")
+        result = _zoho.create_scheduled_call(
+            contact_id=contact_id,
+            contact_name=contact_name,
+            call_time=fu_iso,
+            deal_id=deal_id,
+            owner_id=owner_id,
+        )
+        if result.get("id"):
+            import requests as _req
+            _req.put(
+                f"{_zoho.base_url}/crm/v6/Calls/{result['id']}",
+                headers=_zoho._headers(),
+                json={"data": [{
+                    "Subject": f"Follow-up: {contact_name}",
+                    "Description": q.get("latest_note") or f"Follow-up after {q.get('kind','quote')} sent on {sent_at}",
+                }]},
+                timeout=10,
+            )
+        auto_fu_log[deal_id] = fu_iso
+        _save_auto_fu_log(auto_fu_log)
+        log.info("Auto-scheduled follow-up for deal %s → %s", deal_id, fu_iso)
+    except Exception as ex:
+        log.warning("Auto follow-up failed for deal %s: %s", deal_id, ex)
+
+
+def _trigger_auto_followup(quotes: list) -> None:
+    """Check quotes for missing follow-ups and auto-schedule them in the background."""
+    auto_fu_log = _load_auto_fu_log()
+    pending = [
+        q for q in quotes
+        if q.get("deal_id")
+        and (q.get("next_followup") or {}).get("status", "forgotten") != "scheduled"
+        and q.get("deal_id") not in auto_fu_log
+    ]
+    if not pending:
+        return
+    def _run():
+        for q in pending:
+            _auto_schedule_followup(q, auto_fu_log)
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
 RESOLVED_PATH = _data_dir / "resolved_calls.json"
 _resolved_lock = threading.Lock()
 
@@ -1396,6 +1480,9 @@ def api_quotes():
             "latest_note_ts": latest_note.get("ts") if latest_note else None,
             "latest_note_by": latest_note.get("by") if latest_note else None,
         })
+
+    # Kick off auto-scheduling in background — don't block the response
+    _trigger_auto_followup(quotes)
 
     return jsonify({
         "status": "ok",
