@@ -784,18 +784,33 @@ class ZohoClient:
         "Closed Won - Surgery Scheduled",
     ]
 
-    def get_pipeline_counts(self) -> dict:
-        """Returns {stage: [{owner, count}]} for deals at each pipeline stage modified today."""
+    def get_pipeline_counts(
+        self,
+        start_dt: Optional[datetime] = None,
+        end_dt: Optional[datetime] = None,
+    ) -> dict:
+        """Returns {stage: [{owner, count}]} for deals at each pipeline stage
+        Modified within [start_dt, end_dt]. Defaults to today's local window."""
         log = logging.getLogger(__name__)
         local_tz = timezone(timedelta(hours=TZ_OFFSET_HOURS))
-        now_local = datetime.now(local_tz)
-        today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        lookback = today_start.strftime("%Y-%m-%dT%H:%M:%S%z")
-        lookback = lookback[:-2] + ":" + lookback[-2:]
+        if start_dt is None:
+            now_local = datetime.now(local_tz)
+            start_dt = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        lookback = start_dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+        lookback = lookback[:-2] + ":" + lookback[-2:] if lookback[-3] != ":" else lookback
+
+        upper_clause = ""
+        if end_dt is not None:
+            upper = end_dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+            upper = upper[:-2] + ":" + upper[-2:] if upper[-3] != ":" else upper
+            upper_clause = f"and(Modified_Time:less_equal:{upper})"
 
         result = {}
         for stage in self.PIPELINE_STAGES:
-            criteria = f"((Stage:equals:{stage})and(Modified_Time:greater_equal:{lookback}))"
+            criteria = (
+                f"((Stage:equals:{stage})"
+                f"and(Modified_Time:greater_equal:{lookback}){upper_clause})"
+            )
             all_deals, page = [], 1
             while True:
                 resp = requests.get(

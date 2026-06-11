@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -884,9 +885,19 @@ def zoho_schedule_call():
 @app.route("/api/pipeline")
 @login_required
 def api_pipeline():
-    """Deal pipeline stage counts for today, broken down by owner."""
+    """Deal pipeline stage counts broken down by owner. Defaults to today
+    if no start/end query params are passed (same shape as /api/data)."""
+    start_param = request.args.get("start")
+    end_param   = request.args.get("end")
+    tz_param    = request.args.get("tz")
+    tz_offset_minutes = int(tz_param) if tz_param is not None else None
     try:
-        counts = _zoho.get_pipeline_counts()
+        start_dt = end_dt = None
+        if start_param:
+            effective_end = end_param or start_param
+            start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
+            end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
+        counts = _zoho.get_pipeline_counts(start_dt=start_dt, end_dt=end_dt)
         return jsonify(counts)
     except Exception as e:
         log.exception("Pipeline counts error")
@@ -1250,21 +1261,51 @@ def api_quotes():
         log.error("Books estimate fetch failed: %s", e)
         return jsonify({"status": "error", "message": str(e), "quotes": []}), 500
 
+    # Fetch CRM signals in parallel — 3 related-list calls per quote, so 8 workers
+    # ≈ 24 concurrent HTTP requests. Zoho has its own rate limits but is fine
+    # at this concurrency for the volumes we see.
+    def _fetch_signals_for(est):
+        deal_id = est.get("zcrm_potential_id") or ""
+        sent_at = est.get("last_modified_time") or est.get("created_time") or ""
+        if not (include_activity and deal_id and sent_at):
+            return est, [], {"status": "forgotten", "when": None, "by": None,
+                             "summary": None, "kind": None, "source": None}
+        try:
+            sig = _zoho.get_deal_post_quote_signals(deal_id, sent_at)
+            return est, sig["activities"], sig["next_followup"]
+        except Exception as e:
+            log.warning("Activity fetch failed for deal %s: %s", deal_id, e)
+            return est, [], {"status": "forgotten", "when": None, "by": None,
+                             "summary": None, "kind": None, "source": None}
+
+    results_by_id = {}
+    if estimates:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for est, activities, next_followup in pool.map(_fetch_signals_for, estimates):
+                results_by_id[est.get("estimate_id")] = (activities, next_followup)
+
     quotes = []
     for est in estimates:
         deal_id = est.get("zcrm_potential_id") or ""
-        # Use last_modified_time as the post-send cutoff (more precise than 'date').
         sent_at = est.get("last_modified_time") or est.get("created_time") or ""
-        activities = []
-        next_followup = {"status": "forgotten", "when": None, "by": None,
-                         "summary": None, "kind": None}
-        if include_activity and deal_id and sent_at:
-            try:
-                signals = _zoho.get_deal_post_quote_signals(deal_id, sent_at)
-                activities = signals["activities"]
-                next_followup = signals["next_followup"]
-            except Exception as e:
-                log.warning("Activity fetch failed for deal %s: %s", deal_id, e)
+        activities, next_followup = results_by_id.get(est.get("estimate_id"),
+                                                       ([], {"status": "forgotten",
+                                                             "when": None, "by": None,
+                                                             "summary": None,
+                                                             "kind": None, "source": None}))
+        # Surface the most recent post-send note inline so the panel can show
+        # it without expanding the row. Activities are time-sorted desc.
+        latest_note = next((a for a in activities if a.get("kind") == "Notes"), None)
+        latest_note_summary = ""
+        if latest_note:
+            # Content (detail) is more informative than the title; fall back to title.
+            latest_note_summary = (latest_note.get("detail") or
+                                    latest_note.get("summary") or "").strip()
+            # Strip residual HTML from rich-text notes
+            import re as _re
+            latest_note_summary = _re.sub(r"<[^>]+>", "", latest_note_summary)
+            latest_note_summary = " ".join(latest_note_summary.split())
+
         quotes.append({
             "estimate_id": est.get("estimate_id"),
             "estimate_number": est.get("estimate_number"),
@@ -1283,6 +1324,9 @@ def api_quotes():
             "activity_count": len(activities),
             "activities": activities,
             "next_followup": next_followup,
+            "latest_note": latest_note_summary,
+            "latest_note_ts": latest_note.get("ts") if latest_note else None,
+            "latest_note_by": latest_note.get("by") if latest_note else None,
         })
 
     return jsonify({
