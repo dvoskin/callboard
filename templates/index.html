@@ -7571,7 +7571,7 @@
       <td style="text-align:right;color:var(--secondary)">${amount}</td>
       <td style="text-align:right">${balanceCell}</td>
       <td class="q-truncate" style="max-width:110px" title="${_qEsc(q.salesperson || "")}">${_qEsc(q.salesperson || "—")}</td>
-      <td>${_qRenderNextStep(q.next_followup, q.auto_scheduled_followup)}</td>
+      <td>${_qRenderNextStep(q.next_followup)}</td>
       <td>${_qRenderLatestNote(q)}</td>
       <td style="text-align:center;white-space:nowrap">
         ${ackCell}
@@ -7617,10 +7617,7 @@
     if (!bar) return;
     const total = quotes.length;
     if (!total) { bar.style.display = "none"; return; }
-    const scheduled = quotes.filter(q =>
-      (q.next_followup?.status === "scheduled") || q.auto_scheduled_followup
-    ).length;
-    const autoCount = quotes.filter(q => q.auto_scheduled_followup).length;
+    const scheduled = quotes.filter(q => q.next_followup?.status === "scheduled").length;
     const missing = total - scheduled;
     const pct = Math.round(scheduled / total * 100);
     const color = pct === 100 ? "#16a34a" : pct >= 60 ? "#b45309" : "#b91c1c";
@@ -7632,7 +7629,6 @@
         <div style="height:100%;border-radius:3px;background:${color};width:${pct}%;transition:width .4s ease"></div>
       </div>
       <span style="font-weight:600;color:${color}">${pct}%</span>
-      ${autoCount ? `<span style="color:var(--accent);background:rgba(99,102,241,.1);padding:1px 8px;border-radius:10px">${autoCount} auto-scheduled</span>` : ""}
       ${missing ? `<span style="color:#b91c1c;font-weight:600">⚠ ${missing} missing</span>` : `<span style="color:#16a34a;font-weight:600">✓ Full coverage</span>`}
     `;
   }
@@ -7648,14 +7644,8 @@
       <div style="font-size:10px;color:var(--secondary);margin-top:1px">${_qEsc(date)} ${when}${by}</div>
     </div>`;
   }
-  function _qRenderNextStep(nf, autoScheduled) {
+  function _qRenderNextStep(nf) {
     if (!nf) return "—";
-    if (autoScheduled) {
-      const dt = new Date(autoScheduled);
-      const timeStr = dt.toLocaleString("en-US", {timeZone:"America/New_York", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
-      return `<div><span class="stage-tag" style="background:rgba(99,102,241,.1);color:#4f46e5">📞 Auto-scheduled</span>
-        <div style="font-size:11px;color:var(--secondary);margin-top:2px">${timeStr} ET</div></div>`;
-    }
     if (nf.status === "scheduled") {
       const when = _qFmtTime(nf.when);
       const by = nf.by ? ` · ${_qEsc(nf.by)}` : "";
