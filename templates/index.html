@@ -9,7 +9,6 @@
   <meta name="format-detection" content="telephone=no" />
   <title>Sales Call Monitor</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -3168,12 +3167,13 @@
 <!-- ══ FULL-PAGE LOADING OVERLAY ══ -->
 <div id="app-loading-overlay" style="
   position:fixed;inset:0;z-index:9999;
-  background:#0f172a;
+  background:rgba(238,240,245,0.92);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:18px;transition:opacity .4s;
+  gap:14px;transition:opacity .4s;
 ">
-  <div style="width:44px;height:44px;border:3px solid rgba(99,102,241,.25);border-top-color:#6366f1;border-radius:50%;animation:spin 0.9s linear infinite"></div>
-  <div style="color:#94a3b8;font-size:14px;font-family:-apple-system,sans-serif">Loading call data…</div>
+  <div style="width:40px;height:40px;border:3px solid rgba(99,102,241,.18);border-top-color:#6366f1;border-radius:50%;animation:spin 0.9s linear infinite"></div>
+  <div style="color:#5b6478;font-size:13px;font-weight:500;font-family:-apple-system,sans-serif;letter-spacing:-.01em">Loading call data…</div>
 </div>
 
 <!-- ══ DRAWER OVERLAY ══ -->
@@ -3213,6 +3213,7 @@
   <div class="header-dot-wrap">
     <div id="status-dot" class="loading"></div>
     <span id="last-updated">Loading…</span>
+    <span id="syncing-badge" style="display:none;font-size:11px;color:var(--secondary);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1px 8px;font-weight:500;animation:pulse 1.5s ease-in-out infinite">⟳ Syncing</span>
   </div>
   <button class="ch-search-btn" onclick="chOpen()"><span class="ch-icon">🔍</span><span class="ch-label"> Call History</span></button>
   <button id="refresh-btn" onclick="forceRefresh()">↻ Refresh</button>
@@ -3431,7 +3432,6 @@
               </span>
             </div>
             <div class="overdue-controls">
-              <input type="checkbox" id="od-select-all" onchange="toggleSelectAll(this)" title="Select all visible">
               <input type="text" id="od-search" placeholder="🔍  Name or phone…" oninput="renderOverdueTable()">
               <select id="od-stage-filter" onchange="renderOverdueTable()">
                 <option value="">All Stages</option>
@@ -3482,6 +3482,7 @@
           </button>
           <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
           <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:8px"></span>
+          <span id="quotes-range-label" style="color:var(--secondary);font-size:12px;margin-left:4px"></span>
           <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()" style="margin-left:auto">↻</button>
         </div>
         <div class="table-wrap" style="padding:0 0 8px">
@@ -4313,101 +4314,6 @@
     document.getElementById("ai-banner-time").textContent = `as of ${timeStr} ET`;
   }
 
-  // (Hourly chart and Caller leaderboard removed)
-  function _removed_renderHourlyChart_(records) {
-    // bucket by EST hour
-    const hours = {};
-    records.forEach(r => {
-      if (!r.scheduled_time) return;
-      const d = new Date(r.scheduled_time);
-      const estHour = parseInt(d.toLocaleString("en-US", { timeZone: TZ, hour:"2-digit", hour12:false }), 10);
-      if (!hours[estHour]) hours[estHour] = { hour:estHour, on_time:0, late:0, early:0, missed:0, upcoming:0 };
-      const h = hours[estHour];
-      if (r.status === "completed" && r.on_time) h.on_time++;
-      else if (r.status === "completed") h.late++;
-      else if (r.status === "early") h.early++;
-      else if (r.status === "missed") h.missed++;
-      else if (r.status === "upcoming") h.upcoming++;
-    });
-    const sorted = Object.values(hours).sort((a,b) => a.hour - b.hour);
-    const labels = sorted.map(h => {
-      const ampm = h.hour < 12 ? "AM" : "PM";
-      const hh = h.hour === 0 ? 12 : h.hour > 12 ? h.hour-12 : h.hour;
-      return `${hh}${ampm}`;
-    });
-
-    const ctx = document.getElementById("hourly-chart").getContext("2d");
-    if (window._hc) window._hc.destroy();
-    window._hc = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [
-          { label: "On Time",  data: sorted.map(h=>h.on_time),  backgroundColor:"#10b981", stack:"x" },
-          { label: "Late",     data: sorted.map(h=>h.late),     backgroundColor:"#f59e0b", stack:"x" },
-          { label: "Early",    data: sorted.map(h=>h.early),    backgroundColor:"#06b6d4", stack:"x" },
-          // via_deal chart bar removed — status now depends on calls
-          { label: "Missed",   data: sorted.map(h=>h.missed),   backgroundColor:"#ef4444", stack:"x" },
-          { label: "Upcoming", data: sorted.map(h=>h.upcoming), backgroundColor:"#cbd5e1", stack:"x" },
-        ],
-      },
-      options: {
-        plugins: {
-          legend: { position:"bottom", labels: { color:"#5b6478", font:{ size:11, weight:600 }, padding:8, boxWidth:10 } },
-          tooltip: { callbacks: { footer: items => `Total: ${items.reduce((s,i)=>s+i.parsed.y, 0)}` } },
-        },
-        scales: {
-          x: { stacked:true, ticks:{ color:"#5b6478", font:{ weight:600 } }, grid:{ display:false } },
-          y: { stacked:true, ticks:{ color:"#94a0b8" }, grid:{ color:"rgba(15,23,42,.05)" } },
-        },
-      },
-    });
-  }
-
-  // ─── Manager: Caller leaderboard ───
-  function renderLeaderboard(records) {
-    const stats = {};
-    records.forEach(r => {
-      if (!r.caller) return;
-      if (!stats[r.caller]) stats[r.caller] = { name:r.caller, dialed:0, on_time:0, called:0 };
-      const s = stats[r.caller];
-      // counts unique scheduled calls that this rep actually dialed
-      s.dialed++;
-      if (r.status === "completed" || r.status === "early") s.called++;
-      // Use pure-diff to determine on_time (matches Result column logic)
-      if (r.scheduled_time && r.actual_call_time) {
-        const diff = (new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000;
-        if (diff >= -15 && diff <= 15) s.on_time++;
-      } else if (r.status === "completed" && r.on_time) s.on_time++;
-    });
-    const arr = Object.values(stats)
-      .filter(s => s.dialed > 0)
-      .sort((a,b) => b.dialed - a.dialed);
-
-    const tbody = document.getElementById("leaderboard-tbody");
-    if (!arr.length) {
-      tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No caller data yet.</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = arr.map(s => {
-      const rate = s.called > 0 ? Math.round(s.on_time / s.called * 100) : 0;
-      const cls = rate >= 70 ? "good" : rate >= 40 ? "mid" : "bad";
-      const init = (s.name || "?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();
-      return `<tr>
-        <td style="padding-left:14px">
-          <div class="lb-rep"><span class="lb-avatar">${init}</span><span>${s.name}</span></div>
-        </td>
-        <td style="text-align:center;font-weight:700;font-feature-settings:'tnum'">${s.dialed}</td>
-        <td>
-          <div class="lb-rate-bar">
-            <span>${rate}%</span>
-            <span class="lb-bar"><span class="lb-bar-fill ${cls}" style="width:${rate}%"></span></span>
-          </div>
-        </td>
-      </tr>`;
-    }).join("");
-  }
-
   // ─── render scheduled calls ───
   function renderScheduledCalls(sc) {
     // Calls scheduled before 9 AM Eastern are assumed to be expected at 9 AM
@@ -4576,7 +4482,7 @@
 
     if (!visible.length) {
       document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="8" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
+        `<tr><td colspan="11" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
       // Reset select-all
       const allCb = document.getElementById("od-select-all");
       allCb.checked = false; allCb.indeterminate = false;
@@ -5847,7 +5753,15 @@
       if (json.error) { eb.style.display = "block"; eb.textContent = "⚠ " + json.error; }
       else eb.style.display = "none";
       dot.className = "";
-      document.getElementById("last-updated").textContent = "Updated " + relTime(json.last_updated);
+      const syncBadge = document.getElementById("syncing-badge");
+      if (json.stale) {
+        // Disk-cache hit — show data immediately, show syncing badge
+        if (syncBadge) syncBadge.style.display = "";
+        document.getElementById("last-updated").textContent = "Cached · " + relTime(json.last_updated);
+      } else {
+        if (syncBadge) syncBadge.style.display = "none";
+        document.getElementById("last-updated").textContent = "Updated " + relTime(json.last_updated);
+      }
       renderScheduledCalls(json.data.scheduled_calls);
       fetchPipelineCounts();
       syncExistingObservations();
