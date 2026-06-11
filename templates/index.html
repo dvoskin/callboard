@@ -3161,12 +3161,12 @@
     }
 
     /* ══════════════ PERFORMANCE HUB ══════════════ */
+    /* Daily Goals panel */
     .perf-hub { margin-bottom: 14px; }
-    .perf-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
     .perf-card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-lg); box-shadow: var(--shadow);
-      padding: 16px 18px; min-width: 0;
+      padding: 16px 18px;
     }
     .perf-card-hdr {
       font-size: 10.5px; font-weight: 700; text-transform: uppercase;
@@ -3177,32 +3177,6 @@
       margin-left: auto; font-size: 10px; color: var(--tertiary);
       font-weight: 500; text-transform: none; letter-spacing: 0;
     }
-    /* Leaderboard */
-    .lb2-row {
-      display: flex; align-items: center; gap: 8px;
-      padding: 5px 0; border-bottom: 1px solid var(--sep);
-    }
-    .lb2-row:last-child { border-bottom: none; }
-    .lb2-rank { font-size: 11px; font-weight: 800; width: 18px; text-align: center; flex-shrink: 0; color: var(--tertiary); }
-    .lb2-rank.gold   { color: #f59e0b; }
-    .lb2-rank.silver { color: #94a3b8; }
-    .lb2-rank.bronze { color: #b45309; }
-    .lb2-avatar {
-      width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
-      background: var(--ai-grad); color: #fff; font-size: 9px; font-weight: 700;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .lb2-name { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .lb2-bar-wrap { width: 50px; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; flex-shrink: 0; }
-    .lb2-bar-fill { height: 100%; border-radius: 2px; background: var(--green); transition: width .4s ease; }
-    .lb2-bar-fill.warn { background: var(--orange); }
-    .lb2-bar-fill.bad  { background: var(--red); }
-    .lb2-done { font-size: 14px; font-weight: 800; font-feature-settings:"tnum"; color: var(--text); flex-shrink: 0; }
-    .lb2-rate { font-size: 10px; font-weight: 600; flex-shrink: 0; min-width: 34px; text-align: right; }
-    .lb2-rate.good { color: var(--green-dk); }
-    .lb2-rate.warn { color: var(--orange-dk); }
-    .lb2-rate.bad  { color: var(--red-dk); }
-    /* Goal Tracker */
     .goal2-row { padding: 5px 0; border-bottom: 1px solid var(--sep); }
     .goal2-row:last-child { border-bottom: none; }
     .goal2-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
@@ -3218,37 +3192,6 @@
     .goal2-fill.warn { background: var(--orange); }
     .goal2-fill.bad  { background: var(--red); }
     .goal2-foot { font-size: 10px; color: var(--tertiary); margin-top: 2px; display: flex; justify-content: space-between; }
-    /* Funnel */
-    .funnel-step { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-    .funnel-lbl { font-size: 11px; font-weight: 600; color: var(--secondary); width: 52px; flex-shrink: 0; text-align: right; }
-    .funnel-bar-wrap { flex: 1; height: 22px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
-    .funnel-bar-fill {
-      height: 100%; border-radius: 4px; min-width: 32px;
-      display: flex; align-items: center; justify-content: flex-end; padding-right: 8px;
-      transition: width .5s cubic-bezier(.22,1,.36,1);
-    }
-    .funnel-bar-n { font-size: 11px; font-weight: 700; color: #fff; }
-    .funnel-conv { font-size: 10px; color: var(--tertiary); margin: -3px 0 5px 60px; }
-    .funnel-conv .conv-ok { color: var(--green-dk); font-weight: 600; }
-    .funnel-conv .conv-warn { color: var(--orange-dk); font-weight: 600; }
-    .funnel-conv .conv-bad  { color: var(--red-dk); font-weight: 600; }
-    /* Speed to call */
-    .speed-row { display: flex; align-items: center; gap: 12px; padding: 6px 0 2px; }
-    .speed-big { font-size: 30px; font-weight: 800; line-height: 1; font-feature-settings:"tnum"; }
-    .speed-big.good { color: var(--green-dk); }
-    .speed-big.warn { color: var(--orange-dk); }
-    .speed-big.bad  { color: var(--red-dk); }
-    .speed-unit { font-size: 12px; font-weight: 500; color: var(--secondary); }
-    .speed-detail { font-size: 11px; color: var(--secondary); margin-top: 2px; }
-    .speed-rep-list { margin-top: 6px; }
-    .speed-rep-row { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 2px 0; }
-    .speed-rep-name { flex: 1; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .speed-rep-val { font-weight: 600; font-feature-settings:"tnum"; flex-shrink: 0; }
-    .speed-rep-val.good { color: var(--green-dk); }
-    .speed-rep-val.warn { color: var(--orange-dk); }
-    .speed-rep-val.bad  { color: var(--red-dk); }
-    @media (max-width: 960px) { .perf-row { grid-template-columns: 1fr 1fr; } .perf-card-wide { grid-column: span 2; } }
-    @media (max-width: 600px) { .perf-row { grid-template-columns: 1fr; } .perf-card-wide { grid-column: span 1; } }
 
   </style>
 </head>
@@ -3330,29 +3273,9 @@
 
   <!-- ══════════════════════ PERFORMANCE HUB ══════════════════════ -->
   <div class="perf-hub" id="perf-hub" style="display:none">
-    <div class="perf-row">
-
-      <!-- 🏆 Rep Leaderboard -->
-      <div class="perf-card">
-        <div class="perf-card-hdr">🏆 Rep Leaderboard <span class="perf-hdr-right">calls done today</span></div>
-        <div id="perf-lb-body"></div>
-      </div>
-
-      <!-- 📅 Daily Goals -->
-      <div class="perf-card">
-        <div class="perf-card-hdr">📅 Daily Goals <span class="perf-hdr-right">click ✎ to set target</span></div>
-        <div id="perf-goals-body"></div>
-      </div>
-
-      <!-- 📊 Funnel + ⚡ Speed -->
-      <div class="perf-card perf-card-wide">
-        <div class="perf-card-hdr">📊 Conversion Funnel</div>
-        <div id="perf-funnel-body"></div>
-        <div style="height:14px"></div>
-        <div class="perf-card-hdr" style="margin-bottom:8px">⚡ Speed to Call <span class="perf-hdr-right">avg vs scheduled</span></div>
-        <div id="perf-speed-body"></div>
-      </div>
-
+    <div class="perf-card">
+      <div class="perf-card-hdr">📅 Daily Goals <span class="perf-hdr-right">click ✎ to set target</span></div>
+      <div id="perf-goals-body"></div>
     </div>
   </div>
 
@@ -4358,48 +4281,19 @@
     const hub = document.getElementById("perf-hub");
     if (!hub) return;
     const filtered = filterBySelectedAgents(records);
-    // Aggregate per rep from scheduled call records
     const statsMap = {};
     filtered.forEach(r => {
       const name = r.caller || r.deal_owner;
       if (!name) return;
-      if (!statsMap[name]) statsMap[name] = { name, total: 0, done: 0, delays: [] };
+      if (!statsMap[name]) statsMap[name] = { name, total: 0, done: 0 };
       const s = statsMap[name];
       s.total++;
-      if (r.status === "completed" || r.status === "early") {
-        s.done++;
-        if (r.scheduled_time && r.actual_call_time) {
-          const diff = (new Date(r.actual_call_time) - new Date(r.scheduled_time)) / 60000;
-          s.delays.push(diff);
-        }
-      }
+      if (r.status === "completed" || r.status === "early") s.done++;
     });
     const reps = Object.values(statsMap).filter(s => s.total > 0).sort((a, b) => b.done - a.done);
     if (!reps.length) { hub.style.display = "none"; return; }
     hub.style.display = "";
-    _renderPerfLb(reps);
     _renderPerfGoals(reps);
-    _renderPerfFunnel(filtered, pipelineData, reps);
-  }
-
-  function _renderPerfLb(reps) {
-    const el = document.getElementById("perf-lb-body");
-    if (!el) return;
-    const rankCls = i => i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : "";
-    el.innerHTML = reps.map((s, i) => {
-      const init = s.name.split(" ").map(w => w[0] || "").join("").substring(0, 2).toUpperCase();
-      const rate = s.total > 0 ? Math.round(s.done / s.total * 100) : 0;
-      const cls  = rate >= 80 ? "good" : rate >= 50 ? "warn" : "bad";
-      const first = s.name.split(" ")[0];
-      return `<div class="lb2-row">
-        <span class="lb2-rank ${rankCls(i)}">${i + 1}</span>
-        <div class="lb2-avatar">${init}</div>
-        <span class="lb2-name" title="${s.name}">${first}</span>
-        <div class="lb2-bar-wrap"><div class="lb2-bar-fill ${cls}" style="width:${rate}%"></div></div>
-        <span class="lb2-done">${s.done}</span>
-        <span class="lb2-rate ${cls}">${rate}%</span>
-      </div>`;
-    }).join("");
   }
 
   function _renderPerfGoals(reps) {
@@ -4433,78 +4327,6 @@
     }
   };
 
-  function _renderPerfFunnel(records, pipelineData, reps) {
-    const fEl = document.getElementById("perf-funnel-body");
-    const sEl = document.getElementById("perf-speed-body");
-    if (!fEl) return;
-
-    const done       = records.filter(r => r.status === "completed" || r.status === "early").length;
-    const total      = records.filter(r => r.status !== "upcoming").length;
-    const quoteSent  = pipelineData?.["Quote Sent"]?.total || 0;
-    const signed     = pipelineData?.["Retainer Invoice Sent"]?.total || 0;
-    const paid       = pipelineData?.["Closed Won - Surgery Scheduled"]?.total || 0;
-
-    const steps = [
-      { label: "Called",  n: done,       color: "#10b981", base: total },
-      { label: "Quoted",  n: quoteSent,  color: "#2563eb", base: done },
-      { label: "Signed",  n: signed,     color: "#8b5cf6", base: quoteSent },
-      { label: "Paid",    n: paid,       color: "#06b6d4", base: signed },
-    ];
-    const maxN = Math.max(...steps.map(s => s.n), 1);
-
-    fEl.innerHTML = steps.map((step, i) => {
-      const prev = i === 0 ? total : steps[i - 1].n;
-      const conv = prev > 0 ? Math.round(step.n / prev * 100) : 0;
-      const convCls = conv >= 40 ? "conv-ok" : conv >= 20 ? "conv-warn" : "conv-bad";
-      const barW = Math.max(8, Math.round(step.n / maxN * 100));
-      const arrow = i > 0
-        ? `<div class="funnel-conv">↳ <span class="${convCls}">${conv}%</span> from ${steps[i-1].label.toLowerCase()}</div>`
-        : "";
-      return `${arrow}<div class="funnel-step">
-        <span class="funnel-lbl">${step.label}</span>
-        <div class="funnel-bar-wrap">
-          <div class="funnel-bar-fill" style="width:${barW}%;background:${step.color}">
-            <span class="funnel-bar-n">${step.n}</span>
-          </div>
-        </div>
-      </div>`;
-    }).join("");
-
-    // Speed to call
-    if (!sEl) return;
-    const allDelays = (reps || []).flatMap(s => s.delays);
-    if (!allDelays.length) {
-      sEl.innerHTML = `<div style="color:var(--tertiary);font-size:12px;padding:4px 0">No completed calls with timing data yet.</div>`;
-      return;
-    }
-    const avg = allDelays.reduce((a, b) => a + b, 0) / allDelays.length;
-    const inWindow = allDelays.filter(d => d >= -15 && d <= 10).length;
-    const windowPct = Math.round(inWindow / allDelays.length * 100);
-    const avgCls = Math.abs(avg) <= 5 ? "good" : Math.abs(avg) <= 15 ? "warn" : "bad";
-    const sign = avg > 0 ? "+" : "";
-
-    // Per-rep avg delay — show top 3 fastest
-    const repDelays = (reps || [])
-      .filter(s => s.delays.length > 0)
-      .map(s => ({ name: s.name, avg: s.delays.reduce((a,b)=>a+b,0)/s.delays.length, n: s.delays.length }))
-      .sort((a,b) => Math.abs(a.avg) - Math.abs(b.avg))
-      .slice(0, 4);
-
-    sEl.innerHTML = `<div class="speed-row">
-      <div>
-        <div class="speed-big ${avgCls}">${sign}${avg.toFixed(1)}<span class="speed-unit"> min</span></div>
-        <div class="speed-detail">${windowPct}% called within ±10 min window · ${allDelays.length} calls</div>
-      </div>
-    </div>
-    <div class="speed-rep-list">${repDelays.map(r => {
-      const s2 = r.avg > 0 ? "+" : "";
-      const rc = Math.abs(r.avg) <= 5 ? "good" : Math.abs(r.avg) <= 15 ? "warn" : "bad";
-      return `<div class="speed-rep-row">
-        <span class="speed-rep-name">${r.name.split(" ")[0]}</span>
-        <span class="speed-rep-val ${rc}">${s2}${r.avg.toFixed(1)} min</span>
-      </div>`;
-    }).join("")}</div>`;
-  }
   // ─── AI insights banner ───
   let _aiBannerOpen = false;
   function toggleAiBanner() {
