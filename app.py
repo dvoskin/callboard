@@ -15,6 +15,7 @@ from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient
 from ringcx_client import RingCXClient
 from telegram_client import TelegramClient
+from books_client import BooksClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ _lock = threading.Lock()
 _zoho = ZohoClient()
 _ringcx = RingCXClient()
 _telegram = TelegramClient()
+_books = BooksClient()
 
 # ────────── Resolved-overdue persistence ──────────
 # Use persistent disk mount if available (Render), fallback to local
@@ -1213,6 +1215,82 @@ def call_history_search():
         "zoho_count": len(zoho_calls),
         "sms_count": len(sms_messages),
         "_debug": debug,
+    })
+
+
+# ------------------------------------------------------------------ Quotes panel
+
+@app.route("/api/quotes")
+@login_required
+def api_quotes():
+    """List Zoho Books "sent" estimates in a date range, each enriched with
+    CRM activity (calls / notes / tasks / stage changes) logged against the
+    linked Deal after the estimate's last_modified_time.
+    """
+    if not _books.configured:
+        return jsonify({
+            "status": "not_configured",
+            "message": "Set ZOHO_BOOKS_ORG_ID and a Books-scoped refresh token "
+                       "(ZOHO_BOOKS_REFRESH_TOKEN, or add Books scope to the existing token).",
+            "quotes": [],
+        }), 200
+
+    today = datetime.now(timezone.utc).date()
+    default_start = (today - timedelta(days=30)).isoformat()
+    default_end = today.isoformat()
+    date_start = request.args.get("start") or default_start
+    date_end = request.args.get("end") or default_end
+    include_activity = request.args.get("activity", "1") != "0"
+    # Cap N to keep first prototype responsive — 4 related-list calls per quote.
+    max_records = min(int(request.args.get("limit", "50")), 200)
+
+    try:
+        estimates = _books.list_sent_estimates(date_start, date_end, max_records=max_records)
+    except Exception as e:
+        log.error("Books estimate fetch failed: %s", e)
+        return jsonify({"status": "error", "message": str(e), "quotes": []}), 500
+
+    quotes = []
+    for est in estimates:
+        deal_id = est.get("zcrm_potential_id") or ""
+        # Use last_modified_time as the post-send cutoff (more precise than 'date').
+        sent_at = est.get("last_modified_time") or est.get("created_time") or ""
+        activities = []
+        next_followup = {"status": "forgotten", "when": None, "by": None,
+                         "summary": None, "kind": None}
+        if include_activity and deal_id and sent_at:
+            try:
+                signals = _zoho.get_deal_post_quote_signals(deal_id, sent_at)
+                activities = signals["activities"]
+                next_followup = signals["next_followup"]
+            except Exception as e:
+                log.warning("Activity fetch failed for deal %s: %s", deal_id, e)
+        quotes.append({
+            "estimate_id": est.get("estimate_id"),
+            "estimate_number": est.get("estimate_number"),
+            "deal_id": deal_id,
+            "deal_name": est.get("zcrm_potential_name"),
+            "customer_name": est.get("customer_name"),
+            "salesperson": est.get("salesperson_name"),
+            "date": est.get("date"),
+            "sent_at": sent_at,
+            "total": est.get("total"),
+            "currency": est.get("currency_code"),
+            "is_viewed_by_client": est.get("is_viewed_by_client"),
+            "mail_first_viewed_time": est.get("mail_first_viewed_time") or "",
+            "expiry_date": est.get("expiry_date"),
+            "status": est.get("status"),
+            "activity_count": len(activities),
+            "activities": activities,
+            "next_followup": next_followup,
+        })
+
+    return jsonify({
+        "status": "ok",
+        "date_range": {"start": date_start, "end": date_end},
+        "count": len(quotes),
+        "quotes": quotes,
+        "source": "cache" if _books.last_source_was_cache else "live",
     })
 
 

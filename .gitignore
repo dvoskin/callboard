@@ -9,3 +9,4 @@ venv/
 *.bak
 resolved_calls.json
 test_*.py
+data/

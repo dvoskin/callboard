@@ -32,6 +32,178 @@ def normalize_phone(phone: str) -> Optional[str]:
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def _owner_name(value) -> str:
+    if isinstance(value, dict):
+        return value.get("name") or value.get("full_name") or ""
+    return str(value) if value else ""
+
+
+try:
+    from zoneinfo import ZoneInfo
+    _NOTE_TZ = ZoneInfo(os.getenv("NOTE_PARSE_TZ", "America/New_York"))
+except Exception:
+    _NOTE_TZ = timezone(timedelta(hours=-4))  # fallback to EDT
+
+
+_FOLLOWUP_KEYWORDS = (
+    "follow up", "follow-up", "followup",
+    "callback", "call back",
+    "will call", "i will call", "call her", "call him",
+    "reach out", "circle back",
+)
+
+# Trigger words that justify treating a date+time mention as an actual FU plan
+# (rather than e.g. someone's date of birth or a procedure date).
+_FU_TRIGGERS = ("fu ", "fu:", "fu.", "f/u", "follow up", "follow-up", "followup")
+
+# Numeric date: MM/DD or MM/DD/YY(YY) — also accepts hyphens or dots as separators.
+_NOTE_DATE_RX = re.compile(r"(?<!\d)(\d{1,2})[/.\-](\d{1,2})(?:[/.\-](\d{2,4}))?(?!\d)")
+# Time: 1:30 p.m., 1:30pm, 1 PM, 13:30
+_NOTE_TIME_RX = re.compile(
+    r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?(?!\w)",
+    re.IGNORECASE,
+)
+
+_NO_FOLLOWUP = {
+    "status": "forgotten", "when": None, "by": None,
+    "summary": None, "kind": None,
+}
+
+
+def _parse_followup_from_note(content: str, now_dt: datetime) -> Optional[tuple]:
+    """If the note text mentions a follow-up with an explicit future date+time,
+    return (when_dt, snippet); else None.
+
+    A trigger word ("FU", "follow up", etc.) must appear *before* the date —
+    avoids capturing date-of-birth or procedure dates the rep may also note.
+    """
+    if not content:
+        return None
+    lc = content.lower()
+    trigger_idx = -1
+    for trig in _FU_TRIGGERS:
+        i = lc.find(trig)
+        if i >= 0 and (trigger_idx < 0 or i < trigger_idx):
+            trigger_idx = i
+    if trigger_idx < 0:
+        return None
+
+    # Look for the first date pattern AFTER the trigger
+    date_m = _NOTE_DATE_RX.search(content, trigger_idx)
+    if not date_m:
+        return None
+    month, day, year = int(date_m.group(1)), int(date_m.group(2)), date_m.group(3)
+    if year:
+        y = int(year)
+        year_n = y + 2000 if y < 100 else y
+    else:
+        year_n = now_dt.year
+    try:
+        d = datetime(year_n, month, day)
+    except ValueError:
+        return None
+
+    # Look for the first time AFTER the date
+    hour, minute = 9, 0  # default to 9 AM if no time given
+    time_m = _NOTE_TIME_RX.search(content, date_m.end())
+    if time_m:
+        hour = int(time_m.group(1))
+        minute = int(time_m.group(2) or 0)
+        ampm = time_m.group(3).lower()
+        if ampm == "p" and hour < 12:
+            hour += 12
+        elif ampm == "a" and hour == 12:
+            hour = 0
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+
+    when_dt = datetime(year_n, month, day, hour, minute, tzinfo=_NOTE_TZ)
+    # If the parsed date is in the past but no year was given, roll forward a year
+    if when_dt <= now_dt and not year:
+        try:
+            when_dt = when_dt.replace(year=year_n + 1)
+        except ValueError:
+            pass
+    if when_dt <= now_dt:
+        return None
+
+    # Snippet centered on the trigger word, single-line, HTML stripped
+    end = max(date_m.end(), (time_m.end() if time_m else date_m.end()))
+    snippet = content[trigger_idx:min(end + 20, len(content))]
+    snippet = re.sub(r"<[^>]+>", "", snippet)  # strip rich-text tags
+    snippet = " ".join(snippet.split())[:120]
+    return when_dt, snippet
+
+
+def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
+    """Tolerant ISO 8601 parser. Handles:
+      - `-0400` and `-04:00` offsets (Python 3.9's fromisoformat needs the colon)
+      - date-only strings (YYYY-MM-DD) — interpreted as end-of-day UTC so a task
+        whose Due_Date is "today" still tests as future for most of the day.
+    """
+    if not ts:
+        return None
+    s = str(ts)
+    # Date-only? Treat as end of day UTC.
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        try:
+            d = datetime.fromisoformat(s)
+            return d.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        except (ValueError, AttributeError):
+            return None
+    s = s.replace("Z", "+00:00")
+    # Insert colon into 4-digit offset (e.g. -0400 → -04:00)
+    if len(s) >= 5 and s[-5] in "+-" and s[-3] != ":":
+        s = s[:-2] + ":" + s[-2:]
+    try:
+        return datetime.fromisoformat(s)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _normalize_activity(kind: str, row: dict, after_dt: datetime) -> Optional[dict]:
+    """Turn a related-list row into a uniform activity dict, filtering by after_dt."""
+    if kind == "Calls":
+        ts = row.get("Call_Start_Time") or row.get("Created_Time")
+    else:
+        ts = row.get("Modified_Time") or row.get("Created_Time") or row.get("Last_Modified_Time")
+    ts_dt = _parse_iso(ts)
+    if ts_dt is None or ts_dt <= after_dt:
+        return None
+
+    if kind == "Notes":
+        summary = row.get("Note_Title") or ""
+        detail = (row.get("Note_Content") or "")[:400]
+        by = _owner_name(row.get("Created_By") or row.get("Owner"))
+    elif kind == "Tasks":
+        summary = row.get("Subject") or ""
+        detail = f"{row.get('Status') or ''} · due {row.get('Due_Date') or '—'}".strip(" ·")
+        by = _owner_name(row.get("Owner"))
+    elif kind == "Calls":
+        summary = row.get("Subject") or ""
+        disp = row.get("Outgoing_call_disposition") or ""
+        ctype = row.get("Call_Type") or ""
+        detail = " · ".join(p for p in (ctype, disp) if p)
+        by = _owner_name(row.get("Owner"))
+    elif kind == "Stage_History__s":
+        old = row.get("Old_Value") or ""
+        new = row.get("New_Value") or row.get("Stage") or ""
+        summary = f"Stage: {old} → {new}" if old else f"Stage → {new}"
+        detail = ""
+        by = _owner_name(row.get("Modified_By"))
+    else:
+        return None
+
+    return {
+        "kind": kind.replace("__s", ""),
+        "ts": ts_dt.isoformat(),
+        "by": by,
+        "summary": summary,
+        "detail": detail,
+        "id": row.get("id"),
+    }
+
+
 class ZohoClient:
     def __init__(self):
         self.client_id = os.getenv("ZOHO_CLIENT_ID")
@@ -798,6 +970,156 @@ class ZohoClient:
 
         log.info("  → %d RingCX calls with disposition fetched for today", len(all_calls))
         return all_calls
+
+    # -------------------------------------------------- deal activity (quote panel)
+
+    def get_deal_post_quote_signals(self, deal_id: str, after_iso: str) -> dict:
+        """Single CRM round-trip yielding both post-send activities and the
+        next-follow-up status for one Deal.
+
+        Returns:
+            {
+              "activities": [...],   # Notes/Tasks/Calls modified after after_iso
+              "next_followup": {
+                "status": "scheduled" | "mentioned" | "forgotten",
+                "when":   iso,       # nullable
+                "by":     str,       # nullable
+                "summary": str,      # nullable
+                "kind":    "Task"|"Call"|"Note",
+              }
+            }
+
+        Follow-up rules:
+          - scheduled: any open Task with future Due_Date, or any Call with
+            future Call_Start_Time (the soonest one wins).
+          - mentioned: no scheduled item, but a post-send Note mentions
+            "follow up" / "callback" / "will call".
+          - forgotten: neither.
+        """
+        after_dt = _parse_iso(after_iso)
+        if after_dt is None:
+            return {"activities": [], "next_followup": _NO_FOLLOWUP}
+
+        now_utc = datetime.now(timezone.utc)
+        activities: list[dict] = []
+        scheduled_candidates: list[tuple] = []  # (when_dt, kind, summary, by, id)
+        note_scheduled: Optional[tuple] = None  # (when_dt, snippet, by) — wins over auto-Tasks
+        note_mentions_followup = False
+
+        related_specs = [
+            ("Notes", "Notes",
+             "id,Note_Title,Note_Content,Created_Time,Modified_Time,Owner,Created_By"),
+            ("Tasks", "Tasks",
+             "id,Subject,Status,Due_Date,Created_Time,Modified_Time,Description,Owner"),
+            ("Calls", "Calls",
+             "id,Subject,Call_Start_Time,Call_Status,Outgoing_call_disposition,Call_Type,Owner,Created_Time"),
+        ]
+        for kind, api_name, fields in related_specs:
+            try:
+                resp = requests.get(
+                    f"{self.base_url}/crm/v6/Deals/{deal_id}/{api_name}",
+                    headers=self._headers(),
+                    params={"fields": fields, "per_page": 50,
+                            "sort_by": "Modified_Time", "sort_order": "desc"},
+                    timeout=15,
+                )
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    "Activity fetch failed for %s/%s: %s", deal_id, kind, e)
+                continue
+            if resp.status_code == 204 or not resp.ok:
+                continue
+            rows = (resp.json() or {}).get("data", []) or []
+            for row in rows:
+                # 1. Past activity (after the quote was sent)
+                norm = _normalize_activity(kind, row, after_dt)
+                if norm:
+                    activities.append(norm)
+
+                # 2. Future follow-up signal
+                if kind == "Tasks":
+                    status = (row.get("Status") or "").lower()
+                    if status in ("completed", "closed", "cancelled", "canceled"):
+                        continue
+                    due_dt = _parse_iso(row.get("Due_Date"))
+                    if due_dt and due_dt > now_utc:
+                        scheduled_candidates.append((
+                            due_dt, "Task",
+                            row.get("Subject") or "Task",
+                            _owner_name(row.get("Owner")),
+                            row.get("id"),
+                        ))
+                elif kind == "Calls":
+                    # A future-dated Call record IS the scheduled-callback in Zoho.
+                    # Skip calls that already have a disposition (= already happened).
+                    if row.get("Outgoing_call_disposition"):
+                        continue
+                    start_dt = _parse_iso(row.get("Call_Start_Time"))
+                    if start_dt and start_dt > now_utc:
+                        scheduled_candidates.append((
+                            start_dt, "Call",
+                            row.get("Subject") or "Scheduled call",
+                            _owner_name(row.get("Owner")),
+                            row.get("id"),
+                        ))
+                elif kind == "Notes":
+                    # Only consider notes recorded after the quote was sent.
+                    created_dt = _parse_iso(row.get("Created_Time"))
+                    if not created_dt or created_dt <= after_dt:
+                        continue
+                    raw_content = ((row.get("Note_Title") or "") + " "
+                                    + (row.get("Note_Content") or ""))
+                    # Soft signal: ANY mention of follow-up keywords.
+                    if not note_mentions_followup and \
+                            any(kw in raw_content.lower() for kw in _FOLLOWUP_KEYWORDS):
+                        note_mentions_followup = True
+                    # Strong signal: explicit FU date + time in the note text.
+                    parsed = _parse_followup_from_note(raw_content, now_utc)
+                    if parsed and (note_scheduled is None or parsed[0] < note_scheduled[0]):
+                        by = _owner_name(row.get("Created_By") or row.get("Owner"))
+                        note_scheduled = (parsed[0], parsed[1], by)
+
+        activities.sort(key=lambda a: a.get("ts") or "", reverse=True)
+
+        # Priority order: explicit note-derived date > Task/Call records > note keyword > nothing.
+        # An explicit "FU on MM/DD at H:MM" written by the rep is the strongest
+        # signal of human intent — auto-generated Tasks (24h reminders, etc.)
+        # otherwise drown it out.
+        if note_scheduled:
+            when_dt, snippet, by = note_scheduled
+            next_followup = {
+                "status": "scheduled",
+                "when":   when_dt.isoformat(),
+                "by":     by,
+                "summary": snippet,
+                "kind":   "Note",
+                "source": "note",
+            }
+        elif scheduled_candidates:
+            when_dt, kind, summary, by, _id = min(scheduled_candidates, key=lambda x: x[0])
+            next_followup = {
+                "status": "scheduled",
+                "when":   when_dt.isoformat(),
+                "by":     by,
+                "summary": summary,
+                "kind":   kind,
+                "source": kind.lower(),
+            }
+        elif note_mentions_followup:
+            next_followup = {
+                "status": "mentioned", "when": None, "by": None,
+                "summary": "Follow-up mentioned in a note",
+                "kind": "Note", "source": "note",
+            }
+        else:
+            next_followup = dict(_NO_FOLLOWUP)
+            next_followup["source"] = None
+
+        return {"activities": activities, "next_followup": next_followup}
+
+    # Backward-compatible alias — returns just the activities list.
+    def get_deal_activity_after(self, deal_id: str, after_iso: str) -> list[dict]:
+        return self.get_deal_post_quote_signals(deal_id, after_iso)["activities"]
 
     # --------------------------------------------------------------- main
 

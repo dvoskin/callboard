@@ -3363,6 +3363,48 @@
     </div>
   </div>
 
+  <!-- ══════════════════════ QUOTES SENT (Zoho Books) ══════════════════════ -->
+  <div class="card" id="quotes-section">
+    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2>💸 Quotes Sent</h2>
+      <span class="card-sub">Zoho Books estimates · follow-up tracking</span>
+      <span class="chip" id="quotes-count">0</span>
+      <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()" style="margin-left:auto">↻ Refresh</button>
+    </div>
+    <div class="card-date-bar">
+      <span class="cdb-label">Sent date</span>
+      <input type="date" id="quotes-date-start" class="cdb-input">
+      <span class="cdb-sep">→</span>
+      <input type="date" id="quotes-date-end" class="cdb-input">
+      <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
+      <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
+      <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px"></span>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table id="quotes-table">
+          <thead>
+            <tr>
+              <th style="width:24px"></th>
+              <th>Quote #</th>
+              <th>Customer</th>
+              <th>Deal</th>
+              <th>Sent</th>
+              <th>Days Since</th>
+              <th>Salesperson</th>
+              <th style="text-align:right">Amount</th>
+              <th>Viewed</th>
+              <th>Activity</th>
+              <th>Next Step</th>
+            </tr>
+          </thead>
+          <tbody id="quotes-tbody">
+            <tr><td colspan="11" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
 </main>
 
@@ -7156,6 +7198,183 @@
   } else {
     tgInit();
   }
+
+  // ════════════════════════ QUOTES SENT panel ════════════════════════
+  function _qFmtDate(iso) {
+    if (!iso) return "—";
+    // Date-only strings (YYYY-MM-DD) must be parsed as local time;
+    // new Date("2026-06-10") parses as UTC midnight and shifts a day in EDT.
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+  function _qFmtTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+  function _qFmtClock(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  function _qDaysSince(dateStr) {
+    // dateStr is a YYYY-MM-DD quote date. Compute calendar-day difference
+    // using local midnight, so "sent yesterday" reads as "1d", not "today".
+    if (!dateStr) return null;
+    const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const sent = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.round((today - sent) / 86400000));
+  }
+  function _qEsc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+  }
+  function _qActivityChipClass(n) {
+    if (!n) return "stage-tag s-noanswer";
+    if (n >= 3) return "stage-tag s-paid";
+    return "stage-tag s-followup";
+  }
+  function _qInitDates() {
+    const end = new Date();
+    const start = new Date(); start.setDate(start.getDate() - 30);
+    const fmt = d => d.toISOString().slice(0, 10);
+    const sEl = document.getElementById("quotes-date-start");
+    const eEl = document.getElementById("quotes-date-end");
+    if (sEl && !sEl.value) sEl.value = fmt(start);
+    if (eEl && !eEl.value) eEl.value = fmt(end);
+  }
+  async function loadQuotes() {
+    _qInitDates();
+    const start = document.getElementById("quotes-date-start").value;
+    const end = document.getElementById("quotes-date-end").value;
+    const loading = document.getElementById("quotes-loading");
+    const status = document.getElementById("quotes-status-msg");
+    const tbody = document.getElementById("quotes-tbody");
+    const countEl = document.getElementById("quotes-count");
+    loading.style.display = "inline-flex";
+    status.textContent = "";
+    try {
+      const resp = await fetch(`/api/quotes?start=${start}&end=${end}`);
+      const data = await resp.json();
+      if (data.status === "not_configured") {
+        tbody.innerHTML = `<tr><td colspan="11" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
+        countEl.textContent = "0";
+        return;
+      }
+      if (data.status !== "ok") {
+        tbody.innerHTML = `<tr><td colspan="11" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
+        countEl.textContent = "0";
+        return;
+      }
+      countEl.textContent = data.count;
+      status.textContent = data.source === "cache" ? "· local snapshot" : "";
+      if (!data.quotes.length) {
+        tbody.innerHTML = `<tr><td colspan="11" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.quotes.map((q, i) => _qRenderRow(q, i)).join("");
+    } catch (e) {
+      console.error("loadQuotes error", e);
+      tbody.innerHTML = `<tr><td colspan="11" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
+    } finally {
+      loading.style.display = "none";
+    }
+  }
+  function _qRenderRow(q, i) {
+    const days = _qDaysSince(q.date);
+    const daysCell = days == null ? "—" : days === 0 ? "today" : `${days}d`;
+    const amount = q.total != null
+      ? new Intl.NumberFormat(undefined, { style: "currency", currency: q.currency || "USD", maximumFractionDigits: 0 }).format(q.total)
+      : "—";
+    const viewed = q.is_viewed_by_client
+      ? `<span class="stage-tag s-paid" title="${_qEsc(q.mail_first_viewed_time)}">✓ viewed</span>`
+      : `<span class="stage-tag s-noanswer">not viewed</span>`;
+    const chip = `<span class="${_qActivityChipClass(q.activity_count)}">${q.activity_count} activit${q.activity_count === 1 ? "y" : "ies"}</span>`;
+    const dealCell = q.deal_id
+      ? `<a href="https://crm.zoho.com/crm/${ZOHO_ORG}/tab/Potentials/${_qEsc(q.deal_id)}" target="_blank" rel="noopener">${_qEsc(q.deal_name || q.deal_id)}</a>`
+      : "—";
+    const expandable = q.activities && q.activities.length;
+    const caret = expandable ? `<span style="cursor:pointer;color:var(--secondary)" onclick="_qToggle(${i})">▸</span>` : "";
+    const detailRow = expandable
+      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="10" style="background:rgba(0,0,0,.02);padding:10px 14px">${_qRenderActivities(q.activities)}</td></tr>`
+      : "";
+    const nextStep = _qRenderNextStep(q.next_followup);
+    const rowTint = q.next_followup && q.next_followup.status === "forgotten" && q.activity_count === 0
+      ? ' style="background:rgba(239,68,68,.04)"' : "";
+    return `<tr id="q-row-${i}"${rowTint}>
+      <td>${caret}</td>
+      <td><strong>${_qEsc(q.estimate_number || "—")}</strong></td>
+      <td>${_qEsc(q.customer_name || "—")}</td>
+      <td>${dealCell}</td>
+      <td title="${_qEsc(q.sent_at)}">
+        <div>${_qFmtDate(q.date)}</div>
+        <div style="font-size:11px;color:var(--secondary);margin-top:1px">${_qFmtClock(q.sent_at)}</div>
+      </td>
+      <td>${daysCell}</td>
+      <td>${_qEsc(q.salesperson || "—")}</td>
+      <td style="text-align:right">${amount}</td>
+      <td>${viewed}</td>
+      <td>${chip}</td>
+      <td>${nextStep}</td>
+    </tr>${detailRow}`;
+  }
+  function _qRenderNextStep(nf) {
+    if (!nf) return "—";
+    if (nf.status === "scheduled") {
+      const when = _qFmtTime(nf.when);
+      const by = nf.by ? ` · ${_qEsc(nf.by)}` : "";
+      const iconBySource = { note: "📝", task: "✅", tasks: "✅", call: "📞", calls: "📞" };
+      const icon = iconBySource[nf.source] || (nf.kind === "Call" ? "📞" : "✅");
+      const sourceLabel = nf.source === "note"
+        ? "<span style=\"color:var(--purple-dk,#7c3aed);font-weight:500\">from note</span> · "
+        : "";
+      return `<div title="${_qEsc(nf.summary || "")}">
+        <span class="stage-tag s-paid">${icon} ${_qEsc(when)}</span>
+        <div style="font-size:11px;color:var(--secondary);margin-top:2px">${sourceLabel}${_qEsc(nf.summary || "")}${by}</div>
+      </div>`;
+    }
+    if (nf.status === "mentioned") {
+      return `<span class="stage-tag s-followup" title="A note mentions follow-up but no task/call is scheduled">💬 Mentioned</span>`;
+    }
+    return `<span class="stage-tag s-noanswer" title="No future task or scheduled call found on this deal">⚠ Forgotten</span>`;
+  }
+  function _qRenderActivities(acts) {
+    const kindIcon = { Calls: "📞", Notes: "📝", Tasks: "✅", Stage_History: "🔁" };
+    return `<table style="width:100%;font-size:12px">
+      <thead><tr style="color:var(--secondary)">
+        <th style="text-align:left;width:32px"></th>
+        <th style="text-align:left">When</th>
+        <th style="text-align:left">By</th>
+        <th style="text-align:left">Summary</th>
+        <th style="text-align:left">Detail</th>
+      </tr></thead>
+      <tbody>
+        ${acts.map(a => `<tr>
+          <td>${kindIcon[a.kind] || "•"}</td>
+          <td>${_qFmtTime(a.ts)}</td>
+          <td>${_qEsc(a.by || "—")}</td>
+          <td>${_qEsc(a.summary || a.kind)}</td>
+          <td style="color:var(--secondary)">${_qEsc(a.detail || "")}</td>
+        </tr>`).join("")}
+      </tbody></table>`;
+  }
+  function _qToggle(i) {
+    const detail = document.getElementById(`q-detail-${i}`);
+    const row = document.getElementById(`q-row-${i}`);
+    if (!detail) return;
+    const open = detail.style.display !== "none";
+    detail.style.display = open ? "none" : "table-row";
+    const caret = row.querySelector("td:first-child span");
+    if (caret) caret.textContent = open ? "▸" : "▾";
+  }
+  _qInitDates();
 </script>
 
 </body>
