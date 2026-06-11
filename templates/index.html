@@ -3165,6 +3165,17 @@
 </head>
 <body>
 
+<!-- ══ FULL-PAGE LOADING OVERLAY ══ -->
+<div id="app-loading-overlay" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#0f172a;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;transition:opacity .4s;
+">
+  <div style="width:44px;height:44px;border:3px solid rgba(99,102,241,.25);border-top-color:#6366f1;border-radius:50%;animation:spin 0.9s linear infinite"></div>
+  <div style="color:#94a3b8;font-size:14px;font-family:-apple-system,sans-serif">Loading call data…</div>
+</div>
+
 <!-- ══ DRAWER OVERLAY ══ -->
 <div id="drawer-overlay" onclick="closeDrawer()"></div>
 
@@ -5769,9 +5780,13 @@
   document.addEventListener("keydown", e => { if(e.key==="Escape") closeDrawer(); });
 
   // ─── data loading ───
+  function _hideLoadingOverlay() {
+    const ov = document.getElementById("app-loading-overlay");
+    if (!ov) return;
+    ov.style.opacity = "0";
+    setTimeout(() => { ov.style.display = "none"; }, 420);
+  }
   function _clearStaleUI() {
-    // Hide alert banner and overdue zone immediately when a new date range is applied
-    // so stale data from a previous fetch doesn't linger while the new fetch is in flight.
     document.getElementById("alert-banner").classList.remove("show");
     document.getElementById("ai-banner").classList.remove("show");
     document.getElementById("sc-overdue-zone").style.display = "none";
@@ -5827,7 +5842,7 @@
       }
       _loadRetries = 0;
       const json = await resp.json();
-      if (json.status === "error") { dot.className = "error"; showError(json.message); return; }
+      if (json.status === "error") { _hideLoadingOverlay(); dot.className = "error"; showError(json.message); return; }
       const eb = document.getElementById("error-banner");
       if (json.error) { eb.style.display = "block"; eb.textContent = "⚠ " + json.error; }
       else eb.style.display = "none";
@@ -5836,6 +5851,7 @@
       renderScheduledCalls(json.data.scheduled_calls);
       fetchPipelineCounts();
       syncExistingObservations();
+      _hideLoadingOverlay();
     } catch(e) {
       cdbLoading.classList.remove("show");
       dot.className = "error"; showError(e.message);
