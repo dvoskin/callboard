@@ -1882,15 +1882,20 @@ class ZohoClient:
         }
 
     def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
-        """Return Zoho CRM Call records with Call_Status='Scheduled' in [start_iso, end_iso]."""
+        """Return Zoho CRM Call records that look scheduled (no disposition yet) in [start_iso, end_iso].
+
+        This org's Calls module doesn't expose Call_Status in COQL, so
+        "scheduled" = call with no Outgoing_call_disposition logged yet.
+        """
         log = logging.getLogger(__name__)
         query = (
-            "SELECT id, Subject, Call_Start_Time, Call_Status, Call_Type, Who_Id, What_Id, "
-            "Owner, Description, Duration_Min_Sec "
-            "FROM Calls "
-            f"WHERE Call_Start_Time >= '{start_iso}' AND Call_Start_Time <= '{end_iso}' "
-            "AND Call_Status = 'Scheduled' "
-            "ORDER BY Call_Start_Time ASC LIMIT 200 OFFSET 0"
+            "select id, Subject, Call_Start_Time, Call_Type, Who_Id, What_Id, "
+            "Owner, Description, Call_Duration_in_seconds, "
+            "Outgoing_call_disposition "
+            "from Calls "
+            f"where Call_Start_Time between '{start_iso}' and '{end_iso}' "
+            "and id is not null "
+            "order by Call_Start_Time asc limit 200 offset 0"
         )
         resp = requests.post(
             f"{self.base_url}/crm/v6/coql",
@@ -1906,6 +1911,9 @@ class ZohoClient:
         data = resp.json().get("data") or []
         out = []
         for c in data:
+            # No disposition = call hasn't been worked yet (= scheduled).
+            if c.get("Outgoing_call_disposition"):
+                continue
             who = c.get("Who_Id") or {}
             what = c.get("What_Id") or {}
             owner = c.get("Owner") or {}
@@ -1913,7 +1921,7 @@ class ZohoClient:
                 "id": c.get("id"),
                 "subject": c.get("Subject") or "",
                 "call_time": c.get("Call_Start_Time"),
-                "status": c.get("Call_Status"),
+                "status": "Scheduled",
                 "contact_id": who.get("id", "") if isinstance(who, dict) else "",
                 "contact_name": who.get("name", "") if isinstance(who, dict) else "",
                 "deal_id": what.get("id", "") if isinstance(what, dict) else "",
@@ -1921,7 +1929,7 @@ class ZohoClient:
                 "owner_id": owner.get("id", "") if isinstance(owner, dict) else "",
                 "owner_name": owner.get("name", "") if isinstance(owner, dict) else "",
                 "notes": c.get("Description") or "",
-                "duration": c.get("Duration_Min_Sec") or "",
+                "duration": c.get("Call_Duration_in_seconds") or "",
             })
         return out
 
@@ -1935,14 +1943,19 @@ class ZohoClient:
         """
         log = logging.getLogger(__name__)
         limit = max(1, min(limit, 1000))
+        # Same lowercase + `between` + `id is not null` pattern as the
+        # working Calls queries elsewhere in this file.
+        # Call_Status isn't a selectable COQL column on this org's Calls
+        # module. Derive status client-side from Outgoing_call_disposition.
         query = (
-            "SELECT id, Subject, Call_Start_Time, Call_Status, Call_Type, "
+            "select id, Subject, Call_Start_Time, Call_Type, "
             "Who_Id, What_Id, Owner, Description, "
-            "Duration_Min_Sec, Created_Time, Modified_Time, "
+            "Call_Duration_in_seconds, Created_Time, Modified_Time, "
             "Outgoing_call_disposition "
-            "FROM Calls "
-            f"WHERE Call_Start_Time >= '{start_iso}' AND Call_Start_Time <= '{end_iso}' "
-            f"ORDER BY Call_Start_Time ASC LIMIT {limit} OFFSET 0"
+            "from Calls "
+            f"where Call_Start_Time between '{start_iso}' and '{end_iso}' "
+            "and id is not null "
+            f"order by Call_Start_Time asc limit {limit} offset 0"
         )
         try:
             resp = requests.post(
@@ -1961,37 +1974,50 @@ class ZohoClient:
                         resp.status_code, resp.text[:200])
             return []
         data = resp.json().get("data") or []
+        # COQL returns lookup fields as id-only (no .name) — resolve owner
+        # names in one batch via the cached CRM owners list.
+        owner_ids = {(c.get("Owner") or {}).get("id") for c in data}
+        owner_ids.discard(None)
+        id_to_name: dict = {}
+        if owner_ids:
+            try:
+                for o in self.get_crm_owners():
+                    id_to_name[str(o.get("id"))] = o.get("name") or ""
+            except Exception as e:
+                log.warning("owner lookup failed: %s", e)
         out = []
+        now_iso = datetime.now(timezone.utc).isoformat()
         for c in data:
             who = c.get("Who_Id") or {}
             what = c.get("What_Id") or {}
             owner = c.get("Owner") or {}
             disp = c.get("Outgoing_call_disposition") or ""
-            raw_status = c.get("Call_Status") or ""
-            # Normalize "effective" status: a disposition on an outgoing call
-            # means the agent worked it even if Zoho status field is still empty.
-            if raw_status.lower() == "completed" or disp:
+            # Disposition present = call was worked. No disposition + future
+            # start = upcoming on the agent's calendar. No disposition + past
+            # start = the agent missed it.
+            future = (c.get("Call_Start_Time") or "") > now_iso
+            if disp:
                 effective = "Completed"
-            elif raw_status:
-                effective = raw_status
-            else:
+            elif future:
                 effective = "Scheduled"
+            else:
+                effective = "Missed"
+            owner_id = owner.get("id", "") if isinstance(owner, dict) else ""
             out.append({
                 "id": c.get("id"),
                 "subject": c.get("Subject") or "",
                 "call_time": c.get("Call_Start_Time"),
                 "call_type": c.get("Call_Type") or "",
                 "status": effective,
-                "status_raw": raw_status,
                 "disposition": disp,
                 "contact_id": who.get("id", "") if isinstance(who, dict) else "",
                 "contact_name": who.get("name", "") if isinstance(who, dict) else "",
                 "deal_id": what.get("id", "") if isinstance(what, dict) else "",
                 "deal_name": what.get("name", "") if isinstance(what, dict) else "",
-                "owner_id": owner.get("id", "") if isinstance(owner, dict) else "",
-                "owner_name": owner.get("name", "") if isinstance(owner, dict) else "",
+                "owner_id": owner_id,
+                "owner_name": id_to_name.get(str(owner_id), ""),
                 "notes": (c.get("Description") or "")[:400],
-                "duration": c.get("Duration_Min_Sec") or "",
+                "duration": c.get("Call_Duration_in_seconds") or "",
                 "created_time": c.get("Created_Time"),
                 "modified_time": c.get("Modified_Time"),
             })
