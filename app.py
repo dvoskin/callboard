@@ -3,7 +3,7 @@ import json
 import threading
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -332,6 +332,12 @@ def _background_loop():
 # ------------------------------------------------------------------ routes
 
 
+@app.route("/health")
+def health():
+    """Render health-check probe — must respond quickly."""
+    return "ok", 200
+
+
 @app.route("/auth/debug")
 def auth_debug():
     """Show what redirect URI would be generated — for debugging OAuth."""
@@ -445,12 +451,16 @@ def api_data():
     tz_offset_minutes = int(tz_param) if tz_param is not None else None
 
     if start_param:
-        # Custom date range: live fetch, bypass cache
+        # Custom date range: live fetch, bypass cache.
+        # Run in a thread with a hard timeout so a slow Zoho response never
+        # blocks a gunicorn thread indefinitely (which kills the worker).
         try:
             effective_end = end_param or start_param
             start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
             end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
-            data = _zoho.get_dashboard_data(start_dt=start_dt, end_dt=end_dt)
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                future = ex.submit(_zoho.get_dashboard_data, start_dt=start_dt, end_dt=end_dt)
+                data = future.result(timeout=85)  # hard cap — gunicorn worker timeout is 90s
             rd = resolved_data_full()
             annotated = json.loads(json.dumps(data))
             _annotate_resolved(annotated, rd)
@@ -461,6 +471,9 @@ def api_data():
                 "data": annotated,
                 "date_range": {"start": start_param, "end": effective_end},
             })
+        except FutureTimeoutError:
+            log.error("Custom date range fetch timed out for %s→%s", start_param, end_param)
+            return jsonify({"status": "error", "message": "Zoho API is taking too long — try again in a moment."}), 504
         except Exception as exc:
             log.error("Custom date range fetch failed: %s", exc)
             return jsonify({"status": "error", "message": str(exc)}), 500

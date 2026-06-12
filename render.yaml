@@ -4,9 +4,12 @@ services:
     runtime: python
     plan: starter           # $7/mo, stays warm. Use "free" for testing (sleeps after 15 min idle).
     buildCommand: pip install -r requirements.txt
+    healthCheckPath: /health
     # Single worker = single in-memory cache + one background refresh thread.
-    # If you scale beyond 1 worker, the cache becomes per-worker (fine for read-only).
-    startCommand: gunicorn -w 1 -k gthread --threads 4 -t 120 -b 0.0.0.0:$PORT app:app
+    # -t 90: kill a worker that takes >90s on a single request (prevents thread starvation).
+    # --graceful-timeout 20: give in-flight requests 20s to finish before hard kill on deploy.
+    # --keep-alive 75: match Render's 75s idle connection timeout.
+    startCommand: gunicorn -w 1 -k gthread --threads 4 -t 90 --graceful-timeout 20 --keep-alive 75 -b 0.0.0.0:$PORT app:app
     envVars:
       - key: ZOHO_CLIENT_ID
         sync: false
