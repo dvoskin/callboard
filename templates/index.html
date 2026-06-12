@@ -3468,7 +3468,53 @@
     </div>
   </div><!-- /card-activity -->
 
-  <!-- Follow-Up Tracker and Follow-Up Calls are now shown as inline columns in the Scheduled Calls table -->
+  <!-- Standalone Follow Up Tracker card — restored alongside the inline columns. -->
+  <div class="card" id="quotes-section">
+    <div class="card-header q-tight-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">🎯 Follow Up Tracker</h2>
+      <span class="chip" id="quotes-count">0</span>
+      <button id="quotes-attn-chip"
+              class="stage-tag s-noanswer q-attn-pill"
+              style="display:none;cursor:pointer;border:1px solid rgba(239,68,68,.25)"
+              onclick="_qToggleAttentionFilter()"
+              title="Show only items that need team-lead attention">
+        🚩&nbsp;<span id="quotes-attn-count">0</span>&nbsp;need follow-up
+      </button>
+      <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
+      <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()">↻</button>
+    </div>
+    <div class="card-date-bar">
+      <span class="cdb-label">Sent date</span>
+      <input type="date" id="quotes-date-start" class="cdb-input">
+      <span class="cdb-sep">→</span>
+      <input type="date" id="quotes-date-end" class="cdb-input">
+      <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
+      <button class="cdb-today" onclick="resetQuotesToDefault()">↩ Last 3 days</button>
+      <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
+      <span class="cdb-label" id="quotes-range-label" style="font-weight:400;color:var(--secondary);font-size:12px"></span>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table id="quotes-table" class="quotes-compact">
+          <thead>
+            <tr>
+              <th style="width:16px"></th>
+              <th>Customer</th>
+              <th style="white-space:nowrap">Sent</th>
+              <th style="text-align:right">$</th>
+              <th>Rep</th>
+              <th>Next Step</th>
+              <th style="min-width:240px">Latest Note</th>
+              <th style="width:32px" title="Mark followed up"></th>
+            </tr>
+          </thead>
+          <tbody id="quotes-tbody">
+            <tr><td colspan="8" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
 </main>
 

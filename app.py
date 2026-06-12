@@ -934,11 +934,27 @@ def zoho_schedule_call():
 
 # ------------------------------------------------------------------ Pipeline stage counts
 
+def _books_count_by_salesperson(items: list) -> dict:
+    """Group Books items by salesperson_name → {total, by_agent: [{name, count}]}."""
+    counts: dict = {}
+    for it in items:
+        owner = (it.get("salesperson_name") or "").strip() or "Unassigned"
+        counts[owner] = counts.get(owner, 0) + 1
+    by_agent = [{"name": n, "count": c}
+                for n, c in sorted(counts.items(), key=lambda x: -x[1])]
+    return {"total": len(items), "by_agent": by_agent}
+
+
 @app.route("/api/pipeline")
 @login_required
 def api_pipeline():
-    """Deal pipeline stage counts broken down by owner. Defaults to today
-    if no start/end query params are passed (same shape as /api/data)."""
+    """Pipeline stage counts.
+
+    For Quote Sent and Retainer Invoice Sent, the source of truth is Zoho Books
+    (a document was actually issued in the date range). For everything else we
+    fall back to CRM stage counts. The old CRM-only path over-counted because
+    Modified_Time matches any field touch, not just stage transitions.
+    """
     start_param = request.args.get("start")
     end_param   = request.args.get("end")
     tz_param    = request.args.get("tz")
@@ -950,6 +966,22 @@ def api_pipeline():
             start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
             end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
         counts = _zoho.get_pipeline_counts(start_dt=start_dt, end_dt=end_dt)
+
+        # Override the document-issuance stages with Books data — actual sends, not edits.
+        if _books.configured:
+            today = datetime.now(timezone.utc).date()
+            date_start = (start_dt.date().isoformat() if start_dt else today.isoformat())
+            date_end   = (end_dt.date().isoformat() if end_dt else today.isoformat())
+            try:
+                estimates = _books.list_sent_estimates(date_start, date_end, max_records=500)
+                counts["Quote Sent"] = _books_count_by_salesperson(estimates)
+            except Exception as ex:
+                log.warning("Books estimates fetch for pipeline failed: %s", ex)
+            try:
+                retainers = _books.list_sent_retainer_invoices(date_start, date_end, max_records=500)
+                counts["Retainer Invoice Sent"] = _books_count_by_salesperson(retainers)
+            except Exception as ex:
+                log.warning("Books retainers fetch for pipeline failed: %s", ex)
         return jsonify(counts)
     except Exception as e:
         log.exception("Pipeline counts error")
