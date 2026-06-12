@@ -3197,6 +3197,30 @@
       50%      { box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 8px rgba(220,38,38,0); }
     }
 
+    /* ═════════════════ Dashboard tabs (Live / Follow Up) ═════════════════ */
+    .dash-tabs {
+      display: flex; gap: 4px; margin: 0 0 16px;
+      padding: 4px;
+      background: var(--surface2, #f7f8fc);
+      border-radius: var(--radius-md, 10px);
+      border: 1px solid rgba(0,0,0,.05);
+      width: fit-content;
+    }
+    .dash-tab {
+      appearance: none; border: none; background: transparent;
+      padding: 7px 14px; font-size: 13px; font-weight: 500;
+      color: var(--secondary); cursor: pointer;
+      border-radius: 7px;
+      transition: background .15s, color .15s;
+    }
+    .dash-tab:hover { color: var(--text); }
+    .dash-tab.active {
+      background: var(--surface, #fff);
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(0,0,0,.05);
+    }
+    .dash-pane[hidden] { display: none !important; }
+
 
     /* ═══════════════════════════════════════════════════════════════════════
        UNIFIED HEADERS — one rule set governs every card-header and every
@@ -3351,6 +3375,21 @@
 
 <main>
   <div id="error-banner"></div>
+
+  <!-- ══════════════════════ TAB NAVIGATION ══════════════════════ -->
+  <!-- Two tabs so the heavy Follow Up panels don't compete with the live
+       dashboard for memory on initial load. Selection persists per-user. -->
+  <div class="dash-tabs" id="dash-tabs">
+    <button class="dash-tab active" data-tab="tab-live" onclick="switchDashTab('tab-live')">
+      📊 Live Dashboard
+    </button>
+    <button class="dash-tab" data-tab="tab-followup" onclick="switchDashTab('tab-followup')">
+      🎯 Follow Up
+    </button>
+  </div>
+
+  <!-- ══════════════════════ TAB: LIVE DASHBOARD ══════════════════════ -->
+  <div id="tab-live" class="dash-pane">
 
   <!-- ══════════════════════ HERO KPI CARDS ══════════════════════ -->
   <div class="hero-grid" id="hero-grid"></div>
@@ -3586,6 +3625,13 @@
     </div>
   </div><!-- /card-activity -->
 
+  </div><!-- /tab-live -->
+
+  <!-- ══════════════════════ TAB: FOLLOW UP ══════════════════════ -->
+  <!-- Hidden until activated. Contained cards only auto-fetch once the
+       user actually opens this tab — keeps initial-load memory low. -->
+  <div id="tab-followup" class="dash-pane" hidden>
+
   <!-- Standalone Follow Up Tracker card — restored alongside the inline columns. -->
   <div class="card" id="quotes-section">
     <div class="card-header q-tight-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -3695,6 +3741,8 @@
       </div>
     </div>
   </div>
+
+  </div><!-- /tab-followup -->
 
 </main>
 
@@ -7485,22 +7533,47 @@
   }
   function _fuaBootstrap() {
     if (typeof _fuaInitToday === "function") _fuaInitToday();
-    // Defer auto-load so /api/quotes (heavier endpoint) and the dashboard
-    // refresh can settle first. Also skip if the user previously collapsed
-    // the card — no point firing a CRM call for a hidden panel.
-    setTimeout(() => {
-      const card = document.getElementById("card-fu-activity");
-      if (card && card.classList.contains("is-collapsed")) return;
-      if (typeof loadFuActivity === "function") loadFuActivity();
-    }, 1500);
+    // Lazy: nothing loads until the user opens the Follow Up tab.
+  }
+
+  // ── Dashboard tabs ───────────────────────────────────────────────────
+  // Selection persists per-user; the Follow Up panels only fire fetches
+  // when the user actually activates that tab. Keeps initial-load memory
+  // down so the gunicorn worker doesn't get SIGTERM'd by Render.
+  const _DASH_TAB_KEY = () => `dashboard:activeTab:v1:${(CURRENT_USER_NAME || "anon").replace(/\s+/g, "_").toLowerCase()}`;
+  let _qLoadedOnce = false;
+  let _fuaLoadedOnce = false;
+  function switchDashTab(tabId) {
+    document.querySelectorAll(".dash-pane").forEach(p => {
+      p.hidden = p.id !== tabId;
+    });
+    document.querySelectorAll(".dash-tab").forEach(b => {
+      b.classList.toggle("active", b.dataset.tab === tabId);
+    });
+    try { localStorage.setItem(_DASH_TAB_KEY(), tabId); } catch {}
+    if (tabId === "tab-followup") {
+      // First time on this tab: fire the Follow Up Tracker once. The
+      // Activity Tracker stays collapsed by default; user expands when
+      // they want to see it.
+      if (!_qLoadedOnce && typeof loadQuotes === "function") {
+        _qLoadedOnce = true;
+        loadQuotes();
+      }
+    }
+  }
+  function _initDashTabs() {
+    let saved = null;
+    try { saved = localStorage.getItem(_DASH_TAB_KEY()); } catch {}
+    switchDashTab(saved === "tab-followup" ? "tab-followup" : "tab-live");
   }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); _fuaBootstrap(); });
+    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); _fuaBootstrap(); _initDashTabs(); });
   } else {
     tgInit();
     _initCardCollapse();
     _qBootstrapPanel();
     _fuaBootstrap();
+    _initDashTabs();
   }
 
   // ═══════════════════ FOLLOW UP ACTIVITY TRACKER ═════════════════════
