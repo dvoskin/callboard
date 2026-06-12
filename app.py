@@ -1417,7 +1417,28 @@ def api_quotes():
                     results_by_id[doc_id] = (activities, next_followup)
 
         import re as _re
+        # Rows where the most recent note signals the deal is already handled
+        # (rep booked the surgery, internal-ops note from booking team, etc.)
+        # bypass the Books `paid` filter because the invoice status hasn't
+        # caught up yet. Drop them so the tracker stays focused on real chases.
+        _EXCLUDED_NOTE_AUTHORS = {"alanis castillo", "oscar caballero"}
+        _BOOKING_PHRASES = (
+            "booked the appointment", "booked the appointments",
+            "booked appointment", "booked appointments",
+            "appointments were booked", "appointment was booked",
+            "appointments are booked", "appointment is booked",
+            "appointments have been booked", "appointment has been booked",
+            "i booked the appointment", "i booked the appointments",
+            "booking the appointment", "appointments booked",
+        )
+        def _excluded_by_note(note_text: str, note_by: str) -> bool:
+            if (note_by or "").strip().lower() in _EXCLUDED_NOTE_AUTHORS:
+                return True
+            text = (note_text or "").lower()
+            return any(p in text for p in _BOOKING_PHRASES)
+
         quotes = []
+        excluded_count = 0
         for kind, doc in merged:
             deal_id = doc.get("zcrm_potential_id") or ""
             sent_at = doc.get("created_time") or doc.get("date") or ""
@@ -1427,11 +1448,15 @@ def api_quotes():
                       "summary": None, "kind": None, "source": None}))
             latest_note = next((a for a in activities if a.get("kind") == "Notes"), None)
             latest_note_summary = ""
+            latest_note_by = latest_note.get("by") if latest_note else None
             if latest_note:
                 latest_note_summary = (latest_note.get("detail") or
                                         latest_note.get("summary") or "").strip()
                 latest_note_summary = _re.sub(r"<[^>]+>", "", latest_note_summary)
                 latest_note_summary = " ".join(latest_note_summary.split())
+            if _excluded_by_note(latest_note_summary, latest_note_by):
+                excluded_count += 1
+                continue
             quotes.append({
                 "kind": kind,
                 "estimate_id": doc_id,
@@ -1454,8 +1479,11 @@ def api_quotes():
                 "next_followup": next_followup,
                 "latest_note": latest_note_summary,
                 "latest_note_ts": latest_note.get("ts") if latest_note else None,
-                "latest_note_by": latest_note.get("by") if latest_note else None,
+                "latest_note_by": latest_note_by,
             })
+
+        if excluded_count:
+            log.info("/api/quotes: excluded %d rows by note signal", excluded_count)
 
         payload = {
             "status": "ok",
