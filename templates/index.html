@@ -7670,10 +7670,11 @@
     loading.style.display = "inline-flex";
     status.textContent = "";
     try {
-      // limit=25 keeps the worst-case CRM fan-out under the gunicorn worker
-      // timeout. If you need more, bump via console: loadQuotes() can be
-      // called with a custom URL, or hit /api/quotes?limit=N directly.
-      const resp = await fetch(`/api/quotes?start=${start}&end=${end}&limit=25`, {
+      // limit=100 — measured ~50s wall time in the worst case (slow Zoho,
+      // cold cache), leaving headroom under the gunicorn 90s worker timeout.
+      // Higher values are accepted by the backend (up to 300); the long-term
+      // fix for "show everything" is lazy CRM enrichment per row.
+      const resp = await fetch(`/api/quotes?start=${start}&end=${end}&limit=100`, {
         headers: { "Accept": "application/json" },
       });
       // Defend against the server returning an HTML error page (500, 502, auth
