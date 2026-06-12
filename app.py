@@ -1336,8 +1336,11 @@ def api_quotes():
     date_start = request.args.get("start") or default_start
     date_end = request.args.get("end") or default_end
     include_activity = request.args.get("activity", "1") != "0"
-    # Cap N to keep first prototype responsive — 3 parallel workers × 3 API calls each.
-    max_records = min(int(request.args.get("limit", "50")), 200)
+    # Cap N to keep responses under Render's gunicorn 90s worker timeout.
+    # 3 parallel workers × 3 related-list calls per item; at ~500ms per CRM
+    # call when Zoho is slow, 25 items finishes in ~12s, 50 items in ~25s.
+    # Keep the upper bound generous for API consumers who explicitly request more.
+    max_records = min(int(request.args.get("limit", "25")), 200)
 
     # Serve from cache when the same date range was fetched recently.
     import time as _time

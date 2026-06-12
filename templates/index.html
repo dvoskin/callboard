@@ -7670,7 +7670,10 @@
     loading.style.display = "inline-flex";
     status.textContent = "";
     try {
-      const resp = await fetch(`/api/quotes?start=${start}&end=${end}`, {
+      // limit=25 keeps the worst-case CRM fan-out under the gunicorn worker
+      // timeout. If you need more, bump via console: loadQuotes() can be
+      // called with a custom URL, or hit /api/quotes?limit=N directly.
+      const resp = await fetch(`/api/quotes?start=${start}&end=${end}&limit=25`, {
         headers: { "Accept": "application/json" },
       });
       // Defend against the server returning an HTML error page (500, 502, auth
