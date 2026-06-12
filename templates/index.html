@@ -7482,7 +7482,14 @@
   }
   function _fuaBootstrap() {
     if (typeof _fuaInitToday === "function") _fuaInitToday();
-    if (typeof loadFuActivity === "function") loadFuActivity();
+    // Defer auto-load so /api/quotes (heavier endpoint) and the dashboard
+    // refresh can settle first. Also skip if the user previously collapsed
+    // the card — no point firing a CRM call for a hidden panel.
+    setTimeout(() => {
+      const card = document.getElementById("card-fu-activity");
+      if (card && card.classList.contains("is-collapsed")) return;
+      if (typeof loadFuActivity === "function") loadFuActivity();
+    }, 1500);
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); _fuaBootstrap(); });
