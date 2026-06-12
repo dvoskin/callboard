@@ -73,8 +73,14 @@ class BooksClient:
         return {"Authorization": f"Zoho-oauthtoken {self._get_access_token()}"}
 
     def _load_cache(self, date_start: str, date_end: str,
-                    max_records: int, key: str = "estimates") -> list[dict]:
-        """Return cached items (estimates or retainers) filtered to [date_start, date_end]."""
+                    max_records: int, key: str = "estimates",
+                    include_statuses: Optional[set] = None) -> list[dict]:
+        """Return cached items (estimates or retainers) filtered to [date_start, date_end].
+
+        When include_statuses is set, only items whose `status` is in the set
+        are returned — mirrors the server-side status= filter so cache mode
+        behaves identically.
+        """
         try:
             blob = json.loads(self.cache_path.read_text())
         except Exception as e:
@@ -83,9 +89,13 @@ class BooksClient:
         items = blob.get(key, []) if isinstance(blob, dict) else (blob or [])
         filt = [it for it in items
                 if (it.get("date") or "") >= date_start and (it.get("date") or "") <= date_end]
+        if include_statuses:
+            filt = [it for it in filt if (it.get("status") or "") in include_statuses]
         filt.sort(key=lambda it: it.get("date") or "", reverse=True)
-        log.info("Books CACHE: %d %s between %s and %s (file: %s)",
-                 len(filt), key, date_start, date_end, self.cache_path.name)
+        log.info("Books CACHE: %d %s between %s and %s%s (file: %s)",
+                 len(filt), key, date_start, date_end,
+                 f" [status={'+'.join(sorted(include_statuses))}]" if include_statuses else "",
+                 self.cache_path.name)
         return filt[:max_records]
 
     def list_sent_estimates(
@@ -97,21 +107,32 @@ class BooksClient:
         return self._list_documents("estimates", date_start, date_end, max_records,
                                      status="sent")
 
+    # Retainer statuses that still owe money — these are what the Follow Up
+    # Tracker needs to chase. In Goals' workflow most retainers go straight
+    # to `partially_paid` because the customer drops a deposit on send, so a
+    # literal status="sent" filter would yield almost nothing. The set below
+    # captures every "money still owed" state Books exposes.
+    _UNPAID_INVOICE_STATUSES = frozenset(
+        {"sent", "viewed", "overdue", "unpaid", "partially_paid"}
+    )
+
     def list_sent_retainer_invoices(
         self,
         date_start: str,
         date_end: str,
         max_records: int = 500,
     ) -> list[dict]:
-        """Sent retainer invoices in [date_start, date_end].
-
-        Books has no "retainer" status — any non-draft / non-void invoice in
-        this org IS a retainer (Goals' invoicing workflow). The endpoint also
-        supports status= filter so we don't pull drafts.
+        """Retainer invoices in [date_start, date_end] that are still waiting
+        for payment. Excludes `paid` (fully paid — no follow-up needed) and
+        `draft` / `void` (never sent in the first place).
         """
-        return self._list_documents("invoices", date_start, date_end, max_records,
-                                     # Pull sent + partially_paid + paid + overdue + unpaid + viewed
-                                     status=None, exclude_statuses={"draft", "void"})
+        return self._list_documents(
+            "invoices", date_start, date_end, max_records,
+            # Books status= is single-valued, so apply the whitelist client-side
+            # (live API filter) and via the cache fallback's include_statuses.
+            status=None,
+            include_statuses=self._UNPAID_INVOICE_STATUSES,
+        )
 
     def _list_documents(
         self,
@@ -121,15 +142,24 @@ class BooksClient:
         max_records: int,
         status: Optional[str] = None,
         exclude_statuses: Optional[set] = None,
+        include_statuses: Optional[set] = None,
     ) -> list[dict]:
-        """Shared list+paginate logic for estimates and invoices."""
+        """Shared list+paginate logic for estimates and invoices.
+
+        - status: passes through to the Books API as ?status=X (server-side filter).
+        - exclude_statuses: drop matching items client-side after fetch.
+        - include_statuses: keep ONLY matching items client-side. Used by the
+          cache fallback so the same whitelist applies whether we hit the live
+          API or the local snapshot.
+        """
         cache_key = "estimates" if doc_type == "estimates" else "retainers"
         self.last_source_was_cache = False
         # Cache-only mode (no creds configured)
         if not (self.client_id and self.client_secret and self.refresh_token and self.org_id):
             if self.cache_path.exists():
                 self.last_source_was_cache = True
-                return self._load_cache(date_start, date_end, max_records, key=cache_key)
+                return self._load_cache(date_start, date_end, max_records,
+                                         key=cache_key, include_statuses=include_statuses)
             raise RuntimeError("Books client not configured. Set ZOHO_BOOKS_ORG_ID and a Books refresh token, or drop a quotes_cache.json in data/.")
 
         results: list[dict] = []
@@ -164,7 +194,8 @@ class BooksClient:
                         resp.status_code, self.cache_path.name,
                     )
                     self.last_source_was_cache = True
-                    return self._load_cache(date_start, date_end, max_records, key=cache_key)
+                    return self._load_cache(date_start, date_end, max_records,
+                                             key=cache_key, include_statuses=include_statuses)
                 scope_hint = ("ZohoBooks.estimates.READ" if doc_type == "estimates"
                               else "ZohoBooks.invoices.READ")
                 raise RuntimeError(
@@ -179,6 +210,8 @@ class BooksClient:
             batch = data.get(doc_type, []) or []
             if exclude_statuses:
                 batch = [b for b in batch if b.get("status") not in exclude_statuses]
+            if include_statuses:
+                batch = [b for b in batch if (b.get("status") or "") in include_statuses]
             results.extend(batch)
             if not data.get("page_context", {}).get("has_more_page"):
                 break
