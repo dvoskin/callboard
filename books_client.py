@@ -124,15 +124,26 @@ class BooksClient:
     ) -> list[dict]:
         """Retainer invoices in [date_start, date_end] that are still waiting
         for payment. Excludes `paid` (fully paid — no follow-up needed) and
-        `draft` / `void` (never sent in the first place).
+        `draft` / `void` (never sent in the first place). Defensive: also
+        drops rows whose balance has dropped to $0 even if Books status says
+        partially_paid (status can lag behind the last payment).
         """
-        return self._list_documents(
+        rows = self._list_documents(
             "invoices", date_start, date_end, max_records,
             # Books status= is single-valued, so apply the whitelist client-side
             # (live API filter) and via the cache fallback's include_statuses.
             status=None,
             include_statuses=self._UNPAID_INVOICE_STATUSES,
         )
+        before = len(rows)
+        # A balance > 0 means there's actually still money owed. Books occasionally
+        # leaves an invoice at status=partially_paid after the final payment lands,
+        # so check the number directly. Allow tiny FP drift via > 0.01.
+        rows = [r for r in rows if (r.get("balance") is None or float(r.get("balance") or 0) > 0.01)]
+        if len(rows) != before:
+            log.info("Books retainers: filtered %d rows with zero balance",
+                     before - len(rows))
+        return rows
 
     def _list_documents(
         self,
