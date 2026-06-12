@@ -26,6 +26,9 @@
       --blue:      #2563eb;
       --blue-dk:   #1d4ed8;
       --blue-glow: rgba(37,99,235,.35);
+      /* --accent is referenced by the Follow-Up Scheduling modal and a few
+         other one-off buttons; alias to --blue so they aren't transparent. */
+      --accent:    #2563eb;
       --green:     #10b981;
       --green-dk:  #047857;
       --red:       #ef4444;
@@ -6735,7 +6738,9 @@
       </div>
       <div>
         <label style="display:block;font-size:11px;font-weight:600;color:var(--secondary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Assigned To (Deal Owner)</label>
-        <input type="text" id="fu-assignee" readonly style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface2);color:var(--secondary);box-sizing:border-box">
+        <select id="fu-assignee-select" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface2);color:var(--text);box-sizing:border-box">
+          <option value="">Loading owners…</option>
+        </select>
       </div>
     </div>
     <div id="fu-modal-error" style="display:none;color:#b91c1c;font-size:12px;margin-top:10px;padding:6px 10px;background:rgba(239,68,68,.08);border-radius:6px"></div>
@@ -8027,7 +8032,23 @@
   // ─── Follow-Up Scheduling Modal ───────────────────────────────────────────
   let _fuModalData = null;
 
-  function openFuModal(dataAttr) {
+  // Cache the CRM owners list across modal opens — refreshed on hard reload.
+  let _fuOwnersCache = null;
+  async function _loadFuOwners() {
+    if (_fuOwnersCache) return _fuOwnersCache;
+    try {
+      const r = await fetch("/api/zoho/owners", { headers: { "Accept": "application/json" } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      _fuOwnersCache = (data.owners || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } catch (e) {
+      console.error("Failed to load CRM owners:", e);
+      _fuOwnersCache = [];
+    }
+    return _fuOwnersCache;
+  }
+
+  async function openFuModal(dataAttr) {
     const q = typeof dataAttr === "string" ? JSON.parse(dataAttr) : dataAttr;
     _fuModalData = q;
     document.getElementById("fu-modal-contact").innerHTML =
@@ -8043,9 +8064,29 @@
       `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T10:00`;
 
     document.getElementById("fu-notes").value = q.latest_note || "";
-    document.getElementById("fu-assignee").value = q.salesperson || "—";
     document.getElementById("fu-modal-error").style.display = "none";
     document.getElementById("fu-modal-overlay").style.display = "";
+
+    // Populate the owner dropdown. Pre-select current PC if their name matches.
+    const sel = document.getElementById("fu-assignee-select");
+    sel.innerHTML = `<option value="">Loading owners…</option>`;
+    sel.disabled = true;
+    const owners = await _loadFuOwners();
+    sel.disabled = false;
+    if (!owners.length) {
+      sel.innerHTML = `<option value="">(no owners available)</option>`;
+      return;
+    }
+    const want = (q.salesperson || "").trim().toLowerCase();
+    sel.innerHTML = `<option value="">— pick owner —</option>` +
+      owners.map(o => {
+        const id = o.id || o.user_id || "";
+        const name = o.name || o.full_name || "";
+        return `<option value="${_qEsc(id)}">${_qEsc(name)}</option>`;
+      }).join("");
+    // Auto-select the current salesperson if we find a match.
+    const matchIdx = owners.findIndex(o => (o.name || "").trim().toLowerCase() === want);
+    if (matchIdx >= 0) sel.value = owners[matchIdx].id || owners[matchIdx].user_id || "";
   }
 
   function closeFuModal() {
@@ -8058,23 +8099,37 @@
     const errEl = document.getElementById("fu-modal-error");
     const dt = document.getElementById("fu-datetime").value;
     const notes = document.getElementById("fu-notes").value.trim();
-    if (!dt) { errEl.textContent = "Please pick a date and time."; errEl.style.display = ""; return; }
+    const ownerSelect = document.getElementById("fu-assignee-select");
+    const ownerId = ownerSelect ? ownerSelect.value : "";
+    const ownerName = ownerSelect && ownerSelect.selectedIndex >= 0
+        ? ownerSelect.options[ownerSelect.selectedIndex].text : "";
+
+    if (!dt) {
+      errEl.textContent = "Please pick a date and time.";
+      errEl.style.display = "";
+      return;
+    }
+    if (!ownerId) {
+      errEl.textContent = "Please pick a deal owner.";
+      errEl.style.display = "";
+      return;
+    }
 
     btn.disabled = true; btn.textContent = "Scheduling…";
     errEl.style.display = "none";
     try {
-      // Resolve contact_id + owner_id from the deal
-      let contactId = "", ownerId = "";
+      // Resolve contact_id from the deal (owner now comes from the dropdown).
+      let contactId = "";
       if (_fuModalData.deal_id) {
         try {
           const dr = await fetch(`/api/deal-info/${encodeURIComponent(_fuModalData.deal_id)}`);
-          if (dr.ok) { const dd = await dr.json(); contactId = dd.contact_id||""; ownerId = dd.owner_id||""; }
-        } catch(_) {}
+          if (dr.ok) { const dd = await dr.json(); contactId = dd.contact_id || ""; }
+        } catch (_) {}
       }
 
       const resp = await fetch("/api/followup-call", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
         body: JSON.stringify({
           contact_id:   contactId,
           contact_name: _fuModalData.customer_name || "",
@@ -8085,14 +8140,26 @@
           subject:      `Follow-up: ${_fuModalData.customer_name || ""}`,
         }),
       });
-      const data = await resp.json();
-      if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+
+      // Same defensive non-JSON guard pattern as loadQuotes.
+      const ct = resp.headers.get("content-type") || "";
+      const isJson = ct.includes("application/json");
+      let data = {};
+      if (isJson) {
+        try { data = await resp.json(); } catch (_) {}
+      } else {
+        const txt = (await resp.text()).slice(0, 200);
+        console.error("submitFuCall non-JSON response:", resp.status, txt);
+      }
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || data.message || `HTTP ${resp.status} ${resp.statusText || ""}`);
+      }
 
       closeFuModal();
-      // Reload inline lookups so the new FU call appears in the SC table columns
-      _loadScLookups();
-    } catch(err) {
-      errEl.textContent = `Error: ${err.message}`;
+      // Optimistic refresh — the new scheduled call will surface on next loadQuotes.
+      if (typeof _loadScLookups === "function") _loadScLookups();
+    } catch (err) {
+      errEl.textContent = `Couldn't schedule: ${err.message}`;
       errEl.style.display = "";
     } finally {
       btn.disabled = false; btn.textContent = "Schedule Call";
