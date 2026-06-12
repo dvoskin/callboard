@@ -1032,10 +1032,14 @@ class ZohoClient:
         ]
         for kind, api_name, fields in related_specs:
             try:
+                # per_page=20 — we only surface the 5 most recent per kind in
+                # the panel and use the rest for next_followup detection; 20
+                # is more than enough and meaningfully reduces memory per
+                # /api/quotes call (3 kinds × 100 quotes × 30 fewer records).
                 resp = requests.get(
                     f"{self.base_url}/crm/v6/Deals/{deal_id}/{api_name}",
                     headers=self._headers(),
-                    params={"fields": fields, "per_page": 50,
+                    params={"fields": fields, "per_page": 20,
                             "sort_by": "Modified_Time", "sort_order": "desc"},
                     timeout=15,
                 )

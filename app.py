@@ -1504,7 +1504,10 @@ def _api_quotes_inner():
                 "expiry_date": doc.get("expiry_date") or doc.get("due_date"),
                 "status": doc.get("status"),
                 "activity_count": len(activities),
-                "activities": activities,
+                # Cap activities to the 5 most recent — that's what the row
+                # expansion actually shows. Holding the full history per row
+                # in the 10-min cache was the biggest contributor to OOM.
+                "activities": activities[:5],
                 "next_followup": next_followup,
                 "latest_note": latest_note_summary,
                 "latest_note_ts": latest_note.get("ts") if latest_note else None,
@@ -1521,10 +1524,13 @@ def _api_quotes_inner():
             "quotes": quotes,
             "source": "cache" if _books.last_source_was_cache else "live",
         }
-        stale = [k for k, v in _quotes_cache.items()
-                 if (_time.monotonic() - v["ts"]) > _QUOTES_CACHE_TTL]
-        for k in stale:
-            _quotes_cache.pop(k, None)
+        # Evict stale entries AND keep the cache to a single date range at a
+        # time — managers usually look at one window per session, so caching
+        # multiple windows is mostly memory waste.
+        for k in list(_quotes_cache.keys()):
+            v = _quotes_cache.get(k)
+            if not v or (_time.monotonic() - v["ts"]) > _QUOTES_CACHE_TTL or k != _cache_key:
+                _quotes_cache.pop(k, None)
         _quotes_cache[_cache_key] = {"ts": _time.monotonic(), "payload": payload}
         return jsonify(payload)
     finally:
