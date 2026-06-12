@@ -1344,7 +1344,9 @@ def api_quotes():
     def _fetch_signals_for(item):
         kind, doc = item
         deal_id = doc.get("zcrm_potential_id") or ""
-        sent_at = doc.get("last_modified_time") or doc.get("created_time") or ""
+        # Use created_time as the cutoff — last_modified_time drifts forward on
+        # re-sends/status changes and would filter out legitimate post-quote notes.
+        sent_at = doc.get("created_time") or doc.get("date") or ""
         if not (include_activity and deal_id and sent_at):
             return item, [], {"status": "forgotten", "when": None, "by": None,
                               "summary": None, "kind": None, "source": None}
