@@ -1003,6 +1003,29 @@
       50% { opacity: .6; }
     }
 
+    /* Card collapse — per-card chevron in the header; clicking the header
+       toggles. State persists in localStorage. */
+    .card-collapse-btn {
+      margin-left: 4px; width: 22px; height: 22px; padding: 0;
+      background: transparent; border: 1px solid transparent;
+      border-radius: 4px; cursor: pointer; color: var(--secondary);
+      font-size: 12px; line-height: 20px;
+      transition: transform .15s ease;
+    }
+    .card-collapse-btn:hover { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.1); }
+    .card.is-collapsed .card-collapse-btn { transform: rotate(-90deg); }
+    .card.is-collapsed > :not(.card-header):not(.card-collapse-host) { display: none !important; }
+    .card.is-collapsed .card-header {
+      border-bottom: 1px dashed rgba(0,0,0,.08);
+      padding-bottom: 6px;
+    }
+    .card.is-collapsed .card-header::after {
+      content: attr(data-collapse-hint);
+      margin-left: auto; padding-left: 8px;
+      font-size: 11px; font-weight: 400;
+      color: var(--secondary);
+    }
+
     /* Card-header compaction — Scheduled Calls */
     #card-activity .card-header { padding: 8px 14px; }
     #card-activity .card-header h2,
@@ -7298,9 +7321,67 @@
   // Initialize — call immediately since this script is at the bottom of <body>
   // (DOMContentLoaded may have already fired by the time this script runs)
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => tgInit());
+    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); });
   } else {
     tgInit();
+    _initCardCollapse();
+  }
+
+  // ─── Per-card collapse with per-user persistence ─────────────────────
+  // Each top-level card on the dashboard gets a chevron in its header.
+  // Click toggles the collapsed state, persisted in localStorage so the
+  // same user (this browser, this email) keeps their preferred layout
+  // across sessions.
+  function _cardCollapseKey() {
+    const who = (CURRENT_USER_NAME || "anon").replace(/\s+/g, "_").toLowerCase();
+    return `dashboard:cardCollapsed:v1:${who}`;
+  }
+  function _loadCardCollapseState() {
+    try { return JSON.parse(localStorage.getItem(_cardCollapseKey()) || "{}"); }
+    catch { return {}; }
+  }
+  function _saveCardCollapseState(state) {
+    try { localStorage.setItem(_cardCollapseKey(), JSON.stringify(state)); } catch {}
+  }
+  function _initCardCollapse() {
+    const state = _loadCardCollapseState();
+    const cards = document.querySelectorAll("main .card[id]");
+    cards.forEach(card => {
+      const header = card.querySelector(".card-header");
+      if (!header || header.querySelector(".card-collapse-btn")) return;
+      const btn = document.createElement("button");
+      btn.className = "card-collapse-btn";
+      btn.type = "button";
+      btn.setAttribute("aria-label", "Collapse / expand");
+      btn.innerHTML = "▾";
+      btn.title = "Collapse / expand this card";
+      btn.addEventListener("click", e => {
+        e.stopPropagation();
+        _toggleCardCollapse(card.id);
+      });
+      // Place after the first h2 so it sits next to the title.
+      const h2 = header.querySelector("h2");
+      if (h2 && h2.parentNode === header) {
+        h2.insertAdjacentElement("afterend", btn);
+      } else {
+        header.appendChild(btn);
+      }
+      // Apply persisted state without animation on first paint.
+      if (state[card.id]) {
+        card.classList.add("is-collapsed");
+        header.setAttribute("data-collapse-hint", "collapsed — click to expand");
+      }
+    });
+  }
+  function _toggleCardCollapse(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const collapsed = card.classList.toggle("is-collapsed");
+    const header = card.querySelector(".card-header");
+    if (header) header.setAttribute("data-collapse-hint", collapsed ? "collapsed — click to expand" : "");
+    const state = _loadCardCollapseState();
+    if (collapsed) state[cardId] = true; else delete state[cardId];
+    _saveCardCollapseState(state);
   }
 
   // ════════════════════════ QUOTES SENT panel ════════════════════════
