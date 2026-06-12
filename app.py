@@ -76,6 +76,10 @@ _ringcx = RingCXClient()
 _telegram = TelegramClient()
 _books = BooksClient()
 
+# 5-minute in-memory cache for api_quotes — prevents OOM on repeated auto-loads.
+_quotes_cache: dict = {}   # key: (start, end) → {"ts": float, "payload": dict}
+_QUOTES_CACHE_TTL = 300    # seconds
+
 # ────────── Persistent disk (Render /data mount) ──────────
 # Use persistent disk mount if available (Render), fallback to local
 _data_dir = Path("/data") if Path("/data").exists() else Path(__file__).parent
@@ -1298,8 +1302,15 @@ def api_quotes():
     date_start = request.args.get("start") or default_start
     date_end = request.args.get("end") or default_end
     include_activity = request.args.get("activity", "1") != "0"
-    # Cap N to keep first prototype responsive — 4 related-list calls per quote.
+    # Cap N to keep first prototype responsive — 3 parallel workers × 3 API calls each.
     max_records = min(int(request.args.get("limit", "50")), 200)
+
+    # Serve from cache when the same date range was fetched recently.
+    import time as _time
+    _cache_key = (date_start, date_end)
+    _cached = _quotes_cache.get(_cache_key)
+    if _cached and (_time.monotonic() - _cached["ts"]) < _QUOTES_CACHE_TTL:
+        return jsonify(_cached["payload"])
 
     try:
         estimates = _books.list_sent_estimates(date_start, date_end, max_records=max_records)
@@ -1360,7 +1371,7 @@ def api_quotes():
 
     results_by_id = {}
     if merged:
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             for item, activities, next_followup in pool.map(_fetch_signals_for, merged):
                 _, doc = item
                 doc_id = doc.get("estimate_id") or doc.get("invoice_id")
@@ -1414,13 +1425,15 @@ def api_quotes():
             "latest_note_by": latest_note.get("by") if latest_note else None,
         })
 
-    return jsonify({
+    payload = {
         "status": "ok",
         "date_range": {"start": date_start, "end": date_end},
         "count": len(quotes),
         "quotes": quotes,
         "source": "cache" if _books.last_source_was_cache else "live",
-    })
+    }
+    _quotes_cache[_cache_key] = {"ts": _time.monotonic(), "payload": payload}
+    return jsonify(payload)
 
 
 # ------------------------------------------------------------------ AI notes summary
