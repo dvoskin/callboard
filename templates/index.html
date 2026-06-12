@@ -1004,14 +1004,12 @@
     }
 
     /* Card-header compaction — Scheduled Calls */
-    #card-activity .card-header,
-    #card-followup .card-header,
-    #card-followupcalls .card-header { padding: 8px 14px; }
+    #card-activity .card-header { padding: 8px 14px; }
     #card-activity .card-header h2,
-    #card-overdue .card-header h2,
-    #card-followup .card-header h2,
-    #card-followupcalls .card-header h2 { font-size: 15px; }
+    #card-overdue .card-header h2 { font-size: 15px; }
     #card-activity .card-date-bar { padding: 6px 14px; }
+    .col-fucall  { width: 90px; font-size: 10.5px; white-space: nowrap; }
+    .col-nxtstep { width: 72px; font-size: 10.5px; white-space: nowrap; }
     #card-overdue { border-left: 3px solid #ef4444; }
     #card-overdue .card-header { background: rgba(239,68,68,.04); }
 
@@ -3450,6 +3448,8 @@
                 <th class="col-flag" style="width:36px"></th>
                 <th class="col-rec">Recording</th>
                 <th class="col-fu" style="width:36px" title="Schedule follow-up call">📞</th>
+                <th class="col-fucall" style="width:90px" title="Next scheduled follow-up call">FU Call</th>
+                <th class="col-nxtstep" style="width:72px" title="Quote / next-step signal">Next Step</th>
               </tr>
             </thead>
             <tbody id="sc-tbody"></tbody>
@@ -3460,95 +3460,7 @@
     </div>
   </div><!-- /card-activity -->
 
-  <!-- ── Follow-Up Tracker card ── -->
-  <div class="card" id="card-followup">
-    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <h2>🎯 Follow-Up Tracker</h2>
-      <span class="chip" id="quotes-count" style="font-size:10px;padding:1px 6px">0</span>
-      <span id="quotes-attn-chip-tab" style="display:none;background:rgba(239,68,68,.12);color:#b91c1c;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600"></span>
-    </div>
-    <div id="sc-tab-followup">
-      <div class="card-date-bar">
-        <span class="cdb-label">Sent date</span>
-        <input type="date" id="quotes-date-start" class="cdb-input">
-        <span class="cdb-sep">→</span>
-        <input type="date" id="quotes-date-end" class="cdb-input">
-        <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
-        <button class="cdb-today" onclick="resetQuotesToDefault()">↩ Last 3 days</button>
-        <button id="quotes-attn-chip"
-                class="stage-tag s-noanswer q-attn-pill"
-                style="display:none;cursor:pointer;border:1px solid rgba(239,68,68,.25)"
-                onclick="_qToggleAttentionFilter()"
-                title="Show only items that need team-lead attention">
-          🚩&nbsp;<span id="quotes-attn-count">0</span>&nbsp;need follow-up
-        </button>
-        <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
-        <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:8px"></span>
-        <span id="quotes-range-label" style="color:var(--secondary);font-size:12px;margin-left:4px"></span>
-        <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()" style="margin-left:auto">↻</button>
-      </div>
-      <div id="fu-coverage-bar" style="display:none;padding:8px 16px;border-bottom:1px solid var(--border);align-items:center;gap:10px;flex-wrap:wrap;font-size:12px"></div>
-      <div class="table-wrap" style="padding:0 0 8px">
-        <table id="quotes-table" class="quotes-compact">
-          <thead>
-            <tr>
-              <th style="width:16px"></th>
-              <th>Customer</th>
-              <th style="white-space:nowrap">Sent</th>
-              <th>Deal Status</th>
-              <th style="text-align:right">Quoted</th>
-              <th style="text-align:right">Balance</th>
-              <th>Rep</th>
-              <th>Next Step</th>
-              <th style="min-width:220px">Latest Note</th>
-              <th style="width:32px" title="Mark followed up"></th>
-            </tr>
-          </thead>
-          <tbody id="quotes-tbody">
-            <tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div><!-- /card-followup -->
-
-  <!-- ── Follow-Up Calls card ── -->
-  <div class="card" id="card-followupcalls">
-    <div class="card-header" style="display:flex;align-items:center;gap:10px">
-      <h2>📞 Follow-Up Calls</h2>
-      <span class="chip" id="fu-calls-count" style="font-size:10px;padding:1px 6px">—</span>
-    </div>
-    <div id="sc-tab-followupcalls">
-      <div class="card-date-bar" style="padding:8px 16px;gap:8px">
-        <span class="cdb-label">Date</span>
-        <input type="date" id="fucalls-date-start" class="cdb-input">
-        <span class="cdb-sep">→</span>
-        <input type="date" id="fucalls-date-end" class="cdb-input">
-        <button class="cdb-apply" onclick="loadFollowupCalls()">Apply</button>
-        <button class="cdb-today" onclick="resetFuCallsToToday()">↩ Today</button>
-        <span class="cdb-loading" id="fucalls-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
-        <span id="fucalls-source" style="margin-left:auto;font-size:11px;color:var(--secondary)"></span>
-      </div>
-      <div class="table-wrap" style="padding:0 0 8px">
-        <table class="quotes-compact" style="width:100%">
-          <thead>
-            <tr>
-              <th style="width:90px">Status</th>
-              <th>Contact</th>
-              <th>Deal</th>
-              <th>Rep</th>
-              <th style="white-space:nowrap">Scheduled (ET)</th>
-              <th>Subject / Notes</th>
-              <th style="width:32px"></th>
-            </tr>
-          </thead>
-          <tbody id="fucalls-tbody">
-            <tr><td colspan="7" style="padding:20px;color:var(--secondary);text-align:center">Select a date range and click Apply to view scheduled follow-up calls.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div><!-- /card-followupcalls -->
+  <!-- Follow-Up Tracker and Follow-Up Calls are now shown as inline columns in the Scheduled Calls table -->
 
 </main>
 
@@ -4482,6 +4394,7 @@
     populateDisp("sc-disp-filter", past);
     populateStageFilter("sc-stage-filter", activity);
     drawScTable();
+    document.dispatchEvent(new Event("scDataLoaded"));
 
     renderOverdueTable();
 
@@ -5228,7 +5141,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="14" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="16" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -5549,6 +5462,8 @@
         <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
         <td style="text-align:center" class="col-fu">${fuBtn}</td>
+        <td class="col-fucall">${_scFuCallCell(r.id_deal)}</td>
+        <td class="col-nxtstep">${_scNextStepCell(r.id_deal)}</td>
       </tr>`;
     }).join("");
 
@@ -5575,7 +5490,7 @@
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row collapsed" data-group="${gName}" onclick="toggleGroup(this)">
-          <td colspan="16"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+          <td colspan="18"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
         trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML.replace('<tr ', '<tr style="display:none" '); });
       }
       tbody.innerHTML = gbHtml;
@@ -7636,18 +7551,9 @@
   }
 
   function switchScTab(tab) {
-    const cardMap = { overdue: "card-overdue", activity: "card-activity", followup: "card-followup", followupcalls: "card-followupcalls" };
+    const cardMap = { overdue: "card-overdue", activity: "card-activity" };
     const el = document.getElementById(cardMap[tab] || "card-activity");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    if (tab === "followup" && !_qLastQuotes) loadQuotes();
-    if (tab === "followupcalls" && !_fuCallsLoaded) {
-      const t = todayISO();
-      const s = document.getElementById("fucalls-date-start");
-      const e = document.getElementById("fucalls-date-end");
-      if (s && !s.value) s.value = t;
-      if (e && !e.value) e.value = t;
-      loadFollowupCalls();
-    }
   }
 
   function _qRenderCoverageSummary(quotes) {
@@ -7731,13 +7637,75 @@
     const caret = row.querySelector("td:first-child span");
     if (caret) caret.textContent = open ? "▸" : "▾";
   }
-  // Populate the panel's own date inputs (last 3 days), then auto-load once.
-  _qInitDefaultRange();
-  _qRenderRangeLabel();
+  // ─── Inline FU / Next-Step lookup tables (power the two new SC columns) ────
+  let _fuCallsByDeal = {};   // deal_id → soonest upcoming FU call object
+  let _quotesByDeal  = {};   // deal_id → quote object with next_followup
+
+  function _scFuCallCell(dealId) {
+    if (!dealId) return `<span style="color:var(--secondary);font-size:11px">—</span>`;
+    const c = _fuCallsByDeal[dealId];
+    if (!c) return `<span style="color:var(--secondary);font-size:11px">—</span>`;
+    const dt = c.call_time ? new Date(c.call_time) : null;
+    const isPast = dt && dt < new Date();
+    const timeStr = dt ? dt.toLocaleString("en-US", {timeZone:"America/New_York", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) : "—";
+    const color = isPast ? "#b91c1c" : "#4f46e5";
+    const icon  = isPast ? "⏱" : "📅";
+    const tip   = _qEsc([c.subject, c.owner_name].filter(Boolean).join(" · "));
+    return `<span style="font-size:10.5px;color:${color};white-space:nowrap" title="${tip}">${icon} ${_qEsc(timeStr)}</span>`;
+  }
+
+  function _scNextStepCell(dealId) {
+    if (!dealId) return `<span style="color:var(--secondary);font-size:11px">—</span>`;
+    const q = _quotesByDeal[dealId];
+    if (!q) return `<span style="color:var(--secondary);font-size:11px">—</span>`;
+    const nf = q.next_followup || {};
+    if (nf.status === "scheduled") {
+      const when = nf.when ? new Date(nf.when).toLocaleString("en-US",{timeZone:"America/New_York",month:"short",day:"numeric"}) : "";
+      const icon  = nf.kind === "Call" ? "📞" : "✅";
+      return `<span class="stage-tag s-paid" style="font-size:10px;padding:1px 5px;white-space:nowrap" title="${_qEsc(nf.summary||'')}">${icon} ${_qEsc(when)}</span>`;
+    }
+    if (nf.status === "mentioned") {
+      return `<span class="stage-tag s-followup" style="font-size:10px;padding:1px 5px" title="Follow-up mentioned in note">💬 mentioned</span>`;
+    }
+    return `<span class="stage-tag s-noanswer" style="font-size:10px;padding:1px 5px" title="No follow-up scheduled">⚠ forgotten</span>`;
+  }
+
+  async function _loadScLookups() {
+    const today = todayISO();
+    const end30 = new Date(); end30.setDate(end30.getDate() + 30);
+    const end30s = end30.toISOString().slice(0, 10);
+    const start30 = new Date(); start30.setDate(start30.getDate() - 30);
+    const start30s = start30.toISOString().slice(0, 10);
+
+    await Promise.allSettled([
+      fetch(`/api/followup-calls?start=${today}&end=${end30s}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (!d) return;
+          _fuCallsByDeal = {};
+          for (const c of (d.calls || [])) {
+            if (!c.deal_id) continue;
+            const ex = _fuCallsByDeal[c.deal_id];
+            if (!ex || c.call_time < ex.call_time) _fuCallsByDeal[c.deal_id] = c;
+          }
+        }).catch(() => {}),
+
+      fetch(`/api/quotes?start=${start30s}&end=${today}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (!d) return;
+          _quotesByDeal = {};
+          for (const q of (d.quotes || [])) {
+            if (q.deal_id) _quotesByDeal[q.deal_id] = q;
+          }
+        }).catch(() => {}),
+    ]);
+
+    drawScTable();
+  }
 
   // ─── Follow-Up Scheduling Modal ───────────────────────────────────────────
   let _fuModalData = null;
-  let _fuCallsLoaded = false;
 
   function openFuModal(dataAttr) {
     const q = typeof dataAttr === "string" ? JSON.parse(dataAttr) : dataAttr;
@@ -7801,16 +7769,8 @@
       if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
 
       closeFuModal();
-      // Refresh Follow-Up Tracker so status updates
-      loadQuotes();
-      // Scroll to Follow-Up Calls card so rep sees what was just created
-      document.getElementById("card-followupcalls")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      const t = todayISO();
-      const s = document.getElementById("fucalls-date-start");
-      const e = document.getElementById("fucalls-date-end");
-      if (s) s.value = document.getElementById("fu-datetime")?.value?.slice(0,10) || t;
-      if (e) e.value = s?.value || t;
-      loadFollowupCalls();
+      // Reload inline lookups so the new FU call appears in the SC table columns
+      _loadScLookups();
     } catch(err) {
       errEl.textContent = `Error: ${err.message}`;
       errEl.style.display = "";
@@ -7819,66 +7779,8 @@
     }
   }
 
-  // ─── Follow-Up Calls Table ────────────────────────────────────────────────
-  function resetFuCallsToToday() {
-    const t = todayISO();
-    document.getElementById("fucalls-date-start").value = t;
-    document.getElementById("fucalls-date-end").value = t;
-    loadFollowupCalls();
-  }
-
-  async function loadFollowupCalls() {
-    const start = document.getElementById("fucalls-date-start")?.value;
-    const end   = document.getElementById("fucalls-date-end")?.value || start;
-    if (!start) return;
-    const loading = document.getElementById("fucalls-loading");
-    const tbody   = document.getElementById("fucalls-tbody");
-    const countEl = document.getElementById("fu-calls-count");
-    const srcEl   = document.getElementById("fucalls-source");
-    if (loading) loading.style.display = "";
-    try {
-      const resp = await fetch(`/api/followup-calls?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      if (loading) loading.style.display = "none";
-      const calls = data.calls || [];
-      if (countEl) countEl.textContent = calls.length;
-      _fuCallsLoaded = true;
-      if (srcEl) srcEl.textContent = calls.length ? `${calls.length} scheduled call${calls.length!==1?"s":""}` : "";
-      if (!calls.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:20px;color:var(--secondary);text-align:center">No follow-up calls scheduled for this period.</td></tr>`;
-        return;
-      }
-      const now = new Date();
-      tbody.innerHTML = calls.map(c => {
-        const dt = c.call_time ? new Date(c.call_time) : null;
-        const isPast = dt && dt < now;
-        const timeStr = dt ? dt.toLocaleString("en-US", {timeZone:"America/New_York", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) + " ET" : "—";
-        const statusPill = isPast
-          ? `<span class="stage-tag" style="background:rgba(239,68,68,.1);color:#b91c1c;white-space:nowrap">⏱ Overdue</span>`
-          : `<span class="stage-tag" style="background:rgba(99,102,241,.1);color:#4f46e5;white-space:nowrap">📅 Scheduled</span>`;
-        const dealCell = c.deal_id
-          ? `<a href="https://crm.zoho.com/crm/${ZOHO_ORG}/tab/Potentials/${_qEsc(c.deal_id)}" target="_blank" style="color:var(--accent)">${_qEsc(c.deal_name||"—")}</a>`
-          : _qEsc(c.deal_name || "—");
-        const crmLink = c.id
-          ? `<a href="https://crm.zoho.com/crm/${ZOHO_ORG}/tab/Calls/${_qEsc(c.id)}" target="_blank" style="color:var(--secondary);font-size:10px" title="Open in Zoho CRM">↗</a>`
-          : "";
-        const subjectNotes = [c.subject, c.notes].filter(Boolean).join(" · ");
-        return `<tr>
-          <td>${statusPill}</td>
-          <td><strong>${_qEsc(c.contact_name||"—")}</strong></td>
-          <td style="font-size:12px">${dealCell}</td>
-          <td style="font-size:12px;color:var(--secondary)">${_qEsc(c.owner_name||"—")}</td>
-          <td style="white-space:nowrap;font-size:12px">${timeStr}</td>
-          <td style="font-size:12px;color:var(--secondary);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${_qEsc(subjectNotes)}">${_qEsc(subjectNotes||"—")}</td>
-          <td>${crmLink}</td>
-        </tr>`;
-      }).join("");
-    } catch(err) {
-      if (loading) loading.style.display = "none";
-      tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:#b91c1c;text-align:center">Error: ${_qEsc(err.message)}</td></tr>`;
-    }
-  }
+  // Kick off inline-column data load after main dashboard data arrives
+  document.addEventListener("scDataLoaded", () => _loadScLookups());
 </script>
 
 </body>
