@@ -135,11 +135,22 @@ class BooksClient:
             status=None,
             include_statuses=self._UNPAID_INVOICE_STATUSES,
         )
-        before = len(rows)
         # A balance > 0 means there's actually still money owed. Books occasionally
         # leaves an invoice at status=partially_paid after the final payment lands,
-        # so check the number directly. Allow tiny FP drift via > 0.01.
-        rows = [r for r in rows if (r.get("balance") is None or float(r.get("balance") or 0) > 0.01)]
+        # so check the number directly. Defensive parse: any non-numeric balance
+        # keeps the row (better to show a row we can't classify than 500 out).
+        def _still_owing(r):
+            bal = r.get("balance")
+            if bal is None or bal == "":
+                return True
+            try:
+                return float(bal) > 0.01
+            except (TypeError, ValueError):
+                log.warning("Books retainers: invalid balance %r for invoice %s — keeping",
+                            bal, r.get("invoice_number"))
+                return True
+        before = len(rows)
+        rows = [r for r in rows if _still_owing(r)]
         if len(rows) != before:
             log.info("Books retainers: filtered %d rows with zero balance",
                      before - len(rows))

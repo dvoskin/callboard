@@ -7683,14 +7683,29 @@
       const contentType = resp.headers.get("content-type") || "";
       const looksJson = contentType.includes("application/json");
       if (!resp.ok || !looksJson) {
-        const bodyText = (await resp.text()).slice(0, 200);
+        // Prefer the structured JSON error envelope the backend returns from
+        // its top-level catch, so the user sees the real exception (e.g.
+        // "ValueError: invalid balance ...") not a generic 500.
+        let bodyText = "";
+        let serverMsg = "";
+        if (looksJson) {
+          try {
+            const json = await resp.json();
+            serverMsg = json.message || "";
+            bodyText = JSON.stringify(json).slice(0, 300);
+          } catch {}
+        } else {
+          bodyText = (await resp.text()).slice(0, 300);
+        }
         const isAuth = resp.status === 401 || resp.status === 403 || bodyText.includes("<title>Sign in");
         const msg = isAuth
           ? "Session expired. Reload the page and sign in again."
-          : `Server returned HTTP ${resp.status} ${resp.statusText || ""} — `
-              + (looksJson ? "" : "the response was not JSON. ")
-              + "This usually means the backend errored or restarted. Try ↻ Refresh in a moment.";
-        console.error("loadQuotes non-JSON response:", resp.status, bodyText);
+          : serverMsg
+            ? `Server error (HTTP ${resp.status}): ${serverMsg}`
+            : `Server returned HTTP ${resp.status} ${resp.statusText || ""} — `
+                + (looksJson ? "" : "the response was not JSON. ")
+                + "This usually means the backend errored or restarted. Try ↻ Refresh in a moment.";
+        console.error("loadQuotes error response:", resp.status, bodyText);
         tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">${_qEsc(msg)}</td></tr>`;
         countEl.textContent = "0";
         return;

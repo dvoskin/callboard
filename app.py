@@ -1322,6 +1322,20 @@ def api_quotes():
     CRM activity (calls / notes / tasks / stage changes) logged against the
     linked Deal after the estimate's last_modified_time.
     """
+    try:
+        return _api_quotes_inner()
+    except Exception as e:
+        # Last-chance JSON error envelope so the panel never receives an HTML
+        # 500 page (which would parse as "Unexpected token '<'" in the client).
+        log.exception("/api/quotes top-level exception")
+        return jsonify({
+            "status": "error",
+            "message": f"{type(e).__name__}: {e}",
+            "quotes": [], "count": 0,
+        }), 500
+
+
+def _api_quotes_inner():
     if not _books.configured:
         return jsonify({
             "status": "not_configured",
@@ -1432,11 +1446,25 @@ def api_quotes():
             "i booked the appointment", "i booked the appointments",
             "booking the appointment", "appointments booked",
         )
-        def _excluded_by_note(note_text: str, note_by: str) -> bool:
+        def _note_excludes(note_text: str, note_by: str) -> bool:
+            """True if this single note signals the deal is already handled."""
             if (note_by or "").strip().lower() in _EXCLUDED_NOTE_AUTHORS:
                 return True
             text = (note_text or "").lower()
             return any(p in text for p in _BOOKING_PHRASES)
+
+        def _any_note_excludes(activities: list) -> bool:
+            """Scan ALL post-send notes, not just the latest. Otherwise a
+            booking-team note gets buried by a later "no answer" call note
+            and the row sneaks through. We strip HTML before matching."""
+            for a in activities:
+                if a.get("kind") != "Notes":
+                    continue
+                raw = (a.get("detail") or "") + " " + (a.get("summary") or "")
+                clean = _re.sub(r"<[^>]+>", " ", raw)
+                if _note_excludes(clean, a.get("by")):
+                    return True
+            return False
 
         quotes = []
         excluded_count = 0
@@ -1447,6 +1475,9 @@ def api_quotes():
             activities, next_followup = results_by_id.get(doc_id,
                 ([], {"status": "forgotten", "when": None, "by": None,
                       "summary": None, "kind": None, "source": None}))
+            if _any_note_excludes(activities):
+                excluded_count += 1
+                continue
             latest_note = next((a for a in activities if a.get("kind") == "Notes"), None)
             latest_note_summary = ""
             latest_note_by = latest_note.get("by") if latest_note else None
@@ -1455,9 +1486,6 @@ def api_quotes():
                                         latest_note.get("summary") or "").strip()
                 latest_note_summary = _re.sub(r"<[^>]+>", "", latest_note_summary)
                 latest_note_summary = " ".join(latest_note_summary.split())
-            if _excluded_by_note(latest_note_summary, latest_note_by):
-                excluded_count += 1
-                continue
             quotes.append({
                 "kind": kind,
                 "estimate_id": doc_id,
