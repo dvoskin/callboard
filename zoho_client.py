@@ -1857,6 +1857,7 @@ class ZohoClient:
 
     def get_deal_contact(self, deal_id: str) -> dict:
         """Return contact_id, contact_name, owner_id, owner_name for a Deal."""
+        log = logging.getLogger(__name__)
         resp = requests.get(
             f"{self.base_url}/crm/v6/Deals/{deal_id}",
             headers=self._headers(),
@@ -1882,6 +1883,7 @@ class ZohoClient:
 
     def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
         """Return Zoho CRM Call records with Call_Status='Scheduled' in [start_iso, end_iso]."""
+        log = logging.getLogger(__name__)
         query = (
             "SELECT id, Subject, Call_Start_Time, Call_Status, Call_Type, Who_Id, What_Id, "
             "Owner, Description, Duration_Min_Sec "
