@@ -113,7 +113,10 @@ class BooksClient:
     # literal status="sent" filter would yield almost nothing. The set below
     # captures every "money still owed" state Books exposes.
     _UNPAID_INVOICE_STATUSES = frozenset(
-        {"sent", "viewed", "overdue", "unpaid", "partially_paid"}
+        # `partially_paid` deliberately excluded — patient has dropped a deposit
+        # so the deal is already in motion; the manager wants only retainers
+        # that haven't seen any payment yet.
+        {"sent", "viewed", "overdue", "unpaid"}
     )
 
     def list_sent_retainer_invoices(

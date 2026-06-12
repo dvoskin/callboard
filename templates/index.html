@@ -3595,6 +3595,13 @@
               title="Show only items that need team-lead attention">
         🚩&nbsp;<span id="quotes-attn-count">0</span>&nbsp;need follow-up
       </button>
+      <button id="quotes-hide-acked-btn"
+              class="filter-clear"
+              style="font-size:11px"
+              onclick="_qToggleHideAcked()"
+              title="Hide rows the team has marked Followed Up">
+        ✓ Hide resolved <span id="quotes-acked-count" style="color:var(--secondary)"></span>
+      </button>
       <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
       <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()">↻</button>
     </div>
@@ -3605,6 +3612,12 @@
       <input type="date" id="quotes-date-end" class="cdb-input">
       <button class="cdb-apply" onclick="loadQuotes()">Apply</button>
       <button class="cdb-today" onclick="resetQuotesToDefault()">↩ Last 3 days</button>
+
+      <span class="cdb-label" style="margin-left:6px">PC</span>
+      <select id="quotes-rep-filter" class="cdb-input" style="min-width:140px" onchange="_qOnRepChange()">
+        <option value="">All PCs</option>
+      </select>
+
       <span class="cdb-loading" id="quotes-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
       <span class="cdb-label" id="quotes-range-label" style="font-weight:400;color:var(--secondary);font-size:12px"></span>
     </div>
@@ -3618,7 +3631,6 @@
               <th style="white-space:nowrap">Sent</th>
               <th>Status</th>
               <th style="text-align:right">Total</th>
-              <th style="text-align:right">Balance</th>
               <th>Rep</th>
               <th>Next Step</th>
               <th style="min-width:240px">Latest Note</th>
@@ -3626,7 +3638,7 @@
             </tr>
           </thead>
           <tbody id="quotes-tbody">
-            <tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
+            <tr><td colspan="9" style="padding:16px;color:var(--secondary);text-align:center">Pick a date range and click Apply.</td></tr>
           </tbody>
         </table>
       </div>
@@ -7527,7 +7539,10 @@
   }
   // ── Attention detection + ack persistence ──────────────────────────────
   const _Q_ACK_KEY = "quotesPanel:ackedFollowups:v1";
+  const _Q_HIDE_ACKED_KEY = () => `quotesPanel:hideAcked:v1:${(CURRENT_USER_NAME || "anon").replace(/\s+/g, "_").toLowerCase()}`;
   let   _qAttentionFilterOn = false;
+  let   _qHideAcked = (() => { try { return localStorage.getItem(_Q_HIDE_ACKED_KEY()) === "1"; } catch { return false; } })();
+  let   _qRepFilter = "";
   let   _qLastQuotes = [];
   function _qLoadAcked() {
     try { return JSON.parse(localStorage.getItem(_Q_ACK_KEY) || "{}"); }
@@ -7600,20 +7615,67 @@
     _qSaveAcked(acked);
     _qRerender();
   }
+  function _qVisibleRows() {
+    const acked = _qLoadAcked();
+    const repFilter = (_qRepFilter || "").toLowerCase();
+    return _qLastQuotes.filter(q => {
+      if (_qHideAcked && acked[q.estimate_id]) return false;
+      if (repFilter && (q.salesperson || "").toLowerCase() !== repFilter) return false;
+      if (_qAttentionFilterOn) {
+        const lvl = _qAttentionLevel(q).level;
+        if (!lvl || acked[q.estimate_id]) return false;
+      }
+      return true;
+    });
+  }
+  function _qPopulateRepDropdown() {
+    const sel = document.getElementById("quotes-rep-filter");
+    if (!sel) return;
+    const reps = Array.from(new Set(
+      _qLastQuotes.map(q => (q.salesperson || "").trim()).filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b));
+    const current = sel.value;
+    sel.innerHTML = `<option value="">All PCs (${_qLastQuotes.length})</option>` +
+      reps.map(r => {
+        const n = _qLastQuotes.filter(q => (q.salesperson || "") === r).length;
+        return `<option value="${_qEsc(r)}">${_qEsc(r)} (${n})</option>`;
+      }).join("");
+    // Preserve selection if the rep is still in the list
+    if (current && reps.includes(current)) sel.value = current;
+    else _qRepFilter = "";
+  }
+  function _qOnRepChange() {
+    const sel = document.getElementById("quotes-rep-filter");
+    _qRepFilter = sel ? sel.value : "";
+    _qRerender();
+  }
+  function _qToggleHideAcked() {
+    _qHideAcked = !_qHideAcked;
+    try { localStorage.setItem(_Q_HIDE_ACKED_KEY(), _qHideAcked ? "1" : "0"); } catch {}
+    _qRerender();
+  }
+  function _qUpdateHideAckedBtn() {
+    const btn = document.getElementById("quotes-hide-acked-btn");
+    const cnt = document.getElementById("quotes-acked-count");
+    if (!btn) return;
+    const ackedKeys = Object.keys(_qLoadAcked() || {});
+    const ackedHere = _qLastQuotes.filter(q => ackedKeys.includes(String(q.estimate_id))).length;
+    if (cnt) cnt.textContent = ackedHere ? `(${ackedHere})` : "";
+    btn.style.background = _qHideAcked ? "rgba(99,102,241,.12)" : "";
+    btn.style.borderColor = _qHideAcked ? "rgba(99,102,241,.35)" : "";
+    btn.title = _qHideAcked
+      ? "Showing only unresolved — click to also show resolved rows"
+      : "Hide rows the team has marked Followed Up";
+  }
   function _qRerender() {
     const tbody = document.getElementById("quotes-tbody");
     if (!tbody || !_qLastQuotes) return;
-    const acked = _qLoadAcked();
-    const rows = _qAttentionFilterOn
-      ? _qLastQuotes.filter(q => {
-          const lvl = _qAttentionLevel(q).level;
-          return lvl && !acked[q.estimate_id];
-        })
-      : _qLastQuotes;
+    const rows = _qVisibleRows();
     tbody.innerHTML = rows.length
-      ? rows.map((q, i) => _qRenderRow(q, _qLastQuotes.indexOf(q))).join("")
-      : `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">No quotes matching filter.</td></tr>`;
+      ? rows.map(q => _qRenderRow(q, _qLastQuotes.indexOf(q))).join("")
+      : `<tr><td colspan="9" style="padding:16px;color:var(--secondary);text-align:center">No quotes matching filter.</td></tr>`;
     _qUpdateAttentionChip();
+    _qUpdateHideAckedBtn();
   }
 
   function _qFmtIsoDate(d) { return d.toISOString().slice(0, 10); }
@@ -7706,35 +7768,35 @@
                 + (looksJson ? "" : "the response was not JSON. ")
                 + "This usually means the backend errored or restarted. Try ↻ Refresh in a moment.";
         console.error("loadQuotes error response:", resp.status, bodyText);
-        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">${_qEsc(msg)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="padding:16px;color:var(--red-dk);text-align:center">${_qEsc(msg)}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       const data = await resp.json();
       if (data.status === "not_configured") {
-        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       if (data.status && data.status !== "ok") {
-        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
       countEl.textContent = data.count;
       status.textContent = data.source === "cache" ? "· local snapshot" : "";
       if (!data.quotes.length) {
-        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="padding:16px;color:var(--secondary);text-align:center">No sent quotes in range.</td></tr>`;
         return;
       }
       _qLastQuotes = data.quotes;
-      tbody.innerHTML = data.quotes.map((q, i) => _qRenderRow(q, i)).join("");
-      _qUpdateAttentionChip();
+      _qPopulateRepDropdown();
+      _qRerender();
       _qRenderCoverageSummary(data.quotes);
     } catch (e) {
       console.error("loadQuotes error", e);
       // Network-level failure (offline, CORS, DNS). Distinct from server errors above.
-      tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Couldn't reach the server (${_qEsc(e.message)}). Check your connection and try ↻ Refresh.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="padding:16px;color:var(--red-dk);text-align:center">Couldn't reach the server (${_qEsc(e.message)}). Check your connection and try ↻ Refresh.</td></tr>`;
     } finally {
       loading.style.display = "none";
     }
@@ -7750,7 +7812,7 @@
       ? `<span style="cursor:pointer;color:var(--secondary);user-select:none" onclick="_qToggle(${i})">▸</span>`
       : "";
     const detailRow = expandable
-      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="9" style="background:rgba(0,0,0,.02);padding:8px 12px">${_qRenderActivities(q.activities)}</td></tr>`
+      ? `<tr id="q-detail-${i}" style="display:none"><td></td><td colspan="8" style="background:rgba(0,0,0,.02);padding:8px 12px">${_qRenderActivities(q.activities)}</td></tr>`
       : "";
 
     const nf = q.next_followup || {};
@@ -7783,14 +7845,6 @@
     // Deal Status pill: paid > partial > retainer_sent > quote_accepted > quote_viewed > quote_sent
     const statusCell = _qRenderDealStatus(q);
 
-    // Balance cell: only meaningful for retainer invoices
-    const fmt = new Intl.NumberFormat(undefined, { style: "currency", currency: q.currency || "USD", maximumFractionDigits: 0 });
-    const balanceCell = q.balance != null
-      ? (q.balance == 0
-          ? `<span style="color:#16a34a;font-weight:600">$0</span>`
-          : `<span style="color:var(--secondary)">${fmt.format(q.balance)}</span>`)
-      : `<span style="color:var(--secondary)">—</span>`;
-
     return `<tr id="q-row-${i}" class="${rowClass}">
       <td>${caret}</td>
       <td>
@@ -7805,7 +7859,6 @@
       </td>
       <td>${statusCell}</td>
       <td style="text-align:right;color:var(--secondary)">${amount}</td>
-      <td style="text-align:right">${balanceCell}</td>
       <td class="q-truncate" style="max-width:110px" title="${_qEsc(q.salesperson || "")}">${_qEsc(q.salesperson || "—")}</td>
       <td>${_qRenderNextStep(q.next_followup)}</td>
       <td>${_qRenderLatestNote(q)}</td>
