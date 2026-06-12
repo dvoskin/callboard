@@ -1925,3 +1925,75 @@ class ZohoClient:
             })
         return out
 
+    def get_followup_activities(self, start_iso: str, end_iso: str,
+                                  limit: int = 500) -> list[dict]:
+        """Return Zoho CRM Call records of ANY status within [start_iso, end_iso].
+
+        Powers the Follow Up Activity Tracker — team-lead view of every
+        agent's scheduled/completed/cancelled call activity per day. Reads
+        Owner so each row carries the agent assignment.
+        """
+        log = logging.getLogger(__name__)
+        limit = max(1, min(limit, 1000))
+        query = (
+            "SELECT id, Subject, Call_Start_Time, Call_Status, Call_Type, "
+            "Who_Id, What_Id, Owner, Description, "
+            "Duration_Min_Sec, Created_Time, Modified_Time, "
+            "Outgoing_call_disposition "
+            "FROM Calls "
+            f"WHERE Call_Start_Time >= '{start_iso}' AND Call_Start_Time <= '{end_iso}' "
+            f"ORDER BY Call_Start_Time ASC LIMIT {limit} OFFSET 0"
+        )
+        try:
+            resp = requests.post(
+                f"{self.base_url}/crm/v6/coql",
+                headers=self._headers(),
+                json={"select_query": query},
+                timeout=30,
+            )
+        except Exception as e:
+            log.warning("get_followup_activities request error: %s", e)
+            return []
+        if resp.status_code == 204:
+            return []
+        if not resp.ok:
+            log.warning("get_followup_activities error %s: %s",
+                        resp.status_code, resp.text[:200])
+            return []
+        data = resp.json().get("data") or []
+        out = []
+        for c in data:
+            who = c.get("Who_Id") or {}
+            what = c.get("What_Id") or {}
+            owner = c.get("Owner") or {}
+            disp = c.get("Outgoing_call_disposition") or ""
+            raw_status = c.get("Call_Status") or ""
+            # Normalize "effective" status: a disposition on an outgoing call
+            # means the agent worked it even if Zoho status field is still empty.
+            if raw_status.lower() == "completed" or disp:
+                effective = "Completed"
+            elif raw_status:
+                effective = raw_status
+            else:
+                effective = "Scheduled"
+            out.append({
+                "id": c.get("id"),
+                "subject": c.get("Subject") or "",
+                "call_time": c.get("Call_Start_Time"),
+                "call_type": c.get("Call_Type") or "",
+                "status": effective,
+                "status_raw": raw_status,
+                "disposition": disp,
+                "contact_id": who.get("id", "") if isinstance(who, dict) else "",
+                "contact_name": who.get("name", "") if isinstance(who, dict) else "",
+                "deal_id": what.get("id", "") if isinstance(what, dict) else "",
+                "deal_name": what.get("name", "") if isinstance(what, dict) else "",
+                "owner_id": owner.get("id", "") if isinstance(owner, dict) else "",
+                "owner_name": owner.get("name", "") if isinstance(owner, dict) else "",
+                "notes": (c.get("Description") or "")[:400],
+                "duration": c.get("Duration_Min_Sec") or "",
+                "created_time": c.get("Created_Time"),
+                "modified_time": c.get("Modified_Time"),
+            })
+        return out
+

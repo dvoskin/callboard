@@ -3586,6 +3586,51 @@
     </div>
   </div><!-- /card-activity -->
 
+  <!-- ══════════════════════ FOLLOW UP ACTIVITY TRACKER ══════════════════════ -->
+  <div class="card" id="card-fu-activity">
+    <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">📅 Follow Up Activity Tracker</h2>
+      <span class="chip" id="fua-count">0</span>
+      <span id="fua-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
+      <button class="filter-clear" onclick="loadFuActivity()" title="Refresh">↻</button>
+    </div>
+    <div class="card-date-bar">
+      <span class="cdb-label">Date</span>
+      <input type="date" id="fua-date-start" class="cdb-input">
+      <span class="cdb-sep">→</span>
+      <input type="date" id="fua-date-end" class="cdb-input">
+      <button class="cdb-apply" onclick="loadFuActivity()">Apply</button>
+      <button class="cdb-today" onclick="fuActivityResetToday()">↩ Today</button>
+
+      <span class="cdb-label" style="margin-left:6px">Agent</span>
+      <select id="fua-owner-filter" class="cdb-input" style="min-width:160px" onchange="loadFuActivity()">
+        <option value="">All agents</option>
+      </select>
+
+      <span class="cdb-loading" id="fua-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table id="fua-table" class="quotes-compact">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap">When</th>
+              <th>Agent</th>
+              <th>Customer</th>
+              <th>Subject</th>
+              <th>Status</th>
+              <th>Deal</th>
+              <th>Next Action</th>
+            </tr>
+          </thead>
+          <tbody id="fua-tbody">
+            <tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">Pick a date and click Apply.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Standalone Follow Up Tracker card — restored alongside the inline columns. -->
   <div class="card" id="quotes-section">
     <div class="card-header q-tight-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -7435,12 +7480,143 @@
     if (typeof _qInitDefaultRange === "function") _qInitDefaultRange();
     if (typeof _qRenderRangeLabel === "function") _qRenderRangeLabel();
   }
+  function _fuaBootstrap() {
+    if (typeof _fuaInitToday === "function") _fuaInitToday();
+    if (typeof loadFuActivity === "function") loadFuActivity();
+  }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); });
+    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); _fuaBootstrap(); });
   } else {
     tgInit();
     _initCardCollapse();
     _qBootstrapPanel();
+    _fuaBootstrap();
+  }
+
+  // ═══════════════════ FOLLOW UP ACTIVITY TRACKER ═════════════════════
+  let _fuaLastRows = [];
+  function _fuaToday() { return new Date().toISOString().slice(0, 10); }
+  function _fuaInitToday() {
+    const s = document.getElementById("fua-date-start");
+    const e = document.getElementById("fua-date-end");
+    if (s && !s.value) s.value = _fuaToday();
+    if (e && !e.value) e.value = _fuaToday();
+  }
+  function fuActivityResetToday() {
+    const today = _fuaToday();
+    document.getElementById("fua-date-start").value = today;
+    document.getElementById("fua-date-end").value   = today;
+    document.getElementById("fua-owner-filter").value = "";
+    loadFuActivity();
+  }
+  function _fuaFmtTime(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  function _fuaFmtDateShort(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  function _fuaStatusChip(status) {
+    const s = (status || "").toLowerCase();
+    if (s === "completed")
+      return `<span class="stage-tag" style="background:rgba(22,163,74,.12);color:#15803d">✓ Completed</span>`;
+    if (s === "cancelled" || s === "canceled")
+      return `<span class="stage-tag" style="background:rgba(148,163,184,.18);color:#475569">✕ Cancelled</span>`;
+    if (s === "scheduled" || s === "planned")
+      return `<span class="stage-tag" style="background:rgba(99,102,241,.12);color:#4338ca">⏱ Scheduled</span>`;
+    if (s === "in progress")
+      return `<span class="stage-tag" style="background:rgba(234,179,8,.14);color:#854d0e">▶ In progress</span>`;
+    return `<span class="stage-tag" style="background:rgba(148,163,184,.12);color:var(--secondary)">${_qEsc(status || "—")}</span>`;
+  }
+  function _fuaRenderNextAction(na) {
+    if (!na) return `<span style="color:var(--secondary)">—</span>`;
+    const when = _fuaFmtTime(na.when);
+    const day = _fuaFmtDateShort(na.when);
+    const subject = na.subject || "(no subject)";
+    const status = (na.status || "").toLowerCase();
+    const icon = na.kind === "Task" ? "✅" : "📞";
+    const color = status === "completed" ? "#15803d"
+                : status === "cancelled" ? "var(--secondary)"
+                : "#4338ca";
+    return `<div title="${_qEsc(subject)}">
+      <span style="color:${color};font-weight:500">${icon} ${day} ${when}</span>
+      <div style="font-size:10.5px;color:var(--secondary);margin-top:1px" class="q-truncate" style="max-width:160px">${_qEsc(subject)}</div>
+    </div>`;
+  }
+  function _fuaRenderRow(r) {
+    const dealLink = r.deal_id
+      ? `<a href="https://crm.zoho.com/crm/${ZOHO_ORG}/tab/Potentials/${_qEsc(r.deal_id)}" target="_blank" rel="noopener" class="q-truncate" style="display:inline-block;max-width:170px;text-decoration:none;color:inherit" title="${_qEsc(r.deal_name || '')}">${_qEsc(r.deal_name || "Open deal")}</a>`
+      : `<span style="color:var(--secondary)">—</span>`;
+    return `<tr>
+      <td style="white-space:nowrap">
+        <strong>${_qEsc(_fuaFmtTime(r.call_time))}</strong>
+        <div style="font-size:10.5px;color:var(--secondary);margin-top:1px">${_fuaFmtDateShort(r.call_time)}</div>
+      </td>
+      <td class="q-truncate" style="max-width:130px" title="${_qEsc(r.owner_name || '')}">${_qEsc(r.owner_name || "Unassigned")}</td>
+      <td class="q-truncate" style="max-width:160px" title="${_qEsc(r.contact_name || '')}">${_qEsc(r.contact_name || "—")}</td>
+      <td class="q-truncate" style="max-width:240px" title="${_qEsc(r.subject || '')}">${_qEsc(r.subject || "—")}</td>
+      <td>${_fuaStatusChip(r.status)}</td>
+      <td>${dealLink}</td>
+      <td>${_fuaRenderNextAction(r.next_action)}</td>
+    </tr>`;
+  }
+  function _fuaPopulateOwnerDropdown(owners) {
+    const sel = document.getElementById("fua-owner-filter");
+    if (!sel) return;
+    const current = sel.value;
+    const total = owners.reduce((a, o) => a + (o.count || 0), 0);
+    sel.innerHTML = `<option value="">All agents (${total})</option>` +
+      owners.map(o => `<option value="${_qEsc(o.name)}">${_qEsc(o.name)} (${o.count})</option>`).join("");
+    if (current && owners.some(o => o.name === current)) sel.value = current;
+  }
+  async function loadFuActivity() {
+    _fuaInitToday();
+    const start = document.getElementById("fua-date-start").value;
+    const end   = document.getElementById("fua-date-end").value || start;
+    const owner = document.getElementById("fua-owner-filter").value || "";
+    const loading = document.getElementById("fua-loading");
+    const status = document.getElementById("fua-status-msg");
+    const tbody = document.getElementById("fua-tbody");
+    const countEl = document.getElementById("fua-count");
+    loading.style.display = "inline-flex";
+    status.textContent = "";
+    try {
+      const url = `/api/fu-activity?start=${start}&end=${end}` + (owner ? `&owner=${encodeURIComponent(owner)}` : "");
+      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      const ct = resp.headers.get("content-type") || "";
+      const isJson = ct.includes("application/json");
+      if (!resp.ok || !isJson) {
+        let m = "";
+        if (isJson) { try { m = (await resp.json()).message || ""; } catch {} }
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--red-dk);text-align:center">${_qEsc(m || `HTTP ${resp.status} — try ↻ Refresh`)}</td></tr>`;
+        countEl.textContent = "0";
+        return;
+      }
+      const data = await resp.json();
+      if (data.status === "error") {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
+        countEl.textContent = "0";
+        return;
+      }
+      _fuaLastRows = data.rows || [];
+      countEl.textContent = data.count;
+      _fuaPopulateOwnerDropdown(data.owners || []);
+      if (!_fuaLastRows.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">No calls scheduled in this window.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = _fuaLastRows.map(_fuaRenderRow).join("");
+    } catch (e) {
+      console.error("loadFuActivity error", e);
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--red-dk);text-align:center">Couldn't reach the server (${_qEsc(e.message)})</td></tr>`;
+    } finally {
+      loading.style.display = "none";
+    }
   }
 
   // ─── Per-card collapse with per-user persistence ─────────────────────

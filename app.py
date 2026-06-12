@@ -1676,6 +1676,76 @@ def api_create_followup_call():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/fu-activity")
+@login_required
+def api_fu_activity():
+    """Team-lead view of every agent's CRM call activity in a date range.
+
+    Returns each call's owner, status, customer, deal, and (when present)
+    the next chained call/task on the same deal — so a manager can see at
+    a glance who's keeping their calendar in motion.
+    """
+    try:
+        today = datetime.now(timezone.utc).date()
+        date_start = request.args.get("start") or today.isoformat()
+        date_end   = request.args.get("end")   or date_start
+        owner_filter = (request.args.get("owner") or "").strip().lower()
+        start_iso = f"{date_start}T00:00:00+00:00"
+        end_iso   = f"{date_end}T23:59:59+00:00"
+
+        rows = _zoho.get_followup_activities(start_iso, end_iso, limit=500)
+
+        # Build "next action" links: for each call, find the next call on the
+        # same deal whose Call_Start_Time is after this one's. Cheap O(N) on
+        # an already-time-sorted list grouped by deal.
+        by_deal: dict = {}
+        for r in rows:
+            did = r.get("deal_id") or ""
+            if not did:
+                continue
+            by_deal.setdefault(did, []).append(r)
+        for _did, group in by_deal.items():
+            group.sort(key=lambda r: r.get("call_time") or "")
+            for i, r in enumerate(group):
+                if i + 1 < len(group):
+                    nxt = group[i + 1]
+                    r["next_action"] = {
+                        "id": nxt.get("id"),
+                        "kind": "Call",
+                        "when": nxt.get("call_time"),
+                        "status": nxt.get("status"),
+                        "subject": nxt.get("subject"),
+                        "owner_name": nxt.get("owner_name"),
+                    }
+
+        if owner_filter:
+            rows = [r for r in rows
+                    if (r.get("owner_name") or "").lower() == owner_filter]
+
+        # Group counts by owner for the dropdown badge
+        owners: dict = {}
+        for r in rows:
+            n = r.get("owner_name") or "Unassigned"
+            owners[n] = owners.get(n, 0) + 1
+        owners_list = [{"name": n, "count": c}
+                       for n, c in sorted(owners.items(), key=lambda x: -x[1])]
+
+        return jsonify({
+            "status": "ok",
+            "date_range": {"start": date_start, "end": date_end},
+            "count": len(rows),
+            "rows": rows,
+            "owners": owners_list,
+        })
+    except Exception as e:
+        log.exception("/api/fu-activity error")
+        return jsonify({
+            "status": "error",
+            "message": f"{type(e).__name__}: {e}",
+            "rows": [], "owners": [], "count": 0,
+        }), 500
+
+
 @app.route("/api/followup-calls")
 @login_required
 def api_followup_calls():
