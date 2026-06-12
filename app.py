@@ -76,9 +76,11 @@ _ringcx = RingCXClient()
 _telegram = TelegramClient()
 _books = BooksClient()
 
-# 5-minute in-memory cache for api_quotes — prevents OOM on repeated auto-loads.
-_quotes_cache: dict = {}   # key: (start, end) → {"ts": float, "payload": dict}
-_QUOTES_CACHE_TTL = 300    # seconds
+# In-memory cache + lock for api_quotes — prevents concurrent OOM-spiking fetches.
+import threading as _threading
+_quotes_cache: dict = {}
+_QUOTES_CACHE_TTL = 600        # 10 minutes
+_quotes_fetch_lock = _threading.Lock()  # only one thread fetches at a time
 
 # ────────── Persistent disk (Render /data mount) ──────────
 # Use persistent disk mount if available (Render), fallback to local
@@ -1312,128 +1314,159 @@ def api_quotes():
     if _cached and (_time.monotonic() - _cached["ts"]) < _QUOTES_CACHE_TTL:
         return jsonify(_cached["payload"])
 
+    # Only one thread does the expensive Zoho fetch at a time; the lock is
+    # always released in the finally block, even if an exception or early
+    # return fires inside (cache hit, Books error, etc.).
+    if not _quotes_fetch_lock.acquire(timeout=90):
+        return jsonify({"status": "error", "message": "Server busy, try again.", "quotes": []}), 503
     try:
-        estimates = _books.list_sent_estimates(date_start, date_end, max_records=max_records)
-        retainers = _books.list_sent_retainer_invoices(date_start, date_end, max_records=max_records)
-    except Exception as e:
-        log.error("Books fetch failed: %s", e)
-        return jsonify({"status": "error", "message": str(e), "quotes": []}), 500
+        # Re-check cache after acquiring — another thread may have filled it.
+        _cached = _quotes_cache.get(_cache_key)
+        if _cached and (_time.monotonic() - _cached["ts"]) < _QUOTES_CACHE_TTL:
+            return jsonify(_cached["payload"])
 
-    # Dedupe by CRM deal id. Rules:
-    #  1. A retainer always wins over a quote on the same deal (later in funnel).
-    #  2. Multiple records of the same kind on one deal collapse to the most
-    #     recently modified one (rep often sends multiple quote variants per deal).
-    # Records without a deal_id are kept as-is (no way to dedupe them safely).
-    def _sent_ts(doc):
-        return doc.get("last_modified_time") or doc.get("created_time") or ""
-    best_by_deal: dict = {}  # deal_id → (kind, doc)
-    orphans: list = []        # records with no deal_id
-    # Process retainers first so they win ties at the same timestamp.
-    for r in retainers:
-        did = r.get("zcrm_potential_id")
-        if not did:
-            orphans.append(("retainer", r)); continue
-        prev = best_by_deal.get(did)
-        if not prev or _sent_ts(r) > _sent_ts(prev[1]):
-            best_by_deal[did] = ("retainer", r)
-    for e in estimates:
-        did = e.get("zcrm_potential_id")
-        if not did:
-            orphans.append(("quote", e)); continue
-        prev = best_by_deal.get(did)
-        # Skip if a retainer already claimed this deal (retainer always wins).
-        if prev and prev[0] == "retainer":
-            continue
-        if not prev or _sent_ts(e) > _sent_ts(prev[1]):
-            best_by_deal[did] = ("quote", e)
-    merged = list(best_by_deal.values()) + orphans
-    merged.sort(key=lambda x: x[1].get("date") or "", reverse=True)
-    merged = merged[:max_records]
-
-    # Fetch CRM signals in parallel — 3 related-list calls per item, so 8 workers
-    # ≈ 24 concurrent HTTP requests.
-    def _fetch_signals_for(item):
-        kind, doc = item
-        deal_id = doc.get("zcrm_potential_id") or ""
-        # Use created_time as the cutoff — last_modified_time drifts forward on
-        # re-sends/status changes and would filter out legitimate post-quote notes.
-        sent_at = doc.get("created_time") or doc.get("date") or ""
-        if not (include_activity and deal_id and sent_at):
-            return item, [], {"status": "forgotten", "when": None, "by": None,
-                              "summary": None, "kind": None, "source": None}
         try:
-            sig = _zoho.get_deal_post_quote_signals(deal_id, sent_at)
-            return item, sig["activities"], sig["next_followup"]
-        except Exception as ex:
-            log.warning("Activity fetch failed for deal %s: %s", deal_id, ex)
-            return item, [], {"status": "forgotten", "when": None, "by": None,
-                              "summary": None, "kind": None, "source": None}
+            estimates = _books.list_sent_estimates(date_start, date_end, max_records=max_records)
+            retainers = _books.list_sent_retainer_invoices(date_start, date_end, max_records=max_records)
+        except Exception as e:
+            log.error("Books fetch failed: %s", e)
+            return jsonify({"status": "error", "message": str(e), "quotes": []}), 500
 
-    results_by_id = {}
-    if merged:
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            for item, activities, next_followup in pool.map(_fetch_signals_for, merged):
-                _, doc = item
-                doc_id = doc.get("estimate_id") or doc.get("invoice_id")
-                results_by_id[doc_id] = (activities, next_followup)
+        def _sent_ts(doc):
+            return doc.get("last_modified_time") or doc.get("created_time") or ""
+        best_by_deal: dict = {}
+        orphans: list = []
+        for r in retainers:
+            did = r.get("zcrm_potential_id")
+            if not did:
+                orphans.append(("retainer", r)); continue
+            prev = best_by_deal.get(did)
+            if not prev or _sent_ts(r) > _sent_ts(prev[1]):
+                best_by_deal[did] = ("retainer", r)
+        for e in estimates:
+            did = e.get("zcrm_potential_id")
+            if not did:
+                orphans.append(("quote", e)); continue
+            prev = best_by_deal.get(did)
+            if prev and prev[0] == "retainer":
+                continue
+            if not prev or _sent_ts(e) > _sent_ts(prev[1]):
+                best_by_deal[did] = ("quote", e)
+        merged = list(best_by_deal.values()) + orphans
+        merged.sort(key=lambda x: x[1].get("date") or "", reverse=True)
+        merged = merged[:max_records]
 
-    quotes = []
-    for kind, doc in merged:
-        deal_id = doc.get("zcrm_potential_id") or ""
-        sent_at = doc.get("last_modified_time") or doc.get("created_time") or ""
-        doc_id = doc.get("estimate_id") or doc.get("invoice_id")
-        activities, next_followup = results_by_id.get(doc_id,
-                                                       ([], {"status": "forgotten",
-                                                             "when": None, "by": None,
-                                                             "summary": None,
-                                                             "kind": None, "source": None}))
-        # Surface the most recent post-send note inline so the panel can show
-        # it without expanding the row. Activities are time-sorted desc.
-        latest_note = next((a for a in activities if a.get("kind") == "Notes"), None)
-        latest_note_summary = ""
-        if latest_note:
-            # Content (detail) is more informative than the title; fall back to title.
-            latest_note_summary = (latest_note.get("detail") or
-                                    latest_note.get("summary") or "").strip()
-            # Strip residual HTML from rich-text notes
-            import re as _re
-            latest_note_summary = _re.sub(r"<[^>]+>", "", latest_note_summary)
-            latest_note_summary = " ".join(latest_note_summary.split())
+        def _fetch_signals_for(item):
+            kind, doc = item
+            deal_id = doc.get("zcrm_potential_id") or ""
+            sent_at = doc.get("created_time") or doc.get("date") or ""
+            if not (include_activity and deal_id and sent_at):
+                return item, [], {"status": "forgotten", "when": None, "by": None,
+                                  "summary": None, "kind": None, "source": None}
+            try:
+                sig = _zoho.get_deal_post_quote_signals(deal_id, sent_at)
+                return item, sig["activities"], sig["next_followup"]
+            except Exception as ex:
+                log.warning("Activity fetch failed for deal %s: %s", deal_id, ex)
+                return item, [], {"status": "forgotten", "when": None, "by": None,
+                                  "summary": None, "kind": None, "source": None}
 
-        quotes.append({
-            "kind": kind,  # "quote" | "retainer"
-            "estimate_id": doc_id,  # keeps the existing API field name for stable client keying
-            "estimate_number": doc.get("estimate_number") or doc.get("invoice_number"),
-            "deal_id": deal_id,
-            "deal_name": doc.get("zcrm_potential_name"),
-            "customer_name": doc.get("customer_name"),
-            "salesperson": doc.get("salesperson_name"),
-            "date": doc.get("date"),
-            "sent_at": sent_at,
-            "total": doc.get("total"),
-            "balance": doc.get("balance"),  # only present on retainer invoices
-            "currency": doc.get("currency_code"),
-            "is_viewed_by_client": doc.get("is_viewed_by_client"),
-            "mail_first_viewed_time": doc.get("mail_first_viewed_time") or "",
-            "expiry_date": doc.get("expiry_date") or doc.get("due_date"),
-            "status": doc.get("status"),
-            "activity_count": len(activities),
-            "activities": activities,
-            "next_followup": next_followup,
-            "latest_note": latest_note_summary,
-            "latest_note_ts": latest_note.get("ts") if latest_note else None,
-            "latest_note_by": latest_note.get("by") if latest_note else None,
-        })
+        results_by_id = {}
+        if merged:
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                for item, activities, next_followup in pool.map(_fetch_signals_for, merged):
+                    _, doc = item
+                    doc_id = doc.get("estimate_id") or doc.get("invoice_id")
+                    results_by_id[doc_id] = (activities, next_followup)
 
-    payload = {
-        "status": "ok",
-        "date_range": {"start": date_start, "end": date_end},
-        "count": len(quotes),
-        "quotes": quotes,
-        "source": "cache" if _books.last_source_was_cache else "live",
-    }
-    _quotes_cache[_cache_key] = {"ts": _time.monotonic(), "payload": payload}
-    return jsonify(payload)
+        import re as _re
+        quotes = []
+        for kind, doc in merged:
+            deal_id = doc.get("zcrm_potential_id") or ""
+            sent_at = doc.get("created_time") or doc.get("date") or ""
+            doc_id = doc.get("estimate_id") or doc.get("invoice_id")
+            activities, next_followup = results_by_id.get(doc_id,
+                ([], {"status": "forgotten", "when": None, "by": None,
+                      "summary": None, "kind": None, "source": None}))
+            latest_note = next((a for a in activities if a.get("kind") == "Notes"), None)
+            latest_note_summary = ""
+            if latest_note:
+                latest_note_summary = (latest_note.get("detail") or
+                                        latest_note.get("summary") or "").strip()
+                latest_note_summary = _re.sub(r"<[^>]+>", "", latest_note_summary)
+                latest_note_summary = " ".join(latest_note_summary.split())
+            quotes.append({
+                "kind": kind,
+                "estimate_id": doc_id,
+                "estimate_number": doc.get("estimate_number") or doc.get("invoice_number"),
+                "deal_id": deal_id,
+                "deal_name": doc.get("zcrm_potential_name"),
+                "customer_name": doc.get("customer_name"),
+                "salesperson": doc.get("salesperson_name"),
+                "date": doc.get("date"),
+                "sent_at": sent_at,
+                "total": doc.get("total"),
+                "balance": doc.get("balance"),
+                "currency": doc.get("currency_code"),
+                "is_viewed_by_client": doc.get("is_viewed_by_client"),
+                "mail_first_viewed_time": doc.get("mail_first_viewed_time") or "",
+                "expiry_date": doc.get("expiry_date") or doc.get("due_date"),
+                "status": doc.get("status"),
+                "activity_count": len(activities),
+                "activities": activities,
+                "next_followup": next_followup,
+                "latest_note": latest_note_summary,
+                "latest_note_ts": latest_note.get("ts") if latest_note else None,
+                "latest_note_by": latest_note.get("by") if latest_note else None,
+            })
+
+        payload = {
+            "status": "ok",
+            "date_range": {"start": date_start, "end": date_end},
+            "count": len(quotes),
+            "quotes": quotes,
+            "source": "cache" if _books.last_source_was_cache else "live",
+        }
+        stale = [k for k, v in _quotes_cache.items()
+                 if (_time.monotonic() - v["ts"]) > _QUOTES_CACHE_TTL]
+        for k in stale:
+            _quotes_cache.pop(k, None)
+        _quotes_cache[_cache_key] = {"ts": _time.monotonic(), "payload": payload}
+        return jsonify(payload)
+    finally:
+        _quotes_fetch_lock.release()
+
+
+# ------------------------------------------------------------------ Deal notes (lightweight, no AI)
+
+@app.route("/api/deal-latest-note/<deal_id>")
+@login_required
+def api_deal_latest_note(deal_id):
+    """Return the most recent CRM note for a deal (fast, no AI, no Books call)."""
+    try:
+        resp = requests.get(
+            f"{_zoho.base_url}/crm/v6/Deals/{deal_id}/Notes",
+            headers=_zoho._headers(),
+            params={"fields": "id,Note_Title,Note_Content,Created_Time,Owner",
+                    "per_page": 1, "sort_by": "Created_Time", "sort_order": "desc"},
+            timeout=12,
+        )
+        if resp.status_code == 204 or not resp.ok:
+            return jsonify({"note": "", "by": "", "ts": ""})
+        rows = (resp.json() or {}).get("data", []) or []
+        if not rows:
+            return jsonify({"note": "", "by": "", "ts": ""})
+        row = rows[0]
+        import re as _re
+        content = ((row.get("Note_Title") or "") + " " + (row.get("Note_Content") or "")).strip()
+        content = _re.sub(r"<[^>]+>", "", content)
+        content = " ".join(content.split())
+        owner = row.get("Owner") or {}
+        by = owner.get("name") or "" if isinstance(owner, dict) else str(owner)
+        return jsonify({"note": content[:500], "by": by, "ts": row.get("Created_Time") or ""})
+    except Exception as e:
+        log.error("deal-latest-note %s: %s", deal_id, e)
+        return jsonify({"error": str(e)}), 500
 
 
 # ------------------------------------------------------------------ AI notes summary

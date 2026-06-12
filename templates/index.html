@@ -7669,17 +7669,8 @@
 
   function _scNotesCell(dealId, rowId) {
     if (!dealId) return `<span style="color:var(--secondary);font-size:11px">—</span>`;
-    const q = _quotesByDeal[dealId];
-    const note = q?.latest_note || "";
-    const noteBy = q?.latest_note_by ? ` · ${_qEsc(q.latest_note_by)}` : "";
-    const noteTs = q?.latest_note_ts ? ` ${_qFmtDate((q.latest_note_ts.match(/^\d{4}-\d{2}-\d{2}/)||[""])[0])}` : "";
-    const noteHtml = note
-      ? `<div class="sc-note-text" title="${_qEsc(note)}">${_qEsc(note.length > 80 ? note.slice(0,80)+"…" : note)}<span style="color:var(--secondary);font-size:10px">${noteTs}${noteBy}</span></div>`
-      : `<span style="color:var(--secondary);font-size:11px">—</span>`;
-    const aiBtn = dealId
-      ? `<button class="sc-ai-btn" onclick="loadAiNotes('${_qEsc(dealId)}','${_qEsc(rowId)}')" title="AI summary of CRM notes">✨</button>`
-      : "";
-    return `<div class="sc-notes-cell" id="sc-notes-${_qEsc(rowId)}">${noteHtml}${aiBtn}</div>`;
+    const aiBtn = `<button class="sc-ai-btn" onclick="loadAiNotes('${_qEsc(dealId)}','${_qEsc(rowId)}')" title="Load CRM notes + AI summary">✨</button>`;
+    return `<div class="sc-notes-cell" id="sc-notes-${_qEsc(rowId)}"><span style="color:var(--secondary);font-size:11px">—</span>${aiBtn}</div>`;
   }
 
   async function _loadScLookups() {
@@ -7702,15 +7693,9 @@
           }
         }).catch(() => {}),
 
-      fetch(`/api/quotes?start=${start30s}&end=${today}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
-          if (!d) return;
-          _quotesByDeal = {};
-          for (const q of (d.quotes || [])) {
-            if (q.deal_id) _quotesByDeal[q.deal_id] = q;
-          }
-        }).catch(() => {}),
+      // Quotes API is NOT auto-loaded here — it's too heavy (150 Zoho calls)
+      // and causes OOM kills on the 512MB Starter plan. Notes are fetched
+      // on-demand via the ✨ button using /api/deal-latest-note.
     ]);
 
     drawScTable();
@@ -7794,14 +7779,38 @@
   async function loadAiNotes(dealId, rowId) {
     const cell = document.getElementById(`sc-notes-${rowId}`);
     if (!cell) return;
-    cell.innerHTML = `<span style="color:var(--secondary);font-size:11px"><span class="mini-spinner"></span> Summarizing…</span>`;
+    cell.innerHTML = `<span style="color:var(--secondary);font-size:11px"><span class="mini-spinner"></span> Loading…</span>`;
+    try {
+      // Step 1: fetch raw CRM note (fast, no AI)
+      const nr = await fetch(`/api/deal-latest-note/${encodeURIComponent(dealId)}`);
+      const nd = await nr.json();
+      const note = nd.note || "";
+      const noteBy = nd.by ? ` · ${_qEsc(nd.by)}` : "";
+      const noteTs = nd.ts ? ` ${_qFmtDate((nd.ts.match(/^\d{4}-\d{2}-\d{2}/)||[""])[0])}` : "";
+      const noteHtml = note
+        ? `<div class="sc-note-text" title="${_qEsc(note)}">${_qEsc(note.length > 100 ? note.slice(0,100)+"…" : note)}<span style="color:var(--secondary);font-size:10px"> ${noteTs}${noteBy}</span></div>`
+        : `<span style="color:var(--secondary);font-size:11px">No notes found.</span>`;
+      const aiBtn = `<button class="sc-ai-btn" onclick="loadAiSummary('${_qEsc(dealId)}','${_qEsc(rowId)}')" title="AI summary">✨</button>`;
+      cell.innerHTML = `<div class="sc-notes-cell">${noteHtml}${aiBtn}</div>`;
+    } catch(e) {
+      cell.innerHTML = `<span style="color:#b91c1c;font-size:11px">Error: ${_qEsc(e.message)}</span>`;
+    }
+  }
+
+  async function loadAiSummary(dealId, rowId) {
+    const cell = document.getElementById(`sc-notes-${rowId}`);
+    if (!cell) return;
+    const prev = cell.innerHTML;
+    const spinner = cell.querySelector(".sc-notes-cell");
+    if (spinner) spinner.innerHTML += ` <span class="mini-spinner"></span>`;
     try {
       const r = await fetch(`/api/deal-notes-summary/${encodeURIComponent(dealId)}`);
       const d = await r.json();
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
-      cell.innerHTML = `<div class="sc-note-text sc-ai-result" title="${_qEsc(d.summary)}">${_qEsc(d.summary)}</div>`;
+      cell.innerHTML = `<div class="sc-notes-cell"><div class="sc-note-text sc-ai-result" title="${_qEsc(d.summary)}">${_qEsc(d.summary)}</div></div>`;
     } catch(e) {
-      cell.innerHTML = `<span style="color:#b91c1c;font-size:11px">Error: ${_qEsc(e.message)}</span>`;
+      cell.innerHTML = prev;
+      alert(`AI summary error: ${e.message}`);
     }
   }
 
