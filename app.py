@@ -1385,7 +1385,9 @@ def api_quotes():
             if not prev or _sent_ts(e) > _sent_ts(prev[1]):
                 best_by_deal[did] = ("quote", e)
         merged = list(best_by_deal.values()) + orphans
-        merged.sort(key=lambda x: x[1].get("date") or "", reverse=True)
+        # Earliest first — surfaces the most-at-risk quotes/retainers at the top.
+        merged.sort(key=lambda x: (x[1].get("date") or "",
+                                    x[1].get("last_modified_time") or ""))
         merged = merged[:max_records]
 
         def _fetch_signals_for(item):

@@ -7414,11 +7414,16 @@
 
   // Initialize — call immediately since this script is at the bottom of <body>
   // (DOMContentLoaded may have already fired by the time this script runs)
+  function _qBootstrapPanel() {
+    if (typeof _qInitDefaultRange === "function") _qInitDefaultRange();
+    if (typeof _qRenderRangeLabel === "function") _qRenderRangeLabel();
+  }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); });
+    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); });
   } else {
     tgInit();
     _initCardCollapse();
+    _qBootstrapPanel();
   }
 
   // ─── Per-card collapse with per-user persistence ─────────────────────
@@ -7612,23 +7617,27 @@
   }
 
   function _qFmtIsoDate(d) { return d.toISOString().slice(0, 10); }
+  function _qDefaultRange() {
+    // Last 3 days NOT including today — yesterday and the two days before that.
+    // e.g. on Thursday Jun 12 → Jun 9, Jun 10, Jun 11.
+    const end = new Date();   end.setDate(end.getDate() - 1);
+    const start = new Date(); start.setDate(start.getDate() - 3);
+    return { start: _qFmtIsoDate(start), end: _qFmtIsoDate(end) };
+  }
   function _qInitDefaultRange() {
-    // Default: last 3 days (today minus 2 → today, inclusive = 3 calendar days)
     const sEl = document.getElementById("quotes-date-start");
     const eEl = document.getElementById("quotes-date-end");
     if (!sEl || !eEl) return;
     if (!sEl.value || !eEl.value) {
-      const end = new Date();
-      const start = new Date(); start.setDate(start.getDate() - 2);
-      sEl.value = _qFmtIsoDate(start);
-      eEl.value = _qFmtIsoDate(end);
+      const r = _qDefaultRange();
+      sEl.value = r.start;
+      eEl.value = r.end;
     }
   }
   function resetQuotesToDefault() {
-    const end = new Date();
-    const start = new Date(); start.setDate(start.getDate() - 2);
-    document.getElementById("quotes-date-start").value = _qFmtIsoDate(start);
-    document.getElementById("quotes-date-end").value   = _qFmtIsoDate(end);
+    const r = _qDefaultRange();
+    document.getElementById("quotes-date-start").value = r.start;
+    document.getElementById("quotes-date-end").value   = r.end;
     loadQuotes();
   }
   function _qCurrentRange() {
