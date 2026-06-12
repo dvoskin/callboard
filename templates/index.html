@@ -7567,14 +7567,34 @@
     loading.style.display = "inline-flex";
     status.textContent = "";
     try {
-      const resp = await fetch(`/api/quotes?start=${start}&end=${end}`);
+      const resp = await fetch(`/api/quotes?start=${start}&end=${end}`, {
+        headers: { "Accept": "application/json" },
+      });
+      // Defend against the server returning an HTML error page (500, 502, auth
+      // redirect, etc). resp.json() throws "Unexpected token '<'" on HTML;
+      // give the user something actionable instead.
+      const contentType = resp.headers.get("content-type") || "";
+      const looksJson = contentType.includes("application/json");
+      if (!resp.ok || !looksJson) {
+        const bodyText = (await resp.text()).slice(0, 200);
+        const isAuth = resp.status === 401 || resp.status === 403 || bodyText.includes("<title>Sign in");
+        const msg = isAuth
+          ? "Session expired. Reload the page and sign in again."
+          : `Server returned HTTP ${resp.status} ${resp.statusText || ""} — `
+              + (looksJson ? "" : "the response was not JSON. ")
+              + "This usually means the backend errored or restarted. Try ↻ Refresh in a moment.";
+        console.error("loadQuotes non-JSON response:", resp.status, bodyText);
+        tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">${_qEsc(msg)}</td></tr>`;
+        countEl.textContent = "0";
+        return;
+      }
       const data = await resp.json();
       if (data.status === "not_configured") {
         tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--secondary);text-align:center">${_qEsc(data.message)}</td></tr>`;
         countEl.textContent = "0";
         return;
       }
-      if (data.status !== "ok") {
+      if (data.status && data.status !== "ok") {
         tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Error: ${_qEsc(data.message || "unknown")}</td></tr>`;
         countEl.textContent = "0";
         return;
@@ -7591,7 +7611,8 @@
       _qRenderCoverageSummary(data.quotes);
     } catch (e) {
       console.error("loadQuotes error", e);
-      tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Request failed: ${_qEsc(e.message)}</td></tr>`;
+      // Network-level failure (offline, CORS, DNS). Distinct from server errors above.
+      tbody.innerHTML = `<tr><td colspan="10" style="padding:16px;color:var(--red-dk);text-align:center">Couldn't reach the server (${_qEsc(e.message)}). Check your connection and try ↻ Refresh.</td></tr>`;
     } finally {
       loading.style.display = "none";
     }
