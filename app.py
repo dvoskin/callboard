@@ -1423,6 +1423,56 @@ def api_quotes():
     })
 
 
+# ------------------------------------------------------------------ AI notes summary
+
+@app.route("/api/deal-notes-summary/<deal_id>")
+@login_required
+def api_deal_notes_summary(deal_id):
+    """Fetch CRM notes/calls for a deal and return an AI summary via Claude."""
+    try:
+        import anthropic as _anthropic
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 503
+
+        sig = _zoho.get_deal_post_quote_signals(deal_id, "2000-01-01T00:00:00+00:00")
+        activities = sig.get("activities", [])
+
+        if not activities:
+            return jsonify({"summary": "No CRM notes or call activity found for this deal."})
+
+        lines = []
+        for a in activities[:15]:
+            ts = (a.get("ts") or "")[:10]
+            kind = a.get("kind", "")
+            by = a.get("by") or ""
+            summary = a.get("summary") or ""
+            detail = a.get("detail") or ""
+            lines.append(f"[{ts}] {kind} by {by}: {summary}. {detail}".strip(". "))
+
+        activity_text = "\n".join(lines)
+
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Summarize the following CRM activity for a plastic surgery patient lead "
+                    "in 2-3 sentences. Focus on where the patient is in the sales process, "
+                    "any concerns or next steps mentioned, and the most recent status.\n\n"
+                    f"{activity_text}"
+                )
+            }]
+        )
+        summary = msg.content[0].text.strip()
+        return jsonify({"summary": summary})
+    except Exception as e:
+        log.error("deal-notes-summary %s: %s", deal_id, e)
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------------------------------------------------------ Follow-up call endpoints
 
 @app.route("/api/deal-info/<deal_id>")
