@@ -8529,7 +8529,7 @@
   async function _qAutoScheduleAll() {
     const btn = document.getElementById("q-auto-schedule-all-btn");
     if (!btn) return;
-    const rows = (_quotesData || []).filter(q =>
+    const rows = (_qLastQuotes || []).filter(q =>
       q.deal_id && q.sent_at &&
       (!q.next_followup || q.next_followup.status !== "scheduled") &&
       !_autoFuScheduled.has(q.estimate_id)
