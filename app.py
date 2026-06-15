@@ -1700,8 +1700,7 @@ def api_auto_schedule_followup():
         return jsonify({"error": "sent_at is required"}), 400
 
     try:
-        from dateutil import parser as dtparse
-        sent_dt = dtparse.isoparse(sent_at)
+        sent_dt = datetime.fromisoformat(sent_at)
         tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
         hour = sent_dt.hour
         minute = sent_dt.minute
