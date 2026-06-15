@@ -8465,9 +8465,39 @@
       if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
       _autoFuMark(q.estimate_id);
       if (btn) { btn.textContent = "✅"; btn.title = `Scheduled for ${data.call_time || "tomorrow"}`; }
+      _autoFuUpdateRow(q.estimate_id, data);
     } catch (err) {
       console.error("Auto-schedule failed:", err);
       if (btn) { btn.textContent = "❌"; btn.title = err.message; btn.disabled = false; }
+    }
+  }
+
+  function _autoFuUpdateRow(estimateId, data) {
+    const idx = (_qLastQuotes || []).findIndex(q => q.estimate_id === estimateId);
+    if (idx < 0) return;
+    const row = document.getElementById(`q-row-${idx}`);
+    if (!row) return;
+    const cells = row.querySelectorAll("td");
+    const when = data.call_time ? _qFmtTime(data.call_time) : "tomorrow";
+    if (cells[6]) {
+      cells[6].innerHTML = `<div title="[AUTO-FU] Follow-up: ${_qEsc(data.owner || 'Anna Parizher')}">
+        <span class="stage-tag s-paid">📞 ${_qEsc(when)}</span>
+        <div style="font-size:11px;color:var(--secondary);margin-top:2px">${_qEsc(data.owner || "Anna Parizher")}</div>
+      </div>`;
+    }
+    if (cells[7]) {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+      cells[7].innerHTML = `<div class="q-note-cell">
+        <div class="q-note-text">Follow Up Auto Scheduled</div>
+        <div style="font-size:10px;color:var(--secondary);margin-top:1px">${_qFmtDate(ts)} just now</div>
+      </div>`;
+    }
+    const q = _qLastQuotes[idx];
+    if (q) {
+      q.next_followup = { status: "scheduled", when: data.call_time, by: data.owner || "Anna Parizher", summary: "[AUTO-FU]", kind: "Call", source: "call" };
+      q.latest_note = "Follow Up Auto Scheduled";
     }
   }
 
@@ -8503,6 +8533,7 @@
         ok++;
         const rowBtn = document.getElementById(`auto-fu-${q.estimate_id}`);
         if (rowBtn) { rowBtn.textContent = "✅"; rowBtn.disabled = true; }
+        _autoFuUpdateRow(q.estimate_id, data);
       } catch (e) {
         fail++;
         console.error(`Auto-schedule failed for ${q.customer_name}:`, e);

@@ -1741,6 +1741,17 @@ def api_auto_schedule_followup():
                 )
             except Exception as pe:
                 log.warning("auto-schedule patch subject failed: %s", pe)
+            if deal_id:
+                try:
+                    import requests as _req2
+                    _req2.post(
+                        f"{_zoho.base_url}/crm/v6/Deals/{deal_id}/Notes",
+                        headers={**_zoho._headers(), "Content-Type": "application/json"},
+                        json={"data": [{"Note_Content": f"Follow Up Auto Scheduled — {customer_name} — call set for {call_iso[:16].replace('T', ' ')} UTC, assigned to Anna Parizher"}]},
+                        timeout=10,
+                    )
+                except Exception as ne:
+                    log.warning("auto-schedule note failed: %s", ne)
 
         result["call_time"] = call_iso
         result["owner"] = "Anna Parizher"
