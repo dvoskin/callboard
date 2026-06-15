@@ -1835,6 +1835,7 @@ class ZohoClient:
         call_data: dict = {
             "Subject": f"Scheduled Call: {contact_name}",
             "Call_Type": "Outbound",
+            "Outgoing_Call_Status": "Scheduled",
             "Call_Start_Time": call_time,
             "$se_module": "Deals" if deal_id else "Contacts",
             "Who_Id": contact_id,
