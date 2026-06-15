@@ -1682,6 +1682,92 @@ def api_create_followup_call():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/auto-schedule-followup", methods=["POST"])
+@login_required
+def api_auto_schedule_followup():
+    """Auto-schedule a follow-up call for tomorrow at the quote's sent time.
+
+    Assigned to Anna Parizher, prefixed with [AUTO-FU] for calendar visibility.
+    """
+    body = request.get_json(force=True) or {}
+    deal_id = body.get("deal_id", "")
+    customer_name = body.get("customer_name", "")
+    sent_at = body.get("sent_at", "")
+
+    if not deal_id:
+        return jsonify({"error": "deal_id is required"}), 400
+    if not sent_at:
+        return jsonify({"error": "sent_at is required"}), 400
+
+    try:
+        from dateutil import parser as dtparse
+        sent_dt = dtparse.isoparse(sent_at)
+        tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
+        hour = sent_dt.hour
+        minute = sent_dt.minute
+        if hour < 10:
+            hour, minute = 10, 0
+        elif hour >= 19:
+            hour, minute = 18, 30
+        call_dt = datetime(
+            tomorrow.year, tomorrow.month, tomorrow.day,
+            hour, minute, 0,
+            tzinfo=timezone.utc,
+        )
+        call_iso = call_dt.isoformat()
+
+        info = _zoho.get_deal_contact(deal_id)
+        contact_id = info.get("contact_id", "")
+
+        anna_id = _resolve_anna_id()
+        if not anna_id:
+            return jsonify({"error": "Could not find Anna Parizher in CRM owners"}), 500
+
+        subject = f"[AUTO-FU] Follow-up: {customer_name}"
+        result = _zoho.create_scheduled_call(
+            contact_id=contact_id,
+            contact_name=customer_name,
+            call_time=call_iso,
+            deal_id=deal_id,
+            owner_id=anna_id,
+        )
+        if result.get("id"):
+            try:
+                import requests as _req
+                _req.put(
+                    f"{_zoho.base_url}/crm/v6/Calls/{result['id']}",
+                    headers=_zoho._headers(),
+                    json={"data": [{"Subject": subject}]},
+                    timeout=10,
+                )
+            except Exception as pe:
+                log.warning("auto-schedule patch subject failed: %s", pe)
+
+        result["call_time"] = call_iso
+        result["owner"] = "Anna Parizher"
+        return jsonify(result)
+    except Exception as e:
+        log.error("auto_schedule_followup: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+_anna_id_cache = None
+
+def _resolve_anna_id() -> str:
+    """Resolve Anna Parizher's Zoho user ID from the CRM owners list."""
+    global _anna_id_cache
+    if _anna_id_cache:
+        return _anna_id_cache
+    try:
+        for o in _zoho.get_crm_owners():
+            if "anna" in (o.get("name") or "").lower() and "parizher" in (o.get("name") or "").lower():
+                _anna_id_cache = o["id"]
+                return _anna_id_cache
+    except Exception:
+        pass
+    return ""
+
+
 @app.route("/api/fu-activity")
 @login_required
 def api_fu_activity():

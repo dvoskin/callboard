@@ -3653,6 +3653,7 @@
       </button>
       <span id="quotes-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
       <button id="quotes-refresh-btn" class="filter-clear" onclick="loadQuotes()">↻</button>
+      <button id="q-auto-schedule-all-btn" class="filter-clear" style="font-size:11px;background:rgba(234,179,8,.1);color:#854d0e;border-color:rgba(234,179,8,.25)" onclick="_qAutoScheduleAll()" title="Auto-schedule all forgotten follow-ups under Anna Parizher for tomorrow">⚡ Auto-Schedule All</button>
     </div>
     <div class="card-date-bar">
       <span class="cdb-label">Sent date</span>
@@ -8138,6 +8139,7 @@
       <td style="text-align:center;white-space:nowrap">
         ${ackCell}
         ${(nf.status !== "scheduled") ? `<button class="q-attn-action" style="background:rgba(99,102,241,.1);color:var(--accent);border-color:rgba(99,102,241,.25);font-size:10px;padding:2px 6px" onclick="openFuModal(${JSON.stringify({estimate_id:q.estimate_id,deal_id:q.deal_id||'',customer_name:q.customer_name||'',deal_name:q.deal_name||'',salesperson:q.salesperson||'',latest_note:q.latest_note||''}).replace(/"/g,'&quot;')})" title="Schedule a follow-up call in Zoho CRM">📞</button>` : ''}
+        ${(nf.status !== "scheduled" && q.deal_id && q.sent_at) ? `<button class="q-attn-action" id="auto-fu-${_qEsc(q.estimate_id)}" style="background:rgba(234,179,8,.1);color:#854d0e;border-color:rgba(234,179,8,.25);font-size:10px;padding:2px 6px" onclick="_qAutoScheduleFU(${JSON.stringify({estimate_id:q.estimate_id,deal_id:q.deal_id,customer_name:q.customer_name||'',sent_at:q.sent_at}).replace(/"/g,'&quot;')})" title="Auto-schedule: Anna tomorrow at sent time">⚡</button>` : ''}
       </td>
     </tr>${detailRow}`;
   }
@@ -8431,6 +8433,84 @@
       errEl.style.display = "";
     } finally {
       btn.disabled = false; btn.textContent = "Schedule Call";
+    }
+  }
+
+  const _autoFuScheduled = new Set(JSON.parse(sessionStorage.getItem("_autoFuDone") || "[]"));
+  function _autoFuMark(eid) {
+    _autoFuScheduled.add(eid);
+    sessionStorage.setItem("_autoFuDone", JSON.stringify([..._autoFuScheduled]));
+  }
+
+  async function _qAutoScheduleFU(dataAttr) {
+    const q = typeof dataAttr === "string" ? JSON.parse(dataAttr) : dataAttr;
+    if (_autoFuScheduled.has(q.estimate_id)) return;
+    const btn = document.getElementById(`auto-fu-${q.estimate_id}`);
+    if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+    try {
+      const resp = await fetch("/api/auto-schedule-followup", {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        body: JSON.stringify({
+          deal_id: q.deal_id,
+          customer_name: q.customer_name,
+          sent_at: q.sent_at,
+        }),
+      });
+      const ct = resp.headers.get("content-type") || "";
+      let data = {};
+      if (ct.includes("application/json")) {
+        try { data = await resp.json(); } catch (_) {}
+      }
+      if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+      _autoFuMark(q.estimate_id);
+      if (btn) { btn.textContent = "✅"; btn.title = `Scheduled for ${data.call_time || "tomorrow"}`; }
+    } catch (err) {
+      console.error("Auto-schedule failed:", err);
+      if (btn) { btn.textContent = "❌"; btn.title = err.message; btn.disabled = false; }
+    }
+  }
+
+  async function _qAutoScheduleAll() {
+    const btn = document.getElementById("q-auto-schedule-all-btn");
+    if (!btn) return;
+    const rows = (_quotesData || []).filter(q =>
+      q.deal_id && q.sent_at &&
+      (!q.next_followup || q.next_followup.status !== "scheduled") &&
+      !_autoFuScheduled.has(q.estimate_id)
+    );
+    if (!rows.length) { alert("No forgotten/unscheduled rows to auto-schedule."); return; }
+    if (!confirm(`Auto-schedule ${rows.length} follow-up call(s) under Anna Parizher for tomorrow?`)) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    let ok = 0, fail = 0;
+    for (const q of rows) {
+      if (_autoFuScheduled.has(q.estimate_id)) { ok++; continue; }
+      btn.textContent = `⏳ ${ok + fail + 1}/${rows.length}`;
+      try {
+        const resp = await fetch("/api/auto-schedule-followup", {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json"},
+          body: JSON.stringify({
+            deal_id: q.deal_id,
+            customer_name: q.customer_name,
+            sent_at: q.sent_at,
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.error) throw new Error(data.error);
+        _autoFuMark(q.estimate_id);
+        ok++;
+        const rowBtn = document.getElementById(`auto-fu-${q.estimate_id}`);
+        if (rowBtn) { rowBtn.textContent = "✅"; rowBtn.disabled = true; }
+      } catch (e) {
+        fail++;
+        console.error(`Auto-schedule failed for ${q.customer_name}:`, e);
+      }
+    }
+    btn.textContent = `✅ ${ok} scheduled` + (fail ? `, ${fail} failed` : "");
+    if (fail) {
+      setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
     }
   }
 
