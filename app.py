@@ -1694,6 +1694,7 @@ def api_auto_schedule_followup():
     deal_id = body.get("deal_id", "")
     customer_name = body.get("customer_name", "")
     sent_at = body.get("sent_at", "")
+    kind = body.get("kind", "quote")
 
     if not deal_id:
         return jsonify({"error": "deal_id is required"}), 400
@@ -1723,7 +1724,8 @@ def api_auto_schedule_followup():
         if not anna_id:
             return jsonify({"error": "Could not find Anna Parizher in CRM owners"}), 500
 
-        subject = f"[AUTO-FU] Follow-up: {customer_name}"
+        kind_label = "Retainer Sent" if kind == "retainer" else "Quote Sent"
+        subject = f"AUTO FU: {customer_name} - {kind_label}"
         result = _zoho.create_scheduled_call(
             contact_id=contact_id,
             contact_name=customer_name,
@@ -1748,7 +1750,7 @@ def api_auto_schedule_followup():
                     _req2.post(
                         f"{_zoho.base_url}/crm/v6/Deals/{deal_id}/Notes",
                         headers={**_zoho._headers(), "Content-Type": "application/json"},
-                        json={"data": [{"Note_Content": f"Follow Up Auto Scheduled — {customer_name} — call set for {call_iso[:16].replace('T', ' ')} UTC, assigned to Anna Parizher"}]},
+                        json={"data": [{"Note_Content": f"AUTO FU: {customer_name} - {kind_label} — call set for {call_iso[:16].replace('T', ' ')} UTC, assigned to Anna Parizher"}]},
                         timeout=10,
                     )
                 except Exception as ne:
