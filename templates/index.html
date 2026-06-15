@@ -8483,14 +8483,16 @@
     const btn = document.getElementById(`auto-fu-${q.estimate_id}`);
     if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
     try {
-      let r = await _autoFuPost(q, 1);
-      if (r.status === 409 && r.data.error === "day_full") {
-        if (confirm(`Tomorrow's slots are full. Schedule ${q.customer_name} for the day after instead?`)) {
-          r = await _autoFuPost(q, 2);
-        } else {
+      let daysOffset = 1;
+      let r = await _autoFuPost(q, daysOffset);
+      while (r.status === 409 && r.data.error === "day_full") {
+        const fullDate = r.data.target_date || `+${daysOffset} day(s)`;
+        daysOffset++;
+        if (!confirm(`${fullDate} is fully booked.\n\nSchedule ${q.customer_name} for the next available day (+${daysOffset} days from today)?`)) {
           if (btn) { btn.disabled = false; btn.textContent = "⚡"; }
           return;
         }
+        r = await _autoFuPost(q, daysOffset);
       }
       if (!r.ok || r.data.error) throw new Error(r.data.error || `HTTP ${r.status}`);
       _autoFuMark(q.estimate_id);
