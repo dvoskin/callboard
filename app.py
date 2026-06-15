@@ -1704,10 +1704,8 @@ def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
             headers={**_zoho._headers(), "Content-Type": "application/json"},
             json={"select_query": (
                 f"select id, Call_Start_Time from Calls "
-                f"where Owner = '{anna_id}' "
-                f"and Call_Start_Time >= '{target_date}T00:00:00+00:00' "
-                f"and Call_Start_Time <= '{target_date}T23:59:59+00:00' "
-                f"and Outgoing_call_disposition is null "
+                f"where Call_Start_Time between '{target_date}T00:00:00+00:00' and '{target_date}T23:59:59+00:00' "
+                f"and Subject like 'AUTO FU:%' "
                 f"limit 200"
             )},
             timeout=20,
