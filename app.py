@@ -1726,7 +1726,7 @@ def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
     _auto_fu_slots[target_date] = slot_counts
     return slot_counts
 
-def _auto_fu_next_slot(target_date: str) -> Optional[str]:
+def _auto_fu_next_slot(target_date: str) -> str | None:
     """Return the next available HH:MM slot on target_date, or None if full."""
     counts = _auto_fu_load_slots(target_date)
     h = _AUTO_FU_START_HOUR
