@@ -1842,7 +1842,7 @@ class ZohoClient:
         if deal_id:
             call_data["What_Id"] = deal_id
         if owner_id:
-            call_data["Owner"] = owner_id
+            call_data["Owner"] = {"id": owner_id}
 
         resp = requests.post(
             f"{self.base_url}/crm/v6/Calls",

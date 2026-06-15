@@ -1763,12 +1763,28 @@ def api_auto_schedule_followup():
 
 
 _anna_id_cache = None
+_ANNA_EMAIL = "aparizher@goalsplasticsurgery.com"
 
 def _resolve_anna_id() -> str:
-    """Resolve Anna Parizher's Zoho user ID from the CRM owners list."""
+    """Resolve Anna Parizher's Zoho user ID by email."""
     global _anna_id_cache
     if _anna_id_cache:
         return _anna_id_cache
+    try:
+        resp = requests.get(
+            f"{_zoho.base_url}/crm/v6/users/search",
+            headers=_zoho._headers(),
+            params={"email": _ANNA_EMAIL},
+            timeout=15,
+        )
+        if resp.ok:
+            for u in resp.json().get("users", []):
+                if (u.get("email") or "").lower() == _ANNA_EMAIL:
+                    _anna_id_cache = u["id"]
+                    return _anna_id_cache
+    except Exception as e:
+        log.warning("Anna ID lookup via /users/search failed: %s", e)
+    # Fallback: scan owners from deals
     try:
         for o in _zoho.get_crm_owners():
             if "anna" in (o.get("name") or "").lower() and "parizher" in (o.get("name") or "").lower():
