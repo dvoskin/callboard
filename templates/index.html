@@ -8461,31 +8461,41 @@
     _autoFuScheduled.add(eid);
   }
 
+  async function _autoFuPost(q, daysOffset) {
+    const resp = await fetch("/api/auto-schedule-followup", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Accept": "application/json"},
+      body: JSON.stringify({
+        deal_id: q.deal_id,
+        customer_name: q.customer_name,
+        sent_at: q.sent_at,
+        kind: q.kind || "quote",
+        days_offset: daysOffset || 1,
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, status: resp.status, data };
+  }
+
   async function _qAutoScheduleFU(dataAttr) {
     const q = typeof dataAttr === "string" ? JSON.parse(dataAttr) : dataAttr;
     if (_autoFuScheduled.has(q.estimate_id)) return;
     const btn = document.getElementById(`auto-fu-${q.estimate_id}`);
     if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
     try {
-      const resp = await fetch("/api/auto-schedule-followup", {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "Accept": "application/json"},
-        body: JSON.stringify({
-          deal_id: q.deal_id,
-          customer_name: q.customer_name,
-          sent_at: q.sent_at,
-          kind: q.kind || "quote",
-        }),
-      });
-      const ct = resp.headers.get("content-type") || "";
-      let data = {};
-      if (ct.includes("application/json")) {
-        try { data = await resp.json(); } catch (_) {}
+      let r = await _autoFuPost(q, 1);
+      if (r.status === 409 && r.data.error === "day_full") {
+        if (confirm(`Tomorrow's slots are full. Schedule ${q.customer_name} for the day after instead?`)) {
+          r = await _autoFuPost(q, 2);
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = "⚡"; }
+          return;
+        }
       }
-      if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+      if (!r.ok || r.data.error) throw new Error(r.data.error || `HTTP ${r.status}`);
       _autoFuMark(q.estimate_id);
-      if (btn) { btn.textContent = "✅"; btn.title = `Scheduled for ${data.call_time || "tomorrow"}`; }
-      _autoFuUpdateRow(q.estimate_id, data);
+      if (btn) { btn.textContent = "✅"; btn.title = `Scheduled for ${r.data.call_time || "tomorrow"}`; }
+      _autoFuUpdateRow(q.estimate_id, r.data);
     } catch (err) {
       console.error("Auto-schedule failed:", err);
       if (btn) { btn.textContent = "❌"; btn.title = err.message; btn.disabled = false; }
@@ -8535,9 +8545,8 @@
       !_autoFuScheduled.has(q.estimate_id)
     );
     if (!rows.length) { alert("No forgotten/unscheduled rows to auto-schedule."); return; }
-    if (!confirm(`Auto-schedule ${rows.length} follow-up call(s) under Anna Parizher for tomorrow?`)) return;
+    if (!confirm(`Auto-schedule ${rows.length} follow-up call(s) under Anna Parizher?\nCalls will be spread across 15-min slots (2 per slot), 10 AM – 7 PM.`)) return;
 
-    // Open progress modal
     const modal = document.getElementById("auto-fu-modal");
     const bar = document.getElementById("auto-fu-bar");
     const countEl = document.getElementById("auto-fu-count");
@@ -8552,7 +8561,7 @@
     modal.classList.add("open");
     btn.disabled = true;
 
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, daysOffset = 1;
     for (let i = 0; i < rows.length; i++) {
       const q = rows[i];
       if (_autoFuScheduled.has(q.estimate_id)) { ok++; continue; }
@@ -8566,24 +8575,37 @@
       logEl.appendChild(line);
       logEl.scrollTop = logEl.scrollHeight;
       try {
-        const resp = await fetch("/api/auto-schedule-followup", {
-          method: "POST",
-          headers: {"Content-Type": "application/json", "Accept": "application/json"},
-          body: JSON.stringify({
-            deal_id: q.deal_id,
-            customer_name: q.customer_name,
-            sent_at: q.sent_at,
-            kind: q.kind || "quote",
-          }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok || data.error) throw new Error(data.error);
+        let r = await _autoFuPost(q, daysOffset);
+        if (r.status === 409 && r.data.error === "day_full") {
+          const remaining = rows.length - i;
+          const nextDay = r.data.target_date || `+${daysOffset + 1} days`;
+          line.innerHTML = `<span style="color:#854d0e">⏸</span> <span style="color:#854d0e">${_qEsc(q.customer_name)} — day full</span>`;
+          // Pause and ask user
+          const spillOver = await new Promise(resolve => {
+            const notice = document.createElement("div");
+            notice.style.cssText = "margin:10px 0;padding:10px 12px;border-radius:8px;background:rgba(234,179,8,.1);font-size:12px";
+            notice.innerHTML = `<div style="font-weight:600;color:#854d0e;margin-bottom:6px">All slots on ${_qEsc(nextDay)} are full.</div>
+              <div style="color:var(--secondary);margin-bottom:8px">${remaining} call(s) remaining. Schedule them for the next day?</div>
+              <button onclick="this.parentElement._resolve(true)" style="background:#854d0e;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;margin-right:6px">Continue (+1 day)</button>
+              <button onclick="this.parentElement._resolve(false)" style="background:var(--bg-alt);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer">Stop here</button>`;
+            notice._resolve = resolve;
+            logEl.appendChild(notice);
+            logEl.scrollTop = logEl.scrollHeight;
+          });
+          if (!spillOver) break;
+          daysOffset++;
+          // Retry this same row with new offset
+          i--;
+          continue;
+        }
+        if (!r.ok || r.data.error) throw new Error(r.data.error || `HTTP ${r.status}`);
         _autoFuMark(q.estimate_id);
         ok++;
-        line.innerHTML = `<span style="color:#16a34a">✅</span> <span>${_qEsc(q.customer_name)} — ${kindLabel}</span>`;
+        const dateTag = r.data.target_date ? ` (${r.data.target_date})` : "";
+        line.innerHTML = `<span style="color:#16a34a">✅</span> <span>${_qEsc(q.customer_name)} — ${kindLabel}${dateTag}</span>`;
         const rowBtn = document.getElementById(`auto-fu-${q.estimate_id}`);
         if (rowBtn) { rowBtn.textContent = "✅"; rowBtn.disabled = true; }
-        _autoFuUpdateRow(q.estimate_id, data);
+        _autoFuUpdateRow(q.estimate_id, r.data);
       } catch (e) {
         fail++;
         line.innerHTML = `<span style="color:#dc2626">❌</span> <span>${_qEsc(q.customer_name)} — ${e.message || "failed"}</span>`;
@@ -8591,19 +8613,22 @@
       }
     }
 
-    // Done — show summary
     bar.style.width = "100%";
     countEl.textContent = `${rows.length} / ${rows.length}`;
     closeBtn.style.display = "";
     summaryEl.style.display = "";
-    if (fail === 0) {
+    if (fail === 0 && ok > 0) {
       summaryEl.style.background = "rgba(22,163,74,.08)";
       summaryEl.style.color = "#16a34a";
       summaryEl.textContent = `All ${ok} calls scheduled successfully.`;
-    } else {
+    } else if (ok > 0) {
       summaryEl.style.background = "rgba(234,179,8,.08)";
       summaryEl.style.color = "#854d0e";
       summaryEl.textContent = `${ok} scheduled, ${fail} failed.`;
+    } else {
+      summaryEl.style.background = "rgba(220,38,38,.08)";
+      summaryEl.style.color = "#dc2626";
+      summaryEl.textContent = `No calls scheduled. ${fail} failed.`;
     }
     btn.disabled = false;
   }

@@ -1683,18 +1683,87 @@ def api_create_followup_call():
         return jsonify({"error": str(e)}), 500
 
 
+_AUTO_FU_SLOT_MINUTES = 15
+_AUTO_FU_CALLS_PER_SLOT = 2
+_AUTO_FU_START_HOUR = 10
+_AUTO_FU_END_HOUR = 19  # 7 PM
+_auto_fu_slots: dict[str, dict[str, int]] = {}  # {"2026-06-16": {"10:00": 1, "10:15": 2, ...}}
+
+def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
+    """Load Anna's existing call counts per 15-min slot for target_date from Zoho."""
+    if target_date in _auto_fu_slots:
+        return _auto_fu_slots[target_date]
+    slot_counts: dict[str, int] = {}
+    anna_id = _resolve_anna_id()
+    if not anna_id:
+        _auto_fu_slots[target_date] = slot_counts
+        return slot_counts
+    try:
+        resp = requests.post(
+            f"{_zoho.base_url}/crm/v6/coql",
+            headers={**_zoho._headers(), "Content-Type": "application/json"},
+            json={"select_query": (
+                f"select id, Call_Start_Time from Calls "
+                f"where Owner = '{anna_id}' "
+                f"and Call_Start_Time >= '{target_date}T00:00:00+00:00' "
+                f"and Call_Start_Time <= '{target_date}T23:59:59+00:00' "
+                f"and Outgoing_call_disposition is null "
+                f"limit 200"
+            )},
+            timeout=20,
+        )
+        if resp.ok:
+            for c in resp.json().get("data", []):
+                cst = c.get("Call_Start_Time") or ""
+                try:
+                    cdt = datetime.fromisoformat(cst)
+                    slot_h = cdt.hour
+                    slot_m = (cdt.minute // _AUTO_FU_SLOT_MINUTES) * _AUTO_FU_SLOT_MINUTES
+                    key = f"{slot_h:02d}:{slot_m:02d}"
+                    slot_counts[key] = slot_counts.get(key, 0) + 1
+                except (ValueError, TypeError):
+                    pass
+    except Exception as e:
+        log.warning("auto-fu slot load failed: %s", e)
+    _auto_fu_slots[target_date] = slot_counts
+    return slot_counts
+
+def _auto_fu_next_slot(target_date: str) -> Optional[str]:
+    """Return the next available HH:MM slot on target_date, or None if full."""
+    counts = _auto_fu_load_slots(target_date)
+    h = _AUTO_FU_START_HOUR
+    m = 0
+    while h < _AUTO_FU_END_HOUR:
+        key = f"{h:02d}:{m:02d}"
+        if counts.get(key, 0) < _AUTO_FU_CALLS_PER_SLOT:
+            return key
+        m += _AUTO_FU_SLOT_MINUTES
+        if m >= 60:
+            m = 0
+            h += 1
+    return None
+
+def _auto_fu_claim_slot(target_date: str, slot_key: str):
+    """Increment the slot count after successfully creating a call."""
+    counts = _auto_fu_slots.get(target_date, {})
+    counts[slot_key] = counts.get(slot_key, 0) + 1
+    _auto_fu_slots[target_date] = counts
+
+
 @app.route("/api/auto-schedule-followup", methods=["POST"])
 @login_required
 def api_auto_schedule_followup():
-    """Auto-schedule a follow-up call for tomorrow at the quote's sent time.
+    """Auto-schedule a follow-up call, spread across 15-min slots (max 2/slot).
 
-    Assigned to Anna Parizher, prefixed with [AUTO-FU] for calendar visibility.
+    Assigned to Anna Parizher, prefixed with AUTO FU for calendar visibility.
+    Accepts days_offset (default 1 = tomorrow) to schedule further out.
     """
     body = request.get_json(force=True) or {}
     deal_id = body.get("deal_id", "")
     customer_name = body.get("customer_name", "")
     sent_at = body.get("sent_at", "")
     kind = body.get("kind", "quote")
+    days_offset = int(body.get("days_offset", 1))
 
     if not deal_id:
         return jsonify({"error": "deal_id is required"}), 400
@@ -1734,19 +1803,21 @@ def api_auto_schedule_followup():
         except Exception as dup_err:
             log.warning("auto-schedule dedup check failed: %s", dup_err)
 
-        sent_dt = datetime.fromisoformat(sent_at)
-        tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
-        hour = sent_dt.hour
-        minute = sent_dt.minute
-        if hour < 10:
-            hour, minute = 10, 0
-        elif hour >= 19:
-            hour, minute = 18, 30
-        call_dt = datetime(
-            tomorrow.year, tomorrow.month, tomorrow.day,
-            hour, minute, 0,
-            tzinfo=timezone.utc,
-        )
+        # --- find next available slot ---
+        target = datetime.now(timezone.utc).date() + timedelta(days=days_offset)
+        target_str = target.isoformat()
+        slot_key = _auto_fu_next_slot(target_str)
+        if slot_key is None:
+            return jsonify({
+                "error": "day_full",
+                "message": f"All slots on {target_str} are full.",
+                "target_date": target_str,
+                "days_offset": days_offset,
+            }), 409
+
+        slot_h, slot_m = (int(x) for x in slot_key.split(":"))
+        call_dt = datetime(target.year, target.month, target.day,
+                           slot_h, slot_m, 0, tzinfo=timezone.utc)
         call_iso = call_dt.isoformat()
 
         info = _zoho.get_deal_contact(deal_id)
@@ -1766,6 +1837,7 @@ def api_auto_schedule_followup():
             owner_id=anna_id,
         )
         if result.get("id"):
+            _auto_fu_claim_slot(target_str, slot_key)
             try:
                 requests.put(
                     f"{_zoho.base_url}/crm/v6/Calls/{result['id']}",
@@ -1788,6 +1860,7 @@ def api_auto_schedule_followup():
 
         result["call_time"] = call_iso
         result["owner"] = "Anna Parizher"
+        result["target_date"] = target_str
         return jsonify(result)
     except Exception as e:
         log.error("auto_schedule_followup: %s", e)
