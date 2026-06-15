@@ -1702,6 +1702,38 @@ def api_auto_schedule_followup():
         return jsonify({"error": "sent_at is required"}), 400
 
     try:
+        # --- dedup: check for existing future AUTO FU call on this deal ---
+        try:
+            existing = requests.get(
+                f"{_zoho.base_url}/crm/v6/Deals/{deal_id}/Calls",
+                headers=_zoho._headers(),
+                params={"fields": "id,Subject,Call_Start_Time,Outgoing_call_disposition",
+                        "per_page": 20, "sort_by": "Modified_Time", "sort_order": "desc"},
+                timeout=15,
+            )
+            if existing.ok:
+                now_utc = datetime.now(timezone.utc)
+                for c in (existing.json() or {}).get("data", []):
+                    subj = (c.get("Subject") or "")
+                    if not subj.startswith("AUTO FU:"):
+                        continue
+                    if c.get("Outgoing_call_disposition"):
+                        continue
+                    cst = c.get("Call_Start_Time") or ""
+                    try:
+                        cdt = datetime.fromisoformat(cst)
+                        if cdt > now_utc:
+                            return jsonify({
+                                "call_time": cst,
+                                "owner": "Anna Parizher",
+                                "id": c.get("id"),
+                                "status": "already_scheduled",
+                            })
+                    except (ValueError, TypeError):
+                        pass
+        except Exception as dup_err:
+            log.warning("auto-schedule dedup check failed: %s", dup_err)
+
         sent_dt = datetime.fromisoformat(sent_at)
         tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
         hour = sent_dt.hour
@@ -1735,8 +1767,7 @@ def api_auto_schedule_followup():
         )
         if result.get("id"):
             try:
-                import requests as _req
-                _req.put(
+                requests.put(
                     f"{_zoho.base_url}/crm/v6/Calls/{result['id']}",
                     headers=_zoho._headers(),
                     json={"data": [{"Subject": subject}]},
@@ -1746,8 +1777,7 @@ def api_auto_schedule_followup():
                 log.warning("auto-schedule patch subject failed: %s", pe)
             if deal_id:
                 try:
-                    import requests as _req2
-                    _req2.post(
+                    requests.post(
                         f"{_zoho.base_url}/crm/v6/Deals/{deal_id}/Notes",
                         headers={**_zoho._headers(), "Content-Type": "application/json"},
                         json={"data": [{"Note_Content": f"AUTO FU: {customer_name} - {kind_label} — call set for {call_iso[:16].replace('T', ' ')} UTC, assigned to Anna Parizher"}]},
