@@ -319,6 +319,7 @@ def _refresh():
 
 
 def _background_loop():
+    time.sleep(5)
     consecutive_failures = 0
     while True:
         _refresh()
