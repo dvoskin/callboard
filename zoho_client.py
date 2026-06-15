@@ -1093,6 +1093,11 @@ class ZohoClient:
                     if not note_mentions_followup and \
                             any(kw in raw_content.lower() for kw in _FOLLOWUP_KEYWORDS):
                         note_mentions_followup = True
+                    # Skip AUTO FU log notes — the Call record is the
+                    # authoritative source for those; the note text may
+                    # contain a UTC timestamp the parser misreads as 9 AM.
+                    if raw_content.strip().upper().startswith("AUTO FU:"):
+                        continue
                     # Strong signal: explicit FU date + time in the note text.
                     parsed = _parse_followup_from_note(raw_content, now_utc)
                     if parsed and (note_scheduled is None or parsed[0] < note_scheduled[0]):
@@ -1101,11 +1106,24 @@ class ZohoClient:
 
         activities.sort(key=lambda a: a.get("ts") or "", reverse=True)
 
-        # Priority order: explicit note-derived date > Task/Call records > note keyword > nothing.
-        # An explicit "FU on MM/DD at H:MM" written by the rep is the strongest
-        # signal of human intent — auto-generated Tasks (24h reminders, etc.)
-        # otherwise drown it out.
-        if note_scheduled:
+        # Priority: Call/Task records beat note-parsed dates when an AUTO FU
+        # call exists (those are machine-created, the note is just a log).
+        # Otherwise note-derived dates win (rep's explicit intent).
+        auto_fu_call = any(
+            kind == "Call" and (summary or "").upper().startswith("AUTO FU:")
+            for _, kind, summary, _, _ in scheduled_candidates
+        )
+        if auto_fu_call and scheduled_candidates:
+            when_dt, kind, summary, by, _id = min(scheduled_candidates, key=lambda x: x[0])
+            next_followup = {
+                "status": "scheduled",
+                "when":   when_dt.isoformat(),
+                "by":     by,
+                "summary": summary,
+                "kind":   kind,
+                "source": kind.lower(),
+            }
+        elif note_scheduled:
             when_dt, snippet, by = note_scheduled
             next_followup = {
                 "status": "scheduled",
