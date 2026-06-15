@@ -8436,10 +8436,9 @@
     }
   }
 
-  const _autoFuScheduled = new Set(JSON.parse(sessionStorage.getItem("_autoFuDone") || "[]"));
+  const _autoFuScheduled = new Set();
   function _autoFuMark(eid) {
     _autoFuScheduled.add(eid);
-    sessionStorage.setItem("_autoFuDone", JSON.stringify([..._autoFuScheduled]));
   }
 
   async function _qAutoScheduleFU(dataAttr) {
@@ -8480,10 +8479,11 @@
     if (!row) return;
     const cells = row.querySelectorAll("td");
     const when = data.call_time ? _qFmtTime(data.call_time) : "tomorrow";
+    const owner = data.owner || "Anna Parizher";
     if (cells[6]) {
-      cells[6].innerHTML = `<div title="[AUTO-FU] Follow-up: ${_qEsc(data.owner || 'Anna Parizher')}">
+      cells[6].innerHTML = `<div title="AUTO FU — ${_qEsc(owner)}">
         <span class="stage-tag s-paid">📞 ${_qEsc(when)}</span>
-        <div style="font-size:11px;color:var(--secondary);margin-top:2px">${_qEsc(data.owner || "Anna Parizher")}</div>
+        <div style="font-size:11px;color:var(--secondary);margin-top:2px">${_qEsc(owner)}</div>
       </div>`;
     }
     if (cells[7]) {
@@ -8497,7 +8497,7 @@
     }
     const q = _qLastQuotes[idx];
     if (q) {
-      q.next_followup = { status: "scheduled", when: data.call_time, by: data.owner || "Anna Parizher", summary: "[AUTO-FU]", kind: "Call", source: "call" };
+      q.next_followup = { status: "scheduled", when: data.call_time, by: owner, summary: "AUTO FU", kind: "Call", source: "call" };
       q.latest_note = "Follow Up Auto Scheduled";
     }
   }
