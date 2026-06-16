@@ -1,3 +1,5 @@
+from __future__ import annotations  # PEP 604 unions (str | None) on Python 3.9
+
 import os
 import json
 import threading
@@ -1685,12 +1687,20 @@ def api_create_followup_call():
 
 _AUTO_FU_SLOT_MINUTES = 15
 _AUTO_FU_CALLS_PER_SLOT = 2
-_AUTO_FU_START_HOUR = 10
-_AUTO_FU_END_HOUR = 19  # 7 PM
-_auto_fu_slots: dict[str, dict[str, int]] = {}  # {"2026-06-16": {"10:00": 1, "10:15": 2, ...}}
+_AUTO_FU_START_HOUR = 9
+_AUTO_FU_START_MINUTE = 30   # first slot at 9:30 AM ET
+_AUTO_FU_END_HOUR = 20       # last slot before 8:00 PM ET
+_AUTO_FU_TZ = timezone(timedelta(hours=-4))  # EDT (Miami)
+_auto_fu_slots: dict[str, dict[str, int]] = {}  # {"2026-06-16": {"09:30": 1, "09:45": 2, ...}} in ET
 
 def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
-    """Load Anna's existing call counts per 15-min slot for target_date from Zoho."""
+    """Load Anna's existing call counts per 15-min slot for target_date from Zoho.
+
+    Zoho stores Call_Start_Time in UTC. We convert to ET before bucketing
+    so the slot keys match the business-hours grid (9:30 AM – 8 PM ET).
+    The COQL date range is widened by ±1 day to catch calls that straddle
+    the UTC midnight boundary.
+    """
     if target_date in _auto_fu_slots:
         return _auto_fu_slots[target_date]
     slot_counts: dict[str, int] = {}
@@ -1699,12 +1709,16 @@ def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
         _auto_fu_slots[target_date] = slot_counts
         return slot_counts
     try:
+        # Widen to catch ET times that cross UTC midnight
+        d = datetime.strptime(target_date, "%Y-%m-%d")
+        q_start = (d - timedelta(days=1)).strftime("%Y-%m-%d")
+        q_end = (d + timedelta(days=1)).strftime("%Y-%m-%d")
         resp = requests.post(
             f"{_zoho.base_url}/crm/v6/coql",
             headers={**_zoho._headers(), "Content-Type": "application/json"},
             json={"select_query": (
                 f"select id, Call_Start_Time from Calls "
-                f"where Call_Start_Time between '{target_date}T00:00:00+00:00' and '{target_date}T23:59:59+00:00' "
+                f"where Call_Start_Time between '{q_start}T00:00:00+00:00' and '{q_end}T23:59:59+00:00' "
                 f"and Subject like 'AUTO FU:%' "
                 f"limit 200"
             )},
@@ -1714,7 +1728,9 @@ def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
             for c in resp.json().get("data", []):
                 cst = c.get("Call_Start_Time") or ""
                 try:
-                    cdt = datetime.fromisoformat(cst)
+                    cdt = datetime.fromisoformat(cst).astimezone(_AUTO_FU_TZ)
+                    if cdt.strftime("%Y-%m-%d") != target_date:
+                        continue
                     slot_h = cdt.hour
                     slot_m = (cdt.minute // _AUTO_FU_SLOT_MINUTES) * _AUTO_FU_SLOT_MINUTES
                     key = f"{slot_h:02d}:{slot_m:02d}"
@@ -1727,10 +1743,10 @@ def _auto_fu_load_slots(target_date: str) -> dict[str, int]:
     return slot_counts
 
 def _auto_fu_next_slot(target_date: str) -> str | None:
-    """Return the next available HH:MM slot on target_date, or None if full."""
+    """Return the next available HH:MM (ET) slot on target_date, or None if full."""
     counts = _auto_fu_load_slots(target_date)
     h = _AUTO_FU_START_HOUR
-    m = 0
+    m = _AUTO_FU_START_MINUTE
     while h < _AUTO_FU_END_HOUR:
         key = f"{h:02d}:{m:02d}"
         if counts.get(key, 0) < _AUTO_FU_CALLS_PER_SLOT:
@@ -1814,8 +1830,10 @@ def api_auto_schedule_followup():
             }), 409
 
         slot_h, slot_m = (int(x) for x in slot_key.split(":"))
-        call_dt = datetime(target.year, target.month, target.day,
-                           slot_h, slot_m, 0, tzinfo=timezone.utc)
+        # Slot hours are in ET — convert to UTC for Zoho
+        call_dt_et = datetime(target.year, target.month, target.day,
+                              slot_h, slot_m, 0, tzinfo=_AUTO_FU_TZ)
+        call_dt = call_dt_et.astimezone(timezone.utc)
         call_iso = call_dt.isoformat()
 
         info = _zoho.get_deal_contact(deal_id)
@@ -1850,7 +1868,7 @@ def api_auto_schedule_followup():
                     requests.post(
                         f"{_zoho.base_url}/crm/v6/Deals/{deal_id}/Notes",
                         headers={**_zoho._headers(), "Content-Type": "application/json"},
-                        json={"data": [{"Note_Content": f"AUTO FU: {customer_name} - {kind_label} — call set for {call_iso[:16].replace('T', ' ')} UTC, assigned to Anna Parizher"}]},
+                        json={"data": [{"Note_Content": f"AUTO FU: {customer_name} - {kind_label} — call set for {call_dt_et.strftime('%m/%d/%Y %I:%M %p')} ET, assigned to Anna Parizher"}]},
                         timeout=10,
                     )
                 except Exception as ne:
