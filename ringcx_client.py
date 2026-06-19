@@ -679,3 +679,40 @@ class RingCXClient:
                 "active_call_count": len(cx_calls),
             },
         }
+
+    # ══════════════════════════════════════════════════════════════
+    # SMS — send via RingCentral Platform API
+    # ══════════════════════════════════════════════════════════════
+
+    def send_sms(self, to_number: str, text: str, from_number: str = "") -> dict:
+        """Send an SMS via the RingCentral platform API.
+
+        Returns {"id": message_id, ...} on success or raises RuntimeError.
+        """
+        log = logging.getLogger(__name__)
+        if not from_number:
+            from_number = os.getenv("RC_SMS_FROM_NUMBER", "")
+        if not from_number:
+            raise RuntimeError("RC_SMS_FROM_NUMBER not configured")
+        if not to_number:
+            raise RuntimeError("No recipient phone number")
+
+        to_e164 = to_number if to_number.startswith("+") else f"+1{to_number.lstrip('+')}"
+        from_e164 = from_number if from_number.startswith("+") else f"+1{from_number.lstrip('+')}"
+
+        resp = requests.post(
+            f"{self.server_url}/restapi/v1.0/account/{self.account_id}/extension/~/sms",
+            headers={**self._rc_headers(), "Content-Type": "application/json"},
+            json={
+                "from": {"phoneNumber": from_e164},
+                "to": [{"phoneNumber": to_e164}],
+                "text": text,
+            },
+            timeout=15,
+        )
+        if not resp.ok:
+            log.error("RC SMS send failed %s: %s", resp.status_code, resp.text[:300])
+            raise RuntimeError(f"SMS send failed ({resp.status_code}): {resp.text[:200]}")
+        data = resp.json()
+        log.info("SMS sent to %s (id=%s)", to_e164, data.get("id"))
+        return data

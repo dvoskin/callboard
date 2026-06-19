@@ -769,6 +769,29 @@ class ZohoClient:
                     result[c["id"]] = normalize_phone(c.get("Phone") or "")
         return result
 
+    def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
+        """Batch-fetch Phone + Lead_Source for Contact IDs.
+
+        Returns {contact_id: {"phone": str|None, "lead_source": str}}.
+        """
+        result: dict[str, dict] = {}
+        BATCH = 100
+        for i in range(0, len(contact_ids), BATCH):
+            batch = contact_ids[i : i + BATCH]
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/Contacts",
+                headers=self._headers(),
+                params={"ids": ",".join(batch), "fields": "id,Phone,Lead_Source"},
+                timeout=20,
+            )
+            if resp.ok:
+                for c in resp.json().get("data", []):
+                    result[c["id"]] = {
+                        "phone": normalize_phone(c.get("Phone") or ""),
+                        "lead_source": c.get("Lead_Source") or "",
+                    }
+        return result
+
     # Stages that indicate the deal was successfully closed/handled outside of RingCX
     # — long-overdue scheduled calls in these stages count as completed
     STAGE_MOVED_ON = {
@@ -1185,8 +1208,9 @@ class ZohoClient:
             for c in sched_call_records
             if isinstance(c.get("Who_Id"), dict) and c["Who_Id"].get("id")
         })
-        log.info("  → fetching phones for %d contacts...", len(contact_ids))
-        contact_phones = self._fetch_contact_phones(contact_ids)
+        log.info("  → fetching phones + lead source for %d contacts...", len(contact_ids))
+        contact_details = self._fetch_contact_details(contact_ids)
+        contact_phones = {cid: d["phone"] for cid, d in contact_details.items()}
 
         # Source B: Outbound calls (RingCX + MVP) for the phones we care about.
         # Uses targeted COQL queries by phone number in Subject, avoiding the
@@ -1228,7 +1252,9 @@ class ZohoClient:
         def sched_base(rec):
             who = rec.get("Who_Id") or {}
             cid = who.get("id") if isinstance(who, dict) else None
-            phone = contact_phones.get(cid) if cid else None
+            cd = contact_details.get(cid) or {}
+            phone = cd.get("phone") if cd else contact_phones.get(cid)
+            lead_source = cd.get("lead_source", "")
             # What_Id links to the related record (usually a Deal)
             what = rec.get("What_Id") or {}
             what_id = what.get("id") if isinstance(what, dict) else None
@@ -1246,6 +1272,7 @@ class ZohoClient:
                 "id_deal": what_id,  # deal linked directly to this call
                 "name": who.get("name") if isinstance(who, dict) else "—",
                 "phone": phone,
+                "lead_source": lead_source,
                 "created_time": rec.get("Call_Start_Time"),
                 "record_created": rec.get("Created_Time"),
                 "record_modified": rec.get("Modified_Time"),

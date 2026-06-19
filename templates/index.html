@@ -3614,6 +3614,8 @@
                 <th class="col-rec">Recording</th>
                 <th class="col-fucall" style="width:44px" title="Schedule follow-up call in CRM">📞 FU</th>
                 <th class="col-nxtstep" style="width:110px" title="Next scheduled follow-up call">Next FU</th>
+                <th class="sortable col-leadsrc" onclick="sortSc('lead_source')" style="width:90px">Lead Src</th>
+                <th class="col-sms" style="width:40px" title="Send auto SMS (after 5+ dials, one-time)">💬</th>
                 <th class="col-notes" style="min-width:180px" title="Latest CRM note / AI summary">Notes</th>
               </tr>
             </thead>
@@ -5751,6 +5753,8 @@
         <td style="text-align:center" class="col-rec">${recCell}</td>
         <td style="text-align:center" class="col-fucall">${fuBtn}</td>
         <td class="col-nxtstep">${_scFuCallCell(r.id_deal)}</td>
+        <td class="col-leadsrc" style="font-size:11px">${r.lead_source || '<span class="no-data">—</span>'}</td>
+        <td style="text-align:center" class="col-sms">${_smsBtn(r)}</td>
         <td class="col-notes">${_scNotesCell(r.id_deal, r.id)}</td>
       </tr>`;
     }).join("");
@@ -5778,7 +5782,7 @@
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row collapsed" data-group="${gName}" onclick="toggleGroup(this)">
-          <td colspan="18"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+          <td colspan="20"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
         trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML.replace('<tr ', '<tr style="display:none" '); });
       }
       tbody.innerHTML = gbHtml;
@@ -8271,6 +8275,44 @@
   // ─── Inline FU / Next-Step lookup tables (power the two new SC columns) ────
   let _fuCallsByDeal = {};   // deal_id → soonest upcoming FU call object
   let _quotesByDeal  = {};   // deal_id → quote object with next_followup
+
+  // ── Auto-SMS button (enabled after 5+ dials, one-time only) ──
+  const _smsSentIds = new Set();
+  function _smsBtn(r) {
+    const dials = r.dial_attempts || 0;
+    const already = r.sms_sent || _smsSentIds.has(r.id);
+    if (already) return `<span style="font-size:11px;color:var(--secondary)" title="SMS already sent">✓</span>`;
+    if (dials < 5) return `<button class="sms-row-btn" disabled style="opacity:.3;cursor:not-allowed;font-size:12px;background:none;border:none" title="Available after 5 dial attempts (${dials}/5)">💬</button>`;
+    return `<button class="sms-row-btn" onclick="sendAutoSms('${r.id}',this)" style="font-size:12px;background:none;border:none;cursor:pointer" title="Send auto follow-up SMS to ${_qEsc(r.name || '')}">💬</button>`;
+  }
+  async function sendAutoSms(callId, btn) {
+    if (_smsSentIds.has(callId)) return;
+    if (!confirm("Send an automatic follow-up SMS to this contact?")) return;
+    btn.disabled = true;
+    btn.textContent = "…";
+    try {
+      const resp = await fetch("/api/send-auto-sms", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({call_id: callId}),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        _smsSentIds.add(callId);
+        btn.textContent = "✓";
+        btn.style.color = "var(--green-dk)";
+        btn.title = "SMS sent";
+      } else {
+        alert(data.error || "Failed to send SMS");
+        btn.disabled = false;
+        btn.textContent = "💬";
+      }
+    } catch (e) {
+      alert("Network error: " + e.message);
+      btn.disabled = false;
+      btn.textContent = "💬";
+    }
+  }
 
   function _scFuCallCell(dealId) {
     if (!dealId) return `<span style="color:var(--secondary);font-size:11px">—</span>`;

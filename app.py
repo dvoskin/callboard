@@ -159,6 +159,7 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
     for r in annotated["scheduled_calls"]["records"]:
         rid = r.get("id")
         r["resolved"] = rid in rids
+        r["sms_sent"] = rid in _sms_sent
         entry = rd.get(rid, {})
         r["note"] = entry.get("note", "")
         r["resolved_by"] = entry.get("resolved_by", "")
@@ -1880,6 +1881,54 @@ def api_auto_schedule_followup():
         return jsonify(result)
     except Exception as e:
         log.error("auto_schedule_followup: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Auto-SMS (one-time follow-up after 5+ dials) ──────────────
+_sms_sent: set[str] = set()  # call IDs that have already received an auto-SMS
+
+_AUTO_SMS_TEMPLATE = (
+    "Hi {name}, this is Goals Plastic Surgery following up on your recent consultation. "
+    "We've been trying to reach you — please call us back at your earliest convenience "
+    "or reply to this message. We're happy to help!"
+)
+
+@app.route("/api/send-auto-sms", methods=["POST"])
+@login_required
+def api_send_auto_sms():
+    body = request.get_json(force=True)
+    call_id = body.get("call_id", "").strip()
+    if not call_id:
+        return jsonify({"error": "call_id required"}), 400
+    if call_id in _sms_sent:
+        return jsonify({"error": "SMS already sent for this call"}), 409
+
+    # Look up the call record from cache to get contact phone + name + dial count
+    with _lock:
+        sc_data = (_cache.get("data") or {}).get("scheduled_calls", {})
+        records = sc_data.get("records") or []
+    rec = next((r for r in records if r.get("id") == call_id), None)
+    if not rec:
+        return jsonify({"error": "Call record not found"}), 404
+
+    dials = rec.get("dial_attempts") or 0
+    if dials < 5:
+        return jsonify({"error": f"Only {dials} dial attempts — need at least 5"}), 400
+
+    phone = rec.get("phone")
+    if not phone:
+        return jsonify({"error": "No phone number on record"}), 400
+
+    name = (rec.get("name") or "").split()[0] or "there"
+    text = _AUTO_SMS_TEMPLATE.format(name=name)
+
+    try:
+        result = _ringcx.send_sms(to_number=phone, text=text)
+        _sms_sent.add(call_id)
+        log.info("Auto-SMS sent for call %s to %s", call_id, phone)
+        return jsonify({"ok": True, "message_id": result.get("id")})
+    except Exception as e:
+        log.error("Auto-SMS failed for call %s: %s", call_id, e)
         return jsonify({"error": str(e)}), 500
 
 
