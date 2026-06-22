@@ -1188,6 +1188,7 @@ class ZohoClient:
         self,
         start_dt: Optional[datetime] = None,
         end_dt: Optional[datetime] = None,
+        supplemental_calls: Optional[dict] = None,
     ) -> dict:
         import logging
         log = logging.getLogger(__name__)
@@ -1218,6 +1219,44 @@ class ZohoClient:
         all_phones = [p for p in contact_phones.values() if p]
         log.info("Fetching outbound calls for %d unique phones...", len(set(all_phones)))
         ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
+
+        # Source C: RingEX Platform API calls (supplemental).
+        # These catch dials that RingCX made but Zoho never logged (short
+        # calls, machine detect, intercept).  Converted to Zoho-compatible
+        # format and deduped against existing Zoho records by start-time
+        # proximity (within 2 min = same call).
+        if supplemental_calls:
+            merged = 0
+            for phone, rex_calls in supplemental_calls.items():
+                if phone not in ringcx_by_phone:
+                    ringcx_by_phone[phone] = []
+                existing = ringcx_by_phone[phone]
+                existing_times = set()
+                for c in existing:
+                    t = self._parse_dt(c.get("Call_Start_Time"))
+                    if t:
+                        existing_times.add(int(t.timestamp()))
+                for rc in rex_calls:
+                    rc_t = self._parse_dt(rc.get("start_time"))
+                    if not rc_t:
+                        continue
+                    rc_ts = int(rc_t.timestamp())
+                    if any(abs(rc_ts - et) < 120 for et in existing_times):
+                        continue
+                    existing.append({
+                        "Call_Start_Time": rc.get("start_time"),
+                        "Subject": f"Outgoing call to {rc.get('to_number', phone)}",
+                        "Outgoing_call_disposition": None,
+                        "Owner": None,
+                        "Description": "",
+                        "_source": "ringex",
+                        "_duration": rc.get("duration", 0),
+                        "_result": rc.get("result", ""),
+                    })
+                    existing_times.add(rc_ts)
+                    merged += 1
+            if merged:
+                log.info("Merged %d RingEX supplemental calls into phone map", merged)
 
         nd_phone_to_calls = {}
 

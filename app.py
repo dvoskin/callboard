@@ -303,84 +303,19 @@ def _find_closest_call_for_record(rec_id: str):
         return None
 
 
-def _ringex_backfill(data: dict) -> int:
-    """For scheduled calls that Zoho shows as missed with 0 dials,
-    check RingEX call log as a fallback — RingCX campaign dials that
-    didn't connect long enough often skip Zoho but appear in RingEX."""
-    sc = data.get("scheduled_calls", {})
-    records = sc.get("records", [])
-    missed_phones: dict[str, list[dict]] = {}
-    for r in records:
-        if r.get("status") in ("missed", "late") and r.get("dial_attempts", 0) == 0:
-            phone = r.get("phone")
-            if phone:
-                from zoho_client import normalize_phone
-                norm = normalize_phone(phone)
-                if norm:
-                    missed_phones.setdefault(norm, []).append(r)
-
-    if not missed_phones:
-        return 0
-
-    log.info("RingEX backfill: checking %d missed phones with 0 dials...", len(missed_phones))
-    try:
-        ringex_calls = _ringcx.fetch_todays_outbound_calls()
-    except Exception as e:
-        log.warning("RingEX backfill fetch failed: %s", e)
-        return 0
-
-    patched = 0
-    for norm_phone, recs in missed_phones.items():
-        calls = ringex_calls.get(norm_phone, [])
-        if not calls:
-            continue
-        # Find the most recent outbound call
-        calls_sorted = sorted(calls, key=lambda c: c.get("start_time") or "", reverse=True)
-        best = calls_sorted[0]
-        for r in recs:
-            r["status"] = "completed"
-            r["dial_attempts"] = len(calls)
-            r["actual_call_time"] = best.get("start_time")
-            r["logged_via"] = "ringex_fallback"
-            r["on_time"] = False
-            r["last_attempt_time"] = best.get("start_time")
-            r.pop("minutes_overdue", None)
-            patched += 1
-
-    if patched:
-        # Recompute summary
-        all_recs = records
-        called = [r for r in all_recs if r["status"] in ("completed", "early", "completed_via_workflow")]
-        on_time = [r for r in all_recs if r["status"] == "completed" and r.get("on_time")]
-        early = [r for r in all_recs if r["status"] == "early"]
-        via_wf = [r for r in all_recs if r["status"] == "completed_via_workflow"]
-        missed = [r for r in all_recs if r["status"] == "missed"]
-        late = [r for r in all_recs if r["status"] == "late"]
-        upcoming = [r for r in all_recs if r["status"] == "upcoming"]
-        sc["summary"] = {
-            "total": len(all_recs),
-            "completed": len(called),
-            "on_time": len(on_time),
-            "early": len(early),
-            "via_deal": len([r for r in all_recs if r.get("deal_moved_on")]),
-            "via_workflow": len(via_wf),
-            "missed": len(missed),
-            "late": len(late),
-            "upcoming": len(upcoming),
-            "on_time_rate": round((len(on_time) + len(early)) / len(called) * 100) if called else None,
-            "completion_rate": round(len(called) / len(all_recs) * 100) if all_recs else None,
-        }
-        log.info("RingEX backfill: patched %d records from missed → completed", patched)
-
-    return patched
-
-
 def _refresh():
     log.info("Refreshing dashboard data...")
     try:
-        data = _zoho.get_dashboard_data()
+        # Fetch RingEX call log as a supplemental source so that ALL dial
+        # attempts (including short RingCX campaign calls that Zoho never
+        # logs) feed into classification from the start.
+        supplemental = None
         if _ringcx.configured:
-            _ringex_backfill(data)
+            try:
+                supplemental = _ringcx.fetch_todays_outbound_calls()
+            except Exception as e:
+                log.warning("RingEX supplemental fetch failed: %s", e)
+        data = _zoho.get_dashboard_data(supplemental_calls=supplemental)
         ts = datetime.now(timezone.utc).isoformat()
         with _lock:
             _cache["data"] = data
@@ -542,8 +477,14 @@ def api_data():
             effective_end = end_param or start_param
             start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
             end_dt   = _parse_local_date_to_utc(effective_end, 23, 59, 59, tz_offset_minutes)
+            sup = None
+            if _ringcx.configured:
+                try:
+                    sup = _ringcx.fetch_todays_outbound_calls()
+                except Exception:
+                    pass
             with ThreadPoolExecutor(max_workers=1) as ex:
-                future = ex.submit(_zoho.get_dashboard_data, start_dt=start_dt, end_dt=end_dt)
+                future = ex.submit(_zoho.get_dashboard_data, start_dt=start_dt, end_dt=end_dt, supplemental_calls=sup)
                 data = future.result(timeout=85)  # hard cap — gunicorn worker timeout is 90s
             rd = resolved_data_full()
             annotated = json.loads(json.dumps(data))
