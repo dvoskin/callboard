@@ -4264,7 +4264,7 @@
       `<div class="kpi-card">
         <div class="kpi-lbl">Total Today</div>
         <div class="kpi-val">${total}</div>
-        <div class="kpi-sub"><strong>${upcoming.length}</strong> still upcoming · <strong>${callsDue}</strong> due now</div>
+        <div class="kpi-sub"><strong>${filteredUpcoming.length}</strong> still upcoming · <strong>${callsDue}</strong> due now</div>
         <div class="kpi-context"><span class="kpi-target">target —</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline("var(--blue)", null)}
       </div>`,
@@ -4656,24 +4656,28 @@
     renderPipelineTiles(sc.records);
     renderAiInsights(sc, upcoming, unresolvedOverdue, _liveActiveCalls);
 
-    const _callsDue = sc.records.length - upcoming.length;
-    const _liveCompletion = _callsDue > 0 ? Math.round((s.completed / _callsDue) * 100) : null;
-    // Adjusted completion including resolved-by-manager
-    const _resolvedN = sc.records.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
-    const _adjCompleted = s.completed + _resolvedN;
+    // ── Stat strip — must respect agent filter like hero KPIs ──
+    const _filt = filterBySelectedAgents(sc.records);
+    const _sf = _liveSelectedAgents.size > 0 ? recomputeSummary(_filt) : s;
+    const _filtUpcoming = _filt.filter(r => r.status === "upcoming");
+    const _total = _filt.length;
+    const _callsDue = _total - _filtUpcoming.length;
+    const _liveCompletion = _callsDue > 0 ? Math.round((_sf.completed / _callsDue) * 100) : null;
+    const _resolvedN = _filt.filter(r => r.resolved && (r.status === "missed" || r.status === "late")).length;
+    const _adjCompleted = _sf.completed + _resolvedN;
     const _adjCompletion = _callsDue > 0 ? Math.round((_adjCompleted / _callsDue) * 100) : null;
-    const _total = sc.records.length;
     const _pct = v => _total > 0 ? Math.round((v / _total) * 100) : 0;
+    const _filtLate = _filt.filter(r => r.status === "late").length;
+    const _filtWf = _filt.filter(r => r.status === "completed_via_workflow").length;
     document.getElementById("sc-stats").innerHTML = [
       statPill("Total",          _total, "blue"),
-      statPill("Completed",      s.completed,  "green",  _pct(s.completed), _resolvedN > 0 ? `${_adjCompletion}% w/ resolved` : null),
-      statPill("On Time",        s.on_time,    s.on_time===s.completed&&s.completed>0?"green":"orange", _pct(s.on_time)),
-      statPill("Early",          s.early,      s.early>0?"teal":"green", _pct(s.early)),
-      // via_deal stat pill removed — deal movement no longer changes call status
-      statPill("Workflow",       s.via_workflow||0, (s.via_workflow||0)>0?"teal":"green", _pct(s.via_workflow||0)),
-      statPill("Missed",         s.missed,     s.missed>0?"red":"green", _pct(s.missed)),
-      statPill("Overdue",        s.late,       s.late>0?"orange":"green", _pct(s.late)),
-      statPill("Upcoming",       upcoming.length, "blue", _pct(upcoming.length)),
+      statPill("Completed",      _sf.completed,  "green",  _pct(_sf.completed), _resolvedN > 0 ? `${_adjCompletion}% w/ resolved` : null),
+      statPill("On Time",        _sf.on_time,    _sf.on_time===_sf.completed&&_sf.completed>0?"green":"orange", _pct(_sf.on_time)),
+      statPill("Early",          _sf.early,      _sf.early>0?"teal":"green", _pct(_sf.early)),
+      statPill("Workflow",       _filtWf, _filtWf>0?"teal":"green", _pct(_filtWf)),
+      statPill("Missed",         _sf.missed,     _sf.missed>0?"red":"green", _pct(_sf.missed)),
+      statPill("Overdue",        _filtLate,       _filtLate>0?"orange":"green", _pct(_filtLate)),
+      statPill("Upcoming",       _filtUpcoming.length, "blue", _pct(_filtUpcoming.length)),
     ].join("");
 
     populateDisp("sc-disp-filter", past);
