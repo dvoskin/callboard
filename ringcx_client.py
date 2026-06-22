@@ -681,6 +681,82 @@ class RingCXClient:
         }
 
     # ══════════════════════════════════════════════════════════════
+    # RingEX — bulk outbound call log for fallback matching
+    # ══════════════════════════════════════════════════════════════
+
+    def fetch_todays_outbound_calls(self) -> dict[str, list[dict]]:
+        """Fetch today's outbound calls from RingEX call log, keyed by last-10-digit phone.
+
+        Returns {normalized_phone: [call_records]} for all outbound calls
+        placed today.  Used as a fallback when Zoho has no call record for
+        a scheduled call that RingCX actually dialed.
+        """
+        import re
+        try:
+            self._ensure_rc_token()
+            date_from = (datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0)
+                - timedelta(hours=6)  # cover timezone slack
+            ).isoformat()
+
+            phone_map: dict[str, list[dict]] = {}
+            page = 1
+            max_pages = 8  # 2000 records max
+
+            while page <= max_pages:
+                resp = requests.get(
+                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log",
+                    headers=self._rc_headers(),
+                    params={
+                        "direction": "Outbound",
+                        "dateFrom": date_from,
+                        "view": "Simple",
+                        "perPage": 250,
+                        "page": page,
+                    },
+                    timeout=20,
+                )
+                if resp.status_code == 204:
+                    break
+                if not resp.ok:
+                    log.warning("RingEX bulk call-log page %d failed: %s", page, resp.status_code)
+                    break
+                data = resp.json()
+                records = data.get("records", [])
+
+                for rec in records:
+                    to_obj = rec.get("to") or {}
+                    to_num = to_obj.get("phoneNumber") or ""
+                    digits = re.sub(r"\D", "", to_num)
+                    norm = digits[-10:] if len(digits) >= 10 else ""
+                    if not norm:
+                        continue
+                    phone_map.setdefault(norm, []).append({
+                        "id": rec.get("id"),
+                        "start_time": rec.get("startTime"),
+                        "duration": rec.get("duration", 0),
+                        "result": rec.get("result", ""),
+                        "direction": "Outbound",
+                        "to_number": to_num,
+                        "source": "ringex",
+                    })
+
+                nav = data.get("navigation", {})
+                if page < nav.get("totalPages", 1):
+                    page += 1
+                else:
+                    break
+
+            total = sum(len(v) for v in phone_map.values())
+            log.info("RingEX bulk outbound: %d calls across %d phones (%d pages)",
+                     total, len(phone_map), page)
+            return phone_map
+
+        except Exception as e:
+            log.error("RingEX bulk outbound fetch error: %s", e)
+            return {}
+
+    # ══════════════════════════════════════════════════════════════
     # SMS — send via RingCentral Platform API
     # ══════════════════════════════════════════════════════════════
 
