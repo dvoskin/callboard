@@ -4270,16 +4270,20 @@
 
   // Recompute summary stats for a filtered subset of records
   function recomputeSummary(records) {
-    let on_time = 0, early = 0, completed = 0, missed = 0;
+    let on_time = 0, early = 0, completed = 0, missed = 0, via_workflow = 0;
     records.forEach(r => {
-      if (r.status === "completed" || r.status === "early") {
+      // "completed" must include workflow auto-completions to match the
+      // backend summary() and schedSummary(); otherwise the count drops the
+      // moment an agent filter is applied.
+      if (r.status === "completed" || r.status === "early" || r.status === "completed_via_workflow") {
         completed++;
         if (r.status === "early") early++;
+        else if (r.status === "completed_via_workflow") via_workflow++;
         else if (r.on_time) on_time++;
       } else if (r.status === "missed") missed++;
     });
     const on_time_rate = completed > 0 ? Math.round((on_time + early) / completed * 100) : 0;
-    return { ...({total: records.length, completed, on_time, early, missed, on_time_rate}) };
+    return { ...({total: records.length, completed, on_time, early, missed, via_workflow, on_time_rate}) };
   }
 
   function renderHeroKpis(sc, upcoming, overdue) {
@@ -4402,8 +4406,9 @@
     const filtered = filterBySelectedAgents(records);
     const el = document.getElementById("pipeline-tiles");
 
-    // "Calls Completed" from scheduled call records
-    const completedHits = filtered.filter(r => r.status === "completed" || r.status === "early");
+    // "Calls Completed" from scheduled call records — include workflow
+    // auto-completions so this tile matches the Completed KPI/stat strip.
+    const completedHits = filtered.filter(r => r.status === "completed" || r.status === "early" || r.status === "completed_via_workflow");
     const completedByAgent = {};
     completedHits.forEach(r => {
       const agent = r.caller || r.deal_owner || "Unassigned";
@@ -4465,7 +4470,7 @@
     const stageMap = [
       { apiKey: "Quote Sent",                   label: `Quotes Sent${suffix}`,    color: "pt-blue" },
       { apiKey: "Retainer Invoice Sent",        label: `Quotes Signed${suffix}`,  color: "pt-purple" },
-      { apiKey: "Closed Won - Surgery Scheduled", label: `Retainers Paid${suffix}`, color: "pt-teal" },
+      { apiKey: "Retainers Paid",               label: `Retainers Paid${suffix}`, color: "pt-teal" },
     ];
 
     const tiles = [buildTile("Calls Completed", "pt-green", completedHits.length, completedSorted)];
@@ -7731,7 +7736,7 @@
   let _aaRows = [];
   let _aaSort = { key: "calls", dir: -1 };  // default: most calls first
 
-  function _aaToday() { return new Date().toISOString().slice(0, 10); }
+  function _aaToday() { return todayISO(); }  // local calendar day, not UTC
   function _aaInitToday() {
     const s = document.getElementById("aa-date-start");
     const e = document.getElementById("aa-date-end");

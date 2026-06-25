@@ -988,9 +988,15 @@ def api_pipeline():
 
         # Override the document-issuance stages with Books data — actual sends, not edits.
         if _books.configured:
-            today = datetime.now(timezone.utc).date()
-            date_start = (start_dt.date().isoformat() if start_dt else today.isoformat())
-            date_end   = (end_dt.date().isoformat() if end_dt else today.isoformat())
+            # Books filters on its own document date by LOCAL calendar day, so
+            # feed it the user's local date strings (the same ones the calls
+            # table uses) — not a UTC date derived from the converted datetime,
+            # which drifts to the wrong day near midnight Central.
+            tz_hours = (-tz_offset_minutes / 60.0) if tz_offset_minutes is not None \
+                else float(os.environ.get("TZ_OFFSET_HOURS", "-6"))
+            local_today = (datetime.now(timezone.utc) + timedelta(hours=tz_hours)).date().isoformat()
+            date_start = start_param or local_today
+            date_end   = end_param or start_param or local_today
             try:
                 estimates = _books.list_sent_estimates(date_start, date_end, max_records=500)
                 counts["Quote Sent"] = _books_count_by_salesperson(estimates)
@@ -1001,6 +1007,13 @@ def api_pipeline():
                 counts["Retainer Invoice Sent"] = _books_count_by_salesperson(retainers)
             except Exception as ex:
                 log.warning("Books retainers fetch for pipeline failed: %s", ex)
+            # "Retainers Paid" = real paid retainer invoices (a payment fact),
+            # replacing the old proxy that counted the CRM Closed-Won stage.
+            try:
+                paid = _books.list_paid_retainer_invoices(date_start, date_end, max_records=500)
+                counts["Retainers Paid"] = _books_count_by_salesperson(paid)
+            except Exception as ex:
+                log.warning("Books paid-retainers fetch for pipeline failed: %s", ex)
         return jsonify(counts)
     except Exception as e:
         log.exception("Pipeline counts error")
@@ -2048,8 +2061,13 @@ def api_agent_analytics():
         tz_param   = request.args.get("tz")
         tz_offset_minutes = int(tz_param) if tz_param is not None else None
 
-        start_iso = f"{date_start}T00:00:00+00:00"
-        end_iso   = f"{date_end}T23:59:59+00:00"
+        # Convert the selected local day to a UTC window using the browser's tz
+        # (falling back to TZ_OFFSET_HOURS). Used for BOTH the calls query and
+        # the closings query so every metric covers the same local day.
+        start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
+        end_dt   = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
+        start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        end_iso   = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
         threshold = AGENT_ANALYTICS_LONG_CALL_SECONDS
 
         agents: dict = {}
@@ -2099,8 +2117,6 @@ def api_agent_analytics():
 
         # ── Closings: CRM Closed Won - Surgery Scheduled by owner ──
         try:
-            start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
-            end_dt   = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
             counts = _zoho.get_pipeline_counts(start_dt=start_dt, end_dt=end_dt)
             closed = counts.get("Closed Won - Surgery Scheduled") or {}
             for row in closed.get("by_agent", []):
