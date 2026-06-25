@@ -2023,6 +2023,121 @@ def api_fu_activity():
         }), 500
 
 
+# Talk-time bucket boundary: calls at/over this many seconds count as "over 3 min".
+AGENT_ANALYTICS_LONG_CALL_SECONDS = 180
+
+
+@app.route("/api/agent-analytics")
+@login_required
+def api_agent_analytics():
+    """Per-sales-agent performance dashboard for a date range (defaults to today).
+
+    Combines three sources, keyed by agent name:
+      • Calls made + duration buckets + total talk time — Zoho CRM Calls
+        (a call counts as "made" once it carries a disposition).
+      • Quotes sent — Zoho Books estimates grouped by salesperson.
+      • Closings — CRM "Closed Won - Surgery Scheduled" deals grouped by owner.
+
+    Agent identity is reconciled by exact name match across systems. A Books
+    salesperson name that doesn't match a CRM owner simply shows as its own row.
+    """
+    try:
+        today = datetime.now(timezone.utc).date()
+        date_start = request.args.get("start") or today.isoformat()
+        date_end   = request.args.get("end")   or date_start
+        tz_param   = request.args.get("tz")
+        tz_offset_minutes = int(tz_param) if tz_param is not None else None
+
+        start_iso = f"{date_start}T00:00:00+00:00"
+        end_iso   = f"{date_end}T23:59:59+00:00"
+        threshold = AGENT_ANALYTICS_LONG_CALL_SECONDS
+
+        agents: dict = {}
+
+        def _agent(name):
+            key = (name or "").strip() or "Unassigned"
+            if key not in agents:
+                agents[key] = {
+                    "name": key,
+                    "calls": 0,
+                    "calls_under_3m": 0,
+                    "calls_over_3m": 0,
+                    "talk_seconds": 0,
+                    "quotes": 0,
+                    "closings": 0,
+                }
+            return agents[key]
+
+        # ── Calls: count worked (dispositioned) calls, bucket by duration ──
+        calls = _zoho.get_followup_activities(start_iso, end_iso, limit=1000)
+        for c in calls:
+            if c.get("status") != "Completed":
+                continue  # Scheduled (future) / Missed (no disposition) aren't "made"
+            a = _agent(c.get("owner_name"))
+            a["calls"] += 1
+            try:
+                dur = int(c.get("duration") or 0)
+            except (TypeError, ValueError):
+                dur = 0
+            a["talk_seconds"] += dur
+            if dur >= threshold:
+                a["calls_over_3m"] += 1
+            else:
+                a["calls_under_3m"] += 1
+        if len(calls) >= 1000:
+            log.warning("agent-analytics: call fetch hit the 1000-row cap — "
+                        "counts may undercount for %s..%s", date_start, date_end)
+
+        # ── Quotes sent: Books estimates by salesperson ──
+        if _books.configured:
+            try:
+                estimates = _books.list_sent_estimates(date_start, date_end, max_records=500)
+                for e in estimates:
+                    _agent(e.get("salesperson_name"))["quotes"] += 1
+            except Exception as ex:
+                log.warning("agent-analytics quotes fetch failed: %s", ex)
+
+        # ── Closings: CRM Closed Won - Surgery Scheduled by owner ──
+        try:
+            start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
+            end_dt   = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
+            counts = _zoho.get_pipeline_counts(start_dt=start_dt, end_dt=end_dt)
+            closed = counts.get("Closed Won - Surgery Scheduled") or {}
+            for row in closed.get("by_agent", []):
+                _agent(row.get("name"))["closings"] += int(row.get("count") or 0)
+        except Exception as ex:
+            log.warning("agent-analytics closings fetch failed: %s", ex)
+
+        rows = sorted(agents.values(), key=lambda r: (-r["calls"], r["name"].lower()))
+        for r in rows:
+            r["talk_minutes"] = round(r["talk_seconds"] / 60.0, 1)
+
+        totals = {
+            "agents":         len(rows),
+            "calls":          sum(r["calls"] for r in rows),
+            "calls_under_3m": sum(r["calls_under_3m"] for r in rows),
+            "calls_over_3m":  sum(r["calls_over_3m"] for r in rows),
+            "talk_seconds":   sum(r["talk_seconds"] for r in rows),
+            "talk_minutes":   round(sum(r["talk_seconds"] for r in rows) / 60.0, 1),
+            "quotes":         sum(r["quotes"] for r in rows),
+            "closings":       sum(r["closings"] for r in rows),
+        }
+
+        return jsonify({
+            "status": "ok",
+            "date_range": {"start": date_start, "end": date_end},
+            "rows": rows,
+            "totals": totals,
+        })
+    except Exception as e:
+        log.exception("/api/agent-analytics error")
+        return jsonify({
+            "status": "error",
+            "message": f"{type(e).__name__}: {e}",
+            "rows": [], "totals": {},
+        }), 500
+
+
 @app.route("/api/followup-calls")
 @login_required
 def api_followup_calls():

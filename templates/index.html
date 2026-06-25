@@ -3386,6 +3386,9 @@
     <button class="dash-tab" data-tab="tab-followup" onclick="switchDashTab('tab-followup')">
       🎯 Follow Up
     </button>
+    <button class="dash-tab" data-tab="tab-agents" onclick="switchDashTab('tab-agents')">
+      📈 Agent Performance
+    </button>
   </div>
 
   <!-- ══════════════════════ TAB: LIVE DASHBOARD ══════════════════════ -->
@@ -3750,6 +3753,48 @@
   </div>
 
   </div><!-- /tab-followup -->
+
+  <!-- ══════════════════════ TAB: AGENT PERFORMANCE ══════════════════════ -->
+  <div id="tab-agents" class="dash-pane" hidden>
+    <div class="card" id="card-agent-analytics">
+      <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <h2 style="margin:0">📈 Agent Performance</h2>
+        <span class="chip" id="aa-count">0</span>
+        <span id="aa-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
+        <button class="filter-clear" onclick="loadAgentAnalytics()" title="Refresh">↻</button>
+      </div>
+      <div class="card-date-bar">
+        <span class="cdb-label">Date</span>
+        <input type="date" id="aa-date-start" class="cdb-input">
+        <span class="cdb-sep">→</span>
+        <input type="date" id="aa-date-end" class="cdb-input">
+        <button class="cdb-apply" onclick="loadAgentAnalytics()">Apply</button>
+        <button class="cdb-today" onclick="agentAnalyticsResetToday()">↩ Today</button>
+        <span class="cdb-loading" id="aa-loading" style="display:none"><span class="mini-spinner"></span>Loading…</span>
+      </div>
+      <div class="card-body">
+        <div class="stat-strip" id="aa-stats" style="display:none"></div>
+        <div class="table-wrap">
+          <table id="aa-table" class="quotes-compact">
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortAgentAnalytics('name')">Agent</th>
+                <th class="sortable" onclick="sortAgentAnalytics('calls')" style="text-align:right">Calls</th>
+                <th class="sortable" onclick="sortAgentAnalytics('calls_under_3m')" style="text-align:right" title="Calls shorter than 3 minutes">&lt; 3 min</th>
+                <th class="sortable" onclick="sortAgentAnalytics('calls_over_3m')" style="text-align:right" title="Calls 3 minutes or longer">&ge; 3 min</th>
+                <th class="sortable" onclick="sortAgentAnalytics('talk_seconds')" style="text-align:right">Talk Time</th>
+                <th class="sortable" onclick="sortAgentAnalytics('quotes')" style="text-align:right">Quotes</th>
+                <th class="sortable" onclick="sortAgentAnalytics('closings')" style="text-align:right">Closings</th>
+              </tr>
+            </thead>
+            <tbody id="aa-tbody">
+              <tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">Pick a date and click Apply.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-agents -->
 
 </main>
 
@@ -7631,6 +7676,7 @@
   const _DASH_TAB_KEY = () => `dashboard:activeTab:v1:${(CURRENT_USER_NAME || "anon").replace(/\s+/g, "_").toLowerCase()}`;
   let _qLoadedOnce = false;
   let _fuaLoadedOnce = false;
+  let _aaLoadedOnce = false;
   function switchDashTab(tabId) {
     document.querySelectorAll(".dash-pane").forEach(p => {
       p.hidden = p.id !== tabId;
@@ -7648,11 +7694,19 @@
         loadQuotes();
       }
     }
+    if (tabId === "tab-agents") {
+      // First time on this tab: fetch the agent performance dashboard once.
+      if (!_aaLoadedOnce && typeof loadAgentAnalytics === "function") {
+        _aaLoadedOnce = true;
+        loadAgentAnalytics();
+      }
+    }
   }
   function _initDashTabs() {
     let saved = null;
     try { saved = localStorage.getItem(_DASH_TAB_KEY()); } catch {}
-    switchDashTab(saved === "tab-followup" ? "tab-followup" : "tab-live");
+    const valid = ["tab-live", "tab-followup", "tab-agents"];
+    switchDashTab(valid.includes(saved) ? saved : "tab-live");
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); _fuaBootstrap(); _initDashTabs(); });
@@ -7662,6 +7716,104 @@
     _qBootstrapPanel();
     _fuaBootstrap();
     _initDashTabs();
+  }
+
+  // ═══════════════════ AGENT PERFORMANCE DASHBOARD ════════════════════
+  let _aaRows = [];
+  let _aaSort = { key: "calls", dir: -1 };  // default: most calls first
+
+  function _aaToday() { return new Date().toISOString().slice(0, 10); }
+  function _aaInitToday() {
+    const s = document.getElementById("aa-date-start");
+    const e = document.getElementById("aa-date-end");
+    if (s && !s.value) s.value = _aaToday();
+    if (e && !e.value) e.value = _aaToday();
+  }
+  function agentAnalyticsResetToday() {
+    const today = _aaToday();
+    document.getElementById("aa-date-start").value = today;
+    document.getElementById("aa-date-end").value   = today;
+    loadAgentAnalytics();
+  }
+  // Seconds → compact "1h 04m" / "7m 30s" / "0s"
+  function _aaFmtTalk(seconds) {
+    const s = Math.max(0, Math.round(seconds || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+    if (m > 0) return `${m}m ${String(sec).padStart(2, "0")}s`;
+    return `${sec}s`;
+  }
+  function sortAgentAnalytics(key) {
+    _aaSort.dir = _aaSort.key === key ? -_aaSort.dir : (key === "name" ? 1 : -1);
+    _aaSort.key = key;
+    _aaRenderRows();
+  }
+  function _aaRenderRows() {
+    const tbody = document.getElementById("aa-tbody");
+    if (!_aaRows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">No agent activity for this date.</td></tr>`;
+      updateSortHeaders("card-agent-analytics", _aaSort);
+      return;
+    }
+    const sorted = sortedBy(_aaRows, _aaSort.key, _aaSort.dir);
+    updateSortHeaders("card-agent-analytics", _aaSort);
+    const numCell = (v, strong) =>
+      `<td style="text-align:right${strong ? ';font-weight:600' : ''}">${v ?? 0}</td>`;
+    tbody.innerHTML = sorted.map(r => `
+      <tr>
+        <td style="font-weight:600">${_qEsc(r.name || "Unassigned")}</td>
+        ${numCell(r.calls, true)}
+        ${numCell(r.calls_under_3m)}
+        ${numCell(r.calls_over_3m)}
+        <td style="text-align:right" title="${r.talk_seconds || 0} seconds">${_aaFmtTalk(r.talk_seconds)}</td>
+        ${numCell(r.quotes)}
+        ${numCell(r.closings)}
+      </tr>`).join("");
+  }
+  async function loadAgentAnalytics() {
+    _aaInitToday();
+    const start = document.getElementById("aa-date-start").value || _aaToday();
+    const end   = document.getElementById("aa-date-end").value   || start;
+    const loading = document.getElementById("aa-loading");
+    const statusMsg = document.getElementById("aa-status-msg");
+    if (loading) loading.style.display = "";
+    if (statusMsg) statusMsg.textContent = "";
+    try {
+      const tz = new Date().getTimezoneOffset();
+      const url = `/api/agent-analytics?start=${start}&end=${end}&tz=${tz}`;
+      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (resp.status === 401) { window.location.href = "/login"; return; }
+      const data = await resp.json();
+      if (data.status === "error") {
+        if (statusMsg) statusMsg.textContent = "⚠ " + (data.message || "Failed to load");
+        _aaRows = []; _aaRenderRows();
+        return;
+      }
+      _aaRows = data.rows || [];
+      document.getElementById("aa-count").textContent = _aaRows.length;
+
+      const t = data.totals || {};
+      const strip = document.getElementById("aa-stats");
+      strip.style.display = "";
+      strip.innerHTML = [
+        statPill("Agents",    t.agents ?? 0,         "blue"),
+        statPill("Calls",     t.calls ?? 0,          "blue"),
+        statPill("< 3 min",   t.calls_under_3m ?? 0, "orange"),
+        statPill("≥ 3 min",   t.calls_over_3m ?? 0,  "teal"),
+        statPill("Talk Time", _aaFmtTalk(t.talk_seconds), "green"),
+        statPill("Quotes",    t.quotes ?? 0,         "blue"),
+        statPill("Closings",  t.closings ?? 0,       "green"),
+      ].join("");
+
+      _aaRenderRows();
+    } catch (e) {
+      if (statusMsg) statusMsg.textContent = "⚠ " + e.message;
+      _aaRows = []; _aaRenderRows();
+    } finally {
+      if (loading) loading.style.display = "none";
+    }
   }
 
   // ═══════════════════ FOLLOW UP ACTIVITY TRACKER ═════════════════════
