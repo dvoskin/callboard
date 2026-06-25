@@ -757,6 +757,218 @@ class RingCXClient:
             return {}
 
     # ══════════════════════════════════════════════════════════════
+    # Per-agent call analytics (RingCX CDR + RingEX call-log)
+    # ══════════════════════════════════════════════════════════════
+
+    def _fetch_ringcx_cdr_rows(self, start_dt: datetime, end_dt: datetime) -> list[dict]:
+        """All RingCX (Engage Voice) CDR rows in [start_dt, end_dt].
+
+        Same GLOBAL_CALL_TYPE_DELIMITED report as search_ringcx_call_history,
+        but WITHOUT the single-phone filter — returns every call with its
+        Agent Name, so we can roll up per-agent stats.
+        """
+        try:
+            self._ensure_cx_token()
+            if not self._cx_account_id:
+                return []
+            resp = requests.post(
+                f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming",
+                headers={**self._cx_headers(), "Content-Type": "application/json"},
+                json={
+                    "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
+                    "reportCriteria": {
+                        "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
+                        "startDate": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                        "endDate": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                        "containGates": True,
+                        "containCampaigns": True,
+                        "containIvrStudios": False,
+                        "containCloudProfiles": False,
+                        "containTracNumbers": False,
+                        "containAgents": True,
+                    },
+                },
+                timeout=45,
+            )
+            if resp.status_code in (204, 400, 404):
+                log.info("RingCX CDR (all): no data / unavailable (%d)", resp.status_code)
+                return []
+            resp.raise_for_status()
+            text = resp.text or ""
+            lines = text.strip().split("\n")
+            if len(lines) < 2:
+                return []
+            header = [h.strip().strip('"') for h in lines[0].split("|")]
+            rows = []
+            for line in lines[1:]:
+                fields = [f.strip().strip('"') for f in line.split("|")]
+                row = dict(zip(header, fields))
+                try:
+                    duration = int(float(row.get("Call Duration", "0") or "0"))
+                except (ValueError, TypeError):
+                    duration = 0
+                rows.append({
+                    "agent_name": row.get("Agent Name", "") or "",
+                    "duration": duration,
+                    "direction": row.get("Call Direction", "") or "",
+                    "result": row.get("Call Result", row.get("Call Status", "")) or "",
+                    "start_time": row.get("Enqueue Time", row.get("Call Start", "")) or "",
+                    "source": "ringcx",
+                })
+            log.info("RingCX CDR (all): %d rows %s..%s",
+                     len(rows), start_dt.date(), end_dt.date())
+            return rows
+        except Exception as e:
+            log.error("RingCX CDR (all) error: %s", e)
+            return []
+
+    def _fetch_ringex_agent_calls(self, start_dt: datetime, end_dt: datetime) -> list[dict]:
+        """All RingEX platform call-log calls in [start_dt, end_dt], attributed
+        to the internal user extension on the call.
+
+        Each call is credited to the agent whose extension placed (outbound) or
+        answered (inbound) it, resolved against the User-extension roster. Calls
+        with no internal extension (pure external/queue legs) get no agent and
+        are dropped by the caller.
+        """
+        try:
+            self._ensure_rc_token()
+            ext_names = self._fetch_extension_names()  # {ext_id: {name, extensionNumber}}
+            date_from = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            date_to = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            out: list[dict] = []
+            page = 1
+            max_pages = 20  # 5000 records
+            while page <= max_pages:
+                resp = requests.get(
+                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log",
+                    headers=self._rc_headers(),
+                    params={
+                        "dateFrom": date_from,
+                        "dateTo": date_to,
+                        "view": "Detailed",
+                        "perPage": 250,
+                        "page": page,
+                    },
+                    timeout=25,
+                )
+                if resp.status_code == 204:
+                    break
+                if not resp.ok:
+                    log.warning("RingEX call-log page %d failed: %s", page, resp.status_code)
+                    break
+                data = resp.json()
+                for rec in data.get("records", []):
+                    frm = rec.get("from") or {}
+                    to = rec.get("to") or {}
+                    direction = rec.get("direction", "") or ""
+                    from_ext = str(frm.get("extensionId") or "")
+                    to_ext = str(to.get("extensionId") or "")
+                    # The agent is the internal extension's side. Prefer the
+                    # direction-appropriate leg, then fall back to whichever
+                    # side is a known User extension.
+                    agent = ""
+                    if direction == "Outbound" and from_ext in ext_names:
+                        agent = ext_names[from_ext]["name"]
+                    elif direction == "Inbound" and to_ext in ext_names:
+                        agent = ext_names[to_ext]["name"]
+                    elif from_ext in ext_names:
+                        agent = ext_names[from_ext]["name"]
+                    elif to_ext in ext_names:
+                        agent = ext_names[to_ext]["name"]
+                    else:
+                        # Fall back to the party name RC reports for the ext leg.
+                        agent = (frm.get("name") if direction == "Outbound" else to.get("name")) or ""
+                    out.append({
+                        "agent_name": agent or "",
+                        "duration": rec.get("duration", 0) or 0,
+                        "direction": direction,
+                        "result": rec.get("result", "") or "",
+                        "start_time": rec.get("startTime", "") or "",
+                        "source": "ringex",
+                    })
+                nav = data.get("navigation", {})
+                if page < nav.get("totalPages", 1):
+                    page += 1
+                else:
+                    break
+            log.info("RingEX call-log (all): %d calls %s..%s",
+                     len(out), start_dt.date(), end_dt.date())
+            return out
+        except Exception as e:
+            log.error("RingEX call-log (all) error: %s", e)
+            return []
+
+    @staticmethod
+    def _to_ts(value: str) -> Optional[float]:
+        if not value:
+            return None
+        try:
+            v = value.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(v)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except (ValueError, TypeError):
+            return None
+
+    def get_agent_call_stats(
+        self,
+        start_dt: datetime,
+        end_dt: datetime,
+        long_call_seconds: int = 180,
+    ) -> dict:
+        """Per-agent call stats across RingCX (Engage Voice) + RingEX (platform).
+
+        Returns {"agents": {name: {calls, calls_under_3m, calls_over_3m,
+        talk_seconds}}}. Calls with no identifiable agent are excluded.
+        RingEX calls within 120s of a RingCX call for the same agent are treated
+        as the same dial (the platform log mirrors RingCX) and not double-counted.
+        """
+        by_agent: dict[str, dict] = {}
+        seen: list[tuple[str, float]] = []  # (agent_lower, start_ts)
+
+        def add(agent: str, duration, ts: Optional[float]):
+            a = by_agent.setdefault(agent, {
+                "calls": 0, "calls_under_3m": 0, "calls_over_3m": 0, "talk_seconds": 0,
+            })
+            try:
+                dur = int(duration or 0)
+            except (TypeError, ValueError):
+                dur = 0
+            if dur < 0:
+                dur = 0
+            a["calls"] += 1
+            a["talk_seconds"] += dur
+            if dur >= long_call_seconds:
+                a["calls_over_3m"] += 1
+            else:
+                a["calls_under_3m"] += 1
+            if ts is not None:
+                seen.append((agent.lower(), ts))
+
+        # RingCX CDR is the source of truth for agent-attributed dials.
+        for c in self._fetch_ringcx_cdr_rows(start_dt, end_dt):
+            agent = (c.get("agent_name") or "").strip()
+            if not agent:
+                continue
+            add(agent, c.get("duration"), self._to_ts(c.get("start_time")))
+
+        # RingEX platform log supplements with anything not already counted.
+        for c in self._fetch_ringex_agent_calls(start_dt, end_dt):
+            agent = (c.get("agent_name") or "").strip()
+            if not agent:
+                continue
+            ts = self._to_ts(c.get("start_time"))
+            if ts is not None and any(
+                al == agent.lower() and abs(ts - st) < 120 for al, st in seen
+            ):
+                continue  # same dial already counted from RingCX
+            add(agent, c.get("duration"), ts)
+
+        return {"agents": by_agent}
+
+    # ══════════════════════════════════════════════════════════════
     # SMS — send via RingCentral Platform API
     # ══════════════════════════════════════════════════════════════
 

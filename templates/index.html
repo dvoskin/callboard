@@ -3763,7 +3763,23 @@
       <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <h2 style="margin:0">📈 Agent Performance</h2>
         <span class="chip" id="aa-count">0</span>
-        <span id="aa-status-msg" style="color:var(--secondary);font-size:12px;margin-left:auto"></span>
+        <span id="aa-status-msg" style="color:var(--secondary);font-size:12px"></span>
+        <div class="lp-filter-wrap" style="margin-left:auto" onclick="event.stopPropagation()">
+          <button class="lp-filter-btn" id="aa-filter-btn" onclick="aaToggleFilter(event)">
+            <span>👤 Filter</span>
+            <span class="lp-filter-badge" id="aa-filter-badge" style="display:none">0</span>
+          </button>
+          <div class="lp-filter-dropdown" id="aa-filter-dropdown">
+            <div class="lp-filter-header">
+              <span class="lp-filter-title">Filter by Agent</span>
+              <button class="lp-filter-clear" onclick="aaClearFilter(event)">Clear all</button>
+            </div>
+            <div class="lp-filter-search-wrap">
+              <input type="text" class="lp-filter-search" id="aa-filter-search" placeholder="Search agents…" oninput="aaRenderFilterList()">
+            </div>
+            <div class="lp-filter-list" id="aa-filter-list"></div>
+          </div>
+        </div>
         <button class="filter-clear" onclick="loadAgentAnalytics()" title="Refresh">↻</button>
       </div>
       <div class="card-date-bar">
@@ -7764,14 +7780,64 @@
     _aaSort.key = key;
     _aaRenderRows();
   }
+
+  // ── User filter (shares the live monitor's agent selection) ──
+  // Reuses _liveSelectedAgents so "which users to see" is one consistent
+  // choice across the app, just like the live monitor.
+  let _aaRoster = [];        // agent roster from /api/ringcx/agents
+  let _aaRosterLoaded = false;
+
+  function _aaAgentVisible(name) {
+    if (!_liveSelectedAgents || _liveSelectedAgents.size === 0) return true;
+    const n = (name || "").toLowerCase();
+    for (const sel of _liveSelectedAgents) {
+      const s = (sel || "").toLowerCase();
+      if (s && (n === s || n.includes(s) || s.includes(n))) return true;
+    }
+    return false;
+  }
+  function _aaVisibleRows() {
+    return _aaRows.filter(r => _aaAgentVisible(r.name));
+  }
+  function _aaComputeTotals(rows) {
+    const sum = k => rows.reduce((a, r) => a + (r[k] || 0), 0);
+    return {
+      agents: rows.length,
+      calls: sum("calls"),
+      calls_under_3m: sum("calls_under_3m"),
+      calls_over_3m: sum("calls_over_3m"),
+      talk_seconds: sum("talk_seconds"),
+      quotes: sum("quotes"),
+      closings: sum("closings"),
+    };
+  }
   function _aaRenderRows() {
     const tbody = document.getElementById("aa-tbody");
-    if (!_aaRows.length) {
-      tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">No agent activity for this date.</td></tr>`;
+    const visible = _aaVisibleRows();
+    document.getElementById("aa-count").textContent = visible.length;
+
+    // Totals strip recomputed from the visible (filtered) rows.
+    const t = _aaComputeTotals(visible);
+    const strip = document.getElementById("aa-stats");
+    strip.style.display = "";
+    strip.innerHTML = [
+      statPill("Agents",    t.agents,         "blue"),
+      statPill("Calls",     t.calls,          "blue"),
+      statPill("< 3 min",   t.calls_under_3m, "orange"),
+      statPill("≥ 3 min",   t.calls_over_3m,  "teal"),
+      statPill("Talk Time", _aaFmtTalk(t.talk_seconds), "green"),
+      statPill("Quotes",    t.quotes,         "blue"),
+      statPill("Closings",  t.closings,       "green"),
+    ].join("");
+    _aaUpdateFilterBadge();
+
+    if (!visible.length) {
+      const msg = _aaRows.length ? "No agents match the current filter." : "No agent activity for this date.";
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">${msg}</td></tr>`;
       updateSortHeaders("card-agent-analytics", _aaSort);
       return;
     }
-    const sorted = sortedBy(_aaRows, _aaSort.key, _aaSort.dir);
+    const sorted = sortedBy(visible, _aaSort.key, _aaSort.dir);
     updateSortHeaders("card-agent-analytics", _aaSort);
     const numCell = (v, strong) =>
       `<td style="text-align:right${strong ? ';font-weight:600' : ''}">${v ?? 0}</td>`;
@@ -7786,6 +7852,70 @@
         ${numCell(r.closings)}
       </tr>`).join("");
   }
+
+  function _aaUpdateFilterBadge() {
+    const badge = document.getElementById("aa-filter-badge");
+    if (!badge) return;
+    const n = _liveSelectedAgents ? _liveSelectedAgents.size : 0;
+    if (n > 0) { badge.textContent = n; badge.style.display = ""; }
+    else { badge.style.display = "none"; }
+  }
+  async function aaToggleFilter(e) {
+    if (e) e.stopPropagation();
+    const dd = document.getElementById("aa-filter-dropdown");
+    if (dd.classList.contains("open")) { dd.classList.remove("open"); return; }
+    if (!_aaRosterLoaded) {
+      try {
+        const r = await fetch("/api/ringcx/agents", { headers: { Accept: "application/json" } });
+        const d = await r.json();
+        _aaRoster = (d.agents || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        _aaRosterLoaded = true;
+      } catch (_) { _aaRoster = []; }
+    }
+    dd.classList.add("open");
+    aaRenderFilterList();
+    const search = document.getElementById("aa-filter-search");
+    if (search) { search.value = ""; search.focus(); }
+  }
+  function aaRenderFilterList() {
+    const list = document.getElementById("aa-filter-list");
+    if (!list) return;
+    const q = (document.getElementById("aa-filter-search").value || "").toLowerCase();
+    // Roster names, unioned with any agent that has data this period.
+    const names = new Set(_aaRoster.map(a => a.name).filter(Boolean));
+    _aaRows.forEach(r => { if (r.name) names.add(r.name); });
+    const filtered = [...names].filter(n => !q || n.toLowerCase().includes(q)).sort((a, b) => a.localeCompare(b));
+    if (!filtered.length) {
+      list.innerHTML = `<div style="padding:8px;color:var(--secondary);font-size:12px">No agents.</div>`;
+      return;
+    }
+    list.innerHTML = filtered.map(n => {
+      const checked = _liveSelectedAgents.has(n) ? "checked" : "";
+      const safe = n.replace(/'/g, "\\'");
+      return `<label class="lp-filter-item"><input type="checkbox" ${checked} onchange="aaToggleAgentSel('${safe}', this.checked)"> ${_qEsc(n)}</label>`;
+    }).join("");
+  }
+  function aaToggleAgentSel(name, checked) {
+    if (checked) _liveSelectedAgents.add(name);
+    else _liveSelectedAgents.delete(name);
+    try { localStorage.setItem("lp_selected_agents", JSON.stringify([..._liveSelectedAgents])); } catch {}
+    _aaRenderRows();
+  }
+  function aaClearFilter(e) {
+    if (e) e.stopPropagation();
+    _liveSelectedAgents.clear();
+    try { localStorage.setItem("lp_selected_agents", JSON.stringify([])); } catch {}
+    aaRenderFilterList();
+    _aaRenderRows();
+  }
+  // Close the Agent Performance filter when clicking outside its wrapper.
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".lp-filter-wrap")) {
+      const dd = document.getElementById("aa-filter-dropdown");
+      if (dd) dd.classList.remove("open");
+    }
+  });
+
   async function loadAgentAnalytics() {
     _aaInitToday();
     const start = document.getElementById("aa-date-start").value || _aaToday();
@@ -7806,21 +7936,6 @@
         return;
       }
       _aaRows = data.rows || [];
-      document.getElementById("aa-count").textContent = _aaRows.length;
-
-      const t = data.totals || {};
-      const strip = document.getElementById("aa-stats");
-      strip.style.display = "";
-      strip.innerHTML = [
-        statPill("Agents",    t.agents ?? 0,         "blue"),
-        statPill("Calls",     t.calls ?? 0,          "blue"),
-        statPill("< 3 min",   t.calls_under_3m ?? 0, "orange"),
-        statPill("≥ 3 min",   t.calls_over_3m ?? 0,  "teal"),
-        statPill("Talk Time", _aaFmtTalk(t.talk_seconds), "green"),
-        statPill("Quotes",    t.quotes ?? 0,         "blue"),
-        statPill("Closings",  t.closings ?? 0,       "green"),
-      ].join("");
-
       _aaRenderRows();
     } catch (e) {
       if (statusMsg) statusMsg.textContent = "⚠ " + e.message;
