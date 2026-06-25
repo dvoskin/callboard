@@ -32,6 +32,28 @@ def normalize_phone(phone: str) -> Optional[str]:
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def _normalize_ig_handle(value: Optional[str]) -> str:
+    """Turn a raw Instagram value into '@handle', or '' if empty.
+
+    Accepts bare handles, '@handle', or full instagram.com profile URLs.
+    """
+    if not value:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    low = s.lower()
+    for marker in ("instagram.com/", "instagr.am/"):
+        idx = low.find(marker)
+        if idx != -1:
+            s = s[idx + len(marker):]
+            break
+    # Strip leading @, surrounding slashes, then any trailing path/query.
+    s = s.strip().lstrip("@").strip("/")
+    s = s.split("/")[0].split("?")[0].strip()
+    return ("@" + s) if s else ""
+
+
 def _owner_name(value) -> str:
     if isinstance(value, dict):
         return value.get("name") or value.get("full_name") or ""
@@ -491,9 +513,15 @@ class ZohoClient:
         if not value:
             return None
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return None
+        # Treat a naive timestamp as UTC so downstream tz math (same-day
+        # bucketing, offset-from-schedule) never compares naive vs aware or
+        # silently assumes the server's local zone.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
 
     @staticmethod
     def _caller_name(call: Optional[dict]) -> Optional[str]:
@@ -512,6 +540,33 @@ class ZohoClient:
         if isinstance(owner, dict):
             return owner.get("id")
         return None
+
+    @staticmethod
+    def _is_outbound_call(c: dict) -> bool:
+        """Whether a logged call counts as an outbound dial against a schedule.
+
+        A dispositioned call is outbound. Explicit Call_Type wins next. Falling
+        back to the Subject phrasing catches RingEX/MVP synthetic logs and
+        common variants ('Outgoing call to', 'Outbound Call to', 'Call to').
+        Inbound markers are excluded so an inbound call to the same contact's
+        number never gets credited as completing a scheduled outbound call.
+        """
+        if c.get("Outgoing_call_disposition"):
+            return True
+        ctype = (c.get("Call_Type") or "").strip().lower()
+        if ctype == "outbound":
+            return True
+        if ctype == "inbound":
+            return False
+        subj = (c.get("Subject") or "").lower()
+        if "inbound" in subj or "call from" in subj or "incoming" in subj:
+            return False
+        if ("outgoing call to" in subj or "outbound call to" in subj
+                or subj.startswith("call to") or "outgoing" in subj or "outbound" in subj):
+            return True
+        # Unknown type with no inbound markers: the call already phone-matched
+        # this contact, so count it rather than silently drop a real dial.
+        return True
 
     def _classify_new_deal(self, deal: dict, calls: list[dict]) -> dict:
         created = self._parse_dt(deal.get("Created_Time"))
@@ -566,7 +621,11 @@ class ZohoClient:
         if not scheduled:
             return {"status": "no_schedule", "dial_attempts": 0, "caller": None}
 
-        effective_scheduled = scheduled
+        # Apply the same pre-9AM floor the frontend uses, so the backend's
+        # same-day match, offset, and on-time/late verdict agree with what the
+        # board displays (previously the backend used the raw time and the
+        # frontend floored to 9AM, so on-time dials could be scored "late").
+        effective_scheduled = self._effective_scheduled(scheduled)
         now = datetime.now(timezone.utc)
 
         def mins_from_schedule(c):
@@ -584,35 +643,32 @@ class ZohoClient:
                 return False
             return t.astimezone(local_tz).date() == sched_local_date
 
-        # ── Split calls by source ──────────────────────────────────────
-        # RingCX calls (have disposition) — these are the source of truth
-        # for actual_call_time and timing classification.
-        all_dialed = [
+        # ── Gather this slot's outbound dials on the scheduled day ─────
+        # Any outbound call to this contact on the scheduled local date counts
+        # as a pass — whether or not Zoho recorded a disposition or used the
+        # exact "Outgoing call to" subject. Dispositioned calls remain the
+        # source of truth for the displayed disposition/caller.
+        same_day_calls = [
             c for c in calls
-            if c.get("Outgoing_call_disposition") and same_local_date(c)
+            if same_local_date(c) and self._is_outbound_call(c)
         ]
-        # RingCentral MVP calls ("Outgoing call to" subject, no disposition)
-        # — count as dial attempts only; never drive actual_call_time.
-        mvp_calls = [
-            c for c in calls
-            if not c.get("Outgoing_call_disposition")
-            and "outgoing call to" in (c.get("Subject") or "").lower()
-            and same_local_date(c)
+        dialed_with_disp = [
+            c for c in same_day_calls if c.get("Outgoing_call_disposition")
         ]
-        dial_attempts = len(all_dialed) + len(mvp_calls)
+        dial_attempts = len(same_day_calls)
 
         most_recent_ringcx = (
-            max(all_dialed, key=lambda c: c.get("Call_Start_Time") or "")
-            if all_dialed else None
+            max(dialed_with_disp, key=lambda c: c.get("Call_Start_Time") or "")
+            if dialed_with_disp else None
         )
-        most_recent_any = most_recent_ringcx or (
-            max(mvp_calls, key=lambda c: c.get("Call_Start_Time") or "")
-            if mvp_calls else None
+        most_recent_any = (
+            max(same_day_calls, key=lambda c: c.get("Call_Start_Time") or "")
+            if same_day_calls else None
         )
 
-        # Most recent attempt across both sources (for last_attempt_time)
+        # Most recent attempt of any kind (for last_attempt_time)
         all_with_time = [
-            c for c in (all_dialed + mvp_calls)
+            c for c in same_day_calls
             if self._parse_dt(c.get("Call_Start_Time"))
         ]
         last_attempt = (
@@ -621,12 +677,10 @@ class ZohoClient:
         )
 
         # ── Find the call closest to scheduled time ─────────────────────
-        # Consider ALL calls (RingCX + MVP) and pick the one closest to
-        # the scheduled time. This is the single source of truth for
-        # actual_call_time and timing classification.
-        all_calls_today = all_dialed + mvp_calls
+        # The closest outbound dial to the scheduled time is the single source
+        # of truth for actual_call_time and timing classification.
         closest_call = (
-            min(all_calls_today, key=mins_from_schedule) if all_calls_today else None
+            min(same_day_calls, key=mins_from_schedule) if same_day_calls else None
         )
 
         if closest_call:
@@ -682,14 +736,14 @@ class ZohoClient:
             "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
             "actual_call_time": None,
             "minutes_overdue": round(minutes_overdue, 1),
-            "dial_attempts": dial_attempts,
-            "mvp_only": len(mvp_calls) > 0,
+            "dial_attempts": dial_attempts,  # 0 here: no same-day outbound dials
+            "mvp_only": False,
             "disposition": (most_recent_ringcx.get("Outgoing_call_disposition")
                             if most_recent_ringcx else None),
             "caller": self._caller_name(most_recent_any),
             "_caller_owner_id": self._caller_owner_id(most_recent_any),
             "recording_url": None,
-            "logged_via": "mvp" if mvp_calls else None,
+            "logged_via": None,
             "last_attempt_time": (last_attempt.get("Call_Start_Time")
                                   if last_attempt else None),
         }
@@ -778,19 +832,57 @@ class ZohoClient:
                     result[c["id"]] = normalize_phone(c.get("Phone") or "")
         return result
 
-    def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
-        """Batch-fetch Phone + Lead_Source for Contact IDs.
+    def _instagram_field_api_name(self) -> Optional[str]:
+        """Discover the Contacts field that stores the Instagram handle.
 
-        Returns {contact_id: {"phone": str|None, "lead_source": str}}.
+        Scans Contacts field metadata for a field whose api_name or label looks
+        like Instagram, so we don't hardcode an org-specific custom-field name.
+        Cached for the client's lifetime (including a negative result).
+        """
+        if getattr(self, "_ig_field_cache", "unset") != "unset":
+            return self._ig_field_cache
+        self._ig_field_cache = None
+        try:
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/settings/fields",
+                headers=self._headers(),
+                params={"module": "Contacts"},
+                timeout=20,
+            )
+            if resp.ok:
+                for f in resp.json().get("fields", []):
+                    api = f.get("api_name") or ""
+                    label = f.get("field_label") or ""
+                    hay = f"{api} {label}".lower()
+                    if "instagram" in hay or hay.split() == ["ig"] or "insta" in hay:
+                        self._ig_field_cache = api
+                        logging.getLogger(__name__).info(
+                            "Instagram field resolved to '%s'", api)
+                        break
+            else:
+                logging.getLogger(__name__).warning(
+                    "Instagram field discovery failed %s: %s",
+                    resp.status_code, resp.text[:200])
+        except Exception as e:
+            logging.getLogger(__name__).warning("Instagram field discovery error: %s", e)
+        return self._ig_field_cache
+
+    def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
+        """Batch-fetch Phone + Lead_Source (+ Instagram handle) for Contact IDs.
+
+        Returns {contact_id: {"phone": str|None, "lead_source": str,
+        "instagram": str}}. The Instagram handle is normalized to '@handle'.
         """
         result: dict[str, dict] = {}
+        ig_field = self._instagram_field_api_name()
+        fields = "id,Phone,Lead_Source" + (f",{ig_field}" if ig_field else "")
         BATCH = 100
         for i in range(0, len(contact_ids), BATCH):
             batch = contact_ids[i : i + BATCH]
             resp = requests.get(
                 f"{self.base_url}/crm/v6/Contacts",
                 headers=self._headers(),
-                params={"ids": ",".join(batch), "fields": "id,Phone,Lead_Source"},
+                params={"ids": ",".join(batch), "fields": fields},
                 timeout=20,
             )
             if resp.ok:
@@ -798,6 +890,7 @@ class ZohoClient:
                     result[c["id"]] = {
                         "phone": normalize_phone(c.get("Phone") or ""),
                         "lead_source": c.get("Lead_Source") or "",
+                        "instagram": _normalize_ig_handle(c.get(ig_field)) if ig_field else "",
                     }
         return result
 
@@ -1303,6 +1396,11 @@ class ZohoClient:
             cd = contact_details.get(cid) or {}
             phone = cd.get("phone") if cd else contact_phones.get(cid)
             lead_source = cd.get("lead_source", "")
+            # For Facebook / Instagram leads, surface the contact's Instagram
+            # handle (as @handle) alongside the lead source on the board.
+            instagram = ""
+            if lead_source.strip().lower() in ("facebook", "instagram"):
+                instagram = cd.get("instagram", "")
             # What_Id links to the related record (usually a Deal)
             what = rec.get("What_Id") or {}
             what_id = what.get("id") if isinstance(what, dict) else None
@@ -1328,6 +1426,7 @@ class ZohoClient:
                 "name": who.get("name") if isinstance(who, dict) else "—",
                 "phone": phone,
                 "lead_source": lead_source,
+                "instagram": instagram,
                 "created_time": rec.get("Call_Start_Time"),
                 "record_created": rec.get("Created_Time"),
                 "record_modified": rec.get("Modified_Time"),

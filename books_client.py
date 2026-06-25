@@ -159,6 +159,37 @@ class BooksClient:
                      before - len(rows))
         return rows
 
+    def list_paid_retainer_invoices(
+        self,
+        date_start: str,
+        date_end: str,
+        max_records: int = 500,
+    ) -> list[dict]:
+        """Retainer invoices in [date_start, date_end] that are fully PAID.
+
+        This is the real "retainers paid" signal — an actual payment fact —
+        as opposed to a CRM deal stage. In Goals' Books org, invoices ARE the
+        retainer invoices. A row counts as paid when Books status is `paid`
+        (server-side filter) or its balance has reached zero.
+        """
+        rows = self._list_documents(
+            "invoices", date_start, date_end, max_records,
+            status="paid",
+            include_statuses={"paid"},  # also constrains the cache fallback
+        )
+
+        # Belt-and-suspenders: keep rows Books reports paid, plus any whose
+        # balance is zero even if the status string lags behind.
+        def _is_paid(r):
+            if (r.get("status") or "").lower() == "paid":
+                return True
+            bal = r.get("balance")
+            try:
+                return bal not in (None, "") and float(bal) <= 0.01
+            except (TypeError, ValueError):
+                return False
+        return [r for r in rows if _is_paid(r)]
+
     def _list_documents(
         self,
         doc_type: str,
