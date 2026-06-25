@@ -3540,6 +3540,10 @@
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <h2>🗓 Scheduled Calls</h2>
       <span class="card-sub" id="sc-card-sub">Today · Zoho Admin</span>
+      <div class="gb-toggle" id="sc-sheet-toggle">
+        <button class="gb-btn active" data-sheet="Zoho Admin" onclick="switchSheet('Zoho Admin')">Zoho Admin</button>
+        <button class="gb-btn" data-sheet="Ariel Voskin" onclick="switchSheet('Ariel Voskin')">Ariel Voskin</button>
+      </div>
       <button class="sched-btn" onclick="openScheduleModal()">+ Schedule Call</button>
     </div>
     <div id="card-date-bar" class="card-date-bar">
@@ -3786,19 +3790,24 @@
   function fmtDateLabel(iso) {
     return new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric" });
   }
+  function updateScCardSub() {
+    document.getElementById("sc-card-sub").textContent = _scDateLabel + " · " + _activeSheet;
+  }
   function _setDateBarCustom(label) {
     const bar = document.getElementById("card-date-bar");
     bar.classList.add("is-custom");
     document.getElementById("cdb-today-btn").style.display = "";
     document.getElementById("cdb-range-badge").textContent = label;
-    document.getElementById("sc-card-sub").textContent = label + " · Zoho Admin";
+    _scDateLabel = label;
+    updateScCardSub();
   }
   function _setDateBarToday() {
     const bar = document.getElementById("card-date-bar");
     bar.classList.remove("is-custom");
     document.getElementById("cdb-today-btn").style.display = "none";
     document.getElementById("cdb-range-badge").textContent = "";
-    document.getElementById("sc-card-sub").textContent = "Today · Zoho Admin";
+    _scDateLabel = "Today";
+    updateScCardSub();
   }
   function applyDateRange() {
     const start = document.getElementById("date-start").value;
@@ -4551,7 +4560,55 @@
   }
 
   // ─── render scheduled calls ───
-  function renderScheduledCalls(sc) {
+  // ── Calendar sheets ──────────────────────────────────────────────────────
+  // The backend returns scheduled-call records for every owner in its allowlist
+  // (Zoho Admin + Ariel Voskin), each tagged with its real owner. The board
+  // shows one owner at a time as a "sheet"; switching re-renders the whole
+  // section from the cached payload so every sheet behaves identically.
+  let _scFullPayload = null;
+  let _activeSheet = "Zoho Admin";
+  let _scDateLabel = "Today";
+  const SHEET_OWNERS = ["Zoho Admin", "Ariel Voskin"];
+
+  // Mirror of the backend summary() for scheduled-call mode, so a sheet's
+  // subset of records gets the same counts the backend would produce.
+  function schedSummary(records) {
+    const isCalled = r => ["completed", "early", "completed_via_workflow"].includes(r.status);
+    const called   = records.filter(isCalled);
+    const completed = records.filter(r => r.status === "completed");
+    const early     = records.filter(r => r.status === "early");
+    const onTime    = completed.filter(r => r.on_time);
+    return {
+      total: records.length,
+      completed: called.length,
+      on_time: onTime.length,
+      early: early.length,
+      via_deal: records.filter(r => r.deal_moved_on).length,
+      via_workflow: records.filter(r => r.status === "completed_via_workflow").length,
+      missed: records.filter(r => r.status === "missed").length,
+      on_time_rate: called.length ? Math.round((onTime.length + early.length) / called.length * 100) : null,
+      completion_rate: records.length ? Math.round(called.length / records.length * 100) : null,
+      upcoming: records.filter(r => r.status === "upcoming").length,
+      late: records.filter(r => r.status === "late").length,
+    };
+  }
+
+  function switchSheet(owner) {
+    if (!SHEET_OWNERS.includes(owner)) return;
+    _activeSheet = owner;
+    document.querySelectorAll("#sc-sheet-toggle .gb-btn").forEach(b =>
+      b.classList.toggle("active", b.dataset.sheet === owner));
+    updateScCardSub();
+    if (_scFullPayload) renderScheduledCalls(_scFullPayload);
+  }
+
+  function renderScheduledCalls(scFull) {
+    // Cache the full multi-owner payload, then narrow to the active sheet so the
+    // rest of the renderer (KPIs, stats, tables, overdue, upcoming) sees only
+    // the selected owner's records and a matching summary.
+    _scFullPayload = scFull;
+    const _records = scFull.records.filter(r => (r.owner || "Zoho Admin") === _activeSheet);
+    const sc = { records: _records, summary: schedSummary(_records) };
     // Calls scheduled before 9 AM Eastern are assumed to be expected at 9 AM
     // (reps don't dial outside business hours). Apply the floor once, here,
     // so every downstream display + calculation sees the same effective time.
