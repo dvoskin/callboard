@@ -696,15 +696,23 @@ class ZohoClient:
 
     # ------------------------------------------------ scheduled call records
 
+    # Owners whose calendars feed the Scheduled Call tracker. Each owner is
+    # presented as its own sheet in the UI; records are tagged with the real
+    # Owner name so the frontend can split them.
+    SCHEDULED_CALL_OWNERS = ("Zoho Admin", "Ariel Voskin")
+
     def _fetch_scheduled_call_records_today(
         self,
         window_start_dt: Optional[datetime] = None,
         window_end_dt: Optional[datetime] = None,
     ) -> list[dict]:
-        """Fetch Zoho Admin 'Scheduled Call' records within the given UTC window.
+        """Fetch 'Scheduled Call' records within the given UTC window.
 
-        If window_start_dt / window_end_dt are None, defaults to today in local time.
-        Uses REST API search so Who_Id comes back as a full {id, name} dict.
+        Includes records owned by any user in SCHEDULED_CALL_OWNERS (Zoho Admin
+        and Ariel Voskin), so each owner's calendar can be shown as a separate
+        sheet. If window_start_dt / window_end_dt are None, defaults to today in
+        local time. Uses REST API search so Who_Id comes back as a full
+        {id, name} dict.
         """
         import logging
         log = logging.getLogger(__name__)
@@ -743,13 +751,14 @@ class ZohoClient:
             for call in data.get("data", []):
                 owner = (call.get("Owner") or {})
                 owner_name = owner.get("name") if isinstance(owner, dict) else owner
-                if owner_name == "Zoho Admin":
+                if owner_name in self.SCHEDULED_CALL_OWNERS:
                     all_records.append(call)
             if not data.get("info", {}).get("more_records"):
                 break
             page += 1
 
-        log.info("  → %d scheduled call records found (Zoho Admin, today±)", len(all_records))
+        log.info("  → %d scheduled call records found (%s, today±)",
+                 len(all_records), ", ".join(self.SCHEDULED_CALL_OWNERS))
         return all_records
 
     def _fetch_contact_phones(self, contact_ids: list[str]) -> dict[str, Optional[str]]:
@@ -1305,6 +1314,13 @@ class ZohoClient:
                 lead_min = (sched_dt - record_created_dt).total_seconds() / 60
                 last_minute = 0 <= lead_min <= 15
 
+            owner_obj = rec.get("Owner") or {}
+            owner_name = (
+                owner_obj.get("name") if isinstance(owner_obj, dict)
+                else owner_obj if isinstance(owner_obj, str)
+                else None
+            ) or "Zoho Admin"
+
             return {
                 "id": rec["id"],
                 "id_contact": cid,
@@ -1316,7 +1332,7 @@ class ZohoClient:
                 "record_created": rec.get("Created_Time"),
                 "record_modified": rec.get("Modified_Time"),
                 "last_minute": last_minute,
-                "owner": "Zoho Admin",
+                "owner": owner_name,
                 "call_status": rec.get("Call_Status") or "",
                 "sched_description": rec.get("Description") or "",
             }
