@@ -606,6 +606,9 @@
       transition: color .12s;
     }
     .cols-menu-row:hover .cm-handle { color: var(--secondary); }
+    /* Instagram handle shown beneath the lead source for FB/IG leads */
+    .ig-handle { display: block; color: var(--blue); text-decoration: none; font-weight: 600; margin-top: 1px; }
+    .ig-handle:hover { text-decoration: underline; }
     .cols-menu-row.dragging { opacity: .35; background: rgba(37,99,235,.06); }
     .cols-menu-row.drop-above { box-shadow: inset 0 2px 0 var(--blue); }
     .cols-menu-row.drop-below { box-shadow: inset 0 -2px 0 var(--blue); }
@@ -5861,7 +5864,13 @@
         <td style="text-align:center" class="col-rec">${recCell}</td>
         <td style="text-align:center" class="col-fucall">${fuBtn}</td>
         <td class="col-nxtstep">${_scFuCallCell(r.id_deal)}</td>
-        <td class="col-leadsrc" style="font-size:11px">${r.lead_source || '<span class="no-data">—</span>'}</td>
+        <td class="col-leadsrc" style="font-size:11px">${
+          r.lead_source
+            ? _qEsc(r.lead_source) + (r.instagram
+                ? `<a href="https://instagram.com/${encodeURIComponent(String(r.instagram).replace(/^@/, ""))}" target="_blank" rel="noopener" class="ig-handle">${_qEsc(r.instagram)}</a>`
+                : "")
+            : '<span class="no-data">—</span>'
+        }</td>
         <td style="text-align:center" class="col-sms">${_smsBtn(r)}</td>
         <td class="col-notes">${_scNotesCell(r.id_deal, r.id)}</td>
       </tr>`;

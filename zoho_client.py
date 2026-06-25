@@ -32,6 +32,28 @@ def normalize_phone(phone: str) -> Optional[str]:
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def _normalize_ig_handle(value: Optional[str]) -> str:
+    """Turn a raw Instagram value into '@handle', or '' if empty.
+
+    Accepts bare handles, '@handle', or full instagram.com profile URLs.
+    """
+    if not value:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    low = s.lower()
+    for marker in ("instagram.com/", "instagr.am/"):
+        idx = low.find(marker)
+        if idx != -1:
+            s = s[idx + len(marker):]
+            break
+    # Strip leading @, surrounding slashes, then any trailing path/query.
+    s = s.strip().lstrip("@").strip("/")
+    s = s.split("/")[0].split("?")[0].strip()
+    return ("@" + s) if s else ""
+
+
 def _owner_name(value) -> str:
     if isinstance(value, dict):
         return value.get("name") or value.get("full_name") or ""
@@ -778,19 +800,57 @@ class ZohoClient:
                     result[c["id"]] = normalize_phone(c.get("Phone") or "")
         return result
 
-    def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
-        """Batch-fetch Phone + Lead_Source for Contact IDs.
+    def _instagram_field_api_name(self) -> Optional[str]:
+        """Discover the Contacts field that stores the Instagram handle.
 
-        Returns {contact_id: {"phone": str|None, "lead_source": str}}.
+        Scans Contacts field metadata for a field whose api_name or label looks
+        like Instagram, so we don't hardcode an org-specific custom-field name.
+        Cached for the client's lifetime (including a negative result).
+        """
+        if getattr(self, "_ig_field_cache", "unset") != "unset":
+            return self._ig_field_cache
+        self._ig_field_cache = None
+        try:
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/settings/fields",
+                headers=self._headers(),
+                params={"module": "Contacts"},
+                timeout=20,
+            )
+            if resp.ok:
+                for f in resp.json().get("fields", []):
+                    api = f.get("api_name") or ""
+                    label = f.get("field_label") or ""
+                    hay = f"{api} {label}".lower()
+                    if "instagram" in hay or hay.split() == ["ig"] or "insta" in hay:
+                        self._ig_field_cache = api
+                        logging.getLogger(__name__).info(
+                            "Instagram field resolved to '%s'", api)
+                        break
+            else:
+                logging.getLogger(__name__).warning(
+                    "Instagram field discovery failed %s: %s",
+                    resp.status_code, resp.text[:200])
+        except Exception as e:
+            logging.getLogger(__name__).warning("Instagram field discovery error: %s", e)
+        return self._ig_field_cache
+
+    def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
+        """Batch-fetch Phone + Lead_Source (+ Instagram handle) for Contact IDs.
+
+        Returns {contact_id: {"phone": str|None, "lead_source": str,
+        "instagram": str}}. The Instagram handle is normalized to '@handle'.
         """
         result: dict[str, dict] = {}
+        ig_field = self._instagram_field_api_name()
+        fields = "id,Phone,Lead_Source" + (f",{ig_field}" if ig_field else "")
         BATCH = 100
         for i in range(0, len(contact_ids), BATCH):
             batch = contact_ids[i : i + BATCH]
             resp = requests.get(
                 f"{self.base_url}/crm/v6/Contacts",
                 headers=self._headers(),
-                params={"ids": ",".join(batch), "fields": "id,Phone,Lead_Source"},
+                params={"ids": ",".join(batch), "fields": fields},
                 timeout=20,
             )
             if resp.ok:
@@ -798,6 +858,7 @@ class ZohoClient:
                     result[c["id"]] = {
                         "phone": normalize_phone(c.get("Phone") or ""),
                         "lead_source": c.get("Lead_Source") or "",
+                        "instagram": _normalize_ig_handle(c.get(ig_field)) if ig_field else "",
                     }
         return result
 
@@ -1303,6 +1364,11 @@ class ZohoClient:
             cd = contact_details.get(cid) or {}
             phone = cd.get("phone") if cd else contact_phones.get(cid)
             lead_source = cd.get("lead_source", "")
+            # For Facebook / Instagram leads, surface the contact's Instagram
+            # handle (as @handle) alongside the lead source on the board.
+            instagram = ""
+            if lead_source.strip().lower() in ("facebook", "instagram"):
+                instagram = cd.get("instagram", "")
             # What_Id links to the related record (usually a Deal)
             what = rec.get("What_Id") or {}
             what_id = what.get("id") if isinstance(what, dict) else None
@@ -1328,6 +1394,7 @@ class ZohoClient:
                 "name": who.get("name") if isinstance(who, dict) else "—",
                 "phone": phone,
                 "lead_source": lead_source,
+                "instagram": instagram,
                 "created_time": rec.get("Call_Start_Time"),
                 "record_created": rec.get("Created_Time"),
                 "record_modified": rec.get("Modified_Time"),
