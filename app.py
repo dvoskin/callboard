@@ -2066,8 +2066,6 @@ def api_agent_analytics():
         # the closings query so every metric covers the same local day.
         start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
         end_dt   = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
-        start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        end_iso   = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
         threshold = AGENT_ANALYTICS_LONG_CALL_SECONDS
 
         agents: dict = {}
@@ -2086,25 +2084,22 @@ def api_agent_analytics():
                 }
             return agents[key]
 
-        # ── Calls: count worked (dispositioned) calls, bucket by duration ──
-        calls = _zoho.get_followup_activities(start_iso, end_iso, limit=1000)
-        for c in calls:
-            if c.get("status") != "Completed":
-                continue  # Scheduled (future) / Missed (no disposition) aren't "made"
-            a = _agent(c.get("owner_name"))
-            a["calls"] += 1
+        # ── Calls: per-agent stats from the real telephony sources (RingCX
+        #    Engage Voice CDR + RingEX platform call-log), not Zoho-logged
+        #    calls. Calls with no identifiable agent are already excluded by
+        #    get_agent_call_stats, so no "Unassigned" call bucket appears.
+        if _ringcx.configured:
             try:
-                dur = int(c.get("duration") or 0)
-            except (TypeError, ValueError):
-                dur = 0
-            a["talk_seconds"] += dur
-            if dur >= threshold:
-                a["calls_over_3m"] += 1
-            else:
-                a["calls_under_3m"] += 1
-        if len(calls) >= 1000:
-            log.warning("agent-analytics: call fetch hit the 1000-row cap — "
-                        "counts may undercount for %s..%s", date_start, date_end)
+                stats = _ringcx.get_agent_call_stats(
+                    start_dt, end_dt, long_call_seconds=threshold)
+                for name, s in (stats.get("agents") or {}).items():
+                    a = _agent(name)
+                    a["calls"]          += s.get("calls", 0)
+                    a["calls_under_3m"] += s.get("calls_under_3m", 0)
+                    a["calls_over_3m"]  += s.get("calls_over_3m", 0)
+                    a["talk_seconds"]   += s.get("talk_seconds", 0)
+            except Exception as ex:
+                log.warning("agent-analytics call stats failed: %s", ex)
 
         # ── Quotes sent: Books estimates by salesperson ──
         if _books.configured:
@@ -2124,7 +2119,12 @@ def api_agent_analytics():
         except Exception as ex:
             log.warning("agent-analytics closings fetch failed: %s", ex)
 
-        rows = sorted(agents.values(), key=lambda r: (-r["calls"], r["name"].lower()))
+        # Drop the catch-all "Unassigned" bucket entirely — only real, named
+        # agents belong on the performance board.
+        rows = sorted(
+            (r for r in agents.values() if r["name"] != "Unassigned"),
+            key=lambda r: (-r["calls"], r["name"].lower()),
+        )
         for r in rows:
             r["talk_minutes"] = round(r["talk_seconds"] / 60.0, 1)
 
