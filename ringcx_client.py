@@ -807,14 +807,35 @@ class RingCXClient:
                     duration = int(float(row.get("Call Duration", "0") or "0"))
                 except (ValueError, TypeError):
                     duration = 0
-                rows.append({
+                rec = {
                     "agent_name": row.get("Agent Name", "") or "",
                     "duration": duration,
                     "direction": row.get("Call Direction", "") or "",
                     "result": row.get("Call Result", row.get("Call Status", "")) or "",
                     "start_time": row.get("Enqueue Time", row.get("Call Start", "")) or "",
                     "source": "ringcx",
-                })
+                }
+                # Carry extra detail when available for raw-interactions view
+                for extra_key, col_names in [
+                    ("uii", ["UII"]),
+                    ("ani", ["ANI"]),
+                    ("dnis", ["DNIS"]),
+                    ("agent_disposition", ["Agent Disposition"]),
+                    ("talk_time", ["Talk Time"]),
+                    ("hold_time", ["Hold Time"]),
+                    ("ring_time", ["Ring Time"]),
+                    ("queue_name", ["Queue Name", "Gate Name"]),
+                    ("campaign_name", ["Campaign Name", "Campaign"]),
+                    ("call_type", ["Call Type"]),
+                    ("agent_id", ["Agent ID", "Agent Id"]),
+                    ("dequeue_time", ["Dequeue Time"]),
+                ]:
+                    for cn in col_names:
+                        v = row.get(cn, "")
+                        if v:
+                            rec[extra_key] = v
+                            break
+                rows.append(rec)
             log.info("RingCX CDR (all): %d rows %s..%s",
                      len(rows), start_dt.date(), end_dt.date())
             return rows
@@ -879,12 +900,19 @@ class RingCXClient:
                     else:
                         # Fall back to the party name RC reports for the ext leg.
                         agent = (frm.get("name") if direction == "Outbound" else to.get("name")) or ""
+                    from_num = frm.get("phoneNumber", "") or ""
+                    to_num = to.get("phoneNumber", "") or ""
                     out.append({
                         "agent_name": agent or "",
                         "duration": rec.get("duration", 0) or 0,
                         "direction": direction,
                         "result": rec.get("result", "") or "",
                         "start_time": rec.get("startTime", "") or "",
+                        "from_number": from_num,
+                        "to_number": to_num,
+                        "action": rec.get("action", "") or "",
+                        "type": rec.get("type", "") or "",
+                        "session_id": rec.get("sessionId", "") or "",
                         "source": "ringex",
                     })
                 nav = data.get("navigation", {})
