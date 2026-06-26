@@ -34,6 +34,7 @@ class RingCXClient:
         self.account_id = os.getenv("RC_ACCOUNT_ID", "~")
         self.server_url = os.getenv("RC_SERVER_URL", "https://platform.ringcentral.com")
         self.ringcx_url = "https://ringcx.ringcentral.com"
+        self.ringcx_api_token = os.getenv("RINGCX_API_TOKEN", "")
 
         # RingEX token (standard RC platform)
         self._rc_token: Optional[str] = None
@@ -558,28 +559,38 @@ class RingCXClient:
             date_to = datetime.now(timezone.utc)
             date_from = date_to - __import__("datetime").timedelta(days=days)
 
+            report_url = f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming"
+            report_body = {
+                "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
+                "reportCriteria": {
+                    "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
+                    "startDate": date_from.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                    "endDate": date_to.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                    "containGates": True,
+                    "containCampaigns": True,
+                    "containIvrStudios": False,
+                    "containCloudProfiles": False,
+                    "containTracNumbers": False,
+                    "containAgents": True,
+                },
+            }
             resp = requests.post(
-                f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming",
-                headers={
-                    **self._cx_headers(),
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
-                    "reportCriteria": {
-                        "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
-                        "startDate": date_from.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
-                        "endDate": date_to.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
-                        "containGates": True,
-                        "containCampaigns": True,
-                        "containIvrStudios": False,
-                        "containCloudProfiles": False,
-                        "containTracNumbers": False,
-                        "containAgents": True,
-                    },
-                },
+                report_url,
+                headers={**self._cx_headers(), "Content-Type": "application/json"},
+                json=report_body,
                 timeout=30,
             )
+            if resp.status_code == 403 and self.ringcx_api_token:
+                log.info("RingCX CDR 403 with JWT token, retrying with API token")
+                resp = requests.post(
+                    report_url,
+                    headers={
+                        "Authorization": f"Bearer {self.ringcx_api_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=report_body,
+                    timeout=30,
+                )
             if resp.status_code in (204, 404, 400):
                 log.info("RingCX CDR: no data or endpoint unavailable (%d)", resp.status_code)
                 return []
@@ -771,25 +782,39 @@ class RingCXClient:
             self._ensure_cx_token()
             if not self._cx_account_id:
                 return []
-            resp = requests.post(
-                f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming",
-                headers={**self._cx_headers(), "Content-Type": "application/json"},
-                json={
-                    "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
-                    "reportCriteria": {
-                        "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
-                        "startDate": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
-                        "endDate": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
-                        "containGates": True,
-                        "containCampaigns": True,
-                        "containIvrStudios": False,
-                        "containCloudProfiles": False,
-                        "containTracNumbers": False,
-                        "containAgents": True,
-                    },
+            report_url = f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming"
+            report_body = {
+                "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
+                "reportCriteria": {
+                    "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
+                    "startDate": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                    "endDate": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                    "containGates": True,
+                    "containCampaigns": True,
+                    "containIvrStudios": False,
+                    "containCloudProfiles": False,
+                    "containTracNumbers": False,
+                    "containAgents": True,
                 },
+            }
+            resp = requests.post(
+                report_url,
+                headers={**self._cx_headers(), "Content-Type": "application/json"},
+                json=report_body,
                 timeout=45,
             )
+            # If JWT-exchanged token gets 403, retry with RingCX API token
+            if resp.status_code == 403 and self.ringcx_api_token:
+                log.info("RingCX CDR 403 with JWT token, retrying with API token")
+                resp = requests.post(
+                    report_url,
+                    headers={
+                        "Authorization": f"Bearer {self.ringcx_api_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=report_body,
+                    timeout=45,
+                )
             if resp.status_code in (204, 400, 404):
                 log.info("RingCX CDR (all): no data / unavailable (%d)", resp.status_code)
                 return []
@@ -1051,13 +1076,14 @@ class RingCXClient:
         agg = self._fetch_analytics_aggregate(start_dt, end_dt)
         if agg:
             # Analytics API only gives total calls + talk_seconds per agent.
-            # Add the duration bucket breakdown from CDR so callers get
-            # calls_under_3m / calls_over_3m even when analytics is primary.
+            # Add the duration bucket breakdown from call detail so callers
+            # get calls_under_3m / calls_over_3m even when analytics is primary.
             for name, a in agg.items():
                 a.setdefault("calls_under_3m", 0)
                 a.setdefault("calls_over_3m", 0)
-            try:
-                for c in self._fetch_ringcx_cdr_rows(start_dt, end_dt):
+
+            def _bucket_calls(calls):
+                for c in calls:
                     agent = (c.get("agent_name") or "").strip()
                     if not agent:
                         continue
@@ -1077,8 +1103,19 @@ class RingCXClient:
                             agg[matched]["calls_over_3m"] += 1
                         else:
                             agg[matched]["calls_under_3m"] += 1
+
+            # Try CDR first; if it fails (403), fall back to RingEX call-log
+            try:
+                cdr = self._fetch_ringcx_cdr_rows(start_dt, end_dt)
+                if cdr:
+                    _bucket_calls(cdr)
+                else:
+                    _bucket_calls(self._fetch_ringex_agent_calls(start_dt, end_dt))
             except Exception:
-                pass
+                try:
+                    _bucket_calls(self._fetch_ringex_agent_calls(start_dt, end_dt))
+                except Exception:
+                    pass
             return {"agents": agg, "source": "analytics"}
 
         log.info("Analytics empty — falling back to CDR + call-log roll-up")
