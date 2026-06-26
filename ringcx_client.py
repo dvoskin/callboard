@@ -1022,13 +1022,50 @@ class RingCXClient:
         """
         agg = self._fetch_analytics_aggregate(start_dt, end_dt)
         if agg:
+            # Analytics API only gives total calls + talk_seconds per agent.
+            # Add the duration bucket breakdown from CDR so callers get
+            # calls_under_3m / calls_over_3m even when analytics is primary.
+            for name, a in agg.items():
+                a.setdefault("calls_under_3m", 0)
+                a.setdefault("calls_over_3m", 0)
+            try:
+                for c in self._fetch_ringcx_cdr_rows(start_dt, end_dt):
+                    agent = (c.get("agent_name") or "").strip()
+                    if not agent:
+                        continue
+                    low = agent.lower()
+                    matched = None
+                    for k in agg:
+                        if k.lower() == low:
+                            matched = k
+                            break
+                    if matched:
+                        dur = 0
+                        try:
+                            dur = int(c.get("duration") or 0)
+                        except (TypeError, ValueError):
+                            pass
+                        if dur >= long_call_seconds:
+                            agg[matched]["calls_over_3m"] += 1
+                        else:
+                            agg[matched]["calls_under_3m"] += 1
+            except Exception:
+                pass
             return {"agents": agg, "source": "analytics"}
 
         log.info("Analytics empty — falling back to CDR + call-log roll-up")
         by_agent: dict[str, dict] = {}
+        _canon: dict[str, str] = {}  # lowercase → canonical display name
         seen: list[tuple[str, float]] = []  # (agent_lower, start_ts)
 
+        def _resolve(name: str) -> str:
+            low = name.lower()
+            if low not in _canon:
+                _canon[low] = name
+            return _canon[low]
+
         def add(agent: str, duration, ts: Optional[float]):
+            agent = _resolve(agent)
             a = by_agent.setdefault(agent, {
                 "calls": 0, "calls_under_3m": 0, "calls_over_3m": 0, "talk_seconds": 0,
             })

@@ -2040,6 +2040,98 @@ def api_fu_activity():
 AGENT_ANALYTICS_LONG_CALL_SECONDS = 180
 
 
+@app.route("/api/ringcx/raw-interactions")
+@login_required
+def ringcx_raw_interactions():
+    """Raw interaction-level data from RingCX CDR + RingEX call-log for today.
+
+    Returns every single interaction from both platforms, grouped by agent,
+    with no summarization — the ground-truth debug view.
+    """
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+
+    try:
+        today = datetime.now(timezone.utc).date()
+        date_start = request.args.get("start") or today.isoformat()
+        date_end = request.args.get("end") or date_start
+        tz_param = request.args.get("tz")
+        tz_offset_minutes = int(tz_param) if tz_param is not None else None
+
+        start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
+        end_dt = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
+
+        from concurrent.futures import ThreadPoolExecutor as _TP
+
+        with _TP(max_workers=2) as ex:
+            cx_future = ex.submit(_ringcx._fetch_ringcx_cdr_rows, start_dt, end_dt)
+            ex_future = ex.submit(_ringcx._fetch_ringex_agent_calls, start_dt, end_dt)
+            cx_rows = cx_future.result(timeout=90)
+            ex_rows = ex_future.result(timeout=90)
+
+        # Group by agent (case-insensitive merge)
+        canon = {}  # lowercase → display name
+        cx_by_agent = {}
+        for row in cx_rows:
+            name = (row.get("agent_name") or "").strip() or "Unattributed"
+            low = name.lower()
+            if low not in canon:
+                canon[low] = name
+            key = canon[low]
+            cx_by_agent.setdefault(key, []).append(row)
+
+        ex_by_agent = {}
+        for row in ex_rows:
+            name = (row.get("agent_name") or "").strip() or "Unattributed"
+            low = name.lower()
+            if low not in canon:
+                canon[low] = name
+            key = canon[low]
+            ex_by_agent.setdefault(key, []).append(row)
+
+        all_agents = sorted(set(list(cx_by_agent.keys()) + list(ex_by_agent.keys())) - {"Unattributed"})
+
+        agents = []
+        for agent in all_agents:
+            cx = cx_by_agent.get(agent, [])
+            ex = ex_by_agent.get(agent, [])
+            cx_total_dur = sum(c.get("duration", 0) for c in cx)
+            ex_total_dur = sum(c.get("duration", 0) for c in ex)
+
+            agents.append({
+                "agent": agent,
+                "ringcx_count": len(cx),
+                "ringcx_total_duration_sec": cx_total_dur,
+                "ringcx_interactions": cx,
+                "ringex_count": len(ex),
+                "ringex_total_duration_sec": ex_total_dur,
+                "ringex_calls": ex,
+            })
+
+        cx_unattr = cx_by_agent.get("Unattributed", [])
+        ex_unattr = ex_by_agent.get("Unattributed", [])
+
+        return jsonify({
+            "date_range": {"start": date_start, "end": date_end},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "totals": {
+                "ringcx_interactions": len(cx_rows),
+                "ringex_calls": len(ex_rows),
+                "agents_identified": len(all_agents),
+                "ringcx_unattributed": len(cx_unattr),
+                "ringex_unattributed": len(ex_unattr),
+            },
+            "agents": agents,
+            "unattributed": {
+                "ringcx": cx_unattr,
+                "ringex": ex_unattr,
+            },
+        })
+    except Exception as e:
+        log.exception("/api/ringcx/raw-interactions error")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/agent-analytics")
 @login_required
 def api_agent_analytics():
@@ -2069,9 +2161,14 @@ def api_agent_analytics():
         threshold = AGENT_ANALYTICS_LONG_CALL_SECONDS
 
         agents: dict = {}
+        _canon: dict = {}  # lowercase → canonical display name
 
         def _agent(name):
-            key = (name or "").strip() or "Unassigned"
+            raw = (name or "").strip() or "Unassigned"
+            low = raw.lower()
+            if low not in _canon:
+                _canon[low] = raw
+            key = _canon[low]
             if key not in agents:
                 agents[key] = {
                     "name": key,
