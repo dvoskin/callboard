@@ -3799,15 +3799,14 @@
               <tr>
                 <th class="sortable" onclick="sortAgentAnalytics('name')">Agent</th>
                 <th class="sortable" onclick="sortAgentAnalytics('calls')" style="text-align:right">Calls</th>
-                <th class="sortable" onclick="sortAgentAnalytics('calls_under_3m')" style="text-align:right" title="Calls shorter than 3 minutes">&lt; 3 min</th>
-                <th class="sortable" onclick="sortAgentAnalytics('calls_over_3m')" style="text-align:right" title="Calls 3 minutes or longer">&ge; 3 min</th>
                 <th class="sortable" onclick="sortAgentAnalytics('talk_seconds')" style="text-align:right">Talk Time</th>
+                <th class="sortable" onclick="sortAgentAnalytics('_avg')" style="text-align:right" title="Average call length (talk time ÷ calls)">Avg Call</th>
                 <th class="sortable" onclick="sortAgentAnalytics('quotes')" style="text-align:right">Quotes</th>
                 <th class="sortable" onclick="sortAgentAnalytics('closings')" style="text-align:right">Closings</th>
               </tr>
             </thead>
             <tbody id="aa-tbody">
-              <tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">Pick a date and click Apply.</td></tr>
+              <tr><td colspan="6" style="padding:16px;color:var(--secondary);text-align:center">Pick a date and click Apply.</td></tr>
             </tbody>
           </table>
         </div>
@@ -7801,12 +7800,12 @@
   }
   function _aaComputeTotals(rows) {
     const sum = k => rows.reduce((a, r) => a + (r[k] || 0), 0);
+    const calls = sum("calls"), talk = sum("talk_seconds");
     return {
       agents: rows.length,
-      calls: sum("calls"),
-      calls_under_3m: sum("calls_under_3m"),
-      calls_over_3m: sum("calls_over_3m"),
-      talk_seconds: sum("talk_seconds"),
+      calls,
+      talk_seconds: talk,
+      avg: calls > 0 ? Math.round(talk / calls) : 0,
       quotes: sum("quotes"),
       closings: sum("closings"),
     };
@@ -7814,6 +7813,8 @@
   function _aaRenderRows() {
     const tbody = document.getElementById("aa-tbody");
     const visible = _aaVisibleRows();
+    // Derive average call length per row so it's sortable + displayable.
+    visible.forEach(r => { r._avg = r.calls > 0 ? Math.round((r.talk_seconds || 0) / r.calls) : 0; });
     document.getElementById("aa-count").textContent = visible.length;
 
     // Totals strip recomputed from the visible (filtered) rows.
@@ -7821,19 +7822,18 @@
     const strip = document.getElementById("aa-stats");
     strip.style.display = "";
     strip.innerHTML = [
-      statPill("Agents",    t.agents,         "blue"),
-      statPill("Calls",     t.calls,          "blue"),
-      statPill("< 3 min",   t.calls_under_3m, "orange"),
-      statPill("≥ 3 min",   t.calls_over_3m,  "teal"),
+      statPill("Agents",    t.agents,                  "blue"),
+      statPill("Calls",     t.calls,                   "blue"),
       statPill("Talk Time", _aaFmtTalk(t.talk_seconds), "green"),
-      statPill("Quotes",    t.quotes,         "blue"),
-      statPill("Closings",  t.closings,       "green"),
+      statPill("Avg Call",  _aaFmtTalk(t.avg),          "teal"),
+      statPill("Quotes",    t.quotes,                  "blue"),
+      statPill("Closings",  t.closings,                "green"),
     ].join("");
     _aaUpdateFilterBadge();
 
     if (!visible.length) {
       const msg = _aaRows.length ? "No agents match the current filter." : "No agent activity for this date.";
-      tbody.innerHTML = `<tr><td colspan="7" style="padding:16px;color:var(--secondary);text-align:center">${msg}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;color:var(--secondary);text-align:center">${msg}</td></tr>`;
       updateSortHeaders("card-agent-analytics", _aaSort);
       return;
     }
@@ -7845,9 +7845,8 @@
       <tr>
         <td style="font-weight:600">${_qEsc(r.name || "Unassigned")}</td>
         ${numCell(r.calls, true)}
-        ${numCell(r.calls_under_3m)}
-        ${numCell(r.calls_over_3m)}
         <td style="text-align:right" title="${r.talk_seconds || 0} seconds">${_aaFmtTalk(r.talk_seconds)}</td>
+        <td style="text-align:right">${_aaFmtTalk(r._avg)}</td>
         ${numCell(r.quotes)}
         ${numCell(r.closings)}
       </tr>`).join("");

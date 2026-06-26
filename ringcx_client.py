@@ -912,19 +912,119 @@ class RingCXClient:
         except (ValueError, TypeError):
             return None
 
+    @staticmethod
+    def _metric_value(metric) -> int:
+        """Read a scalar out of a RingCentral analytics counter/timer value,
+        tolerating the few shapes the API uses: {"value": N},
+        {"values": [{"value": N}, ...]}, or a bare number.
+        """
+        if metric is None:
+            return 0
+        if isinstance(metric, (int, float)):
+            return int(metric)
+        if isinstance(metric, dict):
+            if isinstance(metric.get("value"), (int, float)):
+                return int(metric["value"])
+            vals = metric.get("values")
+            if isinstance(vals, list):
+                total = 0
+                for v in vals:
+                    if isinstance(v, dict) and isinstance(v.get("value"), (int, float)):
+                        total += v["value"]
+                    elif isinstance(v, (int, float)):
+                        total += v
+                return int(total)
+        return 0
+
+    def _fetch_analytics_aggregate(self, start_dt: datetime, end_dt: datetime) -> dict:
+        """Per-agent calls + talk time from the RingCentral Business Analytics
+        API (Call Performance), grouped by Users.
+
+        POST /analytics/phone/performance/v1/accounts/{id}/calls/aggregate
+        This is account-wide and covers ALL telephony (RingEX + RingCX), so it
+        is the authoritative per-agent interaction source. Returns
+        {agent_name: {"calls": int, "talk_seconds": int}}; empty dict if the
+        analytics API is unavailable (caller then falls back to CDR/call-log).
+        """
+        try:
+            self._ensure_rc_token()
+            ext_names = self._fetch_extension_names()  # {ext_id: {name, ...}}
+            body = {
+                "grouping": {"groupBy": "Users"},
+                "timeRange": {
+                    "timeFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "timeTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                },
+                "responseOptions": {
+                    "counters": {"allCalls": {"aggregationType": "Sum"}},
+                    "timers": {"allCallsDuration": {"aggregationType": "Sum"}},
+                },
+            }
+            out: dict[str, dict] = {}
+            page = 1
+            while page <= 20:
+                resp = requests.post(
+                    f"{self.server_url}/analytics/phone/performance/v1/accounts/{self.account_id}/calls/aggregate",
+                    headers={**self._rc_headers(), "Content-Type": "application/json"},
+                    params={"perPage": 1000, "page": page},
+                    json=body,
+                    timeout=30,
+                )
+                if resp.status_code == 204:
+                    break
+                if not resp.ok:
+                    log.warning("Analytics aggregate failed %s: %s",
+                                resp.status_code, resp.text[:200])
+                    return {}
+                data = resp.json() or {}
+                records = (data.get("data") or {}).get("records") or data.get("records") or []
+                for rec in records:
+                    key = rec.get("key")
+                    if isinstance(key, dict):
+                        uid = str(key.get("id") or key.get("key") or "")
+                        kname = key.get("name") or ""
+                    else:
+                        uid = str(key or "")
+                        kname = ""
+                    name = (ext_names.get(uid, {}).get("name") or kname or "").strip()
+                    if not name:
+                        continue
+                    calls = self._metric_value((rec.get("counters") or {}).get("allCalls"))
+                    talk = self._metric_value((rec.get("timers") or {}).get("allCallsDuration"))
+                    a = out.setdefault(name, {"calls": 0, "talk_seconds": 0})
+                    a["calls"] += calls
+                    a["talk_seconds"] += talk
+                paging = data.get("paging") or {}
+                if page < (paging.get("totalPages") or 1):
+                    page += 1
+                else:
+                    break
+            log.info("Analytics aggregate: %d agents %s..%s",
+                     len(out), start_dt.date(), end_dt.date())
+            return out
+        except Exception as e:
+            log.error("Analytics aggregate error: %s", e)
+            return {}
+
     def get_agent_call_stats(
         self,
         start_dt: datetime,
         end_dt: datetime,
         long_call_seconds: int = 180,
     ) -> dict:
-        """Per-agent call stats across RingCX (Engage Voice) + RingEX (platform).
+        """Per-agent call stats for all sales agents.
 
-        Returns {"agents": {name: {calls, calls_under_3m, calls_over_3m,
-        talk_seconds}}}. Calls with no identifiable agent are excluded.
-        RingEX calls within 120s of a RingCX call for the same agent are treated
-        as the same dial (the platform log mirrors RingCX) and not double-counted.
+        Primary source: RingCentral Business Analytics (Call Performance)
+        grouped by Users — account-wide, covering both RingEX and RingCX. Falls
+        back to the RingCX CDR + RingEX call-log roll-up only if analytics is
+        unavailable. Returns {"agents": {name: {calls, talk_seconds, ...}}};
+        agents with no identifiable name are excluded.
         """
+        agg = self._fetch_analytics_aggregate(start_dt, end_dt)
+        if agg:
+            return {"agents": agg, "source": "analytics"}
+
+        log.info("Analytics empty — falling back to CDR + call-log roll-up")
         by_agent: dict[str, dict] = {}
         seen: list[tuple[str, float]] = []  # (agent_lower, start_ts)
 
@@ -966,7 +1066,7 @@ class RingCXClient:
                 continue  # same dial already counted from RingCX
             add(agent, c.get("duration"), ts)
 
-        return {"agents": by_agent}
+        return {"agents": by_agent, "source": "cdr+calllog"}
 
     # ══════════════════════════════════════════════════════════════
     # SMS — send via RingCentral Platform API
