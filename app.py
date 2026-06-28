@@ -1960,6 +1960,163 @@ def api_send_auto_sms():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Bulk SMS to today's scheduled-call contacts ───────────────
+# Hard ceiling on a single blast — a guard against fat-fingering a send to
+# the entire board. Raise deliberately if a larger campaign is ever needed.
+_BULK_SMS_MAX_RECIPIENTS = 200
+
+
+def _bulk_sms_recipients(rec_ids=None, owner="", skip_resolved=True):
+    """Resolve today's scheduled-call records into a deduped recipient list.
+
+    Pulls from the in-memory dashboard cache (today's schedule) and applies the
+    same resolved/sms_sent annotations the board shows. Returns
+    (recipients, skipped) where recipients is a list of
+    {id, name, phone} (deduped by normalized phone) and skipped is a
+    breakdown of why records were dropped.
+    """
+    from zoho_client import normalize_phone
+
+    with _lock:
+        sc_data = (_cache.get("data") or {}).get("scheduled_calls", {})
+        records = list(sc_data.get("records") or [])
+
+    rids = resolved_ids()
+    id_filter = set(rec_ids) if rec_ids else None
+
+    recipients = []
+    seen_phones = set()
+    skipped = {"no_phone": 0, "resolved": 0, "already_sms": 0, "duplicate": 0, "not_in_schedule": 0}
+
+    # When an explicit ID list is supplied, honor its ordering and flag any IDs
+    # that aren't in today's cached schedule.
+    if id_filter is not None:
+        by_id = {r.get("id"): r for r in records}
+        ordered = []
+        for rid in rec_ids:
+            r = by_id.get(rid)
+            if r is None:
+                skipped["not_in_schedule"] += 1
+            else:
+                ordered.append(r)
+        records = ordered
+
+    for r in records:
+        rid = r.get("id")
+        if owner and (r.get("owner") or "Zoho Admin") != owner:
+            continue
+        if skip_resolved and rid in rids:
+            skipped["resolved"] += 1
+            continue
+        if rid in _sms_sent:
+            skipped["already_sms"] += 1
+            continue
+        phone = r.get("phone")
+        if not phone:
+            skipped["no_phone"] += 1
+            continue
+        norm = normalize_phone(phone) or phone
+        if norm in seen_phones:
+            skipped["duplicate"] += 1
+            continue
+        seen_phones.add(norm)
+        recipients.append({"id": rid, "name": r.get("name") or "", "phone": phone})
+
+    return recipients, skipped
+
+
+def _render_bulk_message(template: str, name: str) -> str:
+    """Personalize a bulk message. Supports a literal {name} placeholder,
+    substituted with the contact's first name (never raises on other braces)."""
+    first = (name or "").split()[0] if name else ""
+    return template.replace("{name}", first or "there")
+
+
+@app.route("/api/send-bulk-sms", methods=["POST"])
+@login_required
+def api_send_bulk_sms():
+    """Preview or send a RingCentral SMS to every contact on today's schedule.
+
+    Body:
+      text         — message body (required for a live send); supports {name}
+      from_number  — sending phone number (falls back to RC_SMS_FROM_NUMBER env)
+      dry_run      — when true (default) returns the recipient list without sending
+      owner        — restrict to one sheet's owner ("Zoho Admin" / "Ariel Voskin")
+      skip_resolved— skip already-resolved records (default true)
+      rec_ids      — explicit list of scheduled-call record IDs to target
+    """
+    body = request.get_json(force=True) or {}
+    text = (body.get("text") or "").strip()
+    from_number = (body.get("from_number") or "").strip()
+    dry_run = body.get("dry_run", True)
+    owner = (body.get("owner") or "").strip()
+    skip_resolved = body.get("skip_resolved", True)
+    rec_ids = body.get("rec_ids")
+    if rec_ids is not None and not isinstance(rec_ids, list):
+        return jsonify({"error": "rec_ids must be a list"}), 400
+
+    recipients, skipped = _bulk_sms_recipients(
+        rec_ids=rec_ids, owner=owner, skip_resolved=skip_resolved
+    )
+
+    # Dry run: return who would receive the message + a rendered preview.
+    if dry_run:
+        preview = [
+            {**rcpt, "preview": _render_bulk_message(text, rcpt["name"])}
+            for rcpt in recipients
+        ]
+        return jsonify({
+            "ok": True,
+            "dry_run": True,
+            "count": len(recipients),
+            "recipients": preview,
+            "skipped": skipped,
+            "from_number": from_number or os.getenv("RC_SMS_FROM_NUMBER", ""),
+        })
+
+    # Live send — validate before touching the API.
+    if not text:
+        return jsonify({"error": "Message text is required to send"}), 400
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCentral is not configured on this server"}), 503
+    effective_from = from_number or os.getenv("RC_SMS_FROM_NUMBER", "")
+    if not effective_from:
+        return jsonify({"error": "No sending number — set from_number or RC_SMS_FROM_NUMBER"}), 400
+    if not recipients:
+        return jsonify({"error": "No recipients matched today's schedule"}), 400
+    if len(recipients) > _BULK_SMS_MAX_RECIPIENTS:
+        return jsonify({
+            "error": f"{len(recipients)} recipients exceeds the safety cap "
+                     f"of {_BULK_SMS_MAX_RECIPIENTS}. Narrow the selection."
+        }), 400
+
+    results = []
+    sent = 0
+    for rcpt in recipients:
+        msg = _render_bulk_message(text, rcpt["name"])
+        try:
+            resp = _ringcx.send_sms(
+                to_number=rcpt["phone"], text=msg, from_number=effective_from
+            )
+            _sms_sent.add(rcpt["id"])
+            sent += 1
+            results.append({**rcpt, "ok": True, "message_id": resp.get("id")})
+        except Exception as e:
+            log.error("Bulk SMS failed for %s (%s): %s", rcpt["name"], rcpt["phone"], e)
+            results.append({**rcpt, "ok": False, "error": str(e)})
+
+    log.info("Bulk SMS: %d/%d sent from %s", sent, len(recipients), effective_from)
+    return jsonify({
+        "ok": True,
+        "dry_run": False,
+        "sent": sent,
+        "failed": len(recipients) - sent,
+        "from_number": effective_from,
+        "results": results,
+        "skipped": skipped,
+    })
+
+
 _ANNA_ID = "5212466000169239093"
 
 def _resolve_anna_id() -> str:
