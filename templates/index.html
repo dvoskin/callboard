@@ -3551,6 +3551,7 @@
         <button class="gb-btn" data-sheet="Ariel Voskin" onclick="switchSheet('Ariel Voskin')">Ariel Voskin</button>
       </div>
       <button class="sched-btn" onclick="openScheduleModal()">+ Schedule Call</button>
+      <button class="sched-btn" onclick="openBulkSmsModal()" title="Send an SMS to everyone on today's schedule">📣 Bulk SMS</button>
     </div>
     <div id="card-date-bar" class="card-date-bar">
       <span class="cdb-label" id="cdb-label">Date range</span>
@@ -6957,6 +6958,54 @@
   </div>
 </div>
 
+<!-- ══════════════════════ BULK SMS MODAL ══════════════════════ -->
+<div class="modal-overlay" id="bulk-sms-modal" onclick="if(event.target===this)closeBulkSmsModal()">
+  <div class="modal-box" style="width:560px;max-width:94vw">
+    <div class="modal-head">
+      <h3>📣 Bulk SMS to Today's Schedule</h3>
+      <button class="modal-close" onclick="closeBulkSmsModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mf-row">
+        <div class="mf-group">
+          <label>Send from (phone number)</label>
+          <input type="text" id="bsm-from" placeholder="+15551234567">
+        </div>
+        <div class="mf-group">
+          <label>Scope</label>
+          <select id="bsm-scope">
+            <option value="sheet">Current sheet only</option>
+            <option value="all">All sheets</option>
+          </select>
+        </div>
+      </div>
+      <div class="mf-group">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal">
+          <input type="checkbox" id="bsm-skip-resolved" checked style="width:auto">
+          Skip contacts already marked resolved
+        </label>
+      </div>
+      <div class="mf-group">
+        <label>Message <span style="color:var(--secondary);font-weight:normal">— use {name} for the contact's first name</span></label>
+        <textarea id="bsm-text" rows="4" placeholder="Hi {name}, this is Goals Plastic Surgery…"
+                  style="width:100%;resize:vertical;font:inherit;padding:8px;border:1px solid var(--border,#ccc);border-radius:6px"></textarea>
+      </div>
+      <div class="mf-error" id="bsm-error" style="display:none"></div>
+      <div id="bsm-preview" style="display:none;margin-top:8px">
+        <div style="font-weight:600;margin-bottom:6px" id="bsm-preview-head"></div>
+        <div id="bsm-preview-list" style="max-height:220px;overflow:auto;border:1px solid var(--border,#e2e2e2);border-radius:6px"></div>
+        <div id="bsm-skipped" style="color:var(--secondary);font-size:12px;margin-top:6px"></div>
+      </div>
+      <div id="bsm-results" style="display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="mf-cancel" onclick="closeBulkSmsModal()">Cancel</button>
+      <button class="mf-cancel" id="bsm-preview-btn" onclick="bulkSmsPreview()">Preview recipients</button>
+      <button class="mf-submit" id="bsm-send-btn" onclick="bulkSmsSend()" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════ AUTO-SCHEDULE PROGRESS MODAL ══════════════════════ -->
 <div class="modal-overlay" id="auto-fu-modal">
   <div class="modal-box" style="width:420px">
@@ -8654,6 +8703,127 @@
       alert("Network error: " + e.message);
       btn.disabled = false;
       btn.textContent = "💬";
+    }
+  }
+
+  // ── Bulk SMS to today's schedule ──
+  let _bulkSmsRecipients = [];
+
+  function openBulkSmsModal() {
+    document.getElementById("bsm-error").style.display = "none";
+    document.getElementById("bsm-preview").style.display = "none";
+    document.getElementById("bsm-results").style.display = "none";
+    const sendBtn = document.getElementById("bsm-send-btn");
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Send";
+    _bulkSmsRecipients = [];
+    document.getElementById("bulk-sms-modal").classList.add("open");
+  }
+
+  function closeBulkSmsModal() {
+    document.getElementById("bulk-sms-modal").classList.remove("open");
+  }
+
+  function _bulkSmsBody(dryRun) {
+    const scope = document.getElementById("bsm-scope").value;
+    const body = {
+      text: document.getElementById("bsm-text").value,
+      from_number: document.getElementById("bsm-from").value.trim(),
+      skip_resolved: document.getElementById("bsm-skip-resolved").checked,
+      dry_run: dryRun,
+    };
+    // "Current sheet only" → pin to exactly the rows the active sheet shows.
+    if (scope === "sheet" && _scFullPayload && _scFullPayload.records) {
+      body.rec_ids = _scFullPayload.records
+        .filter(r => (r.owner || "Zoho Admin") === _activeSheet)
+        .map(r => r.id);
+    }
+    return body;
+  }
+
+  async function bulkSmsPreview() {
+    const err = document.getElementById("bsm-error");
+    err.style.display = "none";
+    document.getElementById("bsm-results").style.display = "none";
+    try {
+      const resp = await fetch("/api/send-bulk-sms", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(_bulkSmsBody(true)),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { err.textContent = data.error || "Preview failed"; err.style.display = ""; return; }
+      _bulkSmsRecipients = data.recipients || [];
+      document.getElementById("bsm-preview-head").textContent =
+        `${data.count} recipient${data.count === 1 ? "" : "s"}`;
+      document.getElementById("bsm-preview-list").innerHTML =
+        _bulkSmsRecipients.map(r =>
+          `<div style="padding:6px 10px;border-bottom:1px solid var(--border,#eee)">
+            <strong>${_qEsc(r.name || "—")}</strong>
+            <span style="color:var(--secondary)"> · ${_qEsc(r.phone || "")}</span>
+            <div style="color:var(--secondary);font-size:12px;margin-top:2px">${_qEsc(r.preview || "")}</div>
+          </div>`).join("") ||
+        `<div style="padding:10px;color:var(--secondary)">No recipients matched.</div>`;
+      const sk = data.skipped || {};
+      const parts = [];
+      if (sk.resolved) parts.push(`${sk.resolved} resolved`);
+      if (sk.already_sms) parts.push(`${sk.already_sms} already messaged`);
+      if (sk.no_phone) parts.push(`${sk.no_phone} no phone`);
+      if (sk.duplicate) parts.push(`${sk.duplicate} duplicate number`);
+      if (sk.not_in_schedule) parts.push(`${sk.not_in_schedule} not in schedule`);
+      document.getElementById("bsm-skipped").textContent =
+        parts.length ? "Skipped: " + parts.join(", ") : "";
+      document.getElementById("bsm-preview").style.display = "";
+      const sendBtn = document.getElementById("bsm-send-btn");
+      sendBtn.disabled = data.count === 0;
+      sendBtn.textContent = data.count ? `Send to ${data.count}` : "Send";
+    } catch (e) {
+      err.textContent = "Network error: " + e.message;
+      err.style.display = "";
+    }
+  }
+
+  async function bulkSmsSend() {
+    const err = document.getElementById("bsm-error");
+    err.style.display = "none";
+    const text = document.getElementById("bsm-text").value.trim();
+    if (!text) { err.textContent = "Message text is required."; err.style.display = ""; return; }
+    const n = _bulkSmsRecipients.length;
+    if (!n) return;
+    if (!confirm(`Send this SMS to ${n} contact${n === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    const sendBtn = document.getElementById("bsm-send-btn");
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Sending…";
+    try {
+      const resp = await fetch("/api/send-bulk-sms", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(_bulkSmsBody(false)),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        err.textContent = data.error || "Send failed"; err.style.display = "";
+        sendBtn.disabled = false; sendBtn.textContent = `Send to ${n}`;
+        return;
+      }
+      document.getElementById("bsm-preview").style.display = "none";
+      const res = document.getElementById("bsm-results");
+      const failed = (data.results || []).filter(r => !r.ok);
+      res.innerHTML =
+        `<div style="font-weight:600;margin-bottom:6px">✅ Sent ${data.sent} · ❌ Failed ${data.failed}</div>` +
+        (failed.length
+          ? `<div style="max-height:160px;overflow:auto;border:1px solid var(--border,#eee);border-radius:6px">` +
+            failed.map(r => `<div style="padding:6px 10px;border-bottom:1px solid var(--border,#eee);font-size:12px">
+              <strong>${_qEsc(r.name || r.phone)}</strong> — ${_qEsc(r.error || "failed")}</div>`).join("") +
+            `</div>`
+          : "");
+      res.style.display = "";
+      sendBtn.textContent = "Done";
+      // Refresh the board so the ✓ sent-markers appear on messaged rows.
+      if (typeof loadData === "function") loadData();
+    } catch (e) {
+      err.textContent = "Network error: " + e.message; err.style.display = "";
+      sendBtn.disabled = false; sendBtn.textContent = `Send to ${n}`;
     }
   }
 
