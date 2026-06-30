@@ -481,10 +481,13 @@ class ZohoClient:
                 )
                 if not resp.ok or resp.status_code == 204:
                     continue
-                calls = [
-                    c for c in resp.json().get("data", [])
-                    if c.get("Call_Type") == "Outbound"
-                ]
+                calls = []
+                for c in resp.json().get("data", []):
+                    subj = (c.get("Subject") or "").lower()
+                    if subj.startswith("scheduled call") or subj.startswith("call scheduled"):
+                        continue
+                    if c.get("Call_Type") == "Outbound":
+                        calls.append(c)
                 if start_dt and end_dt:
                     filtered = []
                     for c in calls:
