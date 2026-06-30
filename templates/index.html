@@ -4751,11 +4751,7 @@
     const past = sc.records.filter(r => r.status !== "upcoming" && r.status !== "pending");
     // Pending calls (0-15 min) stay in main list; missed (15+ min) go to overdue
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    const HIDE_FROM_MAIN_MIN = 15; // hide from main list once past 15 min pending window
-    const isHiddenOverdue = r => r.status==="missed" && (r.minutes_overdue||0) > HIDE_FROM_MAIN_MIN && !r.completed_via_workflow && !r.resolved;
-    // Activity table: hide overdue calls after 30 min (they live in the overdue zone),
-    // but show them back if they've been resolved by manager
-    const activity = sc.records.filter(r => !isHiddenOverdue(r));
+    const activity = sc.records;
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;

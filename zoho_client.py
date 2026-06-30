@@ -1429,11 +1429,12 @@ class ZohoClient:
                     rc_ts = int(rc_t.timestamp())
                     if any(abs(rc_ts - et) < 120 for et in existing_times):
                         continue
+                    agent = rc.get("agent") or ""
                     existing.append({
                         "Call_Start_Time": rc.get("start_time"),
                         "Subject": f"Outgoing call to {rc.get('to_number', phone)}",
                         "Outgoing_call_disposition": None,
-                        "Owner": None,
+                        "Owner": {"name": agent} if agent else None,
                         "Description": "",
                         "_source": "ringex",
                         "_duration": rc.get("duration", 0),

@@ -742,6 +742,8 @@ class RingCXClient:
                     norm = digits[-10:] if len(digits) >= 10 else ""
                     if not norm:
                         continue
+                    from_obj = rec.get("from") or {}
+                    agent_name = from_obj.get("name") or ""
                     phone_map.setdefault(norm, []).append({
                         "id": rec.get("id"),
                         "start_time": rec.get("startTime"),
@@ -749,6 +751,7 @@ class RingCXClient:
                         "result": rec.get("result", ""),
                         "direction": "Outbound",
                         "to_number": to_num,
+                        "agent": agent_name,
                         "source": "ringex",
                     })
 
