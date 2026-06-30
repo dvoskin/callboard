@@ -721,6 +721,20 @@ class ZohoClient:
         ]
         dial_attempts = len(same_day_calls)
 
+        attempts_detail = sorted(
+            [
+                {
+                    "time": c.get("Call_Start_Time"),
+                    "rep": self._caller_name(c),
+                    "disposition": c.get("Outgoing_call_disposition"),
+                    "source": "ringex" if c.get("_source") == "ringex" else "ringcx",
+                }
+                for c in same_day_calls
+                if c.get("Call_Start_Time")
+            ],
+            key=lambda a: a["time"],
+        )
+
         most_recent_ringcx = (
             max(dialed_with_disp, key=lambda c: c.get("Call_Start_Time") or "")
             if dialed_with_disp else None
@@ -774,6 +788,7 @@ class ZohoClient:
                 "mvp_only": is_mvp,
                 "last_attempt_time": (last_attempt.get("Call_Start_Time")
                                       if last_attempt else None),
+                "recent_attempts": attempts_detail,
             }
 
         # ── No RingCX call found on the same day ───────────────────────
@@ -788,6 +803,7 @@ class ZohoClient:
                 "caller": (self._caller_name(most_recent_any)
                            if most_recent_any else None),
                 "_caller_owner_id": self._caller_owner_id(most_recent_any),
+                "recent_attempts": attempts_detail,
             }
 
         # Overdue / missed — no RingCX call, so actual_call_time stays
@@ -800,7 +816,7 @@ class ZohoClient:
             "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
             "actual_call_time": None,
             "minutes_overdue": round(minutes_overdue, 1),
-            "dial_attempts": dial_attempts,  # 0 here: no same-day outbound dials
+            "dial_attempts": dial_attempts,
             "mvp_only": False,
             "disposition": (most_recent_ringcx.get("Outgoing_call_disposition")
                             if most_recent_ringcx else None),
@@ -810,6 +826,7 @@ class ZohoClient:
             "logged_via": None,
             "last_attempt_time": (last_attempt.get("Call_Start_Time")
                                   if last_attempt else None),
+            "recent_attempts": attempts_detail,
         }
 
     # ------------------------------------------------ scheduled call records
