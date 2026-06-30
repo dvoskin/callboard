@@ -21,8 +21,8 @@ ON_TIME_AFTER_MIN    = int(os.getenv("ON_TIME_AFTER_MIN", "10"))
 DIAL_START_HOUR      = int(os.getenv("DIAL_START_HOUR", "9"))
 # Legacy: kept only for compatibility with anything still reading SCHEDULED_TOLERANCE_MINUTES
 SCHEDULED_CALL_TOLERANCE_MINUTES = ON_TIME_AFTER_MIN
-# Local timezone offset from UTC (e.g. -6 for CST, -5 for CDT)
-TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "-6"))
+# Local timezone offset from UTC (e.g. -4 for EDT, -5 for EST)
+TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "-4"))
 
 
 def normalize_phone(phone: str) -> Optional[str]:
@@ -265,11 +265,14 @@ class ZohoClient:
     # --------------------------------------------------------------- deals
 
     def _today_bounds(self) -> tuple:
-        """Returns (start_of_today, end_of_today) in UTC."""
+        """Returns (start_of_today, end_of_today) in UTC, based on local business day."""
         now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end   = now.replace(hour=23, minute=59, second=59, microsecond=0)
-        return today_start, today_end
+        local_now = now + timedelta(hours=TZ_OFFSET_HOURS)
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_end   = local_now.replace(hour=23, minute=59, second=59, microsecond=0)
+        today_start = local_start - timedelta(hours=TZ_OFFSET_HOURS)
+        today_end   = local_end   - timedelta(hours=TZ_OFFSET_HOURS)
+        return today_start.replace(tzinfo=timezone.utc), today_end.replace(tzinfo=timezone.utc)
 
     def _get_deals_by_stage(self, stage: str) -> list[dict]:
         import logging
@@ -376,12 +379,10 @@ class ZohoClient:
         return digits[-10:] if len(digits) >= 10 else None
 
     def _call_window(self) -> tuple[str, str]:
-        """Returns (start_str, end_str) covering the New Deal lookback window through end of today."""
-        now = datetime.now(timezone.utc)
-        window_start = now - timedelta(hours=NEW_DEAL_LOOKBACK_HOURS)
-        _, today_end = self._today_bounds()
+        """Returns (start_str, end_str) covering local today's bounds in UTC."""
+        today_start, today_end = self._today_bounds()
         return (
-            window_start.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            today_start.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
             today_end.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
         )
 
@@ -551,12 +552,18 @@ class ZohoClient:
                 log.warning("Subject-like COQL failed; switching to full-dump fallback")
                 all_calls = self._fetch_calls_full_dump(start_str, end_str)
                 for call in all_calls:
+                    subj = (call.get("Subject") or "").lower()
+                    if subj.startswith("scheduled call") or subj.startswith("call scheduled"):
+                        continue
                     phone = self._phone_from_subject(call.get("Subject", "") or "")
                     if phone and phone in phone_map:
                         phone_map[phone].append(call)
                 used_fallback = True
                 break
             for call in calls:
+                subj = (call.get("Subject") or "").lower()
+                if subj.startswith("scheduled call") or subj.startswith("call scheduled"):
+                    continue
                 phone = self._phone_from_subject(call.get("Subject", "") or "")
                 if phone and phone in phone_map:
                     phone_map[phone].append(call)
@@ -623,9 +630,7 @@ class ZohoClient:
         if ("outgoing call to" in subj or "outbound call to" in subj
                 or subj.startswith("call to") or "outgoing" in subj or "outbound" in subj):
             return True
-        # Unknown type with no inbound markers: the call already phone-matched
-        # this contact, so count it rather than silently drop a real dial.
-        return True
+        return False
 
     def _classify_new_deal(self, deal: dict, calls: list[dict]) -> dict:
         created = self._parse_dt(deal.get("Created_Time"))

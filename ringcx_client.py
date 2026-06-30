@@ -705,10 +705,11 @@ class RingCXClient:
         import re
         try:
             self._ensure_rc_token()
-            date_from = (datetime.now(timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0)
-                - timedelta(hours=6)  # cover timezone slack
-            ).isoformat()
+            tz_offset = int(os.environ.get("TZ_OFFSET_HOURS", "-4"))
+            now_utc = datetime.now(timezone.utc)
+            local_now = now_utc + timedelta(hours=tz_offset)
+            local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_from = (local_start - timedelta(hours=tz_offset)).isoformat()
 
             phone_map: dict[str, list[dict]] = {}
             page = 1
