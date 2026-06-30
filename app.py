@@ -1175,6 +1175,67 @@ def ringcx_extensions():
         return jsonify({"error": str(e)}), 500
 
 
+_sms_numbers_cache = {"data": None, "expires": 0}
+
+@app.route("/api/sms/numbers")
+@login_required
+def sms_numbers():
+    """List RingEX phone numbers that can send SMS (have the SmsSender feature).
+
+    Returns {"numbers": [{phoneNumber, label}], "default": <env default>}.
+    Cached 10 min.
+    """
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+
+    now = time.time()
+    if _sms_numbers_cache["data"] and now < _sms_numbers_cache["expires"]:
+        return jsonify(_sms_numbers_cache["data"])
+
+    try:
+        import requests as req
+        headers = _ringcx._rc_headers()
+        numbers = []
+        seen = set()
+        page = 1
+        while page <= 10:
+            resp = req.get(
+                f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}/phone-number",
+                headers=headers,
+                params={"perPage": 250, "page": page},
+                timeout=15,
+            )
+            if not resp.ok:
+                break
+            data = resp.json()
+            for pn in data.get("records", []):
+                phone = pn.get("phoneNumber", "")
+                features = pn.get("features") or []
+                if not phone or phone in seen or "SmsSender" not in features:
+                    continue
+                seen.add(phone)
+                ext_obj = pn.get("extension") or {}
+                label = pn.get("label") or ext_obj.get("name") or pn.get("usageType") or ""
+                numbers.append({"phoneNumber": phone, "label": label})
+            nav = data.get("paging") or data.get("navigation") or {}
+            if page < nav.get("totalPages", 1):
+                page += 1
+            else:
+                break
+
+        numbers.sort(key=lambda x: x["label"] or x["phoneNumber"])
+        result = {
+            "numbers": numbers,
+            "default": os.getenv("RC_SMS_FROM_NUMBER", ""),
+        }
+        _sms_numbers_cache["data"] = result
+        _sms_numbers_cache["expires"] = now + 600
+        return jsonify(result)
+    except Exception as e:
+        log.error("SMS numbers list error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 # ------------------------------------------------------------------ Call Monitoring
 
 @app.route("/api/ringcx/monitor", methods=["POST"])
@@ -1961,6 +2022,40 @@ def api_send_auto_sms():
         return jsonify({"ok": True, "message_id": result.get("id")})
     except Exception as e:
         log.error("Auto-SMS failed for call %s: %s", call_id, e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/send-sms", methods=["POST"])
+@login_required
+def api_send_sms():
+    """Send a custom SMS to a scheduled-call contact from a chosen RingEX number."""
+    body = request.get_json(force=True) or {}
+    call_id = (body.get("call_id") or "").strip()
+    from_number = (body.get("from_number") or "").strip()
+    text = (body.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Message text is required"}), 400
+
+    # Resolve recipient phone from the cached record (fall back to body.to_number)
+    phone = (body.get("to_number") or "").strip()
+    if call_id and not phone:
+        with _lock:
+            sc_data = (_cache.get("data") or {}).get("scheduled_calls", {})
+            records = sc_data.get("records") or []
+        rec = next((r for r in records if r.get("id") == call_id), None)
+        if rec:
+            phone = rec.get("phone") or ""
+    if not phone:
+        return jsonify({"error": "No phone number for this contact"}), 400
+
+    try:
+        result = _ringcx.send_sms(to_number=phone, text=text, from_number=from_number)
+        if call_id:
+            _sms_sent.add(call_id)
+        log.info("SMS sent for call %s to %s from %s", call_id or "-", phone, from_number or "default")
+        return jsonify({"ok": True, "message_id": result.get("id")})
+    except Exception as e:
+        log.error("SMS send failed (call %s): %s", call_id or "-", e)
         return jsonify({"error": str(e)}), 500
 
 

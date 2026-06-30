@@ -1219,6 +1219,23 @@
       background: rgba(0,0,0,.45); align-items: center; justify-content: center;
     }
     .pt-modal-overlay.open { display: flex; }
+    .sms-modal-to { font-size: 13px; color: var(--secondary); margin: 4px 0 14px; }
+    .sms-modal-to strong { color: var(--text); }
+    .sms-modal-label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--tertiary); margin: 12px 0 5px; }
+    .sms-modal-select, .sms-modal-text {
+      width: 100%; box-sizing: border-box; font-size: 13px; padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text);
+    }
+    .sms-modal-select:focus, .sms-modal-text:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+    .sms-modal-text { resize: vertical; font-family: inherit; line-height: 1.4; }
+    .sms-modal-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+    .sms-modal-charcount { font-size: 11px; color: var(--tertiary); font-feature-settings: "tnum"; }
+    .sms-cancel-btn { font-size: 13px; padding: 7px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--secondary); cursor: pointer; margin-right: 8px; }
+    .sms-send-btn { font-size: 13px; font-weight: 600; padding: 7px 18px; border: none; border-radius: 8px; background: var(--blue); color: #fff; cursor: pointer; }
+    .sms-send-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .sms-modal-status { font-size: 12px; margin-top: 12px; min-height: 16px; }
+    .sms-modal-status.err { color: var(--red-dk); }
+    .sms-modal-status.ok { color: var(--green-dk); }
     .pt-modal {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; padding: 24px; min-width: 340px; max-width: 440px;
@@ -3419,6 +3436,28 @@
       <div class="pt-modal-title" id="pt-modal-title"></div>
       <div class="pt-modal-total" id="pt-modal-total"></div>
       <div id="pt-modal-agents"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ SEND SMS MODAL ══════════════════════ -->
+  <div class="pt-modal-overlay" id="sms-modal-overlay" onclick="closeSmsModal(event)">
+    <div class="pt-modal sms-modal" onclick="event.stopPropagation()">
+      <button class="pt-modal-close" onclick="closeSmsModal()">&times;</button>
+      <div class="pt-modal-title">Send SMS</div>
+      <div class="sms-modal-to" id="sms-modal-to"></div>
+      <label class="sms-modal-label">From (RingEX number)</label>
+      <select id="sms-modal-from" class="sms-modal-select"></select>
+      <label class="sms-modal-label">Message</label>
+      <textarea id="sms-modal-text" class="sms-modal-text" rows="5" maxlength="1000"
+        oninput="document.getElementById('sms-modal-count').textContent=this.value.length+' / 1000'"></textarea>
+      <div class="sms-modal-foot">
+        <span class="sms-modal-charcount" id="sms-modal-count">0 / 1000</span>
+        <div>
+          <button class="sms-cancel-btn" onclick="closeSmsModal()">Cancel</button>
+          <button class="sms-send-btn" id="sms-send-btn" onclick="sendModalSms()">Send</button>
+        </div>
+      </div>
+      <div class="sms-modal-status" id="sms-modal-status"></div>
     </div>
   </div>
 
@@ -8641,38 +8680,100 @@
   // ── Auto-SMS button (enabled after 5+ dials, one-time only) ──
   const _smsSentIds = new Set();
   function _smsBtn(r) {
-    const dials = r.dial_attempts || 0;
     const already = r.sms_sent || _smsSentIds.has(r.id);
-    if (already) return `<span style="font-size:11px;color:var(--secondary)" title="SMS already sent">✓</span>`;
-    if (dials < 5) return `<button class="sms-row-btn" disabled style="opacity:.3;cursor:not-allowed;font-size:12px;background:none;border:none" title="Available after 5 dial attempts (${dials}/5)">💬</button>`;
-    return `<button class="sms-row-btn" onclick="sendAutoSms('${r.id}',this)" style="font-size:12px;background:none;border:none;cursor:pointer" title="Send auto follow-up SMS to ${_qEsc(r.name || '')}">💬</button>`;
+    const sent = already ? " style=\"color:var(--green-dk)\"" : "";
+    const title = already ? "SMS already sent — click to send another" : "Send SMS to " + _qEsc(r.name || "");
+    return `<button class="sms-row-btn" onclick="openSmsModal('${r.id}')"${sent} style="font-size:12px;background:none;border:none;cursor:pointer" title="${title}">💬</button>`;
   }
-  async function sendAutoSms(callId, btn) {
-    if (_smsSentIds.has(callId)) return;
-    if (!confirm("Send an automatic follow-up SMS to this contact?")) return;
-    btn.disabled = true;
-    btn.textContent = "…";
+  let _smsNumbersCache = null;
+  let _smsModalCallId = null;
+
+  function _findScRecord(id) {
+    return (_scActivityRecords || []).find(r => r.id === id)
+        || (_scOverdueRecords || []).find(r => r.id === id)
+        || ((_scFullPayload && _scFullPayload.records) || []).find(r => r.id === id)
+        || null;
+  }
+
+  async function openSmsModal(callId) {
+    const r = _findScRecord(callId);
+    if (!r) { alert("Record not found"); return; }
+    _smsModalCallId = callId;
+    const name = r.name || "this contact";
+    const phone = r.phone || "—";
+    document.getElementById("sms-modal-to").innerHTML =
+      `To: <strong>${_qEsc(name)}</strong> · ${_qEsc(phone)}`;
+    const firstName = (name.split(" ")[0]) || "there";
+    const txt = document.getElementById("sms-modal-text");
+    txt.value = `Hi ${firstName}, this is Goals Plastic Surgery following up on your consultation. `
+      + `We've been trying to reach you — please call us back or reply to this message. We're happy to help!`;
+    document.getElementById("sms-modal-count").textContent = txt.value.length + " / 1000";
+    const status = document.getElementById("sms-modal-status");
+    status.textContent = ""; status.className = "sms-modal-status";
+    const sendBtn = document.getElementById("sms-send-btn");
+    sendBtn.disabled = false; sendBtn.textContent = "Send";
+    document.getElementById("sms-modal-overlay").classList.add("open");
+
+    // Populate the From-number dropdown (cached)
+    const sel = document.getElementById("sms-modal-from");
+    if (!_smsNumbersCache) {
+      sel.innerHTML = `<option>Loading numbers…</option>`;
+      try {
+        const resp = await fetch("/api/sms/numbers");
+        _smsNumbersCache = await resp.json();
+      } catch (e) {
+        _smsNumbersCache = {numbers: [], default: ""};
+      }
+    }
+    const nums = (_smsNumbersCache && _smsNumbersCache.numbers) || [];
+    const def = (_smsNumbersCache && _smsNumbersCache.default) || "";
+    if (!nums.length) {
+      sel.innerHTML = def
+        ? `<option value="${_qEsc(def)}">${_qEsc(def)} (default)</option>`
+        : `<option value="">No SMS numbers available</option>`;
+    } else {
+      sel.innerHTML = nums.map(n => {
+        const lbl = n.label ? `${_qEsc(n.label)} — ${_qEsc(n.phoneNumber)}` : _qEsc(n.phoneNumber);
+        const isDef = n.phoneNumber === def ? " selected" : "";
+        return `<option value="${_qEsc(n.phoneNumber)}"${isDef}>${lbl}</option>`;
+      }).join("");
+    }
+  }
+
+  function closeSmsModal(ev) {
+    if (ev && ev.target !== ev.currentTarget) return;
+    document.getElementById("sms-modal-overlay").classList.remove("open");
+    _smsModalCallId = null;
+  }
+
+  async function sendModalSms() {
+    const callId = _smsModalCallId;
+    if (!callId) return;
+    const from = document.getElementById("sms-modal-from").value;
+    const text = document.getElementById("sms-modal-text").value.trim();
+    const status = document.getElementById("sms-modal-status");
+    const btn = document.getElementById("sms-send-btn");
+    if (!text) { status.className = "sms-modal-status err"; status.textContent = "Message can't be empty."; return; }
+    btn.disabled = true; btn.textContent = "Sending…";
+    status.className = "sms-modal-status"; status.textContent = "";
     try {
-      const resp = await fetch("/api/send-auto-sms", {
+      const resp = await fetch("/api/send-sms", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({call_id: callId}),
+        body: JSON.stringify({call_id: callId, from_number: from, text}),
       });
       const data = await resp.json();
       if (resp.ok) {
         _smsSentIds.add(callId);
-        btn.textContent = "✓";
-        btn.style.color = "var(--green-dk)";
-        btn.title = "SMS sent";
+        status.className = "sms-modal-status ok"; status.textContent = "✓ Sent";
+        setTimeout(() => closeSmsModal(), 900);
       } else {
-        alert(data.error || "Failed to send SMS");
-        btn.disabled = false;
-        btn.textContent = "💬";
+        status.className = "sms-modal-status err"; status.textContent = data.error || "Failed to send SMS";
+        btn.disabled = false; btn.textContent = "Send";
       }
     } catch (e) {
-      alert("Network error: " + e.message);
-      btn.disabled = false;
-      btn.textContent = "💬";
+      status.className = "sms-modal-status err"; status.textContent = "Network error: " + e.message;
+      btn.disabled = false; btn.textContent = "Send";
     }
   }
 
