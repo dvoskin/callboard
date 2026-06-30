@@ -447,6 +447,67 @@ class ZohoClient:
             log.warning("Call full-dump capped at 1000 records — some matches may be missing")
         return all_calls
 
+    def _fetch_calls_by_contact_ids(
+        self,
+        contact_ids: list[str],
+        start_dt: Optional[datetime] = None,
+        end_dt: Optional[datetime] = None,
+    ) -> dict[str, list[dict]]:
+        """Fetch outbound calls by Who_Id (contact link) within the time window.
+
+        Returns {contact_id: [call_records]}. Catches calls whose Subject
+        doesn't contain the phone number (e.g. RingCX campaign dials).
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        result: dict[str, list[dict]] = {}
+        if not contact_ids:
+            return result
+
+        if start_dt is not None and end_dt is not None:
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        else:
+            start_str, end_str = self._call_window()
+
+        BATCH = 5
+        for i in range(0, len(contact_ids), BATCH):
+            batch = contact_ids[i : i + BATCH]
+            conditions = " or ".join(f"Who_Id = '{cid}'" for cid in batch)
+            query = (
+                "select id, Subject, Call_Start_Time, Who_Id, "
+                "Outgoing_call_disposition, Call_Duration_in_seconds, "
+                "Call_Type, Owner, Created_Time, Description "
+                f"from Calls where Call_Start_Time between '{start_str}' and '{end_str}' "
+                f"and Call_Type = 'Outbound' and ({conditions}) "
+                "order by Call_Start_Time desc limit 200"
+            )
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/crm/v6/coql",
+                    headers=self._headers(),
+                    json={"select_query": query},
+                    timeout=20,
+                )
+                if resp.status_code == 204:
+                    continue
+                if not resp.ok:
+                    log.warning("Who_Id call fetch failed %s: %s",
+                                resp.status_code, resp.text[:200])
+                    continue
+                for call in resp.json().get("data", []):
+                    who = call.get("Who_Id") or {}
+                    cid = who.get("id") if isinstance(who, dict) else None
+                    if cid:
+                        result.setdefault(cid, []).append(call)
+            except Exception as e:
+                log.warning("Who_Id call fetch error: %s", e)
+
+        total = sum(len(v) for v in result.values())
+        log.info("  → %d calls matched via Who_Id (%d contacts, %d batches)",
+                 total, len(contact_ids), -(-len(contact_ids) // BATCH))
+        return result
+
     def _fetch_all_calls_for_phones(
         self,
         phones: list[str],
@@ -1315,12 +1376,40 @@ class ZohoClient:
         contact_details = self._fetch_contact_details(contact_ids)
         contact_phones = {cid: d["phone"] for cid, d in contact_details.items()}
 
-        # Source B: Outbound calls (RingCX + MVP) for the phones we care about.
-        # Uses targeted COQL queries by phone number in Subject, avoiding the
-        # Zoho search API's 2000-record limit that caused missed calls.
+        # Source B: Outbound calls for the phones we care about.
+        # Two strategies: (1) Subject-like phone match, (2) Who_Id contact match.
+        # Many RingCX dialer calls have subjects like "OUT - Campaign" without
+        # the phone number, so Subject-only misses them.
         all_phones = [p for p in contact_phones.values() if p]
         log.info("Fetching outbound calls for %d unique phones...", len(set(all_phones)))
         ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
+
+        # Source B2: Who_Id-based lookup catches calls Subject-matching missed.
+        cid_to_phone = {cid: phone for cid, phone in contact_phones.items() if phone}
+        calls_by_whoid = self._fetch_calls_by_contact_ids(contact_ids, start_dt, end_dt)
+        merged_whoid = 0
+        for cid, calls in calls_by_whoid.items():
+            phone = cid_to_phone.get(cid)
+            if not phone:
+                continue
+            existing = ringcx_by_phone.setdefault(phone, [])
+            existing_times = set()
+            for c in existing:
+                t = self._parse_dt(c.get("Call_Start_Time"))
+                if t:
+                    existing_times.add(int(t.timestamp()))
+            for call in calls:
+                ct = self._parse_dt(call.get("Call_Start_Time"))
+                if not ct:
+                    continue
+                ct_ts = int(ct.timestamp())
+                if any(abs(ct_ts - et) < 120 for et in existing_times):
+                    continue
+                existing.append(call)
+                existing_times.add(ct_ts)
+                merged_whoid += 1
+        if merged_whoid:
+            log.info("Merged %d Who_Id-matched calls into phone map", merged_whoid)
 
         # Source C: RingEX Platform API calls (supplemental).
         # These catch dials that RingCX made but Zoho never logged (short
