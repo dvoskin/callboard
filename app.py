@@ -130,9 +130,13 @@ def _save_resolved(data: dict) -> None:
     RESOLVED_PATH.write_text(json.dumps(data, indent=2))
 
 def _prune_resolved(data: dict) -> dict:
-    """Drop entries older than 7 days."""
+    """Drop entries older than 7 days, but keep any that carry a note so
+    manually-entered notes persist indefinitely."""
     cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).isoformat()
-    return {k: v for k, v in data.items() if v.get("at", "") > cutoff}
+    return {
+        k: v for k, v in data.items()
+        if v.get("at", "") > cutoff or (v.get("note") or "").strip()
+    }
 
 def resolved_ids() -> set:
     with _resolved_lock:

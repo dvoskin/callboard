@@ -1047,6 +1047,8 @@
     .col-fucall  { width: 44px; text-align: center; }
     .col-nxtstep { width: 110px; font-size: 10.5px; white-space: nowrap; }
     .col-notes   { min-width: 180px; }
+    .col-usernote { min-width: 160px; }
+    .col-usernote .note-input { width: 100%; }
     .sc-notes-cell { display: flex; align-items: flex-start; gap: 4px; font-size: 11px; }
     .sc-note-text  { flex: 1; line-height: 1.35; color: var(--text); }
     .sc-ai-result  { color: #6d28d9; font-style: italic; }
@@ -3632,6 +3634,7 @@
                 <th class="sortable col-dials" onclick="sortSc('dial_attempts')">Dials</th>
                 <th class="sortable col-caller" onclick="sortSc('caller')" style="width:90px">Caller</th>
                 <th class="sortable col-disp" onclick="sortSc('disposition')">Disposition</th>
+                <th class="col-usernote" style="width:160px" title="Editable note — shared across all users">Notes</th>
                 <th class="col-dist" style="width:36px" title="Manually distributed">✋</th>
                 <th class="col-flag" style="width:36px"></th>
                 <th class="col-rec">Recording</th>
@@ -3639,7 +3642,7 @@
                 <th class="col-nxtstep" style="width:110px" title="Next scheduled follow-up call">Next FU</th>
                 <th class="sortable col-leadsrc" onclick="sortSc('lead_source')" style="width:90px">Lead Src</th>
                 <th class="col-sms" style="width:40px" title="Send auto SMS (after 5+ dials, one-time)">💬</th>
-                <th class="col-notes" style="min-width:180px" title="Latest CRM note / AI summary">Notes</th>
+                <th class="col-notes" style="min-width:180px" title="Latest CRM note / AI summary">CRM Note</th>
               </tr>
             </thead>
             <tbody id="sc-tbody"></tbody>
@@ -5011,9 +5014,12 @@
   async function saveNote(input) {
     const id = input.dataset.id;
     const note = input.value.trim();
-    // Update local record
-    const rec = _scOverdueRecords.find(r => r.id === id);
-    if (rec) rec.note = note;
+    // Update local record(s) across both the activity and overdue lists so
+    // the note sticks regardless of which table it was edited in.
+    [_scOverdueRecords, _scActivityRecords].forEach(list => {
+      const rec = (list || []).find(r => r.id === id);
+      if (rec) rec.note = note;
+    });
     // Visual feedback
     input.classList.add("saved");
     setTimeout(() => input.classList.remove("saved"), 1200);
@@ -5203,6 +5209,7 @@
     { key: "dials",      label: "Dials",            default: true  },
     { key: "caller",     label: "Caller",           default: true  },
     { key: "disp",       label: "Disposition",      default: true  },
+    { key: "usernote",   label: "Notes",            default: true  },
     { key: "dist",       label: "Distributed",      default: true  },
     { key: "flag",       label: "Flag",             default: true  },
     { key: "rec",        label: "Recording",        default: true  },
@@ -5210,7 +5217,7 @@
     { key: "nxtstep",    label: "Next FU",          default: true  },
     { key: "leadsrc",   label: "Lead Source",       default: true  },
     { key: "sms",        label: "💬 Auto SMS",      default: true  },
-    { key: "notes",      label: "Notes",            default: true  },
+    { key: "notes",      label: "CRM Note",         default: true  },
   ];
   function _colIsVisible(c) {
     if (c.always) return true;
@@ -5574,7 +5581,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="16" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="22" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -5892,6 +5899,7 @@
         <td class="col-dials">${dialsCell}</td>
         <td class="col-caller">${callerCell}</td>
         <td class="col-disp">${dispCell}</td>
+        <td class="col-usernote"><input type="text" class="note-input" data-id="${r.id}" value="${(r.note||'').replace(/"/g,'&quot;')}" placeholder="Add note…" onblur="saveNote(this)" onkeydown="if(event.key==='Enter'){this.blur()}"></td>
         <td style="text-align:center" class="col-dist"><button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? `Distributed by ${r.distributed_by || 'unknown'}` : 'Mark as manually distributed'}">✋</button></td>
         <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
