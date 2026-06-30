@@ -464,6 +464,11 @@ class ZohoClient:
         if not contact_ids:
             return result
 
+        if start_dt and end_dt:
+            filter_start, filter_end = start_dt, end_dt
+        else:
+            filter_start, filter_end = self._today_bounds()
+
         for cid in contact_ids:
             try:
                 resp = requests.get(
@@ -486,15 +491,11 @@ class ZohoClient:
                     subj = (c.get("Subject") or "").lower()
                     if subj.startswith("scheduled call") or subj.startswith("call scheduled"):
                         continue
-                    if c.get("Call_Type") == "Outbound":
+                    if c.get("Call_Type") != "Outbound":
+                        continue
+                    t = self._parse_dt(c.get("Call_Start_Time"))
+                    if t and filter_start <= t <= filter_end:
                         calls.append(c)
-                if start_dt and end_dt:
-                    filtered = []
-                    for c in calls:
-                        t = self._parse_dt(c.get("Call_Start_Time"))
-                        if t and start_dt <= t <= end_dt:
-                            filtered.append(c)
-                    calls = filtered
                 if calls:
                     result[cid] = calls
             except Exception as e:
