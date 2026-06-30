@@ -4877,10 +4877,8 @@
     updateSortHeaders("sc-tab-overdue", _overdueSort);
 
     document.getElementById("sc-overdue-tbody").innerHTML = sorted.map(r => {
-      const ownerTag = r.deal_owner
-        ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "";
       const stagePill = r.deal_stage
-        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>${ownerTag}` : `<span class="no-data">—</span>`;
+        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>` : `<span class="no-data">—</span>`;
       const dials = r.dial_attempts??0;
       const odAttList = r.recent_attempts || [];
       const odActualCell = r.actual_call_time
@@ -5754,8 +5752,7 @@
       } // end else (non-live, non-resolved)
       // Deal stage now lives in its own column with semantic colors.
       const stageCell = r.deal_stage
-        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>` +
-          (r.deal_owner ? `<span class="owner-tag"><span class="owner-dot"></span>${r.deal_owner}</span>` : "")
+        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>`
         : `<span class="no-data">—</span>`;
       const sourceCell = r.logged_via === "ringcx"
         ? `<span class="src-pill src-ringcx">RingCX</span>`
