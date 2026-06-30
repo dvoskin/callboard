@@ -453,10 +453,10 @@ class ZohoClient:
         start_dt: Optional[datetime] = None,
         end_dt: Optional[datetime] = None,
     ) -> dict[str, list[dict]]:
-        """Fetch outbound calls by Who_Id (contact link) within the time window.
+        """Fetch outbound calls by Who_Id (contact link) — same REST search
+        used by the detail panel's get_contact_summary_data.
 
-        Returns {contact_id: [call_records]}. Catches calls whose Subject
-        doesn't contain the phone number (e.g. RingCX campaign dials).
+        Returns {contact_id: [call_records]}.
         """
         import logging
         log = logging.getLogger(__name__)
@@ -464,48 +464,42 @@ class ZohoClient:
         if not contact_ids:
             return result
 
-        if start_dt is not None and end_dt is not None:
-            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-            end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-        else:
-            start_str, end_str = self._call_window()
-
-        BATCH = 5
-        for i in range(0, len(contact_ids), BATCH):
-            batch = contact_ids[i : i + BATCH]
-            conditions = " or ".join(f"Who_Id = '{cid}'" for cid in batch)
-            query = (
-                "select id, Subject, Call_Start_Time, Who_Id, "
-                "Outgoing_call_disposition, Call_Duration_in_seconds, "
-                "Call_Type, Owner, Created_Time, Description "
-                f"from Calls where Call_Start_Time between '{start_str}' and '{end_str}' "
-                f"and Call_Type = 'Outbound' and ({conditions}) "
-                "order by Call_Start_Time desc limit 200"
-            )
+        for cid in contact_ids:
             try:
-                resp = requests.post(
-                    f"{self.base_url}/crm/v6/coql",
+                resp = requests.get(
+                    f"{self.base_url}/crm/v6/Calls/search",
                     headers=self._headers(),
-                    json={"select_query": query},
+                    params={
+                        "criteria": f"(Who_Id:equals:{cid})",
+                        "fields": "id,Subject,Call_Start_Time,Call_Type,"
+                                  "Call_Duration_in_seconds,"
+                                  "Outgoing_call_disposition,Owner,"
+                                  "Created_Time,Description,Who_Id",
+                        "per_page": 50,
+                    },
                     timeout=20,
                 )
-                if resp.status_code == 204:
+                if not resp.ok or resp.status_code == 204:
                     continue
-                if not resp.ok:
-                    log.warning("Who_Id call fetch failed %s: %s",
-                                resp.status_code, resp.text[:200])
-                    continue
-                for call in resp.json().get("data", []):
-                    who = call.get("Who_Id") or {}
-                    cid = who.get("id") if isinstance(who, dict) else None
-                    if cid:
-                        result.setdefault(cid, []).append(call)
+                calls = [
+                    c for c in resp.json().get("data", [])
+                    if c.get("Call_Type") == "Outbound"
+                ]
+                if start_dt and end_dt:
+                    filtered = []
+                    for c in calls:
+                        t = self._parse_dt(c.get("Call_Start_Time"))
+                        if t and start_dt <= t <= end_dt:
+                            filtered.append(c)
+                    calls = filtered
+                if calls:
+                    result[cid] = calls
             except Exception as e:
-                log.warning("Who_Id call fetch error: %s", e)
+                log.warning("Who_Id call fetch error for %s: %s", cid, e)
 
         total = sum(len(v) for v in result.values())
-        log.info("  → %d calls matched via Who_Id (%d contacts, %d batches)",
-                 total, len(contact_ids), -(-len(contact_ids) // BATCH))
+        log.info("  → %d calls matched via Who_Id for %d/%d contacts",
+                 total, len(result), len(contact_ids))
         return result
 
     def _fetch_all_calls_for_phones(
@@ -814,7 +808,8 @@ class ZohoClient:
     # Owners whose calendars feed the Scheduled Call tracker. Each owner is
     # presented as its own sheet in the UI; records are tagged with the real
     # Owner name so the frontend can split them.
-    SCHEDULED_CALL_OWNERS = ("Zoho Admin", "Ariel Voskin")
+    SCHEDULED_CALL_OWNERS = ("Zoho Admin", "Ariel Voskin", "Parizher")
+    OWNER_DISPLAY_NAMES = {"Parizher": "Anna Parizher"}
 
     def _fetch_scheduled_call_records_today(
         self,
@@ -1459,7 +1454,26 @@ class ZohoClient:
             who = sched_record.get("Who_Id") or {}
             cid = who.get("id") if isinstance(who, dict) else None
             phone = contact_phones.get(cid) if cid else None
-            return ringcx_by_phone.get(phone, []) if phone else []
+            by_phone = ringcx_by_phone.get(phone, []) if phone else []
+            by_cid = calls_by_whoid.get(cid, []) if cid else []
+            if not by_cid:
+                return by_phone
+            if not by_phone:
+                return by_cid
+            merged = list(by_phone)
+            existing_ts = set()
+            for c in merged:
+                t = self._parse_dt(c.get("Call_Start_Time"))
+                if t:
+                    existing_ts.add(int(t.timestamp()))
+            for c in by_cid:
+                t = self._parse_dt(c.get("Call_Start_Time"))
+                if not t:
+                    continue
+                if not any(abs(int(t.timestamp()) - et) < 120 for et in existing_ts):
+                    merged.append(c)
+                    existing_ts.add(int(t.timestamp()))
+            return merged
 
         def deal_base(deal):
             owner = deal.get("Owner")
@@ -1502,11 +1516,12 @@ class ZohoClient:
                 last_minute = 0 <= lead_min <= 15
 
             owner_obj = rec.get("Owner") or {}
-            owner_name = (
+            raw_owner = (
                 owner_obj.get("name") if isinstance(owner_obj, dict)
                 else owner_obj if isinstance(owner_obj, str)
                 else None
             ) or "Zoho Admin"
+            owner_name = self.OWNER_DISPLAY_NAMES.get(raw_owner, raw_owner)
 
             return {
                 "id": rec["id"],

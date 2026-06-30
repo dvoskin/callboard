@@ -3546,10 +3546,12 @@
   <div class="card" id="card-activity">
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <h2>🗓 Scheduled Calls</h2>
-      <span class="card-sub" id="sc-card-sub">Today · Zoho Admin</span>
+      <span class="card-sub" id="sc-card-sub">Today · All</span>
       <div class="gb-toggle" id="sc-sheet-toggle">
-        <button class="gb-btn active" data-sheet="Zoho Admin" onclick="switchSheet('Zoho Admin')">Zoho Admin</button>
+        <button class="gb-btn active" data-sheet="All" onclick="switchSheet('All')">All</button>
+        <button class="gb-btn" data-sheet="Zoho Admin" onclick="switchSheet('Zoho Admin')">Zoho Admin</button>
         <button class="gb-btn" data-sheet="Ariel Voskin" onclick="switchSheet('Ariel Voskin')">Ariel Voskin</button>
+        <button class="gb-btn" data-sheet="Anna Parizher" onclick="switchSheet('Anna Parizher')">Anna Parizher</button>
       </div>
       <button class="sched-btn" onclick="openScheduleModal()">+ Schedule Call</button>
     </div>
@@ -4635,9 +4637,9 @@
   // shows one owner at a time as a "sheet"; switching re-renders the whole
   // section from the cached payload so every sheet behaves identically.
   let _scFullPayload = null;
-  let _activeSheet = "Zoho Admin";
+  let _activeSheet = "All";
   let _scDateLabel = "Today";
-  const SHEET_OWNERS = ["Zoho Admin", "Ariel Voskin"];
+  const SHEET_OWNERS = ["All", "Zoho Admin", "Ariel Voskin", "Anna Parizher"];
 
   // Mirror of the backend summary() for scheduled-call mode, so a sheet's
   // subset of records gets the same counts the backend would produce.
@@ -4676,7 +4678,9 @@
     // rest of the renderer (KPIs, stats, tables, overdue, upcoming) sees only
     // the selected owner's records and a matching summary.
     _scFullPayload = scFull;
-    const _records = scFull.records.filter(r => (r.owner || "Zoho Admin") === _activeSheet);
+    const _records = _activeSheet === "All"
+      ? scFull.records
+      : scFull.records.filter(r => (r.owner || "Zoho Admin") === _activeSheet);
     const sc = { records: _records, summary: schedSummary(_records) };
     // Calls scheduled before 9 AM Eastern are assumed to be expected at 9 AM
     // (reps don't dial outside business hours). Apply the floor once, here,
