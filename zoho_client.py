@@ -729,9 +729,17 @@ class ZohoClient:
         # as a pass — whether or not Zoho recorded a disposition or used the
         # exact "Outgoing call to" subject. Dispositioned calls remain the
         # source of truth for the displayed disposition/caller.
+        #
+        # A dial can't have happened in the future. Some Zoho records (future
+        # call-cycle slots, "Nth Attempt" placeholders) carry a Call_Start_Time
+        # later than now — exclude them so they don't show as dials.
+        def _not_future(c):
+            t = self._parse_dt(c.get("Call_Start_Time"))
+            return bool(t) and t <= now
+
         same_day_calls = [
             c for c in calls
-            if same_local_date(c) and self._is_outbound_call(c)
+            if same_local_date(c) and _not_future(c) and self._is_outbound_call(c)
         ]
         dialed_with_disp = [
             c for c in same_day_calls if c.get("Outgoing_call_disposition")
