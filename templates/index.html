@@ -2189,12 +2189,12 @@
       .lp-filter-item input[type="checkbox"] { width: 18px; height: 18px; }
 
       /* Hide Assigned To, Outcome, Resolved By on mobile */
-      #sc-tab-overdue table thead th:nth-child(8),
-      #sc-tab-overdue table tbody td:nth-child(8),
       #sc-tab-overdue table thead th:nth-child(9),
       #sc-tab-overdue table tbody td:nth-child(9),
       #sc-tab-overdue table thead th:nth-child(10),
-      #sc-tab-overdue table tbody td:nth-child(10) { display: none; }
+      #sc-tab-overdue table tbody td:nth-child(10),
+      #sc-tab-overdue table thead th:nth-child(11),
+      #sc-tab-overdue table tbody td:nth-child(11) { display: none; }
 
       /* Alert banner: stack vertically */
       .alert-banner { flex-wrap: wrap; padding: 11px 14px; gap: 10px; }
@@ -2315,12 +2315,12 @@
       #sc-tab-overdue table tbody td:nth-child(3),
       #sc-tab-overdue table thead th:nth-child(5),
       #sc-tab-overdue table tbody td:nth-child(5),
-      #sc-tab-overdue table thead th:nth-child(8),
-      #sc-tab-overdue table tbody td:nth-child(8),
       #sc-tab-overdue table thead th:nth-child(9),
       #sc-tab-overdue table tbody td:nth-child(9),
       #sc-tab-overdue table thead th:nth-child(10),
-      #sc-tab-overdue table tbody td:nth-child(10) { display: none; }
+      #sc-tab-overdue table tbody td:nth-child(10),
+      #sc-tab-overdue table thead th:nth-child(11),
+      #sc-tab-overdue table tbody td:nth-child(11) { display: none; }
 
       /* Cols menu becomes a bottom sheet on small screens */
       .cols-menu {
@@ -3528,6 +3528,7 @@
               <th>Actual Call (EST)</th>
               <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
               <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
+              <th class="sortable" onclick="sortOverdue('lead_source')" style="width:80px">Lead Src</th>
               <th>Assigned To</th>
               <th>Outcome</th>
               <th>Resolved By</th>
@@ -4854,7 +4855,7 @@
 
     if (!visible.length) {
       document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="11" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
+        `<tr><td colspan="12" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
       // Reset select-all
       const allCb = document.getElementById("od-select-all");
       allCb.checked = false; allCb.indeterminate = false;
@@ -4916,6 +4917,7 @@
         <td>${odActualCell}</td>
         <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
         <td>${stagePill}</td>
+        <td style="font-size:11px">${r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'}</td>
         <td class="od-assigned-cell">
           <input type="text" class="note-input od-assigned-input" data-id="${r.id}"
             value="${(r.assigned_to || r.deal_owner || '').replace(/"/g,'&quot;')}"
