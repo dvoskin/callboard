@@ -454,8 +454,11 @@ class ZohoClient:
         start_dt: Optional[datetime] = None,
         end_dt: Optional[datetime] = None,
     ) -> dict[str, list[dict]]:
-        """Fetch outbound calls by Who_Id (contact link) — same REST search
-        used by the detail panel's get_contact_summary_data.
+        """Fetch outbound calls by Who_Id (contact link) using batched COQL.
+
+        COQL `Who_Id in (...)` finds every call linked to a contact — including
+        manual logs ("2nd Attempt - No Answer") that have no phone in the
+        Subject and would otherwise slip through the Subject-based search.
 
         Returns {contact_id: [call_records]}.
         """
@@ -466,41 +469,55 @@ class ZohoClient:
             return result
 
         if start_dt and end_dt:
-            filter_start, filter_end = start_dt, end_dt
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
         else:
-            filter_start, filter_end = self._today_bounds()
+            start_str, end_str = self._call_window()
 
-        for cid in contact_ids:
-            try:
-                resp = requests.get(
-                    f"{self.base_url}/crm/v6/Calls/search",
-                    headers=self._headers(),
-                    params={
-                        "criteria": f"(Who_Id:equals:{cid})",
-                        "fields": "id,Subject,Call_Start_Time,Call_Type,"
-                                  "Call_Duration_in_seconds,"
-                                  "Outgoing_call_disposition,Owner,"
-                                  "Created_Time,Description,Who_Id",
-                        "per_page": 50,
-                    },
-                    timeout=20,
+        BATCH = 25
+        for i in range(0, len(contact_ids), BATCH):
+            batch = contact_ids[i : i + BATCH]
+            id_list = ",".join(f"'{cid}'" for cid in batch)
+            offset = 0
+            while True:
+                query = (
+                    "select id, Subject, Call_Start_Time, Who_Id, Call_Type, "
+                    "Outgoing_call_disposition, Call_Duration_in_seconds, "
+                    "Owner, Created_Time, Description "
+                    f"from Calls where (Who_Id in ({id_list})) "
+                    f"and (Call_Start_Time between '{start_str}' and '{end_str}') "
+                    f"order by Call_Start_Time desc limit 200 offset {offset}"
                 )
-                if not resp.ok or resp.status_code == 204:
-                    continue
-                calls = []
-                for c in resp.json().get("data", []):
+                try:
+                    resp = requests.post(
+                        f"{self.base_url}/crm/v6/coql",
+                        headers=self._headers(),
+                        json={"select_query": query},
+                        timeout=25,
+                    )
+                except Exception as e:
+                    log.warning("Who_Id COQL batch error: %s", e)
+                    break
+                if resp.status_code == 204:
+                    break
+                if not resp.ok:
+                    log.warning("Who_Id COQL failed %s: %s",
+                                resp.status_code, resp.text[:200])
+                    break
+                data = resp.json()
+                for c in data.get("data", []):
                     subj = (c.get("Subject") or "").lower()
                     if subj.startswith("scheduled call") or subj.startswith("call scheduled"):
                         continue
                     if c.get("Call_Type") != "Outbound":
                         continue
-                    t = self._parse_dt(c.get("Call_Start_Time"))
-                    if t and filter_start <= t <= filter_end:
-                        calls.append(c)
-                if calls:
-                    result[cid] = calls
-            except Exception as e:
-                log.warning("Who_Id call fetch error for %s: %s", cid, e)
+                    who = c.get("Who_Id") or {}
+                    cid = who.get("id") if isinstance(who, dict) else None
+                    if cid:
+                        result.setdefault(cid, []).append(c)
+                if not data.get("info", {}).get("more_records"):
+                    break
+                offset += 200
 
         total = sum(len(v) for v in result.values())
         log.info("  → %d calls matched via Who_Id for %d/%d contacts",
@@ -721,13 +738,19 @@ class ZohoClient:
         ]
         dial_attempts = len(same_day_calls)
 
+        def _call_source(c: dict) -> str:
+            # Authoritative: a call is RingEX only if it matched the RingEX
+            # Platform API (tagged during merge). Everything else logged in
+            # Zoho is a RingCX (Engage Voice dialer) call.
+            return "ringex" if c.get("_source") == "ringex" else "ringcx"
+
         attempts_detail = sorted(
             [
                 {
                     "time": c.get("Call_Start_Time"),
                     "rep": self._caller_name(c),
                     "disposition": c.get("Outgoing_call_disposition"),
-                    "source": "ringex" if c.get("_source") == "ringex" else "ringcx",
+                    "source": _call_source(c),
                 }
                 for c in same_day_calls
                 if c.get("Call_Start_Time")
@@ -770,7 +793,7 @@ class ZohoClient:
             is_early = offset_min is not None and offset_min < -EARLY_BEFORE_MIN
             on_time  = (offset_min is not None
                         and -EARLY_BEFORE_MIN <= offset_min <= ON_TIME_AFTER_MIN)
-            is_mvp = not closest_call.get("Outgoing_call_disposition")
+            is_mvp = closest_call.get("_source") == "ringex"
             return {
                 "status": "early" if is_early else "completed",
                 "scheduled_time": rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"),
@@ -1432,31 +1455,44 @@ class ZohoClient:
         if merged_whoid:
             log.info("Merged %d Who_Id-matched calls into phone map", merged_whoid)
 
-        # Source C: RingEX Platform API calls (supplemental).
-        # These catch dials that RingCX made but Zoho never logged (short
-        # calls, machine detect, intercept).  Converted to Zoho-compatible
-        # format and deduped against existing Zoho records by start-time
-        # proximity (within 2 min = same call).
+        # Source C: RingEX Platform API calls.
+        # The RingEX API only knows about calls placed through RingEX (manual
+        # rep dials), NOT the RingCX (Engage Voice) dialer campaigns. So a
+        # match against this API is the authoritative source signal:
+        #   - Zoho call that ALSO appears in the RingEX API  → RingEX (EX)
+        #   - Zoho call with NO RingEX match                 → RingCX dialer (CX)
+        #   - RingEX call not in Zoho at all                 → RingEX (EX), added
+        # Match is by start-time proximity (within 2 min = same call).
         if supplemental_calls:
             merged = 0
+            tagged_ex = 0
             for phone, rex_calls in supplemental_calls.items():
                 if phone not in ringcx_by_phone:
                     ringcx_by_phone[phone] = []
                 existing = ringcx_by_phone[phone]
-                existing_times = set()
+                existing_times = {}
                 for c in existing:
                     t = self._parse_dt(c.get("Call_Start_Time"))
                     if t:
-                        existing_times.add(int(t.timestamp()))
+                        existing_times[int(t.timestamp())] = c
                 for rc in rex_calls:
                     rc_t = self._parse_dt(rc.get("start_time"))
                     if not rc_t:
                         continue
                     rc_ts = int(rc_t.timestamp())
-                    if any(abs(rc_ts - et) < 120 for et in existing_times):
-                        continue
                     agent = rc.get("agent") or ""
-                    existing.append({
+                    match_ts = next((et for et in existing_times
+                                     if abs(rc_ts - et) < 120), None)
+                    if match_ts is not None:
+                        # Same call already in Zoho — this is a RingEX call.
+                        # Tag the source and backfill the rep if missing.
+                        matched = existing_times[match_ts]
+                        matched["_source"] = "ringex"
+                        if agent and not self._caller_name(matched):
+                            matched["Owner"] = {"name": agent}
+                        tagged_ex += 1
+                        continue
+                    new_call = {
                         "Call_Start_Time": rc.get("start_time"),
                         "Subject": f"Outgoing call to {rc.get('to_number', phone)}",
                         "Outgoing_call_disposition": None,
@@ -1465,11 +1501,12 @@ class ZohoClient:
                         "_source": "ringex",
                         "_duration": rc.get("duration", 0),
                         "_result": rc.get("result", ""),
-                    })
-                    existing_times.add(rc_ts)
+                    }
+                    existing.append(new_call)
+                    existing_times[rc_ts] = new_call
                     merged += 1
-            if merged:
-                log.info("Merged %d RingEX supplemental calls into phone map", merged)
+            if merged or tagged_ex:
+                log.info("RingEX: added %d new, tagged %d existing as EX", merged, tagged_ex)
 
         nd_phone_to_calls = {}
 
