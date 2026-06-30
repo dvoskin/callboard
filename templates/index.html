@@ -4899,9 +4899,8 @@
       } else if (odAttList.length > 0) {
         const rows = odAttList.map(a => {
           const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
-          const src = a.source === "ringcx" ? `<span class="att-src att-cx">CX</span>` : `<span class="att-src att-ex">EX</span>`;
           const rep = a.rep ? `<span class="att-rep">${a.rep}</span>` : "";
-          return `<div class="att-row">${src}<span class="att-time">${t}</span>${rep}</div>`;
+          return `<div class="att-row"><span class="att-time">${t}</span>${rep}</div>`;
         }).join("");
         odDialsCell = `<div class="att-list">${rows}</div>`;
       } else {
@@ -5777,9 +5776,8 @@
       } else if (attList.length > 0) {
         const rows = attList.map(a => {
           const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
-          const src = a.source === "ringcx" ? `<span class="att-src att-cx">CX</span>` : `<span class="att-src att-ex">EX</span>`;
           const rep = a.rep ? `<span class="att-rep">${a.rep}</span>` : "";
-          return `<div class="att-row">${src}<span class="att-time">${t}</span>${rep}</div>`;
+          return `<div class="att-row"><span class="att-time">${t}</span>${rep}</div>`;
         }).join("");
         dialsCell = `<div class="att-list">${rows}</div>`;
       } else {
