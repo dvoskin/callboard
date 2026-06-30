@@ -757,6 +757,7 @@ class ZohoClient:
                 {
                     "time": c.get("Call_Start_Time"),
                     "rep": self._caller_name(c),
+                    "_owner_id": self._caller_owner_id(c),
                     "disposition": c.get("Outgoing_call_disposition"),
                     "source": _call_source(c),
                 }
@@ -1638,44 +1639,55 @@ class ZohoClient:
             if dinfo.get("owner") and dinfo.get("owner_id"):
                 _user_id_to_name[str(dinfo["owner_id"])] = dinfo["owner"]
 
-        # First pass: collect unresolved IDs
+        # First pass: collect every unresolved owner ID — both the record-level
+        # caller and each individual dial attempt's rep. COQL returns Owner as
+        # {id} without the name, so these must be resolved to display names.
         unresolved_ids = set()
         for r in sc_results:
             if not r.get("caller"):
                 cid = r.get("_caller_owner_id")
                 if cid and str(cid) not in _user_id_to_name:
                     unresolved_ids.add(str(cid))
+            for a in r.get("recent_attempts") or []:
+                if not a.get("rep"):
+                    aid = a.get("_owner_id")
+                    if aid and str(aid) not in _user_id_to_name:
+                        unresolved_ids.add(str(aid))
 
-        # Resolve missing user IDs via REST Deals search (returns full Owner.name)
+        # Resolve missing user IDs. A Calls search by Owner is the most reliable
+        # (the agent always owns the call we're looking at); fall back to Deals.
         if unresolved_ids:
             for uid in list(unresolved_ids):
-                try:
-                    resp = requests.get(
-                        f"{self.base_url}/crm/v6/Deals/search",
-                        headers=self._headers(),
-                        params={"criteria": f"(Owner:equals:{uid})",
-                                "fields": "Owner", "per_page": 1},
-                        timeout=10,
-                    )
-                    if resp.ok:
-                        rows = resp.json().get("data", [])
-                        if rows:
-                            owner = rows[0].get("Owner")
-                            if isinstance(owner, dict) and owner.get("name"):
-                                _user_id_to_name[uid] = owner["name"]
-                                log.info("Resolved user %s → %s via deal search",
-                                         uid, owner["name"])
-                except Exception:
-                    pass
+                name = None
+                for module in ("Calls", "Deals"):
+                    try:
+                        resp = requests.get(
+                            f"{self.base_url}/crm/v6/{module}/search",
+                            headers=self._headers(),
+                            params={"criteria": f"(Owner:equals:{uid})",
+                                    "fields": "Owner", "per_page": 1},
+                            timeout=10,
+                        )
+                        if resp.ok:
+                            rows = resp.json().get("data", [])
+                            if rows:
+                                owner = rows[0].get("Owner")
+                                if isinstance(owner, dict) and owner.get("name"):
+                                    name = owner["name"]
+                                    break
+                    except Exception:
+                        pass
+                if name:
+                    _user_id_to_name[uid] = name
             resolved_now = unresolved_ids & set(_user_id_to_name.keys())
             still_missing = unresolved_ids - resolved_now
             if resolved_now:
-                log.info("Resolved %d user IDs via deal search", len(resolved_now))
+                log.info("Resolved %d user IDs (caller + attempts)", len(resolved_now))
             if still_missing:
-                log.warning("Could not resolve %d caller owner IDs: %s",
+                log.warning("Could not resolve %d owner IDs: %s",
                             len(still_missing), still_missing)
 
-        # Second pass: apply resolved names
+        # Second pass: apply resolved names to record callers and attempt reps
         for r in sc_results:
             if not r.get("caller"):
                 caller_id = r.pop("_caller_owner_id", None)
@@ -1683,6 +1695,10 @@ class ZohoClient:
                     r["caller"] = _user_id_to_name[str(caller_id)]
             else:
                 r.pop("_caller_owner_id", None)
+            for a in r.get("recent_attempts") or []:
+                aid = a.pop("_owner_id", None)
+                if not a.get("rep") and aid and str(aid) in _user_id_to_name:
+                    a["rep"] = _user_id_to_name[str(aid)]
 
             info = None
             did = r.get("id_deal")
