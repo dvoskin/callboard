@@ -1039,6 +1039,25 @@
       color: var(--secondary);
     }
 
+    /* Legend panel */
+    .legend-panel {
+      margin: 8px 0 4px; padding: 14px 16px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--surface2, rgba(0,0,0,.015));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px;
+    }
+    .legend-panel[hidden] { display: none; }
+    .legend-col h4 {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--secondary); margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--sep);
+    }
+    .legend-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 12px; }
+    .legend-row .legend-key { flex: 0 0 auto; }
+    .legend-row .legend-desc { color: var(--secondary); line-height: 1.35; }
+    .legend-note { font-size: 11px; color: var(--tertiary); margin-top: 8px; font-style: italic; }
+    .legend-disp-tag {
+      display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 5px;
+      background: rgba(142,142,147,.12); color: var(--text); white-space: nowrap;
+    }
     /* Card-header compaction — Scheduled Calls */
     #card-activity .card-header { padding: 8px 14px; }
     #card-activity .card-header h2,
@@ -3631,7 +3650,12 @@
             <span class="ft-active" id="ft-active-count"></span>
             <span class="ft-caret">▾</span>
           </button>
+          <button class="filters-toggle" id="legend-toggle" onclick="toggleLegend()" aria-expanded="false" title="What the Status, Source and Disposition columns mean">
+            <span>❔ Legend</span>
+            <span class="ft-caret">▾</span>
+          </button>
         </div>
+        <div class="legend-panel" id="sc-legend" hidden></div>
         <div class="filter-bar" id="sc-filter-bar">
           <input id="sc-search" type="text" placeholder="🔍  Name or phone…" oninput="applyScFilters()">
           <select id="sc-status-filter" onchange="applyScFilters()">
@@ -5440,6 +5464,84 @@
     const bar = document.getElementById("sc-filter-bar");
     const btn = document.getElementById("filters-toggle");
     const open = bar.classList.toggle("open");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  let _legendBuilt = false;
+  function _buildLegend() {
+    // Status column — reuse the exact statusBadge styling so it matches the table.
+    const statuses = [
+      ["completed", true,  "Called within the on-time window of the scheduled slot."],
+      ["completed", false, "Called, but more than 10 min after the scheduled time."],
+      ["early",     false, "Called more than 15 min before the scheduled time."],
+      ["upcoming",  false, "Scheduled for later today — not due yet."],
+      ["pending",   false, "Due now; inside the first 15-min grace window, no dial yet."],
+      ["late",      false, "Past due (15+ min) and not yet dialed — still on the main list."],
+      ["missed",    false, "Long overdue with no dial — moved to the Overdue tab."],
+      ["handled",   false, "A manager marked the overdue call as resolved/handled."],
+      ["completed_via_workflow", false, "Marked done by a CRM workflow rather than a matched dial."],
+      ["completed_via_deal",     false, "Counted done because the linked deal advanced."],
+      ["no_schedule", false, "No usable scheduled time on the record."],
+    ];
+    const statusRows = statuses.map(([s, ot, desc]) =>
+      `<div class="legend-row"><span class="legend-key">${statusBadge(s, ot)}</span><span class="legend-desc">${desc}</span></div>`
+    ).join("");
+
+    const sourceRows = `
+      <div class="legend-row"><span class="legend-key"><span class="src-pill src-ringcx">RingCX</span></span><span class="legend-desc">Placed by the RingCX auto-dialer (Engage Voice campaigns). Carries a disposition.</span></div>
+      <div class="legend-row"><span class="legend-key"><span class="src-pill src-rex">RingEX</span></span><span class="legend-desc">A manual dial through the RingCentral phone system (matched to the RingEX call log). No disposition.</span></div>
+      <div class="legend-row"><span class="legend-key"><span class="no-data">—</span></span><span class="legend-desc">No matched dial yet for this scheduled call.</span></div>`;
+
+    // Disposition — grouped, real values pulled from the dialer.
+    const dispGroups = [
+      ["No contact", [
+        ["No Answer", "Rang out, nobody picked up."],
+        ["Voicemail / Answering Machine", "Reached voicemail or an answering machine (incl. “Voicemail”, “No Answer / Voicemail”)."],
+        ["Disposition Timeout", "Auto-set — the agent didn’t record an outcome in time."],
+        ["Call Dropped / Connection Issues", "Call cut out or had audio problems."],
+        ["Wrong Number", "Number doesn’t reach the lead."],
+      ]],
+      ["Connected — progressing", [
+        ["Call Scheduled / Follow Up Scheduled", "Booked a callback or follow-up."],
+        ["Quoted / Quote Sent", "Pricing was discussed or a quote was sent."],
+        ["Existing Patient / Prev. Assisted", "Already a patient or previously helped."],
+        ["Transfer: Spanish Speaker", "Routed to a Spanish-speaking rep."],
+      ]],
+      ["Stop contacting", [
+        ["DNC (Do Not Call)", "Lead asked not to be contacted — do not text or call."],
+      ]],
+      ["Other", [
+        ["Other Reason / Not Listed", "Outcome that doesn’t fit the standard list."],
+      ]],
+    ];
+    const dispRows = dispGroups.map(([grp, items]) =>
+      `<div style="margin-bottom:6px"><div style="font-size:10.5px;font-weight:700;color:var(--tertiary);margin:6px 0 3px">${grp}</div>` +
+      items.map(([tag, desc]) =>
+        `<div class="legend-row"><span class="legend-key"><span class="legend-disp-tag">${tag}</span></span><span class="legend-desc">${desc}</span></div>`
+      ).join("") + `</div>`
+    ).join("");
+
+    return `
+      <div class="legend-col">
+        <h4>Status</h4>${statusRows}
+      </div>
+      <div class="legend-col">
+        <h4>Source</h4>${sourceRows}
+        <div class="legend-note">Source reflects the call closest to the scheduled time.</div>
+      </div>
+      <div class="legend-col">
+        <h4>Disposition</h4>${dispRows}
+        <div class="legend-note">Set by the RingCX dialer/agent on the connected call.</div>
+      </div>`;
+  }
+
+  function toggleLegend() {
+    const panel = document.getElementById("sc-legend");
+    const btn = document.getElementById("legend-toggle");
+    if (!panel) return;
+    if (!_legendBuilt) { panel.innerHTML = _buildLegend(); _legendBuilt = true; }
+    const open = panel.hasAttribute("hidden");
+    if (open) panel.removeAttribute("hidden"); else panel.setAttribute("hidden", "");
     btn.setAttribute("aria-expanded", open ? "true" : "false");
   }
   function _updateFiltersActiveCount() {
