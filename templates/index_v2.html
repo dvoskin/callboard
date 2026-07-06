@@ -332,6 +332,25 @@
     td.col-stage { overflow: visible; }
     td.col-name { overflow: hidden; }
     tr:last-child td { border-bottom: none; }
+
+    /* ════════════ v2 compact + new bits ════════════ */
+    .name-leadsrc { font-size: 10px; color: var(--tertiary); margin-top: 1px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .name-leadsrc .ig-handle { color: var(--secondary); }
+    .tz-abbr { font-size: 9px; color: var(--tertiary); font-weight: 600; }
+    /* Compact the scheduled-calls table so it fits without horizontal scroll */
+    #sc-activity-table th, #sc-activity-table td { padding: 4px 7px; font-size: 12px; }
+    #sc-thead-row th { font-size: 10px; }
+    #sc-activity-table .badge { font-size: 10px; padding: 1px 6px; }
+    #sc-activity-table .ts-cell { font-size: 12px; }
+    #sc-activity-table .att-row { font-size: 11px; }
+    /* Keep the table from forcing the page wider than the viewport */
+    .table-scroll, .sc-table-wrap { max-width: 100%; overflow-x: auto; }
+    /* Manual (non-dialer) calls stand out */
+    .att-src.att-manual { background: #f59e0b; color: #fff; font-weight: 700; }
+    .att-src.att-cx { background: rgba(37,99,235,.10); color: var(--blue-dk); }
+    .att-row-manual { background: rgba(245,158,11,.12); border-radius: 4px;
+      box-shadow: inset 2px 0 0 #f59e0b; padding-left: 4px; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
 
@@ -3691,6 +3710,7 @@
               <tr id="sc-thead-row">
                 <th class="sortable col-name" onclick="sortSc('name')">Contact</th>
                 <th class="col-phone">Phone</th>
+                <th class="col-localtz" title="Scheduled time in the lead's local timezone">Their Time</th>
                 <th class="sortable col-scheduled" onclick="sortSc('scheduled_time')">Scheduled (EST)</th>
                 <th class="sortable col-actual" onclick="sortSc('actual_call_time')">Actual Call (EST)</th>
                 <th class="sortable col-lastdial" onclick="sortSc('last_attempt_time')">Last Dial</th>
@@ -3994,6 +4014,46 @@
       timeZone: TZ, hour: "2-digit", minute: "2-digit"
     });
   }
+
+  // ── Lead local timezone from US area code ────────────────────────────
+  // Grouped area codes → IANA zone. Unknown/international falls back to null
+  // (we then show the ET time). Uses the CRM field r.timezone if present.
+  const _TZ_BY_AREACODE = (() => {
+    const g = {
+      "America/New_York": "201 202 203 207 212 203 215 216 220 223 234 239 240 267 276 301 302 304 305 321 330 336 339 347 351 352 386 401 404 407 410 412 413 419 434 440 443 470 475 478 484 502 504 508 513 516 517 518 540 551 561 567 570 571 585 586 592 601 603 606 607 609 610 614 615 616 617 618 623 631 636 646 656 667 678 680 681 689 703 704 706 716 717 718 724 727 732 734 740 754 757 762 770 772 774 786 802 803 804 810 813 814 828 843 845 848 856 857 860 862 863 864 872 878 904 908 910 912 914 917 919 929 934 937 941 947 954 959 973 978 980 984 989",
+      "America/Chicago": "205 210 214 217 218 224 225 228 251 254 256 262 270 281 309 312 314 316 318 319 320 331 334 337 361 372 402 405 409 414 417 430 432 436 469 479 501 507 512 515 530 563 573 580 601 608 612 618 620 630 636 641 651 660 662 682 708 712 713 715 731 737 763 769 773 779 785 806 815 816 817 830 832 847 870 872 901 903 913 915 918 920 936 940 952 956 972 979",
+      "America/Denver": "303 307 385 406 435 505 505 575 719 720 801 970 208",
+      "America/Phoenix": "480 520 602 623 928",
+      "America/Los_Angeles": "209 213 279 310 323 341 408 415 424 442 458 503 510 530 541 559 562 619 626 628 650 657 661 669 707 714 747 760 775 805 818 820 831 840 858 909 916 925 949 951 971",
+      "America/Anchorage": "907",
+      "Pacific/Honolulu": "808",
+    };
+    const m = {};
+    for (const [zone, list] of Object.entries(g))
+      for (const ac of list.split(/\s+/)) m[ac] = zone;
+    return m;
+  })();
+  function _leadZone(r) {
+    if (r && r.timezone) return r.timezone;         // CRM field, if backend provides
+    const digits = String((r && r.phone) || "").replace(/\D/g, "");
+    const d10 = digits.length >= 10 ? digits.slice(-10) : digits;
+    const ac = d10.slice(0, 3);
+    return _TZ_BY_AREACODE[ac] || null;
+  }
+  function _leadZoneAbbr(zone) {
+    try {
+      const p = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "short" })
+        .formatToParts(new Date()).find(x => x.type === "timeZoneName");
+      return p ? p.value : "";
+    } catch { return ""; }
+  }
+  function fmtLeadTime(iso, r) {
+    if (!iso) return `<span class="no-data">—</span>`;
+    const zone = _leadZone(r);
+    if (!zone) return `<span class="no-data">—</span>`;
+    const t = new Date(iso).toLocaleTimeString("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" });
+    return `<span class="ts-cell">${t}</span> <span class="tz-abbr">${_leadZoneAbbr(zone)}</span>`;
+  }
   function relTime(iso) {
     if (!iso) return "—";
     const d = (Date.now() - new Date(iso)) / 60000;
@@ -4196,8 +4256,19 @@
     const aiBtn = r.id_contact
       ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
       : "";
-    return `<div class="name-cell" style="display:flex;align-items:center;gap:4px;max-width:280px;overflow:hidden">
-      ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
+    // Lead source shown under the name (v2). Surface the Instagram handle for
+    // FB/IG leads alongside it.
+    let leadSub = "";
+    if (r.lead_source) {
+      const ig = r.instagram
+        ? ` · <a href="https://instagram.com/${encodeURIComponent(String(r.instagram).replace(/^@/, ""))}" target="_blank" rel="noopener" class="ig-handle">${_qEsc(r.instagram)}</a>`
+        : "";
+      leadSub = `<div class="name-leadsrc">${_qEsc(r.lead_source)}${ig}</div>`;
+    }
+    return `<div class="name-cell" style="max-width:280px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:4px;overflow:hidden">
+        ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
+      </div>${leadSub}
     </div>`;
   }
 
@@ -5213,26 +5284,27 @@
   const SC_COLUMNS = [
     { key: "name",       label: "Contact",          always: true  },
     { key: "phone",      label: "Phone",            default: true  },
+    { key: "localtz",    label: "Their Time",       default: true  },
     { key: "scheduled",  label: "Scheduled (EST)",  default: true  },
-    { key: "actual",     label: "Actual Call (EST)",default: true  },
-    { key: "lastdial",   label: "Last Dial",        default: false },
-    { key: "source",     label: "Source",           default: false },
     { key: "status",     label: "Status",           default: true  },
+    { key: "disp",       label: "Disposition",      default: true  },
     { key: "result",     label: "Result",           default: true  },
-    { key: "stage",      label: "Deal Stage",       default: true  },
-    { key: "books",      label: "Books",            default: true  },
     { key: "dials",      label: "Dials",            default: true  },
     { key: "caller",     label: "Caller",           default: true  },
-    { key: "disp",       label: "Disposition",      default: true  },
+    { key: "actual",     label: "Actual Call (EST)",default: true  },
+    { key: "stage",      label: "Deal Stage",       default: true  },
     { key: "usernote",   label: "Notes",            default: true  },
-    { key: "dist",       label: "Distributed",      default: true  },
-    { key: "flag",       label: "Flag",             default: true  },
-    { key: "rec",        label: "Recording",        default: true  },
-    { key: "fucall",     label: "📞 Schedule FU",   default: true  },
-    { key: "nxtstep",    label: "Next FU",          default: true  },
-    { key: "leadsrc",   label: "Lead Source",       default: true  },
-    { key: "sms",        label: "💬 Auto SMS",      default: true  },
-    { key: "notes",      label: "CRM Note",         default: true  },
+    { key: "lastdial",   label: "Last Dial",        default: false },
+    { key: "source",     label: "Source",           default: false },
+    { key: "books",      label: "Books",            default: false },
+    { key: "dist",       label: "Distributed",      default: false },
+    { key: "flag",       label: "Flag",             default: false },
+    { key: "rec",        label: "Recording",        default: false },
+    { key: "fucall",     label: "📞 Schedule FU",   default: false },
+    { key: "nxtstep",    label: "Next FU",          default: false },
+    { key: "leadsrc",   label: "Lead Source",       default: false },
+    { key: "sms",        label: "💬 Auto SMS",      default: false },
+    { key: "notes",      label: "CRM Note",         default: false },
   ];
   function _colIsVisible(c) {
     if (c.always) return true;
@@ -5241,11 +5313,11 @@
     return c.default !== false;  // fall back to declared default
   }
   function _loadColPrefs() {
-    try { return JSON.parse(localStorage.getItem("scColPrefs") || "{}"); }
+    try { return JSON.parse(localStorage.getItem("scColPrefsV2") || "{}"); }
     catch { return {}; }
   }
   function _saveColPrefs(p) {
-    try { localStorage.setItem("scColPrefs", JSON.stringify(p)); } catch {}
+    try { localStorage.setItem("scColPrefsV2", JSON.stringify(p)); } catch {}
   }
   let _colPrefs = _loadColPrefs();
   // Persisted column order + widths (Contact is always first)
@@ -5674,7 +5746,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="22" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="23" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -5871,9 +5943,12 @@
         const rows = attList.map(a => {
           const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
           const rep = a.rep ? `<span class="att-rep">${a.rep}</span>` : "";
-          const src = a.source === "ringex" ? `<span class="att-src att-ex">EX</span>`
-                    : a.source === "ringcx" ? `<span class="att-src att-cx">CX</span>` : "";
-          return `<div class="att-row">${src}<span class="att-time">${t}</span>${rep}</div>`;
+          // Manual (RingEX) dial vs auto-dialer (RingCX). Manual gets a bold
+          // amber "Manual" tag + tinted row so it's obvious at a glance.
+          const manual = a.source === "ringex";
+          const src = manual ? `<span class="att-src att-manual">Manual</span>`
+                    : a.source === "ringcx" ? `<span class="att-src att-cx">Dialer</span>` : "";
+          return `<div class="att-row${manual ? " att-row-manual" : ""}">${src}<span class="att-time">${t}</span>${rep}</div>`;
         }).join("");
         dialsCell = `<div class="att-list">${rows}</div>`;
       } else {
@@ -5978,6 +6053,7 @@
       return `<tr class="${cls}"${rowBg}>
         <td class="col-name">${nameCell(r, "Contacts", trailingIcons)}</td>
         <td class="col-phone">${phoneCell}</td>
+        <td class="col-localtz">${fmtLeadTime(r.scheduled_time, r)}</td>
         <td class="col-scheduled">${schedCell}</td>
         <td class="col-actual">${actualCell}</td>
         <td class="col-lastdial">${lastDialCell}</td>
