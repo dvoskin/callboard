@@ -4087,8 +4087,37 @@
       for (const ac of list.split(/\s+/)) m[ac] = zone;
     return m;
   })();
+  // Map whatever the CRM TZ field holds (IANA / abbreviation / name / offset)
+  // to an IANA zone. Returns null if unrecognized so we fall back to area code.
+  function _normalizeZone(tz) {
+    if (!tz) return null;
+    const s = String(tz).trim();
+    if (s.includes("/")) return s;                       // already IANA
+    const k = s.toLowerCase().replace(/[^a-z0-9+-]/g, "");
+    const map = {
+      est:"America/New_York", edt:"America/New_York", et:"America/New_York",
+      eastern:"America/New_York", easterntime:"America/New_York",
+      cst:"America/Chicago", cdt:"America/Chicago", ct:"America/Chicago",
+      central:"America/Chicago", centraltime:"America/Chicago",
+      mst:"America/Denver", mdt:"America/Denver", mt:"America/Denver",
+      mountain:"America/Denver", mountaintime:"America/Denver",
+      pst:"America/Los_Angeles", pdt:"America/Los_Angeles", pt:"America/Los_Angeles",
+      pacific:"America/Los_Angeles", pacifictime:"America/Los_Angeles",
+      arizona:"America/Phoenix", mstarizona:"America/Phoenix",
+      akst:"America/Anchorage", akdt:"America/Anchorage", alaska:"America/Anchorage",
+      hst:"Pacific/Honolulu", hawaii:"Pacific/Honolulu",
+      atlantic:"America/Halifax", ast:"America/Halifax",
+    };
+    if (map[k]) return map[k];
+    const off = { "-4":"America/New_York","-5":"America/New_York","-6":"America/Chicago",
+      "-7":"America/Denver","-8":"America/Los_Angeles","-9":"America/Anchorage","-10":"Pacific/Honolulu" };
+    const m = k.match(/(-?\d{1,2})/);
+    if (m && off[m[1]]) return off[m[1]];
+    return null;
+  }
   function _leadZone(r) {
-    if (r && r.timezone) return r.timezone;         // CRM field, if backend provides
+    const crm = _normalizeZone(r && r.timezone);     // CRM TZ field first
+    if (crm) return crm;
     const digits = String((r && r.phone) || "").replace(/\D/g, "");
     const d10 = digits.length >= 10 ? digits.slice(-10) : digits;
     const ac = d10.slice(0, 3);
