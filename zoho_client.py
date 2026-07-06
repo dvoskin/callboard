@@ -1454,21 +1454,19 @@ class ZohoClient:
             phone = cid_to_phone.get(cid)
             if not phone:
                 continue
+            # Both the phone-Subject search and the Who_Id search return the
+            # SAME Zoho Calls, so dedup by the record id (exact identity) —
+            # never by time proximity, which would wrongly collapse two
+            # distinct dials placed within 2 minutes of each other.
             existing = ringcx_by_phone.setdefault(phone, [])
-            existing_times = set()
-            for c in existing:
-                t = self._parse_dt(c.get("Call_Start_Time"))
-                if t:
-                    existing_times.add(int(t.timestamp()))
+            existing_ids = {c.get("id") for c in existing if c.get("id")}
             for call in calls:
-                ct = self._parse_dt(call.get("Call_Start_Time"))
-                if not ct:
-                    continue
-                ct_ts = int(ct.timestamp())
-                if any(abs(ct_ts - et) < 120 for et in existing_times):
+                cid_call = call.get("id")
+                if cid_call and cid_call in existing_ids:
                     continue
                 existing.append(call)
-                existing_times.add(ct_ts)
+                if cid_call:
+                    existing_ids.add(cid_call)
                 merged_whoid += 1
         if merged_whoid:
             log.info("Merged %d Who_Id-matched calls into phone map", merged_whoid)
@@ -1542,19 +1540,18 @@ class ZohoClient:
                 return by_phone
             if not by_phone:
                 return by_cid
+            # Dedup by Zoho record id (both lists are Zoho Calls). RingEX
+            # API-added calls have no id and live only in by_phone, so they
+            # pass through untouched.
             merged = list(by_phone)
-            existing_ts = set()
-            for c in merged:
-                t = self._parse_dt(c.get("Call_Start_Time"))
-                if t:
-                    existing_ts.add(int(t.timestamp()))
+            seen_ids = {c.get("id") for c in merged if c.get("id")}
             for c in by_cid:
-                t = self._parse_dt(c.get("Call_Start_Time"))
-                if not t:
+                cid_call = c.get("id")
+                if cid_call and cid_call in seen_ids:
                     continue
-                if not any(abs(int(t.timestamp()) - et) < 120 for et in existing_ts):
-                    merged.append(c)
-                    existing_ts.add(int(t.timestamp()))
+                merged.append(c)
+                if cid_call:
+                    seen_ids.add(cid_call)
             return merged
 
         def deal_base(deal):
