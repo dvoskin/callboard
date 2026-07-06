@@ -639,24 +639,22 @@ class ZohoClient:
         # Cycles automation creates these at the round scheduled-slot time
         # (e.g. 10:00:00) to track attempt counts:
         #   "2nd/3rd/4th Attempt - No Answer", "Scheduled Call: X",
-        #   "Call scheduled with X". They carry Call_Type=Outbound but no
-        #   real dial happened, so exclude them from dial counting.
+        #   "Call scheduled with X". Exclude them.
         if (subj.startswith("scheduled call") or subj.startswith("call scheduled")
                 or re.match(r"^\d+(st|nd|rd|th)\s+attempt\b", subj)):
             return False
-        if c.get("Outgoing_call_disposition"):
-            return True
+        # Never credit an inbound call.
         ctype = (c.get("Call_Type") or "").strip().lower()
-        if ctype == "outbound":
-            return True
-        if ctype == "inbound":
+        if ctype == "inbound" or "inbound" in subj or "call from" in subj or "incoming" in subj:
             return False
-        if "inbound" in subj or "call from" in subj or "incoming" in subj:
-            return False
-        if ("outgoing call to" in subj or "outbound call to" in subj
-                or subj.startswith("call to") or "outgoing" in subj or "outbound" in subj):
+        # RingEX calls (matched to the RingEX platform log) are real dials even
+        # though they carry no disposition.
+        if c.get("_source") == "ringex":
             return True
-        return False
+        # Everything else is treated as a RingCX (dialer) call: only count it
+        # when a disposition was actually recorded. This drops un-dispositioned
+        # Zoho records (workflow rows, stubs) that aren't genuine dials.
+        return bool(c.get("Outgoing_call_disposition"))
 
     def _classify_new_deal(self, deal: dict, calls: list[dict]) -> dict:
         created = self._parse_dt(deal.get("Created_Time"))
@@ -819,7 +817,9 @@ class ZohoClient:
                 "offset_minutes": round(offset_min, 1) if offset_min is not None else None,
                 "on_time": on_time,
                 "dial_attempts": dial_attempts,
-                "disposition": closest_call.get("Outgoing_call_disposition"),
+                "disposition": (closest_call.get("Outgoing_call_disposition")
+                                or (most_recent_ringcx.get("Outgoing_call_disposition")
+                                    if most_recent_ringcx else None)),
                 "caller": self._caller_name(closest_call),
                 "_caller_owner_id": self._caller_owner_id(closest_call),
                 "recording_url": self._extract_recording_url(
