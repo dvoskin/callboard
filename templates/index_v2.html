@@ -333,20 +333,25 @@
     td.col-name { overflow: hidden; }
     tr:last-child td { border-bottom: none; }
 
-    /* ════════════ v2 compact + new bits ════════════ */
-    .name-leadsrc { font-size: 10px; color: var(--tertiary); margin-top: 1px;
+    /* ════════════ v2 compact table ════════════ */
+    /* Contact cell: name on top, phone · source · IG underneath */
+    #sc-activity-table td.col-name { overflow: visible; }
+    .name-cell .name-link { font-weight: 600; font-size: 13px; }
+    .name-leadsrc { font-size: 10.5px; color: var(--tertiary); margin-top: 1px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .name-leadsrc .ncp-phone { color: var(--secondary); font-feature-settings: "tnum"; }
+    .name-leadsrc .ncp-sep { opacity: .5; margin: 0 1px; }
     .name-leadsrc .ig-handle { color: var(--secondary); }
+    /* Scheduled cell: EST big, lead's local time small underneath */
+    .sched-leadtz { font-size: 10px; color: var(--tertiary); font-feature-settings: "tnum"; margin-top: 1px; }
     .tz-abbr { font-size: 9px; color: var(--tertiary); font-weight: 600; }
-    /* Compact the scheduled-calls table so it fits without horizontal scroll */
-    #sc-activity-table th, #sc-activity-table td { padding: 4px 7px; font-size: 12px; }
-    #sc-thead-row th { font-size: 10px; }
+    /* Compact table so it fits without horizontal scroll */
+    #sc-activity-table th, #sc-activity-table td { padding: 5px 8px; font-size: 12px; vertical-align: middle; }
+    #sc-thead-row th { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
     #sc-activity-table .badge { font-size: 10px; padding: 1px 6px; }
-    #sc-activity-table .ts-cell { font-size: 12px; }
-    #sc-activity-table .att-row { font-size: 11px; }
-    /* Keep the table from forcing the page wider than the viewport */
+    #sc-activity-table .ts-cell { font-size: 12.5px; font-weight: 600; font-feature-settings: "tnum"; }
     .table-scroll, .sc-table-wrap { max-width: 100%; overflow-x: auto; }
-    /* Instant hover tooltip for the ⚡/📝/ⓘ badges (native title was easy to miss) */
+    /* Instant hover tooltip for ⚡/📝/ⓘ badges */
     .hint { position: relative; cursor: help; }
     .hint:hover::after {
       content: attr(data-tip);
@@ -356,29 +361,31 @@
       z-index: 200; margin-bottom: 5px; box-shadow: 0 4px 14px rgba(0,0,0,.22); pointer-events: none;
       text-transform: none; letter-spacing: normal;
     }
-    /* Let the tooltip escape the name cell */
-    #sc-activity-table td.col-name { overflow: visible; }
-    /* Manual (non-dialer) calls stand out */
-    .att-src.att-manual { background: #f59e0b; color: #fff; font-weight: 700; }
-    .att-src.att-cx { background: rgba(37,99,235,.10); color: var(--blue-dk); }
-    .att-row-manual { background: rgba(245,158,11,.12); border-radius: 4px;
-      box-shadow: inset 2px 0 0 #f59e0b; padding-left: 4px; }
-    /* Disposition cell showing the deal stage (quote/retainer/closed) */
+    /* Disposition = deal stage when advanced (quote/retainer/closed) */
     .disp-stage { display: inline-block; font-size: 11px; font-weight: 700;
       padding: 1px 7px; border-radius: 5px; white-space: nowrap;
       background: rgba(16,185,129,.14); color: #047857; }
-    /* Dials: first attempt + "+N more" overlay */
+    /* ── Dials: minimal collapsed view + clean reveal ── */
     #sc-activity-table td.col-dials { overflow: visible; }
-    .att-more-wrap { position: relative; }
-    .att-more-btn { margin-top: 1px; font-size: 10px; font-weight: 600; color: var(--blue-dk);
-      background: rgba(37,99,235,.08); border: none; border-radius: 4px; padding: 1px 6px; cursor: pointer; }
-    .att-more-btn:hover { background: rgba(37,99,235,.16); }
-    .att-more-pop { position: absolute; top: 100%; left: 0; z-index: 300; margin-top: 3px;
+    .dials-min { display: inline-flex; align-items: center; gap: 5px; font-feature-settings: "tnum"; white-space: nowrap; }
+    .dials-min .att-time { font-size: 12px; color: var(--text); }
+    .manual-dot { width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; display: inline-block; flex-shrink: 0; }
+    .att-more-wrap { position: relative; display: inline-flex; }
+    .att-more-btn { font-size: 10.5px; font-weight: 600; color: var(--secondary);
+      background: none; border: none; padding: 0 2px; cursor: pointer; }
+    .att-more-btn:hover { color: var(--blue-dk); }
+    .att-more-pop { position: absolute; top: 100%; left: 0; z-index: 300; margin-top: 4px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-      box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 8px 10px; min-width: 150px; width: max-content; }
-    .att-more-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
-      color: var(--secondary); margin-bottom: 5px; }
-    .att-more-pop .att-row { padding: 2px 0; }
+      box-shadow: 0 6px 20px rgba(0,0,0,.16); padding: 8px 10px; min-width: 160px; width: max-content; }
+    .att-more-title { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--tertiary); margin-bottom: 6px; }
+    .att-more-pop .att-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 11.5px; white-space: nowrap; }
+    .att-more-pop .att-row + .att-row { border-top: 1px solid var(--sep); }
+    .att-more-pop .att-time { font-weight: 600; font-feature-settings: "tnum"; color: var(--text); }
+    .att-more-pop .att-rep { color: var(--secondary); }
+    .att-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
+    .att-tag.att-manual { background: #f59e0b; color: #fff; }
+    .att-tag.att-dialer { background: rgba(37,99,235,.10); color: var(--blue-dk); }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
 
@@ -3739,7 +3746,7 @@
                 <th class="sortable col-name" onclick="sortSc('name')">Contact</th>
                 <th class="col-phone">Phone</th>
                 <th class="col-localtz" title="Scheduled time in the lead's local timezone">Their Time</th>
-                <th class="sortable col-scheduled" onclick="sortSc('scheduled_time')">Scheduled (EST)</th>
+                <th class="sortable col-scheduled" onclick="sortSc('scheduled_time')">Scheduled</th>
                 <th class="sortable col-actual" onclick="sortSc('actual_call_time')">Actual Call (EST)</th>
                 <th class="sortable col-lastdial" onclick="sortSc('last_attempt_time')">Last Dial</th>
                 <th class="sortable col-source" onclick="sortSc('logged_via')">Source</th>
@@ -4304,15 +4311,17 @@
     const aiBtn = r.id_contact
       ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
       : "";
-    // Lead source shown under the name (v2). Surface the Instagram handle for
-    // FB/IG leads alongside it.
-    let leadSub = "";
-    if (r.lead_source) {
-      const ig = r.instagram
-        ? ` · <a href="https://instagram.com/${encodeURIComponent(String(r.instagram).replace(/^@/, ""))}" target="_blank" rel="noopener" class="ig-handle">${_qEsc(r.instagram)}</a>`
-        : "";
-      leadSub = `<div class="name-leadsrc">${_qEsc(r.lead_source)}${ig}</div>`;
-    }
+    // Sub-line under the name (v2): phone · lead source · IG handle — folds
+    // the Phone and Lead Source columns into the contact cell.
+    const ig = r.instagram
+      ? `<a href="https://instagram.com/${encodeURIComponent(String(r.instagram).replace(/^@/, ""))}" target="_blank" rel="noopener" class="ig-handle">${_qEsc(r.instagram)}</a>`
+      : "";
+    const subBits = [
+      r.phone ? `<span class="ncp-phone">${_qEsc(r.phone)}</span>` : "",
+      r.lead_source ? _qEsc(r.lead_source) : "",
+      ig,
+    ].filter(Boolean).join(' <span class="ncp-sep">·</span> ');
+    const leadSub = subBits ? `<div class="name-leadsrc">${subBits}</div>` : "";
     return `<div class="name-cell" style="max-width:280px;overflow:hidden">
       <div style="display:flex;align-items:center;gap:4px;overflow:hidden">
         ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
@@ -5331,17 +5340,17 @@
   // ─── Column show/hide ───
   const SC_COLUMNS = [
     { key: "name",       label: "Contact",          always: true  },
-    { key: "phone",      label: "Phone",            default: true  },
-    { key: "localtz",    label: "Their Time",       default: true  },
-    { key: "scheduled",  label: "Scheduled (EST)",  default: true  },
+    { key: "scheduled",  label: "Scheduled",        default: true  },
     { key: "status",     label: "Status",           default: true  },
-    { key: "disp",       label: "Disposition",      default: true  },
     { key: "result",     label: "Result",           default: true  },
     { key: "dials",      label: "Dials",            default: true  },
-    { key: "caller",     label: "Caller",           default: true  },
-    { key: "actual",     label: "Actual Call (EST)",default: true  },
+    { key: "disp",       label: "Disposition",      default: true  },
     { key: "stage",      label: "Deal Stage",       default: true  },
     { key: "usernote",   label: "Notes",            default: true  },
+    { key: "phone",      label: "Phone",            default: false },
+    { key: "localtz",    label: "Their Time",       default: false },
+    { key: "caller",     label: "Caller",           default: false },
+    { key: "actual",     label: "Actual Call (EST)",default: false },
     { key: "lastdial",   label: "Last Dial",        default: false },
     { key: "source",     label: "Source",           default: false },
     { key: "books",      label: "Books",            default: false },
@@ -5361,11 +5370,11 @@
     return c.default !== false;  // fall back to declared default
   }
   function _loadColPrefs() {
-    try { return JSON.parse(localStorage.getItem("scColPrefsV2") || "{}"); }
+    try { return JSON.parse(localStorage.getItem("scColPrefsV3") || "{}"); }
     catch { return {}; }
   }
   function _saveColPrefs(p) {
-    try { localStorage.setItem("scColPrefsV2", JSON.stringify(p)); } catch {}
+    try { localStorage.setItem("scColPrefsV3", JSON.stringify(p)); } catch {}
   }
   let _colPrefs = _loadColPrefs();
   // Persisted column order + widths (Contact is always first)
@@ -5984,31 +5993,32 @@
         : `<span class="no-data">—</span>`;
       const dials=r.dial_attempts??0;
       const attList = r.recent_attempts || [];
+      const _attT = a => a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
+      // Full attempt row (used inside the reveal popover).
+      const attRowFull = a => {
+        const manual = a.source === "ringex";
+        const tag = manual ? `<span class="att-tag att-manual">Manual</span>`
+                  : a.source === "ringcx" ? `<span class="att-tag att-dialer">Dialer</span>` : "";
+        const rep = a.rep ? `<span class="att-rep">${_qEsc(a.rep)}</span>` : "";
+        return `<div class="att-row">${tag}<span class="att-time">${_attT(a)}</span>${rep}</div>`;
+      };
       let dialsCell;
       if (dials === 0) {
         dialsCell = `<span class="no-data">0</span>`;
       } else if (attList.length > 0) {
-        const attRow = a => {
-          const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
-          const rep = a.rep ? `<span class="att-rep">${a.rep}</span>` : "";
-          // Manual (RingEX) dial vs auto-dialer (RingCX). Manual gets a bold
-          // amber "Manual" tag + tinted row so it's obvious at a glance.
-          const manual = a.source === "ringex";
-          const src = manual ? `<span class="att-src att-manual">Manual</span>`
-                    : a.source === "ringcx" ? `<span class="att-src att-cx">Dialer</span>` : "";
-          return `<div class="att-row${manual ? " att-row-manual" : ""}">${src}<span class="att-time">${t}</span>${rep}</div>`;
-        };
-        // Show only the first attempt; the rest open in a small overlay.
-        const first = attRow(attList[0]);
+        // Collapsed: just the first attempt's time + a small amber dot if it
+        // was a manual dial, then an unobtrusive "+N" that reveals the rest.
+        const a0 = attList[0];
+        const dot = a0.source === "ringex" ? `<span class="manual-dot" title="Manual dial"></span>` : "";
+        const firstMin = `<span class="att-time">${_attT(a0)}</span>${dot}`;
         if (attList.length === 1) {
-          dialsCell = `<div class="att-list">${first}</div>`;
+          dialsCell = `<span class="dials-min">${firstMin}</span>`;
         } else {
-          const more = attList.map(attRow).join("");
-          dialsCell = `<div class="att-list att-collapsed">${first}` +
-            `<div class="att-more-wrap">` +
-              `<button class="att-more-btn" onclick="toggleAttMore(event, this)">+${attList.length - 1} more</button>` +
-              `<div class="att-more-pop" hidden><div class="att-more-title">${dials} dial attempts</div>${more}</div>` +
-            `</div></div>`;
+          dialsCell = `<span class="dials-min">${firstMin}` +
+            `<span class="att-more-wrap">` +
+              `<button class="att-more-btn" onclick="toggleAttMore(event, this)">+${attList.length - 1}</button>` +
+              `<div class="att-more-pop" hidden><div class="att-more-title">${dials} dial attempts</div>${attList.map(attRowFull).join("")}</div>` +
+            `</span></span>`;
         }
       } else {
         dialsCell = `<span class="dials-val">${dials}</span>`;
@@ -6072,8 +6082,13 @@
           : `<span class="no-data">—</span>`;
       const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
       const schedFmt = isSingleDay ? fmtTime : fmt;
+      // Scheduled (EST) with the lead's local time folded in underneath.
+      const _leadZ = r.scheduled_time ? _leadZone(r) : null;
+      const _leadSub = _leadZ
+        ? `<div class="sched-leadtz">${new Date(r.scheduled_time).toLocaleTimeString("en-US",{timeZone:_leadZ,hour:"numeric",minute:"2-digit"})} ${_leadZoneAbbr(_leadZ)}</div>`
+        : "";
       const schedCell = r.scheduled_time
-        ? `<span class="ts-cell">${schedFmt(r.scheduled_time)}</span>`
+        ? `<span class="ts-cell">${schedFmt(r.scheduled_time)}</span>${_leadSub}`
         : `<span class="no-data">—</span>`;
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : '';
