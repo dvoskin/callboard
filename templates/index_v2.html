@@ -346,6 +346,18 @@
     #sc-activity-table .att-row { font-size: 11px; }
     /* Keep the table from forcing the page wider than the viewport */
     .table-scroll, .sc-table-wrap { max-width: 100%; overflow-x: auto; }
+    /* Instant hover tooltip for the ⚡/📝/ⓘ badges (native title was easy to miss) */
+    .hint { position: relative; cursor: help; }
+    .hint:hover::after {
+      content: attr(data-tip);
+      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+      background: #1f2937; color: #fff; font-size: 11px; font-weight: 500; line-height: 1.35;
+      padding: 5px 8px; border-radius: 6px; white-space: normal; width: max-content; max-width: 240px;
+      z-index: 200; margin-bottom: 5px; box-shadow: 0 4px 14px rgba(0,0,0,.22); pointer-events: none;
+      text-transform: none; letter-spacing: normal;
+    }
+    /* Let the tooltip escape the name cell */
+    #sc-activity-table td.col-name { overflow: visible; }
     /* Manual (non-dialer) calls stand out */
     .att-src.att-manual { background: #f59e0b; color: #fff; font-weight: 700; }
     .att-src.att-cx { background: rgba(37,99,235,.10); color: var(--blue-dk); }
@@ -6022,16 +6034,16 @@
       let trailingIcons = langTag;
       if (r.last_minute) {
         const createdFmt = r.record_created ? fmt(r.record_created) : "?";
-        trailingIcons += ` <span class="last-min-badge" title="Last-minute: created at ${createdFmt}, less than 15 min before scheduled time">⚡</span>`;
+        trailingIcons += ` <span class="last-min-badge hint" data-tip="Last-minute: created at ${_qEsc(createdFmt)}, less than 15 min before scheduled time">⚡</span>`;
       }
       if (r.note && r.resolved) {
-        trailingIcons += ` <span class="observed-badge" title="${r.note.replace(/"/g,'&quot;')}">📝</span>`;
+        trailingIcons += ` <span class="observed-badge hint" data-tip="${_qEsc(r.note)}">📝</span>`;
       }
       if (obs && !r._liveCall && !r._observedOnTime) {
         const obsSrc = obs.source === "ringcx" ? "RingCX" : obs.source === "ringex" ? "RingEX" : "live monitor";
         const obsTime = new Date(obs.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
         const obsAgent = obs.agent ? ` by ${obs.agent}` : "";
-        trailingIcons += ` <span class="floor-badge" title="Call observed via ${obsSrc} at ${obsTime}${obsAgent}">ⓘ</span>`;
+        trailingIcons += ` <span class="floor-badge hint" data-tip="Call observed via ${obsSrc} at ${obsTime}${_qEsc(obsAgent)}">ⓘ</span>`;
       }
       // Books status badge based on deal stage
       const booksStage = (r.deal_stage || "").toLowerCase();
