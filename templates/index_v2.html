@@ -3439,7 +3439,7 @@
       📊 Live Dashboard
     </button>
     <button class="dash-tab" data-tab="tab-followup" onclick="switchDashTab('tab-followup')">
-      🎯 Follow Up
+      🎯 Quote Follow-ups
     </button>
     <button class="dash-tab" data-tab="tab-agents" onclick="switchDashTab('tab-agents')">
       📈 Agent Performance
@@ -3733,7 +3733,7 @@
   <!-- Standalone Follow Up Tracker card — restored alongside the inline columns. -->
   <div class="card" id="quotes-section">
     <div class="card-header q-tight-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <h2 style="margin:0">🎯 Follow Up Tracker</h2>
+      <h2 style="margin:0">🎯 Quote Follow-ups</h2>
       <span class="chip" id="quotes-count">0</span>
       <button id="quotes-attn-chip"
               class="stage-tag s-noanswer q-attn-pill"
@@ -4057,7 +4057,7 @@
       completed_via_deal:     ["✓ Other","badge-purple"],
       completed_via_workflow: ["✓ Workflow","badge-teal"],
       pending:            ["Pending","badge-yellow"],
-      missed:             ["✗ Missed","badge-red"],
+      missed:             ["Overdue","badge-red"],
       upcoming:           ["Upcoming","badge-blue"],
       late:               ["Overdue","badge-orange"],
       no_schedule:        ["N/A","badge-gray"],
