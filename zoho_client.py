@@ -1829,17 +1829,57 @@ class ZohoClient:
             },
             timeout=20,
         )
+        seen_call_ids = set()
+
+        def _add_call(c):
+            cid_call = c.get("id")
+            if cid_call and cid_call in seen_call_ids:
+                return
+            if cid_call:
+                seen_call_ids.add(cid_call)
+            subj = (c.get("Subject") or "")
+            owner = c.get("Owner") or {}
+            calls.append({
+                "subject": subj, "time": c.get("Call_Start_Time"),
+                "type": c.get("Call_Type"),
+                "duration_sec": c.get("Call_Duration_in_seconds"),
+                "disposition": c.get("Outgoing_call_disposition"),
+                "description": (c.get("Description") or "")[:300],
+                "owner": owner.get("name") if isinstance(owner, dict) else owner,
+            })
+
         if resp.ok and resp.status_code != 204:
             for c in resp.json().get("data", []):
-                owner = c.get("Owner") or {}
-                calls.append({
-                    "subject": c.get("Subject"), "time": c.get("Call_Start_Time"),
-                    "type": c.get("Call_Type"),
-                    "duration_sec": c.get("Call_Duration_in_seconds"),
-                    "disposition": c.get("Outgoing_call_disposition"),
-                    "description": (c.get("Description") or "")[:300],
-                    "owner": owner.get("name") if isinstance(owner, dict) else owner,
-                })
+                _add_call(c)
+
+        # 2b. Also match calls by the contact's phone number. Many RingCX dialer
+        # calls are logged to the number with Who_Id=null (not linked to the
+        # contact record), so a Who_Id-only search misses them — which made the
+        # AI analysis show "no calls" while the board's Dials column (which
+        # matches by phone) correctly showed them. Match by Subject phone here
+        # so both views agree.
+        phone10 = normalize_phone(contact.get("phone") or "")
+        if phone10:
+            try:
+                resp2 = requests.post(
+                    f"{self.base_url}/crm/v6/coql",
+                    headers=self._headers(),
+                    json={"select_query": (
+                        "select id, Subject, Call_Start_Time, Call_Type, "
+                        "Call_Duration_in_seconds, Outgoing_call_disposition, "
+                        "Description, Owner from Calls "
+                        f"where Subject like '%{phone10}%' "
+                        "order by Call_Start_Time desc limit 100"
+                    )},
+                    timeout=20,
+                )
+                if resp2.ok and resp2.status_code != 204:
+                    for c in resp2.json().get("data", []):
+                        _add_call(c)
+            except Exception as e:
+                log.warning("Contact summary phone-match failed: %s", e)
+            # Keep newest first for the AI prompt / recent-attempts display.
+            calls.sort(key=lambda c: c.get("time") or "", reverse=True)
 
         # 3. Deals linked to this contact
         deals = []
