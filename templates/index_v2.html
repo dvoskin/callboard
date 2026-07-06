@@ -4917,9 +4917,11 @@
                 && new Date(r.scheduled_time).getTime() > nowMs)
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
     const past = sc.records.filter(r => r.status !== "upcoming" && r.status !== "pending");
-    // Pending calls (0-15 min) stay in main list; missed (15+ min) go to overdue
+    // Pending calls (0-15 min) stay in main list; long-overdue (missed) calls
+    // are removed from the Activity table entirely and live only in the
+    // Overdue table below.
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    const activity = sc.records;
+    const activity = sc.records.filter(r => !isOverdueRow(r));
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;
