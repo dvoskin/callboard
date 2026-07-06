@@ -366,6 +366,11 @@
     .disp-stage { display: inline-block; font-size: 11px; font-weight: 700;
       padding: 1px 7px; border-radius: 5px; white-space: nowrap;
       background: rgba(16,185,129,.14); color: #047857; }
+    /* Disposition tiers: no-contact stays quiet, real outcomes stand out */
+    .disp-text { font-size: 12px; }
+    .disp-quiet { color: var(--tertiary); }
+    .disp-notable { display: inline-block; font-weight: 600; color: #3730a3;
+      background: rgba(99,102,241,.12); padding: 1px 7px; border-radius: 5px; white-space: nowrap; }
     /* Compact indicators when there's no disposition yet */
     .disp-flag { display: inline-block; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
     .disp-await  { color: var(--secondary); }
@@ -4054,6 +4059,13 @@
 
   // ─── utils ───
   const TZ = "America/New_York";
+  // "No contact" dispositions — kept quiet so real outcomes stand out.
+  const _NO_CONTACT_DISP = new Set([
+    "no answer", "voicemail", "voicemail / no answer", "no answer / voicemail",
+    "answering machine", "disposition timeout",
+    "call dropped / connection issues", "call dropped / audio issues",
+    "wrong number", "no answer/voicemail",
+  ]);
 
   function fmt(iso) {
     if (!iso) return "—";
@@ -5669,7 +5681,8 @@
     // Disposition column.
     const dispRows =
       row(`<span class="disp-stage">Quote Sent</span>`, "Green = the deal has advanced (Quote Sent / Retainer Sent / Closed) — shown in place of the call disposition.") +
-      row(`<span class="disp-text">No Answer</span>`, "The call outcome recorded by the dialer/rep. If a later redial has a better outcome (e.g. Quote Sent), that one wins.") +
+      row(`<span class="disp-text disp-notable">Call Scheduled</span>`, "Highlighted = contact was made (Call Scheduled, Rescheduling Request, New Patient, Price Shopping, Prev. Assisted, etc.).") +
+      row(`<span class="disp-text disp-quiet">No Answer</span>`, "Quiet = no-contact outcome (No Answer, Voicemail, Answering Machine). A later redial with a real outcome wins.") +
       row(`<span class="disp-flag disp-await">◷ Awaiting call</span>`, "Scheduled but not dialed yet (upcoming / pending).") +
       row(`<span class="disp-flag disp-nodial">⚠ Not dialed</span>`, "Overdue with no dial attempt.") +
       row(`<span class="disp-flag disp-nodisp">No disposition</span>`, "Dialed (manual) but no outcome was recorded.");
@@ -6112,7 +6125,11 @@
       if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
         dispCell = `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
       } else if (r.disposition) {
-        dispCell = `<span class="disp-text">${r.disposition}</span>`;
+        // Contact-made outcomes (Call Scheduled, Rescheduling Request, New
+        // Patient, Price Shopping, etc.) stand out; no-contact ones stay quiet.
+        const _dl = r.disposition.trim().toLowerCase();
+        const notable = !_NO_CONTACT_DISP.has(_dl);
+        dispCell = `<span class="disp-text ${notable ? "disp-notable" : "disp-quiet"}">${r.disposition}</span>`;
       } else if (dials === 0) {
         // Scheduled but not dialed yet — say so instead of a blank cell.
         if (r.status === "upcoming" || r.status === "pending")
