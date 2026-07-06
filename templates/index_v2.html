@@ -3995,7 +3995,7 @@
     _customDateActive = true;
     const label = start === end ? fmtDateLabel(start) : `${fmtDateLabel(start)} – ${fmtDateLabel(end)}`;
     _setDateBarCustom(label);
-    loadData(start, end);
+    loadData(start, end, { user: true });
     // Pipeline tiles still mirror the master date range; Quotes panel has its own filter.
     fetchPipelineCounts();
   }
@@ -4006,7 +4006,7 @@
     document.getElementById("date-end").value   = today;
     _setDateBarToday();
     _clearStaleUI();
-    loadData();
+    loadData(null, null, { live: true, user: true });
     fetchPipelineCounts();
   }
 
@@ -6313,10 +6313,15 @@
 
   let _loadRetries = 0;
   let _loadInFlight = false;
-  async function loadData(startDate = null, endDate = null) {
-    // v2 live fetches take ~60-85s; don't let auto-refresh stack overlapping
-    // requests. A manual/date-range request (startDate given) always runs.
-    if (_loadInFlight && !startDate) return;
+  async function loadData(startDate = null, endDate = null, opts = {}) {
+    // v2 is live: an explicit date range OR opts.live routes through the
+    // backend's uncached path. The very first paint (no date, no live flag)
+    // reads the cached snapshot so the board appears instantly; a live
+    // refresh fires right after. Live fetches take ~45-85s — don't let
+    // auto-refreshes stack (user-initiated requests bypass the guard).
+    const wantLive = opts.live === true || !!startDate;
+    const userInitiated = opts.user === true;
+    if (_loadInFlight && !userInitiated) return;
     _loadInFlight = true;
     const dot = document.getElementById("status-dot");
     dot.className = "loading";
@@ -6331,11 +6336,12 @@
     try {
       // Always pass browser timezone offset so DST is handled correctly
       const tzOffset = new Date().getTimezoneOffset(); // minutes west of UTC (CDT=300, CST=360)
-      // v2: ALWAYS live, never cache. Passing an explicit date routes the
-      // backend through its live (uncached) fetch path. Default to today.
-      const s = startDate || todayISO();
-      const e = endDate || startDate || todayISO();
-      let url = `/api/data?tz=${tzOffset}&start=${s}&end=${e}&_nocache=${Date.now()}`;
+      let url = `/api/data?tz=${tzOffset}`;
+      if (wantLive) {
+        const s = startDate || todayISO();
+        const e = endDate || startDate || todayISO();
+        url += `&start=${s}&end=${e}&_nocache=${Date.now()}`;
+      }
       const resp = await fetch(url);
       cdbLoading.classList.remove("show");
       // Session expired — redirect to login
@@ -6396,19 +6402,20 @@
   async function forceRefresh() {
     const btn = document.getElementById("refresh-btn");
     btn.disabled = true; btn.textContent = "Refreshing…";
-    // v2 is always live — just re-fetch (custom range or today).
+    // v2 is always live — force a fresh (uncached) pull.
     if (_customDateActive) {
       const start = document.getElementById("date-start").value;
       const end   = document.getElementById("date-end").value;
-      await loadData(start, end);
+      await loadData(start, end, { user: true });
     } else {
-      await loadData();
+      await loadData(null, null, { live: true, user: true });
     }
     btn.disabled = false; btn.textContent = "↻ Refresh";
   }
   initDatePicker();
-  loadData();
-  setInterval(() => { if (!_customDateActive) loadData(); }, REFRESH_INTERVAL);
+  // Instant paint from cache, then immediately refresh live; keep refreshing live.
+  loadData().then(() => loadData(null, null, { live: true }));
+  setInterval(() => { if (!_customDateActive) loadData(null, null, { live: true }); }, REFRESH_INTERVAL);
 
   // ══════════════════════════════════════════════════════════════
   // LIVE MONITOR — RingCX real-time integration
