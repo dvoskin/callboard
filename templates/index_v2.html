@@ -342,11 +342,12 @@
     .name-leadsrc .ncp-phone { color: var(--secondary); font-feature-settings: "tnum"; }
     .name-leadsrc .ncp-sep { opacity: .5; margin: 0 1px; }
     .name-leadsrc .ig-handle { color: var(--secondary); }
-    /* Scheduled cell: EST big, lead's local time small underneath */
-    .sched-leadtz { font-size: 10px; color: var(--tertiary); font-feature-settings: "tnum"; margin-top: 1px; }
+    /* Scheduled cell: EST + lead's local time, inline on one line */
+    .sched-leadtz { font-size: 10px; color: var(--tertiary); font-feature-settings: "tnum"; white-space: nowrap; }
     .tz-abbr { font-size: 9px; color: var(--tertiary); font-weight: 600; }
-    /* Compact table so it fits without horizontal scroll */
-    #sc-activity-table th, #sc-activity-table td { padding: 5px 8px; font-size: 12px; vertical-align: middle; }
+    /* Compact single-line rows */
+    #sc-activity-table th, #sc-activity-table td { padding: 4px 8px; font-size: 12px; vertical-align: middle; line-height: 1.3; white-space: nowrap; }
+    #sc-activity-table td.col-name, #sc-activity-table td.col-notes { white-space: normal; }
     #sc-thead-row th { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
     #sc-activity-table .badge { font-size: 10px; padding: 1px 6px; }
     #sc-activity-table .ts-cell { font-size: 12.5px; font-weight: 600; font-feature-settings: "tnum"; }
@@ -6093,13 +6094,13 @@
       }
       const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
       const schedFmt = isSingleDay ? fmtTime : fmt;
-      // Scheduled (EST) with the lead's local time folded in underneath.
+      // Scheduled (EST) with the lead's local time inline (kept to one line).
       const _leadZ = r.scheduled_time ? _leadZone(r) : null;
-      const _leadSub = _leadZ
-        ? `<div class="sched-leadtz">${new Date(r.scheduled_time).toLocaleTimeString("en-US",{timeZone:_leadZ,hour:"numeric",minute:"2-digit"})} ${_leadZoneAbbr(_leadZ)}</div>`
+      const _leadInline = _leadZ
+        ? ` <span class="sched-leadtz">${new Date(r.scheduled_time).toLocaleTimeString("en-US",{timeZone:_leadZ,hour:"numeric",minute:"2-digit"})} ${_leadZoneAbbr(_leadZ)}</span>`
         : "";
       const schedCell = r.scheduled_time
-        ? `<span class="ts-cell">${schedFmt(r.scheduled_time)}</span>${_leadSub}`
+        ? `<span class="ts-cell">${schedFmt(r.scheduled_time)}</span>${_leadInline}`
         : `<span class="no-data">—</span>`;
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : '';
@@ -6149,11 +6150,7 @@
         <td style="text-align:center" class="col-fucall">${fuBtn}</td>
         <td class="col-nxtstep">${_scFuCallCell(r.id_deal)}</td>
         <td class="col-leadsrc" style="font-size:11px">${
-          r.lead_source
-            ? _qEsc(r.lead_source) + (r.instagram
-                ? `<a href="https://instagram.com/${encodeURIComponent(String(r.instagram).replace(/^@/, ""))}" target="_blank" rel="noopener" class="ig-handle">${_qEsc(r.instagram)}</a>`
-                : "")
-            : '<span class="no-data">—</span>'
+          r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'
         }</td>
         <td style="text-align:center" class="col-sms">${_smsBtn(r)}</td>
         <td class="col-notes">${_scNotesCell(r.id_deal, r.id)}</td>

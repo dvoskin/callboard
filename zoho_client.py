@@ -1049,6 +1049,53 @@ class ZohoClient:
         "Retainer Invoice Sent",
     }
 
+    # Stages that count as the lead having genuinely progressed, ranked so the
+    # most advanced wins. Used to pull the RIGHT deal when a scheduled call is
+    # linked to a stale deal (Call Scheduled / Unsubscribe) but the contact has
+    # another deal that actually moved forward.
+    PROGRESSED_STAGE_RANK = {
+        "Quote Sent": 1,
+        "Retainer Invoice Sent": 2,
+        "Retainer Paid": 3,
+        "Closed Won - Surgery Scheduled": 4,
+    }
+
+    def _fetch_best_progressed_stage_for_contacts(self, contact_ids: list[str]) -> dict[str, str]:
+        """For each contact, return their most-advanced 'progressed' deal stage
+        (Quote Sent → Closed Won), scanning ALL their deals. {contact_id: stage}."""
+        import logging
+        log = logging.getLogger(__name__)
+        result: dict[str, str] = {}
+        BATCH = 15
+        for i in range(0, len(contact_ids), BATCH):
+            batch = contact_ids[i : i + BATCH]
+            conditions = " or ".join(f"(Contact_Name:equals:{cid})" for cid in batch)
+            try:
+                resp = requests.get(
+                    f"{self.base_url}/crm/v6/Deals/search",
+                    headers=self._headers(),
+                    params={"criteria": conditions, "fields": "id,Stage,Contact_Name",
+                            "per_page": 100},
+                    timeout=20,
+                )
+            except Exception as e:
+                log.warning("Progressed-stage lookup error: %s", e)
+                continue
+            if resp.status_code == 204 or not resp.ok:
+                continue
+            for deal in resp.json().get("data", []):
+                cn = deal.get("Contact_Name")
+                cid = cn.get("id") if isinstance(cn, dict) else cn
+                stage = deal.get("Stage") or ""
+                rank = self.PROGRESSED_STAGE_RANK.get(stage, 0)
+                if cid and rank > 0:
+                    if self.PROGRESSED_STAGE_RANK.get(result.get(cid, ""), 0) < rank:
+                        result[cid] = stage
+        if result:
+            log.info("  → found a progressed deal for %d of %d checked contacts",
+                     len(result), len(contact_ids))
+        return result
+
     PIPELINE_STAGES = [
         "Quote Sent",
         "Retainer Invoice Sent",
@@ -1754,6 +1801,31 @@ class ZohoClient:
                         and stage not in ("New Deal", "Call Scheduled")
                         and r.get("status") in ("missed", "late")):
                     r["deal_moved_on"] = True
+
+        # ── Cross-deal stage correction ────────────────────────────────────
+        # A scheduled call is linked to ONE deal (What_Id), which may be stale
+        # (still "Call Scheduled" or "Unsubscribe") even though the rep quoted
+        # the patient on a redial. When the call disposition signals progress
+        # but the linked deal doesn't reflect it, look at the CONTACT's other
+        # deals and surface the most-advanced progressed stage instead.
+        _NON_PROGRESSED = {"", "New Deal", "Call Scheduled", "Unsubscribe"}
+        def _disp_suggests_progress(d):
+            d = (d or "").lower()
+            return any(k in d for k in ("quote", "retainer", "closed", "sold", "deposit", "paid", "booked"))
+        _need_stage = list({
+            r["id_contact"] for r in sc_results
+            if r.get("id_contact")
+            and (r.get("deal_stage") or "") in _NON_PROGRESSED
+            and _disp_suggests_progress(r.get("disposition"))
+        })
+        if _need_stage:
+            log.info("Cross-deal stage check for %d contacts (quote-ish disp, stale linked deal)", len(_need_stage))
+            _best_stage = self._fetch_best_progressed_stage_for_contacts(_need_stage)
+            for r in sc_results:
+                cid = r.get("id_contact")
+                if cid and cid in _best_stage:
+                    r["deal_stage"] = _best_stage[cid]
+                    r["_stage_from_other_deal"] = True
 
         # Workflow auto-completion detection: for overdue calls with 0 dials,
         # check if the Zoho scheduled call was marked Completed by workflow
