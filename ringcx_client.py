@@ -160,6 +160,44 @@ class RingCXClient:
     def _cx_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._ensure_cx_token()}"}
 
+    def cdr_diagnostics(self, start_dt: datetime, end_dt: datetime) -> dict:
+        """Probe the reportsStreaming CDR endpoint with each available token and
+        return the raw status + response body, so we can see exactly why it 403s
+        (the body usually names the missing permission/scope). Diagnostic only."""
+        out = {"account_id": None, "attempts": []}
+        report_body = {
+            "reportType": "GLOBAL_CALL_TYPE_DELIMITED",
+            "reportCriteria": {
+                "criteriaType": "GLOBAL_CALL_TYPE_CRITERIA",
+                "startDate": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                "endDate": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000+0000"),
+                "containGates": True, "containCampaigns": True,
+                "containIvrStudios": False, "containCloudProfiles": False,
+                "containTracNumbers": False, "containAgents": True,
+            },
+        }
+        try:
+            cx_token = self._ensure_cx_token()
+        except Exception as e:
+            return {"error": f"CX token exchange failed: {e}"}
+        out["account_id"] = self._cx_account_id
+        url = f"{self.ringcx_url}/api/v1/admin/accounts/{self._cx_account_id}/reportsStreaming"
+        tokens = [("jwt_exchanged_cx_token", cx_token)]
+        if self.ringcx_api_token:
+            tokens.append(("ringcx_api_token", self.ringcx_api_token))
+        for label, tok in tokens:
+            try:
+                r = requests.post(url, headers={"Authorization": f"Bearer {tok}",
+                                                "Content-Type": "application/json"},
+                                  json=report_body, timeout=30)
+                out["attempts"].append({
+                    "token": label, "status": r.status_code,
+                    "body": (r.text or "")[:600],
+                })
+            except Exception as e:
+                out["attempts"].append({"token": label, "error": str(e)})
+        return out
+
     # ══════════════════════════════════════════════════════════════
     # RingCX — Active Calls (Engage Voice API)
     # ══════════════════════════════════════════════════════════════

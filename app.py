@@ -1034,6 +1034,21 @@ def ringcx_status():
     return jsonify({"configured": _ringcx.configured})
 
 
+@app.route("/api/ringcx/cdr-debug")
+@login_required
+def ringcx_cdr_debug():
+    """Diagnostic: probe the RingCX reportsStreaming CDR endpoint and return the
+    raw status + response body per token, to pinpoint the 403 permission."""
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(hours=6)
+    try:
+        return jsonify(_ringcx.cdr_diagnostics(start, now))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/ringcx/live")
 @login_required
 def ringcx_live():
