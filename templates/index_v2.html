@@ -383,9 +383,22 @@
     .att-more-pop .att-row + .att-row { border-top: 1px solid var(--sep); }
     .att-more-pop .att-time { font-weight: 600; font-feature-settings: "tnum"; color: var(--text); }
     .att-more-pop .att-rep { color: var(--secondary); }
-    .att-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
+    .att-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; margin-left: auto; }
     .att-tag.att-manual { background: #f59e0b; color: #fff; }
     .att-tag.att-dialer { background: rgba(37,99,235,.10); color: var(--blue-dk); }
+    .att-dur { font-size: 10.5px; color: var(--secondary); font-feature-settings: "tnum"; min-width: 30px; }
+    .att-dur-none { color: var(--tertiary); opacity: .6; }
+    .att-more-pop .att-rep { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+    /* ── Center-align the compact value columns ── */
+    #sc-activity-table th.col-phone, #sc-activity-table td.col-phone,
+    #sc-activity-table th.col-scheduled, #sc-activity-table td.col-scheduled,
+    #sc-activity-table th.col-status, #sc-activity-table td.col-status,
+    #sc-activity-table th.col-result, #sc-activity-table td.col-result,
+    #sc-activity-table th.col-dials, #sc-activity-table td.col-dials,
+    #sc-activity-table th.col-disp, #sc-activity-table td.col-disp,
+    #sc-activity-table th.col-stage, #sc-activity-table td.col-stage { text-align: center; }
+    #sc-activity-table td.col-dials .dials-min { justify-content: center; }
+    .phone-cell { font-feature-settings: "tnum"; font-size: 12px; color: var(--text); white-space: nowrap; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
 
@@ -5985,13 +5998,19 @@
       const dials=r.dial_attempts??0;
       const attList = r.recent_attempts || [];
       const _attT = a => a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
-      // Full attempt row (used inside the reveal popover).
+      const _attDur = s => {
+        s = Math.round(Number(s) || 0);
+        if (s <= 0) return `<span class="att-dur att-dur-none">—</span>`;
+        const m = Math.floor(s / 60), ss = String(s % 60).padStart(2, "0");
+        return `<span class="att-dur">${m}:${ss}</span>`;
+      };
+      // Full attempt row (reveal popover): time · duration · rep · source tag.
       const attRowFull = a => {
         const manual = a.source === "ringex";
         const tag = manual ? `<span class="att-tag att-manual">Manual</span>`
                   : a.source === "ringcx" ? `<span class="att-tag att-dialer">Dialer</span>` : "";
         const rep = a.rep ? `<span class="att-rep">${_qEsc(a.rep)}</span>` : "";
-        return `<div class="att-row">${tag}<span class="att-time">${_attT(a)}</span>${rep}</div>`;
+        return `<div class="att-row"><span class="att-time">${_attT(a)}</span>${_attDur(a.duration)}${rep}${tag}</div>`;
       };
       let dialsCell;
       if (dials === 0) {
@@ -6061,8 +6080,13 @@
         ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
         : statusBadge(effStatus, effOnTime);
 
+      const _fmtPhone = p => {
+        const d = String(p || "").replace(/\D/g, "");
+        const d10 = d.length === 11 && d[0] === "1" ? d.slice(1) : d;
+        return d10.length === 10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : (p || "");
+      };
       const phoneCell = r.phone
-        ? `<span class="phone-cell">${r.phone}</span>`
+        ? `<span class="phone-cell">${_fmtPhone(r.phone)}</span>`
         : `<span class="no-data">—</span>`;
       // When the deal has advanced (Quote Sent / Retainer Invoice Sent /
       // Closed Won), show the stage name in place of the call disposition.

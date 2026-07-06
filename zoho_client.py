@@ -767,6 +767,8 @@ class ZohoClient:
                     "_owner_id": self._caller_owner_id(c),
                     "disposition": c.get("Outgoing_call_disposition"),
                     "source": _call_source(c),
+                    "duration": (c.get("Call_Duration_in_seconds")
+                                 or c.get("_duration") or 0),
                 }
                 for c in same_day_calls
                 if c.get("Call_Start_Time")
