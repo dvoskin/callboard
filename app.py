@@ -444,6 +444,15 @@ def index():
     return render_template("index.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
 
 
+@app.route("/v2")
+@login_required
+def index_v2():
+    """Second version of the dashboard (compact layout, reworked columns).
+    Shares the same backend/API as v1."""
+    user = session.get("user") or {}
+    return render_template("index_v2.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
+
+
 def _parse_local_date_to_utc(
     date_str: str, hour: int, minute: int, second: int,
     tz_offset_minutes=None,
