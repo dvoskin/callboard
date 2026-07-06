@@ -367,6 +367,18 @@
     .disp-stage { display: inline-block; font-size: 11px; font-weight: 700;
       padding: 1px 7px; border-radius: 5px; white-space: nowrap;
       background: rgba(16,185,129,.14); color: #047857; }
+    /* Dials: first attempt + "+N more" overlay */
+    #sc-activity-table td.col-dials { overflow: visible; }
+    .att-more-wrap { position: relative; }
+    .att-more-btn { margin-top: 1px; font-size: 10px; font-weight: 600; color: var(--blue-dk);
+      background: rgba(37,99,235,.08); border: none; border-radius: 4px; padding: 1px 6px; cursor: pointer; }
+    .att-more-btn:hover { background: rgba(37,99,235,.16); }
+    .att-more-pop { position: absolute; top: 100%; left: 0; z-index: 300; margin-top: 3px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 8px 10px; min-width: 150px; width: max-content; }
+    .att-more-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+      color: var(--secondary); margin-bottom: 5px; }
+    .att-more-pop .att-row { padding: 2px 0; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
 
@@ -4124,6 +4136,26 @@
         || s.includes("closed won") || s.includes("surgery scheduled");
   }
 
+  function toggleAttMore(ev, btn) {
+    ev.stopPropagation();
+    const pop = btn.nextElementSibling;
+    const opening = pop.hasAttribute("hidden");
+    // Close any other open dial popovers first.
+    document.querySelectorAll(".att-more-pop:not([hidden])").forEach(p => p.setAttribute("hidden", ""));
+    if (opening) {
+      pop.removeAttribute("hidden");
+      const close = e => {
+        if (!pop.contains(e.target) && e.target !== btn) {
+          pop.setAttribute("hidden", "");
+          document.removeEventListener("click", close);
+        }
+      };
+      setTimeout(() => document.addEventListener("click", close), 0);
+    } else {
+      pop.setAttribute("hidden", "");
+    }
+  }
+
   function statusBadge(status, onTime) {
     const map = {
       completed:          onTime ? ["✓ On Time","badge-green"] : ["✓ Late","badge-orange"],
@@ -5956,7 +5988,7 @@
       if (dials === 0) {
         dialsCell = `<span class="no-data">0</span>`;
       } else if (attList.length > 0) {
-        const rows = attList.map(a => {
+        const attRow = a => {
           const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
           const rep = a.rep ? `<span class="att-rep">${a.rep}</span>` : "";
           // Manual (RingEX) dial vs auto-dialer (RingCX). Manual gets a bold
@@ -5965,8 +5997,19 @@
           const src = manual ? `<span class="att-src att-manual">Manual</span>`
                     : a.source === "ringcx" ? `<span class="att-src att-cx">Dialer</span>` : "";
           return `<div class="att-row${manual ? " att-row-manual" : ""}">${src}<span class="att-time">${t}</span>${rep}</div>`;
-        }).join("");
-        dialsCell = `<div class="att-list">${rows}</div>`;
+        };
+        // Show only the first attempt; the rest open in a small overlay.
+        const first = attRow(attList[0]);
+        if (attList.length === 1) {
+          dialsCell = `<div class="att-list">${first}</div>`;
+        } else {
+          const more = attList.map(attRow).join("");
+          dialsCell = `<div class="att-list att-collapsed">${first}` +
+            `<div class="att-more-wrap">` +
+              `<button class="att-more-btn" onclick="toggleAttMore(event, this)">+${attList.length - 1} more</button>` +
+              `<div class="att-more-pop" hidden><div class="att-more-title">${dials} dial attempts</div>${more}</div>` +
+            `</div></div>`;
+        }
       } else {
         dialsCell = `<span class="dials-val">${dials}</span>`;
       }
