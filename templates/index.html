@@ -415,7 +415,7 @@
     .src-ringcx { background: rgba(37,99,235,.07); color: var(--blue-dk); }
     .src-rex    { background: rgba(245,158,11,.08); color: var(--orange-dk); }
 
-    /* "ⓘ 9 AM" floor badge */
+    /* "ⓘ" info badge (e.g. call observed via live monitor) */
     .floor-badge {
       display: inline-flex; align-items: center;
       font-size: 9px; font-weight: 600;
@@ -2315,7 +2315,7 @@
         height: 30px; border-radius: 7px;
       }
 
-      /* 9 AM floor badge: shrink to just the icon on mobile to free name space */
+      /* info badge: shrink to just the icon on mobile to free name space */
       .floor-badge {
         padding: 1px 4px; font-size: 8.5px; margin-left: 4px;
         letter-spacing: 0;
@@ -3951,38 +3951,6 @@
 
   // ─── utils ───
   const TZ = "America/New_York";
-  const DIAL_START_HOUR = 9;  // calls scheduled earlier are clamped to 9 AM local
-
-  // Returns the effective scheduled wall-clock time (in TZ) as a Date, applying
-  // the DIAL_START_HOUR clamp so pre-business-hours schedules are treated as
-  // if scheduled at 9 AM local.
-  function effectiveScheduledDate(iso) {
-    if (!iso) return null;
-    const d = new Date(iso);
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
-    }).formatToParts(d);
-    const get = t => parts.find(p => p.type === t)?.value;
-    const h = parseInt(get("hour"), 10);
-    if (h >= DIAL_START_HOUR) return d;
-    // Shift to 9:00:00 local that same date
-    const min  = parseInt(get("minute"), 10);
-    const sec  = parseInt(get("second"), 10);
-    const shiftMin = (DIAL_START_HOUR - h) * 60 - min - sec / 60;
-    return new Date(d.getTime() + shiftMin * 60000);
-  }
-
-  // Difference between actual call time and the effective scheduled time, in
-  // minutes (positive = late, negative = early). Returns null if either input
-  // is missing.
-  function computeEffectiveOffsetMin(scheduledIso, actualIso) {
-    if (!scheduledIso || !actualIso) return null;
-    const eff = effectiveScheduledDate(scheduledIso);
-    const act = new Date(actualIso);
-    if (!eff || isNaN(act.getTime())) return null;
-    return Math.round(((act.getTime() - eff.getTime()) / 60000) * 10) / 10;
-  }
 
   function fmt(iso) {
     if (!iso) return "—";
@@ -4734,23 +4702,6 @@
       ? scFull.records
       : scFull.records.filter(r => (r.owner || "Zoho Admin") === _activeSheet);
     const sc = { records: _records, summary: schedSummary(_records) };
-    // Calls scheduled before 9 AM Eastern are assumed to be expected at 9 AM
-    // (reps don't dial outside business hours). Apply the floor once, here,
-    // so every downstream display + calculation sees the same effective time.
-    sc.records.forEach(r => {
-      if (r.scheduled_time) {
-        const original = r.scheduled_time;
-        const eff = effectiveScheduledDate(original);
-        if (eff) {
-          const effIso = eff.toISOString();
-          if (effIso !== new Date(original).toISOString()) {
-            r._floored = true;
-            r._scheduled_original = original;
-          }
-          r.scheduled_time = effIso;
-        }
-      }
-    });
 
     // Backend status is cached every 120s, so a record that was "upcoming" a minute ago
     // can now have a scheduled_time in the past. Reclassify client-side using the
@@ -4811,8 +4762,8 @@
     _upcomingCalls     = upcoming;
 
     // ── Client-side recount using pure diff (matches Result column logic) ──
-    // The backend on_time uses raw offset without the 9 AM floor. Recompute here
-    // so KPI tiles, stat strip, leaderboard, and chart all agree with Result.
+    // Recompute here so KPI tiles, stat strip, leaderboard, and chart all
+    // agree with the Result column.
     let csOnTime = 0, csEarly = 0, csLateCall = 0;
     sc.records.forEach(r => {
       if (!r.scheduled_time || !r.actual_call_time) return;
@@ -4929,9 +4880,6 @@
       const action = r.resolved
         ? `<button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`
         : `<button class="resolve-btn"   onclick="markResolved('${r.id}')"   title="Clear from concerns">✓ Resolve</button>`;
-      const odFloorBadge = r._floored && r._scheduled_original
-        ? ` <span class="floor-badge" title="Originally scheduled at ${fmt(r._scheduled_original)} — assumed at 9:00 AM (business hours)">ⓘ 9 AM</span>`
-        : "";
       let odDialsCell;
       if (dials === 0) {
         odDialsCell = `<span class="no-data">0</span>`;
@@ -4961,7 +4909,7 @@
         <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
         <td>${nameCell(r, "Contacts", odLangTag + odLastMin)}</td>
         <td class="phone-cell">${r.phone || '<span class="no-data">—</span>'}</td>
-        <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${(document.getElementById("date-start").value === document.getElementById("date-end").value ? fmtTime : fmt)(r.scheduled_time)}${odFloorBadge}</td>
+        <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${(document.getElementById("date-start").value === document.getElementById("date-end").value ? fmtTime : fmt)(r.scheduled_time)}</td>
         <td>${odActualCell}</td>
         <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
         <td>${stagePill}</td>
@@ -5843,10 +5791,6 @@
       const actualCell = effectiveActual
         ? `<span class="ts-cell ts-actual">${fmt(effectiveActual)}</span>`
         : `<span class="no-data">—</span>`;
-      // Tooltip badge for calls originally scheduled before 9 AM
-      const flooredBadge = r._floored && r._scheduled_original
-        ? ` <span class="floor-badge" title="Originally scheduled at ${fmt(r._scheduled_original)} — assumed at 9:00 AM (business hours)">ⓘ 9 AM</span>`
-        : "";
       const recCell = r.recording_url
         ? `<a class="rec-btn" href="${r.recording_url}" target="_blank" title="Play recording">▶</a>`
         : `<span class="no-data"></span>`;
@@ -5891,7 +5835,7 @@
       const langTag = lang.startsWith("sp") || lang.startsWith("es")
         ? `<span class="lang-badge lang-es">ES</span>`
         : `<span class="lang-badge lang-en">EN</span>`;
-      let trailingIcons = langTag + flooredBadge;
+      let trailingIcons = langTag;
       if (r.last_minute) {
         const createdFmt = r.record_created ? fmt(r.record_created) : "?";
         trailingIcons += ` <span class="last-min-badge" title="Last-minute: created at ${createdFmt}, less than 15 min before scheduled time">⚡</span>`;
