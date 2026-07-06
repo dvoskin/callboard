@@ -4157,7 +4157,8 @@
   function _isConvertedStage(stage) {
     if (!stage) return false;
     const s = stage.toLowerCase();
-    return s.includes("quote sent") || s.includes("retainer sent")
+    return s.includes("quote sent")
+        || s.includes("retainer")            // Retainer Invoice Sent / Retainer Paid
         || s.includes("payment received") || s.includes("payment recieved")
         || s.includes("closed won") || s.includes("surgery scheduled");
   }
