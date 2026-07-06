@@ -5354,11 +5354,11 @@
     { key: "leadsrc",    label: "Lead Source",      default: true  },
     { key: "scheduled",  label: "Scheduled",        default: true  },
     { key: "status",     label: "Status",           default: true  },
-    { key: "result",     label: "Result",           default: true  },
+    { key: "result",     label: "Result",           default: false },
     { key: "dials",      label: "Dials",            default: true  },
     { key: "disp",       label: "Disposition",      default: true  },
-    { key: "stage",      label: "Deal Stage",       default: true  },
-    { key: "usernote",   label: "Notes",            default: true  },
+    { key: "stage",      label: "Deal Stage",       default: false },
+    { key: "usernote",   label: "Notes",            default: false },
     { key: "localtz",    label: "Their Time",       default: false },
     { key: "caller",     label: "Caller",           default: false },
     { key: "actual",     label: "Actual Call (EST)",default: false },
@@ -5380,11 +5380,11 @@
     return c.default !== false;  // fall back to declared default
   }
   function _loadColPrefs() {
-    try { return JSON.parse(localStorage.getItem("scColPrefsV4") || "{}"); }
+    try { return JSON.parse(localStorage.getItem("scColPrefsV5") || "{}"); }
     catch { return {}; }
   }
   function _saveColPrefs(p) {
-    try { localStorage.setItem("scColPrefsV4", JSON.stringify(p)); } catch {}
+    try { localStorage.setItem("scColPrefsV5", JSON.stringify(p)); } catch {}
   }
   let _colPrefs = _loadColPrefs();
   // Persisted column order + widths (Contact is always first)
