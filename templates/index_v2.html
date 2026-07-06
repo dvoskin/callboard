@@ -365,6 +365,11 @@
     .disp-stage { display: inline-block; font-size: 11px; font-weight: 700;
       padding: 1px 7px; border-radius: 5px; white-space: nowrap;
       background: rgba(16,185,129,.14); color: #047857; }
+    /* Compact indicators when there's no disposition yet */
+    .disp-flag { display: inline-block; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+    .disp-await  { color: var(--secondary); }
+    .disp-nodial { color: var(--red-dk); }
+    .disp-nodisp { color: var(--tertiary); font-weight: 500; font-style: italic; }
     /* ── Dials: minimal collapsed view + clean reveal ── */
     #sc-activity-table td.col-dials { overflow: visible; }
     .dials-min { display: inline-flex; align-items: center; gap: 5px; font-feature-settings: "tnum"; white-space: nowrap; }
@@ -3722,7 +3727,7 @@
             <span class="ft-active" id="ft-active-count"></span>
             <span class="ft-caret">▾</span>
           </button>
-          <button class="legend-btn" id="legend-toggle" onclick="toggleLegend()" aria-expanded="false" title="What the Status, Source and Disposition columns mean">
+          <button class="legend-btn" id="legend-toggle" onclick="toggleLegend()" aria-expanded="false" title="What everything on the board means">
             <span>❔ Legend</span>
             <span class="ft-caret">▾</span>
           </button>
@@ -4318,17 +4323,14 @@
     const nameHtml = url
       ? `<a class="name-link" href="${url}" target="_blank">${r.name}</a>`
       : r.name;
-    const expBtn = r.id_contact
-      ? `<button class="expand-btn" onclick="toggleInsights(this,'${r.id_contact}')" title="Expand AI insights">▶</button>`
-      : "";
+    // Single AI entry point — the ✦ full summary (drops the redundant ▶ inline
+    // expander). Trailing badges are pruned upstream (no language / observation).
     const aiBtn = r.id_contact
-      ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
+      ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="AI summary">✦</button>`
       : "";
-    // Contact cell is just the name + AI buttons + trailing badges. Phone and
-    // Lead Source are their own columns.
     return `<div class="name-cell" style="max-width:280px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:4px;overflow:hidden">
-        ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
+      <div style="display:flex;align-items:center;gap:5px;overflow:hidden">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
       </div>
     </div>`;
   }
@@ -5607,70 +5609,53 @@
 
   let _legendBuilt = false;
   function _buildLegend() {
-    // Status column — reuse the exact statusBadge styling so it matches the table.
+    const row = (key, desc) => `<div class="legend-row"><span class="legend-key">${key}</span><span class="legend-desc">${desc}</span></div>`;
+
+    // Status badges — reuse statusBadge so they match the table exactly.
     const statuses = [
       ["completed", true,  "Called within the on-time window of the scheduled slot."],
       ["completed", false, "Called, but more than 10 min after the scheduled time."],
       ["early",     false, "Called more than 15 min before the scheduled time."],
       ["upcoming",  false, "Scheduled for later today — not due yet."],
-      ["pending",   false, "Due now; inside the first 15-min grace window, no dial yet."],
-      ["late",      false, "Past due (15+ min) and not yet dialed — still on the main list."],
-      ["missed",    false, "Long overdue with no dial — moved to the Overdue tab."],
-      ["handled",   false, "A manager marked the overdue call as resolved/handled."],
-      ["completed_via_workflow", false, "Marked done by a CRM workflow rather than a matched dial."],
-      ["completed_via_deal",     false, "Counted done because the linked deal advanced."],
-      ["no_schedule", false, "No usable scheduled time on the record."],
+      ["pending",   false, "Due now; inside the first 15-min grace window."],
+      ["late",      false, "Past due (15+ min), not yet dialed."],
+      ["missed",    false, "Long overdue with no dial (shown as Overdue)."],
+      ["handled",   false, "A manager marked the overdue call resolved."],
     ];
-    const statusRows = statuses.map(([s, ot, desc]) =>
-      `<div class="legend-row"><span class="legend-key">${statusBadge(s, ot)}</span><span class="legend-desc">${desc}</span></div>`
-    ).join("");
+    const statusRows = statuses.map(([s, ot, desc]) => row(statusBadge(s, ot), desc)).join("");
 
-    const sourceRows = `
-      <div class="legend-row"><span class="legend-key"><span class="src-pill src-ringcx">RingCX</span></span><span class="legend-desc">Placed by the RingCX auto-dialer (Engage Voice campaigns). Carries a disposition.</span></div>
-      <div class="legend-row"><span class="legend-key"><span class="src-pill src-rex">RingEX</span></span><span class="legend-desc">A manual dial through the RingCentral phone system (matched to the RingEX call log). No disposition.</span></div>
-      <div class="legend-row"><span class="legend-key"><span class="no-data">—</span></span><span class="legend-desc">No matched dial yet for this scheduled call.</span></div>`;
+    // Dials & attempts.
+    const dialsRows =
+      row(`<span class="dials-min"><span class="att-time">10:57 AM</span></span>`, "First dial attempt (time). Times are shown in EST.") +
+      row(`<span class="manual-dot"></span>`, "Amber dot = the dial was placed <b>manually</b> (not by the auto-dialer).") +
+      row(`<button class="att-more-btn">+2</button>`, "More attempts exist — click to reveal all in a popover.") +
+      row(`<span class="att-tag att-dialer">Dialer</span>`, "Auto-dialer (RingCX) call.") +
+      row(`<span class="att-tag att-manual">Manual</span>`, "Manual dial (RingEX / rep dialed by hand).") +
+      row(`<span class="att-dur">0:26</span>`, "Call length (min:sec) shown per attempt in the reveal.");
 
-    // Disposition — grouped, real values pulled from the dialer.
-    const dispGroups = [
-      ["No contact", [
-        ["No Answer", "Rang out, nobody picked up."],
-        ["Voicemail / Answering Machine", "Reached voicemail or an answering machine (incl. “Voicemail”, “No Answer / Voicemail”)."],
-        ["Disposition Timeout", "Auto-set — the agent didn’t record an outcome in time."],
-        ["Call Dropped / Connection Issues", "Call cut out or had audio problems."],
-        ["Wrong Number", "Number doesn’t reach the lead."],
-      ]],
-      ["Connected — progressing", [
-        ["Call Scheduled / Follow Up Scheduled", "Booked a callback or follow-up."],
-        ["Quoted / Quote Sent", "Pricing was discussed or a quote was sent."],
-        ["Existing Patient / Prev. Assisted", "Already a patient or previously helped."],
-        ["Transfer: Spanish Speaker", "Routed to a Spanish-speaking rep."],
-      ]],
-      ["Stop contacting", [
-        ["DNC (Do Not Call)", "Lead asked not to be contacted — do not text or call."],
-      ]],
-      ["Other", [
-        ["Other Reason / Not Listed", "Outcome that doesn’t fit the standard list."],
-      ]],
-    ];
-    const dispRows = dispGroups.map(([grp, items]) =>
-      `<div style="margin-bottom:6px"><div style="font-size:10.5px;font-weight:700;color:var(--tertiary);margin:6px 0 3px">${grp}</div>` +
-      items.map(([tag, desc]) =>
-        `<div class="legend-row"><span class="legend-key"><span class="legend-disp-tag">${tag}</span></span><span class="legend-desc">${desc}</span></div>`
-      ).join("") + `</div>`
-    ).join("");
+    // Disposition column.
+    const dispRows =
+      row(`<span class="disp-stage">Quote Sent</span>`, "Green = the deal has advanced (Quote Sent / Retainer Sent / Closed) — shown in place of the call disposition.") +
+      row(`<span class="disp-text">No Answer</span>`, "The call outcome recorded by the dialer/rep. If a later redial has a better outcome (e.g. Quote Sent), that one wins.") +
+      row(`<span class="disp-flag disp-await">◷ Awaiting call</span>`, "Scheduled but not dialed yet (upcoming / pending).") +
+      row(`<span class="disp-flag disp-nodial">⚠ Not dialed</span>`, "Overdue with no dial attempt.") +
+      row(`<span class="disp-flag disp-nodisp">No disposition</span>`, "Dialed (manual) but no outcome was recorded.");
+
+    // Icons & other cells.
+    const iconRows =
+      row(`<button class="summary-btn">✦</button>`, "Open the AI summary for this contact.") +
+      row(`<span class="last-min-badge">⚡</span>`, "Last-minute booking — scheduled <15 min before the slot.") +
+      row(`<span class="ts-cell">2:00 PM</span> <span class="sched-leadtz">1:00 PM CDT</span>`, "Scheduled column: EST time on top, the lead's local time underneath.");
 
     return `
-      <div class="legend-col">
-        <h4>Status</h4>${statusRows}
+      <div class="legend-col"><h4>Status</h4>${statusRows}</div>
+      <div class="legend-col"><h4>Dials</h4>${dialsRows}
+        <div class="legend-note">Only the first attempt shows; open “+N” for the rest.</div>
       </div>
-      <div class="legend-col">
-        <h4>Source</h4>${sourceRows}
-        <div class="legend-note">Source reflects the call closest to the scheduled time.</div>
+      <div class="legend-col"><h4>Disposition</h4>${dispRows}
+        <div class="legend-note">A real outcome always beats No Answer / Voicemail / Answering Machine, even on a later redial.</div>
       </div>
-      <div class="legend-col">
-        <h4>Disposition</h4>${dispRows}
-        <div class="legend-note">Set by the RingCX dialer/agent on the connected call.</div>
-      </div>`;
+      <div class="legend-col"><h4>Icons &amp; cells</h4>${iconRows}</div>`;
   }
 
   function toggleLegend() {
@@ -6088,13 +6073,24 @@
       const phoneCell = r.phone
         ? `<span class="phone-cell">${_fmtPhone(r.phone)}</span>`
         : `<span class="no-data">—</span>`;
-      // When the deal has advanced (Quote Sent / Retainer Invoice Sent /
-      // Closed Won), show the stage name in place of the call disposition.
-      const dispCell = (r.deal_stage && _isConvertedStage(r.deal_stage))
-        ? `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`
-        : r.disposition
-          ? `<span class="disp-text">${r.disposition}</span>`
-          : `<span class="no-data">—</span>`;
+      // Disposition cell. Priority: advanced deal stage → call disposition →
+      // a compact status-aware indicator when there's no dial/disposition yet.
+      let dispCell;
+      if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
+        dispCell = `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
+      } else if (r.disposition) {
+        dispCell = `<span class="disp-text">${r.disposition}</span>`;
+      } else if (dials === 0) {
+        // Scheduled but not dialed yet — say so instead of a blank cell.
+        if (r.status === "upcoming" || r.status === "pending")
+          dispCell = `<span class="disp-flag disp-await">◷ Awaiting call</span>`;
+        else if (r.status === "missed" || r.status === "late")
+          dispCell = `<span class="disp-flag disp-nodial">⚠ Not dialed</span>`;
+        else dispCell = `<span class="no-data">—</span>`;
+      } else {
+        // Dialed but no disposition recorded (e.g. manual RingEX dial).
+        dispCell = `<span class="disp-flag disp-nodisp">No disposition</span>`;
+      }
       const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
       const schedFmt = isSingleDay ? fmtTime : fmt;
       // Scheduled (EST) with the lead's local time folded in underneath.
@@ -6107,24 +6103,12 @@
         : `<span class="no-data">—</span>`;
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : '';
-      // Small trailing icons for name cell
-      const lang = (r.language || "").toLowerCase();
-      const langTag = lang.startsWith("sp") || lang.startsWith("es")
-        ? `<span class="lang-badge lang-es">ES</span>`
-        : `<span class="lang-badge lang-en">EN</span>`;
-      let trailingIcons = langTag;
+      // Contact cell kept clean: only the last-minute ⚡ flag remains.
+      // (Language badge and call-observation warnings removed to declutter.)
+      let trailingIcons = "";
       if (r.last_minute) {
         const createdFmt = r.record_created ? fmt(r.record_created) : "?";
-        trailingIcons += ` <span class="last-min-badge hint" data-tip="Last-minute: created at ${_qEsc(createdFmt)}, less than 15 min before scheduled time">⚡</span>`;
-      }
-      if (r.note && r.resolved) {
-        trailingIcons += ` <span class="observed-badge hint" data-tip="${_qEsc(r.note)}">📝</span>`;
-      }
-      if (obs && !r._liveCall && !r._observedOnTime) {
-        const obsSrc = obs.source === "ringcx" ? "RingCX" : obs.source === "ringex" ? "RingEX" : "live monitor";
-        const obsTime = new Date(obs.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-        const obsAgent = obs.agent ? ` by ${obs.agent}` : "";
-        trailingIcons += ` <span class="floor-badge hint" data-tip="Call observed via ${obsSrc} at ${obsTime}${_qEsc(obsAgent)}">ⓘ</span>`;
+        trailingIcons += `<span class="last-min-badge hint" data-tip="Last-minute: created at ${_qEsc(createdFmt)}, less than 15 min before scheduled time">⚡</span>`;
       }
       // Books status badge based on deal stage
       const booksStage = (r.deal_stage || "").toLowerCase();

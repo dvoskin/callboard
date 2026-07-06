@@ -785,6 +785,30 @@ class ZohoClient:
             if same_day_calls else None
         )
 
+        # ── Prioritized disposition across all of today's attempts ─────────
+        # A "contact-made" outcome (anything other than the no-contact set)
+        # always wins over No Answer / Voicemail / Answering Machine — even if
+        # it happened on a later redial. e.g. dialed at the scheduled time =
+        # No Answer, redialed later = Quote Sent → the row shows "Quote Sent".
+        # Among meaningful outcomes, take the most recent.
+        NO_CONTACT_DISPOSITIONS = {
+            "no answer", "voicemail", "voicemail / no answer",
+            "no answer / voicemail", "answering machine", "disposition timeout",
+            "call dropped / connection issues", "call dropped / audio issues",
+        }
+        def _is_meaningful_disp(c):
+            d = (c.get("Outgoing_call_disposition") or "").strip().lower()
+            return bool(d) and d not in NO_CONTACT_DISPOSITIONS
+        _meaningful = [c for c in dialed_with_disp if _is_meaningful_disp(c)]
+        best_disp_call = (
+            max(_meaningful, key=lambda c: c.get("Call_Start_Time") or "")
+            if _meaningful else most_recent_ringcx
+        )
+        best_disposition = (
+            best_disp_call.get("Outgoing_call_disposition")
+            if best_disp_call else None
+        )
+
         # Most recent attempt of any kind (for last_attempt_time)
         all_with_time = [
             c for c in same_day_calls
@@ -819,13 +843,11 @@ class ZohoClient:
                 "offset_minutes": round(offset_min, 1) if offset_min is not None else None,
                 "on_time": on_time,
                 "dial_attempts": dial_attempts,
-                "disposition": (closest_call.get("Outgoing_call_disposition")
-                                or (most_recent_ringcx.get("Outgoing_call_disposition")
-                                    if most_recent_ringcx else None)),
+                "disposition": best_disposition,
                 "caller": self._caller_name(closest_call),
                 "_caller_owner_id": self._caller_owner_id(closest_call),
                 "recording_url": self._extract_recording_url(
-                    closest_call.get("Description") or ""
+                    (best_disp_call or closest_call).get("Description") or ""
                 ),
                 "logged_via": "mvp" if is_mvp else "ringcx",
                 "mvp_only": is_mvp,
@@ -861,8 +883,7 @@ class ZohoClient:
             "minutes_overdue": round(minutes_overdue, 1),
             "dial_attempts": dial_attempts,
             "mvp_only": False,
-            "disposition": (most_recent_ringcx.get("Outgoing_call_disposition")
-                            if most_recent_ringcx else None),
+            "disposition": best_disposition,
             "caller": self._caller_name(most_recent_any),
             "_caller_owner_id": self._caller_owner_id(most_recent_any),
             "recording_url": None,
