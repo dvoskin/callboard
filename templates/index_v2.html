@@ -4311,21 +4311,12 @@
     const aiBtn = r.id_contact
       ? `<button class="summary-btn" onclick="openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="Full AI Summary">✦</button>`
       : "";
-    // Sub-line under the name (v2): phone · lead source · IG handle — folds
-    // the Phone and Lead Source columns into the contact cell.
-    const ig = r.instagram
-      ? `<a href="https://instagram.com/${encodeURIComponent(String(r.instagram).replace(/^@/, ""))}" target="_blank" rel="noopener" class="ig-handle">${_qEsc(r.instagram)}</a>`
-      : "";
-    const subBits = [
-      r.phone ? `<span class="ncp-phone">${_qEsc(r.phone)}</span>` : "",
-      r.lead_source ? _qEsc(r.lead_source) : "",
-      ig,
-    ].filter(Boolean).join(' <span class="ncp-sep">·</span> ');
-    const leadSub = subBits ? `<div class="name-leadsrc">${subBits}</div>` : "";
+    // Contact cell is just the name + AI buttons + trailing badges. Phone and
+    // Lead Source are their own columns.
     return `<div class="name-cell" style="max-width:280px;overflow:hidden">
       <div style="display:flex;align-items:center;gap:4px;overflow:hidden">
         ${expBtn}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${nameHtml}</span><span style="display:flex;align-items:center;gap:2px;flex-shrink:0">${aiBtn}${trailing}</span>
-      </div>${leadSub}
+      </div>
     </div>`;
   }
 
@@ -5340,6 +5331,8 @@
   // ─── Column show/hide ───
   const SC_COLUMNS = [
     { key: "name",       label: "Contact",          always: true  },
+    { key: "phone",      label: "Phone",            default: true  },
+    { key: "leadsrc",    label: "Lead Source",      default: true  },
     { key: "scheduled",  label: "Scheduled",        default: true  },
     { key: "status",     label: "Status",           default: true  },
     { key: "result",     label: "Result",           default: true  },
@@ -5347,7 +5340,6 @@
     { key: "disp",       label: "Disposition",      default: true  },
     { key: "stage",      label: "Deal Stage",       default: true  },
     { key: "usernote",   label: "Notes",            default: true  },
-    { key: "phone",      label: "Phone",            default: false },
     { key: "localtz",    label: "Their Time",       default: false },
     { key: "caller",     label: "Caller",           default: false },
     { key: "actual",     label: "Actual Call (EST)",default: false },
@@ -5359,7 +5351,6 @@
     { key: "rec",        label: "Recording",        default: false },
     { key: "fucall",     label: "📞 Schedule FU",   default: false },
     { key: "nxtstep",    label: "Next FU",          default: false },
-    { key: "leadsrc",   label: "Lead Source",       default: false },
     { key: "sms",        label: "💬 Auto SMS",      default: false },
     { key: "notes",      label: "CRM Note",         default: false },
   ];
@@ -5370,11 +5361,11 @@
     return c.default !== false;  // fall back to declared default
   }
   function _loadColPrefs() {
-    try { return JSON.parse(localStorage.getItem("scColPrefsV3") || "{}"); }
+    try { return JSON.parse(localStorage.getItem("scColPrefsV4") || "{}"); }
     catch { return {}; }
   }
   function _saveColPrefs(p) {
-    try { localStorage.setItem("scColPrefsV3", JSON.stringify(p)); } catch {}
+    try { localStorage.setItem("scColPrefsV4", JSON.stringify(p)); } catch {}
   }
   let _colPrefs = _loadColPrefs();
   // Persisted column order + widths (Contact is always first)
