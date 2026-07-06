@@ -363,6 +363,10 @@
     .att-src.att-cx { background: rgba(37,99,235,.10); color: var(--blue-dk); }
     .att-row-manual { background: rgba(245,158,11,.12); border-radius: 4px;
       box-shadow: inset 2px 0 0 #f59e0b; padding-left: 4px; }
+    /* Disposition cell showing the deal stage (quote/retainer/closed) */
+    .disp-stage { display: inline-block; font-size: 11px; font-weight: 700;
+      padding: 1px 7px; border-radius: 5px; white-space: nowrap;
+      background: rgba(16,185,129,.14); color: #047857; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
 
@@ -6016,9 +6020,13 @@
       const phoneCell = r.phone
         ? `<span class="phone-cell">${r.phone}</span>`
         : `<span class="no-data">—</span>`;
-      const dispCell = r.disposition
-        ? `<span class="disp-text">${r.disposition}</span>`
-        : `<span class="no-data">—</span>`;
+      // When the deal has advanced (Quote Sent / Retainer Invoice Sent /
+      // Closed Won), show the stage name in place of the call disposition.
+      const dispCell = (r.deal_stage && _isConvertedStage(r.deal_stage))
+        ? `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`
+        : r.disposition
+          ? `<span class="disp-text">${r.disposition}</span>`
+          : `<span class="no-data">—</span>`;
       const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
       const schedFmt = isSingleDay ? fmtTime : fmt;
       const schedCell = r.scheduled_time
