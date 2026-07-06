@@ -3255,6 +3255,8 @@
     }
 
     /* ═════════════════ Dashboard tabs (Live / Follow Up) ═════════════════ */
+    /* v2: only the Live Dashboard remains — hide the single-tab bar. */
+    #dash-tabs { display: none; }
     .dash-tabs {
       display: flex; gap: 4px; margin: 0 0 16px;
       padding: 4px;
@@ -3439,12 +3441,6 @@
   <div class="dash-tabs" id="dash-tabs">
     <button class="dash-tab active" data-tab="tab-live" onclick="switchDashTab('tab-live')">
       📊 Live Dashboard
-    </button>
-    <button class="dash-tab" data-tab="tab-followup" onclick="switchDashTab('tab-followup')">
-      🎯 Quote Follow-ups
-    </button>
-    <button class="dash-tab" data-tab="tab-agents" onclick="switchDashTab('tab-agents')">
-      📈 Agent Performance
     </button>
   </div>
 
@@ -6228,7 +6224,12 @@
   }
 
   let _loadRetries = 0;
+  let _loadInFlight = false;
   async function loadData(startDate = null, endDate = null) {
+    // v2 live fetches take ~60-85s; don't let auto-refresh stack overlapping
+    // requests. A manual/date-range request (startDate given) always runs.
+    if (_loadInFlight && !startDate) return;
+    _loadInFlight = true;
     const dot = document.getElementById("status-dot");
     dot.className = "loading";
     const cdbLoading = document.getElementById("cdb-loading");
@@ -6242,8 +6243,11 @@
     try {
       // Always pass browser timezone offset so DST is handled correctly
       const tzOffset = new Date().getTimezoneOffset(); // minutes west of UTC (CDT=300, CST=360)
-      let url = `/api/data?tz=${tzOffset}`;
-      if (startDate) url += `&start=${startDate}&end=${endDate || startDate}`;
+      // v2: ALWAYS live, never cache. Passing an explicit date routes the
+      // backend through its live (uncached) fetch path. Default to today.
+      const s = startDate || todayISO();
+      const e = endDate || startDate || todayISO();
+      let url = `/api/data?tz=${tzOffset}&start=${s}&end=${e}&_nocache=${Date.now()}`;
       const resp = await fetch(url);
       cdbLoading.classList.remove("show");
       // Session expired — redirect to login
@@ -6293,6 +6297,8 @@
     } catch(e) {
       cdbLoading.classList.remove("show");
       dot.className = "error"; showError(e.message);
+    } finally {
+      _loadInFlight = false;
     }
   }
   function showError(msg) {
@@ -6302,16 +6308,15 @@
   async function forceRefresh() {
     const btn = document.getElementById("refresh-btn");
     btn.disabled = true; btn.textContent = "Refreshing…";
+    // v2 is always live — just re-fetch (custom range or today).
     if (_customDateActive) {
-      // Re-fetch the current custom range
       const start = document.getElementById("date-start").value;
       const end   = document.getElementById("date-end").value;
       await loadData(start, end);
-      btn.disabled = false; btn.textContent = "↻ Refresh";
     } else {
-      await fetch("/api/refresh", { method: "POST" });
-      setTimeout(async () => { await loadData(); btn.disabled = false; btn.textContent = "↻ Refresh"; }, 2500);
+      await loadData();
     }
+    btn.disabled = false; btn.textContent = "↻ Refresh";
   }
   initDatePicker();
   loadData();
@@ -7847,18 +7852,14 @@
     }
   }
   function _initDashTabs() {
-    let saved = null;
-    try { saved = localStorage.getItem(_DASH_TAB_KEY()); } catch {}
-    const valid = ["tab-live", "tab-followup", "tab-agents"];
-    switchDashTab(valid.includes(saved) ? saved : "tab-live");
+    // v2: Follow-up + Agent Performance tabs are removed — always Live.
+    switchDashTab("tab-live");
   }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _qBootstrapPanel(); _fuaBootstrap(); _initDashTabs(); });
+    document.addEventListener("DOMContentLoaded", () => { tgInit(); _initCardCollapse(); _initDashTabs(); });
   } else {
     tgInit();
     _initCardCollapse();
-    _qBootstrapPanel();
-    _fuaBootstrap();
     _initDashTabs();
   }
 
