@@ -634,6 +634,16 @@ class ZohoClient:
         Inbound markers are excluded so an inbound call to the same contact's
         number never gets credited as completing a scheduled outbound call.
         """
+        subj = (c.get("Subject") or "").lower().strip()
+        # Workflow/status placeholder records are NOT real dials. The Call
+        # Cycles automation creates these at the round scheduled-slot time
+        # (e.g. 10:00:00) to track attempt counts:
+        #   "2nd/3rd/4th Attempt - No Answer", "Scheduled Call: X",
+        #   "Call scheduled with X". They carry Call_Type=Outbound but no
+        #   real dial happened, so exclude them from dial counting.
+        if (subj.startswith("scheduled call") or subj.startswith("call scheduled")
+                or re.match(r"^\d+(st|nd|rd|th)\s+attempt\b", subj)):
+            return False
         if c.get("Outgoing_call_disposition"):
             return True
         ctype = (c.get("Call_Type") or "").strip().lower()
@@ -641,7 +651,6 @@ class ZohoClient:
             return True
         if ctype == "inbound":
             return False
-        subj = (c.get("Subject") or "").lower()
         if "inbound" in subj or "call from" in subj or "incoming" in subj:
             return False
         if ("outgoing call to" in subj or "outbound call to" in subj
