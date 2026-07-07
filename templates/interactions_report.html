@@ -38,14 +38,15 @@
     .btn.primary:hover { background: var(--blue-dk); }
     .btn[disabled] { opacity: .55; cursor: default; }
 
-    /* Dropzone */
-    .drop { background: var(--surface); border: 2px dashed var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
-      padding: 34px 24px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+    /* Dropzone — compact */
+    .drop { background: var(--surface); border: 1.5px dashed var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      padding: 14px 18px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+      display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
     .drop:hover, .drop.over { border-color: var(--blue); background: #f5f8ff; }
-    .drop .big { font-size: 15px; font-weight: 650; }
-    .drop .small { color: var(--secondary); font-size: 13px; margin-top: 4px; }
-    .drop .ic { font-size: 26px; }
-    .filemeta { margin-top: 12px; font-size: 13px; color: var(--secondary); display: none; }
+    .drop .ic { font-size: 17px; }
+    .drop .big { font-size: 13px; font-weight: 650; }
+    .drop .small { color: var(--tertiary); font-size: 12px; }
+    .filemeta { flex-basis: 100%; margin-top: 6px; font-size: 12.5px; color: var(--secondary); display: none; }
     .filemeta b { color: var(--text); }
 
     /* Near-monochrome accent: solid blue = primary, light blue = secondary category */
@@ -142,6 +143,7 @@
 
     /* Saved reports — the shared record */
     .saved { margin: 20px 0 6px; }
+    .saved[hidden] { display: none; }
     .saved-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
     .saved-head h2 { margin: 0; font-size: 14px; font-weight: 700; }
     .saved-tbl thead th { cursor: default; }
@@ -190,6 +192,7 @@
       </div>
       <div class="controls">
         <button class="btn" id="pick">Choose file…</button>
+        <button class="btn" id="savedToggle" onclick="toggleSaved()" aria-expanded="false">📁 Saved reports</button>
         <button class="btn primary" id="saveBtn" style="display:none" onclick="saveCurrentReport()">💾 Save report</button>
         <button class="btn" id="reset" style="display:none">↻ New file</button>
       </div>
@@ -204,7 +207,7 @@
     </div>
     <div class="err" id="err" style="display:none"></div>
 
-    <section class="saved" id="savedWrap">
+    <section class="saved" id="savedWrap" hidden>
       <div class="saved-head"><h2>Saved reports</h2><span class="lite" id="savedCount"></span></div>
       <div class="panel"><div class="table-scroll">
         <table class="saved-tbl"><thead><tr>
@@ -311,9 +314,15 @@ async function loadSavedList(freshId){
     if(j.status==="ok") renderSaved(j.reports||[], freshId);
   } catch(e){ /* list is best-effort */ }
 }
+function toggleSaved(){
+  const w=$("savedWrap"), b=$("savedToggle"), show=w.hidden;
+  w.hidden=!show; b.setAttribute("aria-expanded", show?"true":"false");
+  if(show) w.scrollIntoView({behavior:"smooth", block:"start"});
+}
 function renderSaved(list, freshId){
   const body=$("savedBody"), cnt=$("savedCount");
   cnt.textContent = list.length ? (list.length===1 ? "1 report" : list.length+" reports") : "";
+  $("savedToggle").textContent = "📁 Saved reports" + (list.length ? " ("+list.length+")" : "");
   if(!list.length){
     body.innerHTML=`<tr><td class="empty" colspan="7">No saved reports yet — upload an export and click <b>💾 Save report</b> to keep it here for the team.</td></tr>`;
     return;
@@ -366,6 +375,7 @@ async function saveCurrentReport(){
     if(j.status!=="ok") throw new Error(j.message);
     sb.textContent="✓ Saved";
     loadSavedList(j.report && j.report.id);
+    $("savedWrap").hidden=false; $("savedToggle").setAttribute("aria-expanded","true");
     setTimeout(()=>{ sb.style.display="none"; }, 1400);
   } catch(e){ alert("Couldn't save: "+e.message); sb.disabled=false; sb.textContent="💾 Save report"; }
 }
