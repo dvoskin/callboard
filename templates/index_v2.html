@@ -3808,8 +3808,17 @@
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <h2 style="margin:0">📞 Call Now Deals</h2>
       <span class="chip" id="call-now-count">0</span>
-      <span class="card-sub" id="call-now-sub" title="Deals whose Best Contact Time is empty or set before the deal was created — call ASAP after creation">Best Contact Time empty or before deal creation · uses the date range above</span>
-      <button class="filter-clear" id="call-now-refresh" onclick="loadCallNowDeals()" style="margin-left:auto" title="Reload">↻</button>
+      <span class="card-sub" id="call-now-sub" title="Deals whose Best Contact Time is empty, 'CALL NOW', or set before the deal was created — call ASAP after creation">Best Contact Time empty / “CALL NOW” / before deal creation</span>
+      <button class="filter-clear" id="call-now-refresh" onclick="loadCallNowDeals(true)" style="margin-left:auto" title="Reload">↻</button>
+    </div>
+    <div id="cn-date-bar" class="card-date-bar">
+      <span class="cdb-label">Date range</span>
+      <input type="date" id="cn-date-start" class="cdb-input">
+      <span class="cdb-sep">→</span>
+      <input type="date" id="cn-date-end" class="cdb-input">
+      <button class="cdb-apply" onclick="applyCallNowRange()">Apply</button>
+      <button class="cdb-today" onclick="resetCallNowToday()">↩ Today</button>
+      <span class="cdb-loading" id="cn-loading"><span class="mini-spinner"></span>Loading…</span>
     </div>
     <div class="card-body">
       <div class="table-scroll">
@@ -3820,7 +3829,6 @@
               <th class="col-phone">Phone</th>
               <th class="col-leadsrc">Lead Source</th>
               <th class="sortable col-scheduled" onclick="sortCallNow('created_time')">Deal Created</th>
-              <th class="col-status">Status</th>
               <th class="col-dials">Dials</th>
               <th class="col-disp">Disposition</th>
             </tr>
@@ -4044,6 +4052,10 @@
     const today = todayISO();
     document.getElementById("date-start").value = today;
     document.getElementById("date-end").value   = today;
+    const cs = document.getElementById("cn-date-start");
+    const ce = document.getElementById("cn-date-end");
+    if (cs) cs.value = today;
+    if (ce) ce.value = today;
   }
   function fmtDateLabel(iso) {
     return new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric" });
@@ -4968,23 +4980,29 @@
   let _callNowSort = { key: "created_time", dir: -1 };
   let _cnInFlight = false, _cnLastLoad = 0;
   async function loadCallNowDeals(force = false) {
-    // Throttle: this is a separate ~45-85s live fetch — don't run it on every
-    // 15s auto-refresh. Force it on manual refresh / date change.
+    // Independent date range + throttle (separate ~45-85s live fetch).
+    const cs = document.getElementById("cn-date-start");
+    const ce = document.getElementById("cn-date-end");
+    if (cs && !cs.value) cs.value = todayISO();
+    if (ce && !ce.value) ce.value = cs ? cs.value : todayISO();
     if (_cnInFlight) return;
     if (!force && Date.now() - _cnLastLoad < 90000 && _callNowRecords.length) { renderCallNowDeals(); return; }
     _cnInFlight = true;
     const btn = document.getElementById("call-now-refresh");
+    const load = document.getElementById("cn-loading");
     if (btn) btn.textContent = "…";
+    if (load) load.classList.add("show");
     try {
       const tzOffset = new Date().getTimezoneOffset();
-      const s = document.getElementById("date-start").value || todayISO();
-      const e = document.getElementById("date-end").value || s;
+      const s = (cs && cs.value) || todayISO();
+      const e = (ce && ce.value) || s;
       const resp = await fetch(`/api/call-now-deals?tz=${tzOffset}&start=${s}&end=${e}&_nocache=${Date.now()}`);
       const j = await resp.json();
       _callNowRecords = (j.status === "ok" && j.data && j.data.records) || [];
       _cnLastLoad = Date.now();
     } catch(err) { /* keep last */ }
     if (btn) btn.textContent = "↻";
+    if (load) load.classList.remove("show");
     _cnInFlight = false;
     renderCallNowDeals();
   }
@@ -5000,10 +5018,10 @@
     const recs = sortedBy([...(_callNowRecords||[])], _callNowSort.key, _callNowSort.dir);
     if (cnt) cnt.textContent = recs.length;
     if (!recs.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No Call Now deals for this date range.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No Call Now deals for this date range.</td></tr>`;
       return;
     }
-    const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
+    const isSingleDay = document.getElementById("cn-date-start").value === document.getElementById("cn-date-end").value;
     const cFmt = isSingleDay ? fmtTime : fmt;
     tbody.innerHTML = recs.map(r => {
       const createdCell = r.created_time ? `<span class="ts-cell">${cFmt(r.created_time)}</span>` : `<span class="no-data">—</span>`;
@@ -5017,11 +5035,17 @@
         <td class="col-phone">${phoneCell}</td>
         <td class="col-leadsrc" style="font-size:11px">${leadCell}</td>
         <td class="col-scheduled">${createdCell}</td>
-        <td class="col-status">${statusBadge(r.status, r.on_time)}</td>
         <td class="col-dials">${buildDialsCell(r)}</td>
         <td class="col-disp">${buildDispCell(r, "⚠ Not called")}</td>
       </tr>`;
     }).join("");
+  }
+  function applyCallNowRange() { loadCallNowDeals(true); }
+  function resetCallNowToday() {
+    const t = todayISO();
+    document.getElementById("cn-date-start").value = t;
+    document.getElementById("cn-date-end").value = t;
+    loadCallNowDeals(true);
   }
 
   function renderScheduledCalls(scFull) {
@@ -6633,7 +6657,7 @@
       renderScheduledCalls(json.data.scheduled_calls);
       fetchPipelineCounts();
       syncExistingObservations();
-      loadCallNowDeals(!!startDate || opts.user === true);   // force on date/manual, else throttled
+      loadCallNowDeals();   // independent table + date range; throttled internally
       _hideLoadingOverlay();
     } catch(e) {
       cdbLoading.classList.remove("show");
