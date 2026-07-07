@@ -7267,14 +7267,21 @@
     d.setMinutes(Math.ceil(d.getMinutes()/15)*15, 0, 0);
     const localISO = new Date(d - d.getTimezoneOffset()*60000).toISOString().slice(0,16);
     document.getElementById("sm-datetime").value = localISO;
-    // Load owners if not cached
-    if (!_schedOwners) {
-      const sel = document.getElementById("sm-owner");
+    // Populate owners (always — even when the list is already cached, since the
+    // select may still hold only its default option, e.g. after the edit modal
+    // primed the cache).
+    const sel = document.getElementById("sm-owner");
+    const fillSm = () => {
+      sel.innerHTML = '<option value="">(Zoho Admin — default)</option>'
+        + (_schedOwners || []).map(o => `<option value="${o.id}">${_qEsc(o.name)}</option>`).join("");
+    };
+    if (_schedOwners) {
+      fillSm();
+    } else {
       sel.innerHTML = '<option value="">Loading…</option>';
       fetch("/api/zoho/owners").then(r=>r.json()).then(data => {
         _schedOwners = data.owners || [];
-        sel.innerHTML = '<option value="">(Zoho Admin — default)</option>'
-          + _schedOwners.map(o => `<option value="${o.id}">${o.name}</option>`).join("");
+        fillSm();
       }).catch(() => {
         sel.innerHTML = '<option value="">(default)</option>';
       });
