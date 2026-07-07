@@ -114,8 +114,12 @@ def analyze_csv(text: str) -> dict:
             a["outbound"] += 1
             a["ob_secs"] += dur
             a["wrap_secs"] += _fsec(r.get("Wrap Time (min)"))
-            a["disps"][disp] += 1
-            all_disps[disp] += 1
+            # RingEX (UC) dials aren't dialer calls and carry no real disposition,
+            # so bucket them as "RingEX Call" rather than counting their blank /
+            # [No-Agent-Disp] value as a no-disposition.
+            disp_label = "RingEX Call" if on_ringex else disp
+            a["disps"][disp_label] += 1
+            all_disps[disp_label] += 1
             a["longest"] = max(a["longest"], dur)
             d["outbound"] += 1
             d["ob_secs"] += dur
@@ -143,7 +147,7 @@ def analyze_csv(text: str) -> dict:
                 a["connected"] += 1
                 d["connected"] += 1
                 cc["conn"] += 1
-                if disp not in NON_CONVERSATION_DISPS:
+                if disp_label not in NON_CONVERSATION_DISPS:
                     a["convos"] += 1
             if dur > 180:
                 a["over3"] += 1
