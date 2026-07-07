@@ -1039,14 +1039,15 @@ class ZohoClient:
         return self._ig_field_cache
 
     def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
-        """Batch-fetch Phone + Lead_Source (+ Instagram handle) for Contact IDs.
+        """Batch-fetch Name + Phone + Lead_Source (+ Instagram handle) for Contact IDs.
 
-        Returns {contact_id: {"phone": str|None, "lead_source": str,
-        "instagram": str}}. The Instagram handle is normalized to '@handle'.
+        Returns {contact_id: {"name": str, "phone": str|None,
+        "lead_source": str, "instagram": str}}. The Instagram handle is
+        normalized to '@handle'.
         """
         result: dict[str, dict] = {}
         ig_field = self._instagram_field_api_name()
-        fields = "id,Phone,Lead_Source" + (f",{ig_field}" if ig_field else "")
+        fields = "id,Full_Name,First_Name,Last_Name,Phone,Lead_Source" + (f",{ig_field}" if ig_field else "")
         BATCH = 100
         for i in range(0, len(contact_ids), BATCH):
             batch = contact_ids[i : i + BATCH]
@@ -1058,7 +1059,11 @@ class ZohoClient:
             )
             if resp.ok:
                 for c in resp.json().get("data", []):
+                    nm = (c.get("Full_Name") or "").strip()
+                    if not nm:
+                        nm = f"{c.get('First_Name','') or ''} {c.get('Last_Name','') or ''}".strip()
                     result[c["id"]] = {
+                        "name": nm,
                         "phone": normalize_phone(c.get("Phone") or ""),
                         "lead_source": c.get("Lead_Source") or "",
                         "instagram": _normalize_ig_handle(c.get(ig_field)) if ig_field else "",
@@ -1966,7 +1971,7 @@ class ZohoClient:
         while offset <= 2000:
             query = (
                 "select id, Deal_Name, Contact_Name, Phone, Stage, Created_Time, "
-                "Best_Contact_Time, Owner from Deals "
+                "Best_Contact_Time, Lead_Source, Timezone, Owner from Deals "
                 f"where Created_Time between '{start_str}' and '{end_str}' "
                 f"order by Created_Time desc limit 200 offset {offset}"
             )
@@ -2072,12 +2077,18 @@ class ZohoClient:
 
         # 5. Build records — classify against the deal's created time (no floor).
         results = []
+        need_name = []  # (result_index, phone) for deals with no contact name yet
         for d in call_now:
             con = d.get("Contact_Name") or {}
             cid = con.get("id") if isinstance(con, dict) else None
             cd = contact_details.get(cid) or {}
             phone = cd.get("phone") or normalize_phone(d.get("Phone") or "")
-            name = (con.get("name") if isinstance(con, dict) else None) or d.get("Deal_Name") or "—"
+            # Contact's name — from the linked contact record, then the deal's
+            # Contact_Name lookup. Never fall back to the Deal_Name (a package/
+            # procedure name, not a person).
+            name = cd.get("name") or (con.get("name") if isinstance(con, dict) else None) or ""
+            # Lead source — the deal's own field first, then the contact record.
+            lead_source = (d.get("Lead_Source") or "").strip() or cd.get("lead_source", "")
             synthetic = {
                 "id": d["id"],
                 "Call_Start_Time": d.get("Created_Time"),
@@ -2085,17 +2096,31 @@ class ZohoClient:
                 "Subject": d.get("Deal_Name") or "",
             }
             cls = self._classify_scheduled_call(synthetic, calls_for(cid, phone), apply_floor=False)
-            results.append({
+            rec = {
                 "id": d["id"], "id_contact": cid, "id_deal": d["id"],
                 "name": name, "phone": phone,
-                "lead_source": cd.get("lead_source", ""),
+                "lead_source": lead_source,
+                "timezone": (d.get("Timezone") or "").strip(),
                 "deal_stage": d.get("Stage") or "",
                 "deal_name": d.get("Deal_Name") or "",
                 "created_time": d.get("Created_Time"),
                 "scheduled_time": d.get("Created_Time"),
                 "best_contact_time": d.get("Best_Contact_Time"),
                 **cls,
-            })
+            }
+            if not name and phone:
+                need_name.append((len(results), phone))
+            results.append(rec)
+
+        # 5b. Resolve names for deals with no linked contact via a phone lookup,
+        # so the Contact column shows a person — never the package/deal name.
+        for idx, phone in need_name[:25]:
+            try:
+                matches = self.search_contacts(phone)
+            except Exception:
+                matches = []
+            nm = next((m.get("name") for m in matches if m.get("name")), "")
+            results[idx]["name"] = nm or "—"
 
         # 6. Resolve rep/caller owner IDs to names (same as the scheduled path).
         unresolved = set()
