@@ -676,6 +676,38 @@ def save_distributed(rec_id):
     return jsonify({"status": "ok", "id": rec_id, "distributed": distributed})
 
 
+@app.route("/api/scheduled-call/<rec_id>/update", methods=["POST"])
+@login_required
+def update_scheduled_call(rec_id):
+    """Reschedule and/or reassign the owner of an existing scheduled call."""
+    body = request.get_json(silent=True) or {}
+    call_time = (body.get("call_time") or "").strip() or None
+    owner_id = (body.get("owner_id") or "").strip() or None
+    if not call_time and not owner_id:
+        return jsonify({"error": "call_time or owner_id required"}), 400
+    try:
+        result = _zoho.update_scheduled_call(
+            call_id=rec_id, call_time=call_time, owner_id=owner_id)
+        threading.Thread(target=_refresh, daemon=True).start()
+        return jsonify(result)
+    except Exception as e:
+        log.error("Update scheduled call error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/scheduled-call/<rec_id>/delete", methods=["POST"])
+@login_required
+def delete_scheduled_call(rec_id):
+    """Delete a scheduled call record (moves to Zoho Recycle Bin)."""
+    try:
+        result = _zoho.delete_scheduled_call(call_id=rec_id)
+        threading.Thread(target=_refresh, daemon=True).start()
+        return jsonify(result)
+    except Exception as e:
+        log.error("Delete scheduled call error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/refresh", methods=["POST"])
 @login_required
 def api_refresh():
@@ -977,16 +1009,30 @@ def zoho_schedule_call():
     contact_id = body.get("contact_id", "").strip()
     contact_name = body.get("contact_name", "").strip()
     call_time = body.get("call_time", "").strip()
+    deal_id = body.get("deal_id", "").strip()
 
-    if not contact_id or not call_time:
-        return jsonify({"error": "contact_id and call_time are required"}), 400
+    if not call_time:
+        return jsonify({"error": "call_time is required"}), 400
+
+    # Call Now rows can lack a linked contact (Who_Id null) — resolve the
+    # deal's Contact_Name so we can still create the scheduled call.
+    if not contact_id and deal_id:
+        try:
+            dc = _zoho.get_deal_contact(deal_id)
+            contact_id = (dc.get("contact_id") or "").strip()
+            contact_name = contact_name or dc.get("contact_name") or ""
+        except Exception as e:
+            log.warning("schedule-call deal-contact resolve failed: %s", e)
+
+    if not contact_id:
+        return jsonify({"error": "contact_id (or a deal with a linked contact) is required"}), 400
 
     try:
         result = _zoho.create_scheduled_call(
             contact_id=contact_id,
             contact_name=contact_name or "Unknown",
             call_time=call_time,
-            deal_id=body.get("deal_id", "").strip() or None,
+            deal_id=deal_id or None,
             owner_id=body.get("owner_id", "").strip() or None,
         )
         # Trigger a cache refresh so the new call shows up

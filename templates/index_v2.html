@@ -347,6 +347,11 @@
     .tz-abbr { font-size: 9px; color: var(--tertiary); font-weight: 600; }
     .tz-now { font-size: 11px; color: var(--secondary); font-feature-settings: "tnum"; white-space: nowrap; }
     .col-tz { white-space: nowrap; }
+    .col-actions, .col-cn-act { white-space: nowrap; }
+    .row-act-btn { background: var(--surface-2, rgba(255,255,255,.04)); border: 1px solid var(--border, rgba(255,255,255,.12));
+      color: var(--secondary); border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; line-height: 1.5;
+      transition: background .12s, color .12s, border-color .12s; }
+    .row-act-btn:hover { background: var(--accent, #4f8cff); border-color: var(--accent, #4f8cff); color: #fff; }
     /* Compact single-line rows */
     .sc-tbl th, .sc-tbl td { padding: 4px 8px; font-size: 12px; vertical-align: middle; line-height: 1.3; white-space: nowrap; }
     .sc-tbl td.col-name, .sc-tbl td.col-notes { white-space: normal; }
@@ -3795,6 +3800,7 @@
                 <th class="sortable col-leadsrc" onclick="sortSc('lead_source')" style="width:90px">Lead Src</th>
                 <th class="col-sms" style="width:40px" title="Send auto SMS (after 5+ dials, one-time)">💬</th>
                 <th class="col-notes" style="min-width:180px" title="Latest CRM note / AI summary">CRM Note</th>
+                <th class="col-actions" style="width:48px" title="Edit / delete">✎</th>
               </tr>
             </thead>
             <tbody id="sc-tbody"></tbody>
@@ -3834,6 +3840,7 @@
               <th class="col-tz">Timezone</th>
               <th class="col-dials">Dials</th>
               <th class="col-disp">Disposition</th>
+              <th class="col-cn-act" style="width:80px">Schedule</th>
             </tr>
           </thead>
           <tbody id="call-now-tbody"></tbody>
@@ -5034,7 +5041,7 @@
     const recs = sortedBy([...(_callNowRecords||[])], _callNowSort.key, _callNowSort.dir);
     if (cnt) cnt.textContent = recs.length;
     if (!recs.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No Call Now deals for this date range.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No Call Now deals for this date range.</td></tr>`;
       return;
     }
     const isSingleDay = document.getElementById("cn-date-start").value === document.getElementById("cn-date-end").value;
@@ -5054,6 +5061,7 @@
         <td class="col-tz">${cnTzCell(r)}</td>
         <td class="col-dials">${buildDialsCell(r)}</td>
         <td class="col-disp">${buildDispCell(r, "⚠ Not called")}</td>
+        <td class="col-cn-act" style="text-align:center"><button class="row-act-btn" title="Schedule a call for this lead" data-deal="${r.id_deal||''}" data-contact="${r.id_contact||''}" data-name="${_qEsc(r.name||'')}" data-tz="${_qEsc(r.timezone||'')}" data-phone="${_qEsc(r.phone||'')}" onclick="openScheduleCallModal(this)">📅 Schedule</button></td>
       </tr>`;
     }).join("");
   }
@@ -5579,6 +5587,7 @@
     { key: "nxtstep",    label: "Next FU",          default: false },
     { key: "sms",        label: "💬 Auto SMS",      default: false },
     { key: "notes",      label: "CRM Note",         default: false },
+    { key: "actions",    label: "Edit / Delete",    always: true  },
   ];
   function _colIsVisible(c) {
     if (c.always) return true;
@@ -6004,7 +6013,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="23" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="24" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -6378,6 +6387,7 @@
         }</td>
         <td style="text-align:center" class="col-sms">${_smsBtn(r)}</td>
         <td class="col-notes">${_scNotesCell(r.id_deal, r.id)}</td>
+        <td class="col-actions" style="text-align:center"><button class="row-act-btn" title="Edit or delete this scheduled call" data-id="${r.id}" data-name="${_qEsc(r.name||'')}" data-time="${_qEsc(r.scheduled_time||'')}" data-owner="${_qEsc(r.owner||r.deal_owner||r.caller||'')}" onclick="openEditCallModal(this)">✎</button></td>
       </tr>`;
     }).join("");
 
@@ -6404,7 +6414,7 @@
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row collapsed" data-group="${gName}" onclick="toggleGroup(this)">
-          <td colspan="20"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+          <td colspan="24"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
         trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML.replace('<tr ', '<tr style="display:none" '); });
       }
       tbody.innerHTML = gbHtml;
@@ -7407,6 +7417,143 @@
       btn.innerHTML = "Schedule Call";
     }
   }
+
+  // ── Call Now → reuse the schedule modal, prefilled with the lead's deal ──
+  function openScheduleCallModal(btn) {
+    const ds = btn.dataset;
+    openScheduleModal();  // reset + open + load owners + default time
+    const contact = { id: ds.contact || "", name: ds.name || "Lead", phone: ds.phone || "" };
+    _schedSelectedContact = contact;
+    _schedSelectedDeal = ds.deal || null;
+    // Show the contact as pre-selected (no search needed)
+    document.getElementById("sm-contact-input").style.display = "none";
+    document.getElementById("sm-search-results").classList.remove("open");
+    const sel = document.getElementById("sm-contact-selected");
+    sel.style.display = "flex";
+    sel.querySelector(".sr-name").textContent = contact.name;
+    sel.querySelector(".sr-phone").textContent = contact.phone || "";
+    const dealsBox = document.getElementById("sm-deals");
+    if (contact.id) {
+      dealsBox.innerHTML = '<div class="mf-deal-none">Loading deals…</div>';
+      fetch(`/api/zoho/contacts/${contact.id}/deals`).then(r=>r.json()).then(data => {
+        const deals = data.deals || [];
+        if (!deals.length) { dealsBox.innerHTML = '<div class="mf-deal-none">No deals found — will link to this deal</div>'; return; }
+        dealsBox.innerHTML = deals.map(d =>
+          `<label class="mf-deal-opt" onclick="schedSelectDeal('${d.id}', this)">
+             <input type="radio" name="sm-deal" value="${d.id}">
+             <span class="mf-deal-name">${_qEsc(d.name)}</span>
+             <span class="mf-deal-stage">${_qEsc(d.stage)}</span>
+           </label>`).join("");
+        const idx = deals.findIndex(d => d.id === ds.deal);
+        const labels = dealsBox.querySelectorAll(".mf-deal-opt");
+        if (idx >= 0) labels[idx].click();
+      }).catch(() => { dealsBox.innerHTML = '<div class="mf-deal-none">Will link to this deal</div>'; });
+    } else {
+      dealsBox.innerHTML = '<div class="mf-deal-none">Will link to this lead\'s deal</div>';
+    }
+  }
+
+  // ── EST ⇄ datetime-local helpers (times on this board are Eastern) ──
+  function _nyOffsetHours(y, m, d, hh, mi) {
+    const asUTC = Date.UTC(y, m - 1, d, hh, mi);
+    const s = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "shortOffset", year: "numeric" }).format(new Date(asUTC));
+    const mo = s.match(/GMT([+-]\d{1,2})/);
+    return mo ? parseInt(mo[1], 10) : -4;
+  }
+  function estIso(localStr) {
+    if (!localStr) return "";
+    const [dp, tp] = localStr.split("T");
+    const [y, m, d] = dp.split("-").map(Number);
+    const [hh, mi] = tp.split(":").map(Number);
+    const off = _nyOffsetHours(y, m, d, hh, mi);
+    const sign = off <= 0 ? "-" : "+";
+    return `${dp}T${tp}:00${sign}${String(Math.abs(off)).padStart(2, "0")}:00`;
+  }
+  function isoToNyLocal(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+    const g = t => (parts.find(p => p.type === t) || {}).value || "00";
+    let hh = g("hour"); if (hh === "24") hh = "00";
+    return `${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}`;
+  }
+
+  // ── Edit / delete an existing scheduled call ──
+  let _editCallId = null;
+  function _populateOwnerSelect(sel, selectedName) {
+    const fill = () => {
+      sel.innerHTML = '<option value="">(unchanged)</option>'
+        + (_schedOwners || []).map(o => `<option value="${o.id}">${_qEsc(o.name)}</option>`).join("");
+      if (selectedName) {
+        const match = (_schedOwners || []).find(o => o.name === selectedName);
+        if (match) sel.value = match.id;
+      }
+    };
+    if (_schedOwners) { fill(); return; }
+    sel.innerHTML = '<option value="">Loading…</option>';
+    fetch("/api/zoho/owners").then(r => r.json()).then(data => { _schedOwners = data.owners || []; fill(); })
+      .catch(() => { sel.innerHTML = '<option value="">(unchanged)</option>'; });
+  }
+  function openEditCallModal(btn) {
+    const ds = btn.dataset;
+    _editCallId = ds.id;
+    document.getElementById("ec-name").textContent = ds.name || "—";
+    document.getElementById("ec-datetime").value = isoToNyLocal(ds.time);
+    document.getElementById("ec-error").style.display = "none";
+    _populateOwnerSelect(document.getElementById("ec-owner"), ds.owner || "");
+    document.getElementById("edit-call-modal").classList.add("open");
+  }
+  function closeEditCallModal() {
+    document.getElementById("edit-call-modal").classList.remove("open");
+    _editCallId = null;
+  }
+  async function saveEditCallModal() {
+    if (!_editCallId) return;
+    const errEl = document.getElementById("ec-error");
+    errEl.style.display = "none";
+    const dt = document.getElementById("ec-datetime").value;
+    const ownerId = document.getElementById("ec-owner").value || "";
+    if (!dt && !ownerId) { errEl.textContent = "Change the time or owner first."; errEl.style.display = "block"; return; }
+    const btn = document.getElementById("ec-submit");
+    btn.disabled = true; btn.innerHTML = '<span class="mini-spinner"></span> Saving…';
+    try {
+      const resp = await fetch(`/api/scheduled-call/${_editCallId}/update`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ call_time: dt ? estIso(dt) : "", owner_id: ownerId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Update failed");
+      closeEditCallModal();
+      setTimeout(() => fetch("/api/refresh", { method: "POST" }), 400);
+      setTimeout(() => loadData(), 2500);
+    } catch (e) {
+      errEl.textContent = e.message; errEl.style.display = "block";
+    } finally {
+      btn.disabled = false; btn.innerHTML = "Save";
+    }
+  }
+  async function deleteCallFromModal() {
+    if (!_editCallId) return;
+    const name = document.getElementById("ec-name").textContent || "this lead";
+    if (!confirm(`Delete the scheduled call for ${name}?\n\nIt will be moved to the Zoho Recycle Bin (recoverable for ~60 days).`)) return;
+    const errEl = document.getElementById("ec-error");
+    errEl.style.display = "none";
+    const delBtn = document.getElementById("ec-delete");
+    delBtn.disabled = true; delBtn.innerHTML = '<span class="mini-spinner"></span> Deleting…';
+    try {
+      const resp = await fetch(`/api/scheduled-call/${_editCallId}/delete`, { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Delete failed");
+      closeEditCallModal();
+      setTimeout(() => fetch("/api/refresh", { method: "POST" }), 400);
+      setTimeout(() => loadData(), 2500);
+    } catch (e) {
+      errEl.textContent = e.message; errEl.style.display = "block";
+    } finally {
+      delBtn.disabled = false; delBtn.innerHTML = "🗑 Delete";
+    }
+  }
 </script>
 
 <!-- Schedule Call Modal -->
@@ -7456,6 +7603,40 @@
     <div class="modal-foot">
       <button class="mf-cancel" onclick="closeScheduleModal()">Cancel</button>
       <button class="mf-submit" id="sm-submit" onclick="schedSubmit()">Schedule Call</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit / Delete Scheduled Call Modal -->
+<div class="modal-overlay" id="edit-call-modal" onclick="if(event.target===this)closeEditCallModal()">
+  <div class="modal-box" style="width:440px">
+    <div class="modal-head">
+      <h3>Edit Scheduled Call</h3>
+      <button class="modal-close" onclick="closeEditCallModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mf-group">
+        <label>Contact</label>
+        <div id="ec-name" style="font-weight:600;font-size:14px"></div>
+      </div>
+      <div class="mf-row">
+        <div class="mf-group">
+          <label>Date &amp; Time (EST)</label>
+          <input type="datetime-local" id="ec-datetime">
+        </div>
+        <div class="mf-group">
+          <label>Call Owner</label>
+          <select id="ec-owner"><option value="">(unchanged)</option></select>
+        </div>
+      </div>
+      <div class="mf-error" id="ec-error" style="display:none"></div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between">
+      <button class="mf-cancel" id="ec-delete" style="color:#e5484d" onclick="deleteCallFromModal()">🗑 Delete</button>
+      <div style="display:flex;gap:8px">
+        <button class="mf-cancel" onclick="closeEditCallModal()">Cancel</button>
+        <button class="mf-submit" id="ec-submit" onclick="saveEditCallModal()">Save</button>
+      </div>
     </div>
   </div>
 </div>

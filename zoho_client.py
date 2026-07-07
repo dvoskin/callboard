@@ -2691,6 +2691,52 @@ class ZohoClient:
             "status": "created",
         }
 
+    def update_scheduled_call(
+        self,
+        call_id: str,
+        call_time: Optional[str] = None,
+        owner_id: Optional[str] = None,
+    ) -> dict:
+        """Reschedule and/or reassign an existing scheduled Call record.
+
+        Args:
+            call_id: Zoho Call record ID
+            call_time: new ISO 8601 datetime (Call_Start_Time), or None to keep
+            owner_id: new Call Owner user ID, or None to keep
+        Uses trigger:[] so workflow rules don't fire side effects on the edit.
+        """
+        data: dict = {"id": call_id}
+        if call_time:
+            data["Call_Start_Time"] = call_time
+        if owner_id:
+            data["Owner"] = {"id": owner_id}
+        if len(data) == 1:
+            return {"id": call_id, "status": "noop"}
+        resp = requests.put(
+            f"{self.base_url}/crm/v6/Calls",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json={"data": [data], "trigger": []},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("data", [{}])[0]
+        if result.get("status") != "success":
+            raise RuntimeError(f"Call update failed: {result.get('message', 'unknown error')}")
+        return {"id": call_id, "status": "updated"}
+
+    def delete_scheduled_call(self, call_id: str) -> dict:
+        """Delete a scheduled Call record (moves to Zoho Recycle Bin)."""
+        resp = requests.delete(
+            f"{self.base_url}/crm/v6/Calls/{call_id}",
+            headers=self._headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("data", [{}])[0]
+        if result.get("status") != "success":
+            raise RuntimeError(f"Call delete failed: {result.get('message', 'unknown error')}")
+        return {"id": call_id, "status": "deleted"}
+
     def get_deal_contact(self, deal_id: str) -> dict:
         """Return contact_id, contact_name, owner_id, owner_name for a Deal."""
         log = logging.getLogger(__name__)
