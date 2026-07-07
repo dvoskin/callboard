@@ -113,8 +113,8 @@
     .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
     .pill.over { background: rgba(37,99,235,.10); color: var(--blue-dk); }
     .pill.zero { background: transparent; color: var(--tertiary); font-weight: 500; }
-    .lowconn { color: var(--amber-dk); font-weight: 700; }
-    .minii { display: inline-block; height: 6px; border-radius: 3px; background: var(--blue); opacity: .7; vertical-align: middle; margin-left: 7px; }
+    .rank { color: var(--tertiary); font-size: 12px; width: 30px; text-align: right; }
+    thead th.rank { cursor: default; }
     tr.detail td { background: #fafbff; text-align: left; white-space: normal; padding: 11px 14px 13px; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
@@ -125,6 +125,21 @@
 
     .note { margin-top: 14px; font-size: 12px; color: var(--tertiary); line-height: 1.7; }
     .note b { color: var(--secondary); }
+
+    /* Section header with inline legend toggle (matches the main dashboard) */
+    .h2row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0 10px; }
+    .h2row h2 { margin: 0; }
+    .legend-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+      padding: 5px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--secondary); cursor: pointer; }
+    .legend-btn:hover { border-color: var(--blue); color: var(--blue-dk); }
+    .legend-btn[aria-expanded="true"] { border-color: var(--blue); color: var(--blue-dk); background: rgba(37,99,235,.05); }
+    .legend-panel { margin: 0 0 12px; padding: 14px 18px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); box-shadow: var(--shadow-sm);
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 4px 26px; }
+    .legend-panel[hidden] { display: none; }
+    .legend-row { display: flex; align-items: baseline; gap: 9px; padding: 4px 0; font-size: 12.5px; border-bottom: 1px solid var(--sep); }
+    .legend-row .legend-key { flex: 0 0 84px; font-weight: 600; }
+    .legend-row .legend-desc { color: var(--secondary); line-height: 1.4; }
     .err { color: var(--red); font-weight: 600; margin-top: 12px; }
     .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
       border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
@@ -172,7 +187,11 @@
       <h2>Daily volume</h2>
       <div class="days" id="days"></div>
 
-      <h2>Per-agent performance <span class="lite">— sorted by talk time · click a row for dispositions</span></h2>
+      <div class="h2row">
+        <h2>Per-agent performance <span class="lite">— sorted by talk time · click a row for dispositions</span></h2>
+        <button class="legend-btn" id="legToggle" aria-expanded="false" onclick="toggleLegend()">ⓘ&nbsp;What each column means</button>
+      </div>
+      <div class="legend-panel" id="legend" hidden></div>
       <div class="panel"><div class="table-scroll">
         <table id="tbl"><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody><tfoot id="tfoot"></tfoot></table>
       </div></div>
@@ -235,13 +254,13 @@ async function upload(file){
 function render(){
   const t=DATA.totals;
   $("results").style.display="block";
+  const avgCall = t.connected ? t.talk_secs/t.connected : 0;
   const cards=[
     ["Outbound placed", fmt(t.outbound), t.agents+" agents"],
-    ["Connected", fmt(t.connected), t.outbound? Math.round(100*t.connected/t.outbound)+"% connect":""],
-    ["Conversations", fmt(t.convos), t.connected? Math.round(100*t.convos/t.connected)+"% of connected":""],
+    ["Talk time", hmsLong(t.talk_secs), t.date_start+" - "+t.date_end],
+    ["Avg / call", hms(avgCall), "per answered call"],
     ["Calls > 3 min", fmt(t.over3), fmt(t.over10)+" over 10 min"],
-    ["Talk time", hmsLong(t.talk_secs), t.connected? hms(t.talk_secs/t.connected)+"/connect":""],
-    ["Inbound", fmt(t.inbound), fmt(t.ringex)+" calls on RingEX"],
+    ["Inbound", fmt(t.inbound), fmt(t.ringex)+" on RingEX"],
   ];
   $("cards").innerHTML = cards.map(c=>`<div class="card"><div class="k">${c[0]}</div><div class="v num">${c[1]}</div><div class="s num">${c[2]}</div></div>`).join("");
 
@@ -288,7 +307,7 @@ function render(){
   dispRows($("dispNo"), noCon, t.outbound, true);
   dispRows($("dispYes"), out, t.outbound, false);
 
-  $("note").innerHTML = `<b>How to read this.</b> Durations come from <b>Interaction Time</b> (connected-call seconds); RingCX leaves Talk Time blank on most outbound legs. <b>Connected</b> includes voicemail pickups &mdash; <b>Conversations</b> are connected calls with a real outcome disposition. <b>&gt;10 min</b> is a subset of &gt;3 min. <b>Campaign</b> = shared dialer queue; <b>Personal</b> = channel named after the agent (their own book). <b>RingEX</b> calls are placed/received on RingEX rather than the RingCX dialer &mdash; they count as normal in/outbound activity, just flagged.`;
+  $("note").innerHTML = `Durations use <b>Interaction Time</b> (the RingCX column reads in seconds despite its &ldquo;(min)&rdquo; label; Talk Time is left blank on most outbound legs). Column definitions are in the legend above the table.`;
 }
 
 function stack(el,c,p,isTime){
@@ -302,58 +321,80 @@ function dispRows(el,data,total,grey){
 }
 
 const COLS=[
+  {k:"_rank",label:"",rank:true},
   {k:"name",label:"Agent",left:true},
-  {k:"outbound",label:"Placed"},{k:"connected",label:"Conn"},{k:"connect_pct",label:"Conn %"},
-  {k:"convos",label:"Convos"},{k:"over3",label:">3m"},{k:"over10",label:">10m"},
-  {k:"talk_secs",label:"Talk Time"},{k:"avg_secs",label:"Avg/Conn"},{k:"longest_secs",label:"Longest"},
-  {k:"camp",label:"Campaign"},{k:"pers",label:"Personal"},{k:"inbound",label:"Inbound"},{k:"ringex",label:"RingEX"},{k:"days",label:"Days"},
+  {k:"outbound",label:"Placed"},
+  {k:"talk_secs",label:"Talk Time"},{k:"avg_secs",label:"Avg / Call"},{k:"longest_secs",label:"Longest"},
+  {k:"over3",label:"> 3 min"},{k:"over10",label:"> 10 min"},
+  {k:"camp",label:"Campaign"},{k:"pers",label:"Personal"},
+  {k:"inbound",label:"Inbound"},{k:"ringex",label:"RingEX"},{k:"days",label:"Days"},
 ];
+const LEGEND=[
+  ["Placed","Outbound calls the agent dialed (excludes calls they received)."],
+  ["Talk Time","Total connected talk time, from the Interaction Time field."],
+  ["Avg / Call","Average talk time per answered call."],
+  ["Longest","The agent's single longest call."],
+  ["> 3 min","Answered calls that ran longer than 3 minutes."],
+  ["> 10 min","Answered calls longer than 10 minutes (a subset of > 3 min)."],
+  ["Campaign","Dials from a shared dialer queue (queue name uses an en-dash, e.g. “ENG – Hot Deal”)."],
+  ["Personal","Dials from the agent's own queue (the channel is named after the agent)."],
+  ["Inbound","Calls the agent received."],
+  ["RingEX","Calls placed or received on RingEX instead of the RingCX dialer (also counted in Placed / Inbound)."],
+  ["Days","Distinct days the agent was active in this export."],
+  ["Row detail","Click any agent to see their dispositions: No Answer (no-answer / voicemail / machine) and Not dispositioned counts."],
+];
+let _legendBuilt=false;
+function toggleLegend(){
+  const p=$("legend"), b=$("legToggle"), show=p.hidden;
+  if(show && !_legendBuilt){
+    p.innerHTML = LEGEND.map(d=>`<div class="legend-row"><span class="legend-key">${esc(d[0])}</span><span class="legend-desc">${esc(d[1])}</span></div>`).join("");
+    _legendBuilt=true;
+  }
+  p.hidden=!show; b.setAttribute("aria-expanded", show?"true":"false");
+}
 function renderHead(){
   $("thead").innerHTML = COLS.map(c=>{
+    if(c.rank) return `<th class="rank"></th>`;
     const arw = sortKey===c.k ? ` <span class="arw">${sortDir<0?"▼":"▲"}</span>`:"";
     return `<th class="${c.left?'left':''}" data-k="${c.k}">${c.label}${arw}</th>`;
   }).join("");
-  $("thead").querySelectorAll("th").forEach(th=>th.onclick=()=>{
+  $("thead").querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{
     const k=th.dataset.k;
     if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir = k==="name"?1:-1; }
     renderHead(); renderBody();
   });
 }
 function renderBody(){
-  const maxTalk=Math.max(1,...DATA.agents.map(a=>a.talk_secs));
   const rows=[...DATA.agents].sort((a,b)=>{
     const va=a[sortKey],vb=b[sortKey];
     return (typeof va==="string"? va.localeCompare(vb): (va-vb))*sortDir;
   });
-  $("tbody").innerHTML = rows.map(a=>{
-    const low = a.outbound>=100 && a.connect_pct<60;
+  $("tbody").innerHTML = rows.map((a,i)=>{
     const chips = (a.top_disps.length? a.top_disps.map(d=>`<span class="chip">${esc(d[0])} <b>${d[1]}</b></span>`).join("")
                    : '<span class="chip grey">no outcome dispositions</span>');
-    return `<tr class="arow"><td class="left">${esc(a.name)}</td>
-      <td class="num">${fmt(a.outbound)}</td><td class="num">${fmt(a.connected)}</td>
-      <td class="num ${low?'lowconn':''}">${Math.round(a.connect_pct)}%</td>
-      <td class="num">${a.convos}</td>
-      <td class="num"><span class="pill ${a.over3?'over':'zero'}">${a.over3}</span></td>
-      <td class="num muted">${a.over10}</td>
-      <td class="num">${hmsLong(a.talk_secs)}<span class="minii" style="width:${Math.max(a.talk_secs/maxTalk*54,2)}px"></span></td>
+    return `<tr class="arow"><td class="rank">${i+1}</td><td class="left">${esc(a.name)}</td>
+      <td class="num">${fmt(a.outbound)}</td>
+      <td class="num">${hmsLong(a.talk_secs)}</td>
       <td class="num muted">${hms(a.avg_secs)}</td><td class="num muted">${hms(a.longest_secs)}</td>
+      <td class="num">${a.over3}</td><td class="num muted">${a.over10}</td>
       <td class="num">${fmt(a.camp)}</td><td class="num">${fmt(a.pers)}</td>
       <td class="num muted">${a.inbound}</td><td class="num muted">${a.ringex}</td><td class="num muted">${a.days}</td></tr>
-    <tr class="detail" hidden><td colspan="${COLS.length}"><div class="chips"><span class="chip grey">No contact ${fmt(a.nocontact)}</span><span class="chip grey">Not dispositioned ${fmt(a.nodisp)}</span>${chips}</div></td></tr>`;
+    <tr class="detail" hidden><td colspan="${COLS.length}"><div class="chips"><span class="chip grey">No Answer ${fmt(a.nocontact)}</span><span class="chip grey">Not dispositioned ${fmt(a.nodisp)}</span>${chips}</div></td></tr>`;
   }).join("");
   $("tbody").querySelectorAll("tr.arow").forEach(tr=>tr.onclick=()=>{
     const det=tr.nextElementSibling; det.hidden=!det.hidden; tr.classList.toggle("open",!det.hidden);
   });
 
-  const t=DATA.totals;
+  const t=DATA.totals, avgAll = t.connected ? t.talk_secs/t.connected : 0;
   $("tfoot").innerHTML = "<tr>"+COLS.map(c=>{
+    if(c.rank) return `<td class="rank"></td>`;
     if(c.k==="name") return `<td class="left">Total · ${t.agents} agents</td>`;
-    if(c.k==="connect_pct") return `<td class="num">${t.outbound?Math.round(100*t.connected/t.outbound):0}%</td>`;
     if(c.k==="talk_secs") return `<td class="num">${hmsLong(t.talk_secs)}</td>`;
-    if(c.k==="avg_secs"||c.k==="longest_secs"||c.k==="days") return `<td></td>`;
+    if(c.k==="avg_secs") return `<td class="num muted">${hms(avgAll)}</td>`;
+    if(c.k==="longest_secs"||c.k==="days") return `<td></td>`;
     if(c.k==="camp") return `<td class="num">${fmt(t.camp_n)}</td>`;
     if(c.k==="pers") return `<td class="num">${fmt(t.pers_n)}</td>`;
-    const map={outbound:t.outbound,connected:t.connected,convos:t.convos,over3:t.over3,over10:t.over10,inbound:t.inbound,ringex:t.ringex};
+    const map={outbound:t.outbound,over3:t.over3,over10:t.over10,inbound:t.inbound,ringex:t.ringex};
     return `<td class="num">${fmt(map[c.k]??"")}</td>`;
   }).join("")+"</tr>";
 }
