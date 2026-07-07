@@ -24,6 +24,18 @@ SCHEDULED_CALL_TOLERANCE_MINUTES = ON_TIME_AFTER_MIN
 # Local timezone offset from UTC (e.g. -4 for EDT, -5 for EST)
 TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "-4"))
 
+# US timezone abbreviations → UTC offset (July / DST assumed for the 2-letter
+# generic forms). Used to parse the free-text Best Contact Time field, e.g.
+# "July 7, 2026, 12:30 PM PT".
+_BCT_TZ_OFFSETS = {
+    "PT": -7, "PST": -8, "PDT": -7,
+    "MT": -6, "MST": -7, "MDT": -6,
+    "CT": -5, "CST": -6, "CDT": -5,
+    "ET": -4, "EST": -5, "EDT": -4,
+    "AT": -4, "AST": -4, "ADT": -3,
+    "HT": -10, "HST": -10, "AKT": -8, "AKDT": -8, "AKST": -9,
+}
+
 
 def normalize_phone(phone: str) -> Optional[str]:
     if not phone:
@@ -1909,6 +1921,33 @@ class ZohoClient:
 
     # ───────────────────────── Call Now deals ─────────────────────────────────
 
+    def _parse_best_contact_time(self, s):
+        """Parse the free-text Best Contact Time field, e.g.
+        'July 7, 2026, 12:30 PM PT' or 'July 8, 2026, 12:00 PM ET'. Falls back
+        to ISO parsing. Returns a tz-aware datetime, or None if unparseable."""
+        if not s or not str(s).strip():
+            return None
+        s = str(s).strip()
+        iso = self._parse_dt(s)
+        if iso:
+            return iso
+        m = re.match(
+            r"([A-Za-z]+\.?\s+\d{1,2},\s*\d{4}),?\s+(\d{1,2}:\d{2})\s*([AaPp][Mm])\s*([A-Za-z]{2,4})?",
+            s,
+        )
+        if not m:
+            return None
+        date_part = m.group(1).replace(".", "")
+        hm, ap, tz = m.group(2), m.group(3).upper(), (m.group(4) or "").upper()
+        for fmt in ("%B %d, %Y %I:%M%p", "%b %d, %Y %I:%M%p"):
+            try:
+                dt = datetime.strptime(f"{date_part} {hm}{ap}", fmt)
+                off = _BCT_TZ_OFFSETS.get(tz, TZ_OFFSET_HOURS)
+                return dt.replace(tzinfo=timezone(timedelta(hours=off)))
+            except Exception:
+                continue
+        return None
+
     def get_call_now_deals(self, start_dt=None, end_dt=None, supplemental_calls=None) -> dict:
         """Deals created in the window whose Best_Contact_Time is empty or set
         BEFORE the deal was created — these should be called ASAP after the deal
@@ -1947,12 +1986,17 @@ class ZohoClient:
                 break
             offset += 200
 
-        # 2. Filter: Best_Contact_Time empty OR before Created_Time.
+        # 2. Filter: Best_Contact_Time EMPTY, or set to a time BEFORE the deal
+        # was created. A deal with a valid future best-contact-time is NOT a
+        # Call Now (they have a real preferred time). Best_Contact_Time is a
+        # free-text field ("July 7, 2026, 12:30 PM PT"), so parse it properly.
         call_now = []
         for d in deals:
             created = self._parse_dt(d.get("Created_Time"))
-            bct = self._parse_dt(d.get("Best_Contact_Time"))
-            if not bct or (created and bct < created):
+            raw = d.get("Best_Contact_Time")
+            is_empty = not (raw and str(raw).strip())
+            bct = self._parse_best_contact_time(raw)
+            if is_empty or (bct and created and bct < created):
                 call_now.append(d)
         log.info("Call-now deals: %d of %d deals created in window", len(call_now), len(deals))
         if not call_now:
