@@ -371,6 +371,9 @@
     .disp-quiet { color: var(--tertiary); }
     .disp-notable { display: inline-block; font-weight: 600; color: #3730a3;
       background: rgba(99,102,241,.12); padding: 1px 7px; border-radius: 5px; white-space: nowrap; }
+    /* Resolution note (Handled) — teal, distinct from call dispositions; allow wrap */
+    .disp-handled { color: #0f766e; background: rgba(20,184,166,.12);
+      white-space: normal; max-width: 220px; }
     /* Compact indicators when there's no disposition yet */
     .disp-flag { display: inline-block; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
     .disp-await  { color: var(--secondary); }
@@ -6092,15 +6095,19 @@
       // For special completed buckets (deal/workflow), keep the backend status.
       let effStatus = r.status;
       let effOnTime = r.on_time;
+      // A real logged call (a dial, a matched actual-call time, or a logged
+      // source) means we show the ACTUAL call result — even if a manager
+      // previously marked this call Handled/resolved.
+      const hasRealCall = (r.dial_attempts || 0) > 0 || !!r.actual_call_time || !!r.logged_via;
       if (r.resolved_with_match && r.resolved_by === "live-monitor" && r.logged_via) {
         // Live-monitor observation upgraded by a real Zoho-logged call — show actual status
         if (r._bucket === "early")          { effStatus = "early";     effOnTime = false; }
         else if (r._bucket === "late_call") { effStatus = "completed"; effOnTime = false; }
         else                                { effStatus = "completed"; effOnTime = true;  }
-      } else if (r.resolved_by === "live-monitor" && r.resolved && (r.status === "missed" || r.status === "late")) {
-        // Live-monitor observed but not yet logged in Zoho — show as Handled
+      } else if (!hasRealCall && r.resolved_by === "live-monitor" && r.resolved && (r.status === "missed" || r.status === "late")) {
+        // Resolved, no call logged yet — show as Handled
         effStatus = "handled";
-      } else if (r.resolved_with_match) {
+      } else if (!hasRealCall && r.resolved_with_match) {
         effStatus = "handled";
       } else if (r._bucket && r.status !== "completed_via_workflow") {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
@@ -6119,10 +6126,15 @@
       const phoneCell = r.phone
         ? `<span class="phone-cell">${_fmtPhone(r.phone)}</span>`
         : `<span class="no-data">—</span>`;
-      // Disposition cell. Priority: advanced deal stage → call disposition →
-      // a compact status-aware indicator when there's no dial/disposition yet.
+      // Disposition cell. Priority: Handled → resolution note → advanced deal
+      // stage → call disposition → status-aware indicator.
       let dispCell;
-      if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
+      if (effStatus === "handled") {
+        // Manually resolved with no logged call — surface the resolution note.
+        dispCell = r.note
+          ? `<span class="disp-notable disp-handled" title="Resolution note${r.resolved_by ? ' — ' + _qEsc(r.resolved_by) : ''}">${_qEsc(r.note)}</span>`
+          : `<span class="disp-quiet">Handled${r.resolved_by ? ' · ' + _qEsc(r.resolved_by) : ''}</span>`;
+      } else if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
         dispCell = `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
       } else if (r.disposition) {
         // Contact-made outcomes (Call Scheduled, Rescheduling Request, New
