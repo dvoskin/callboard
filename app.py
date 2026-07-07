@@ -497,6 +497,124 @@ def api_interactions_analyze():
         return jsonify({"status": "error", "message": f"Couldn't parse the file: {e}"}), 500
 
 
+# ────────── Saved interactions reports (shared record) ──────────
+# Stored as JSON under the same _data_dir the dashboard cache uses, so they land
+# on the Render /data persistent disk when it's mounted.
+SAVED_REPORTS_DIR = _data_dir / "saved_reports"
+try:
+    SAVED_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception as e:  # noqa: BLE001
+    log.warning("Could not create saved_reports dir: %s", e)
+
+
+def _saved_report_path(rid: str):
+    """Resolve an id to its file path, rejecting anything non-slug (path safety)."""
+    import re
+    if not rid or not re.fullmatch(r"[0-9A-Za-z_-]{1,64}", rid):
+        return None
+    return SAVED_REPORTS_DIR / f"{rid}.json"
+
+
+def _saved_report_meta(blob: dict) -> dict:
+    """The light record shown in the saved-reports list (no agent arrays)."""
+    t = (blob.get("report") or {}).get("totals") or {}
+    return {
+        "id": blob.get("id"),
+        "name": blob.get("name"),
+        "saved_at": blob.get("saved_at"),
+        "saved_by": blob.get("saved_by"),
+        "filename": blob.get("filename"),
+        "date_start": t.get("date_start"),
+        "date_end": t.get("date_end"),
+        "agents": t.get("agents"),
+        "outbound": t.get("outbound"),
+        "talk_secs": t.get("talk_secs"),
+        "interactions": t.get("interactions"),
+    }
+
+
+@app.route("/api/interactions/saved", methods=["GET"])
+@login_required
+def api_interactions_saved_list():
+    items = []
+    for p in SAVED_REPORTS_DIR.glob("*.json"):
+        try:
+            items.append(_saved_report_meta(json.loads(p.read_text())))
+        except Exception:  # noqa: BLE001 — skip a corrupt file, don't fail the list
+            continue
+    items.sort(key=lambda x: x.get("saved_at") or "", reverse=True)
+    return jsonify({"status": "ok", "reports": items})
+
+
+@app.route("/api/interactions/saved/<rid>", methods=["GET"])
+@login_required
+def api_interactions_saved_get(rid):
+    p = _saved_report_path(rid)
+    if p is None or not p.exists():
+        return jsonify({"status": "error", "message": "Report not found."}), 404
+    try:
+        return jsonify({"status": "ok", **json.loads(p.read_text())})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"status": "error", "message": f"Couldn't read report: {e}"}), 500
+
+
+@app.route("/api/interactions/saved/<rid>/delete", methods=["POST"])
+@login_required
+def api_interactions_saved_delete(rid):
+    p = _saved_report_path(rid)
+    if p is None or not p.exists():
+        return jsonify({"status": "error", "message": "Report not found."}), 404
+    try:
+        p.unlink()
+        return jsonify({"status": "ok"})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"status": "error", "message": f"Couldn't delete: {e}"}), 500
+
+
+@app.route("/api/interactions/save", methods=["POST"])
+@login_required
+def api_interactions_save():
+    """Re-parse the uploaded file server-side and store it with who/when metadata
+    so any signed-in user can open it later."""
+    from interactions_report import analyze_csv, ReportError
+    import uuid
+
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"status": "error", "message": "No file uploaded."}), 400
+    try:
+        text = f.read().decode("utf-8-sig", errors="replace")
+        report = analyze_csv(text)
+    except ReportError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        log.exception("interactions save-parse failed")
+        return jsonify({"status": "error", "message": f"Couldn't parse the file: {e}"}), 500
+
+    now = datetime.now(timezone.utc)
+    rid = now.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    user = session.get("user") or {}
+    saved_by = user.get("email") or user.get("name") or "Unknown"
+    t = report.get("totals") or {}
+    name = (request.form.get("name") or "").strip() or \
+        f"{t.get('date_start', '?')} – {t.get('date_end', '?')}"
+    blob = {
+        "id": rid,
+        "name": name,
+        "saved_at": now.isoformat().replace("+00:00", "Z"),
+        "saved_by": saved_by,
+        "filename": f.filename,
+        "report": report,
+    }
+    p = _saved_report_path(rid)
+    try:
+        p.write_text(json.dumps(blob, separators=(",", ":")))
+    except Exception as e:  # noqa: BLE001
+        log.exception("saving report failed")
+        return jsonify({"status": "error", "message": f"Couldn't save: {e}"}), 500
+    return jsonify({"status": "ok", "report": _saved_report_meta(blob)})
+
+
 def _parse_local_date_to_utc(
     date_str: str, hour: int, minute: int, second: int,
     tz_offset_minutes=None,

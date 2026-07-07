@@ -10,3 +10,6 @@ venv/
 resolved_calls.json
 test_*.py
 data/
+
+# Saved interactions reports (runtime data, lives on the Render disk)
+saved_reports/
