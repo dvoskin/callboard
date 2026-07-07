@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interactions Report — Sales Call Monitor</title>
+  <style>
+    :root {
+      --bg: #eef0f5;
+      --bg-grad: radial-gradient(ellipse at top left, #eaecf7 0%, #eef0f5 35%, #f0f1f6 100%);
+      --surface: #ffffff; --surface2: #f7f8fc;
+      --border: rgba(15,23,42,0.13); --sep: rgba(15,23,42,0.07);
+      --text: #0b0e1a; --secondary: #5b6478; --tertiary: #94a0b8;
+      --blue: #2563eb; --blue-dk: #1d4ed8; --green: #10b981; --green-dk: #047857;
+      --red: #ef4444; --orange: #f59e0b; --amber-dk: #b45309; --purple: #8b5cf6; --teal: #06b6d4;
+      --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+      --shadow: 0 4px 24px rgba(15,23,42,.08), 0 1px 4px rgba(15,23,42,.06);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); background-image: var(--bg-grad);
+      color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; padding: 20px; }
+    a { color: var(--blue); text-decoration: none; }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+    .num { font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+    .top h1 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+    .top .sub { color: var(--secondary); font-size: 13px; max-width: 70ch; }
+    .back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--secondary); margin-bottom: 8px; }
+    .back:hover { color: var(--blue); }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn { padding: 7px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font: inherit; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface2); }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.primary:hover { background: var(--blue-dk); }
+    .btn[disabled] { opacity: .55; cursor: default; }
+
+    /* Dropzone */
+    .drop { background: var(--surface); border: 2px dashed var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+      padding: 34px 24px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+    .drop:hover, .drop.over { border-color: var(--blue); background: #f5f8ff; }
+    .drop .big { font-size: 15px; font-weight: 650; }
+    .drop .small { color: var(--secondary); font-size: 13px; margin-top: 4px; }
+    .drop .ic { font-size: 26px; }
+    .filemeta { margin-top: 12px; font-size: 13px; color: var(--secondary); display: none; }
+    .filemeta b { color: var(--text); }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow-sm); }
+    .card .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--tertiary); font-weight: 600; }
+    .card .v { font-size: 22px; font-weight: 700; margin-top: 3px; }
+    .card .s { font-size: 11.5px; color: var(--secondary); margin-top: 2px; }
+
+    h2 { font-size: 14px; font-weight: 700; letter-spacing: .01em; margin: 24px 0 10px; }
+    h2 .lite { font-weight: 400; color: var(--tertiary); font-size: 12.5px; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    .panel.pad { padding: 16px 18px; }
+    .panel h3 { font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--secondary); margin: 0 0 12px; }
+
+    /* stacked split bars */
+    .stackbar { display: flex; height: 32px; border-radius: 6px; overflow: hidden; background: var(--sep); }
+    .stackbar span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 650; }
+    .stackbar .camp { background: var(--blue); } .stackbar .pers { background: var(--orange); }
+    .leg { display: flex; justify-content: space-between; margin-top: 9px; font-size: 12.5px; }
+    .leg .dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: 0; }
+    .leg .dot.c { background: var(--blue); } .leg .dot.p { background: var(--orange); }
+    .st { font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--secondary); margin-bottom: 11px; }
+
+    /* mini rows (channels / operators / dispositions) */
+    .mrow { display: grid; grid-template-columns: 1fr 52px 48px; gap: 8px; align-items: center; font-size: 12.8px; padding: 4px 0; }
+    .mrow .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mrow .n { text-align: right; font-weight: 600; }
+    .mrow .pct { text-align: right; font-weight: 700; }
+    .mrow .pct.lo { color: var(--amber-dk); } .mrow .pct.hi { color: var(--green-dk); }
+    .mbar { grid-column: 1 / -1; height: 5px; background: var(--sep); border-radius: 3px; overflow: hidden; margin-bottom: 3px; }
+    .mbar .f { height: 100%; border-radius: 3px; background: var(--blue); opacity: .7; }
+    .mbar .f.lo { background: var(--orange); opacity: .85; }
+    .mbar .f.grey { background: var(--tertiary); opacity: .5; }
+    .split2 { grid-column: 1 / -1; display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #f59e0b33; margin-bottom: 4px; }
+    .split2 .cf { background: var(--blue); opacity: .7; } .split2 .pf { background: var(--orange); }
+
+    .callout { border-left: 3px solid var(--orange); background: #fff7ed; border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: #7a4a10; margin-top: 12px; line-height: 1.5; }
+    .callout b { color: #6b3d05; }
+
+    /* daily */
+    .days { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+    .day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; box-shadow: var(--shadow-sm); }
+    .day.quiet { opacity: .6; }
+    .day .d { font-size: 11.5px; font-weight: 600; color: var(--secondary); }
+    .day .v { font-size: 18px; font-weight: 700; margin-top: 3px; }
+    .day .m { font-size: 11px; color: var(--tertiary); margin-top: 1px; }
+    .day .track { height: 4px; background: var(--sep); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+    .day .fill { height: 100%; background: var(--blue); border-radius: 2px; }
+
+    /* main table */
+    .table-scroll { overflow-x: auto; border-radius: var(--radius-lg); }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { position: sticky; top: 0; background: var(--surface2); text-align: right; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .03em; color: var(--secondary); font-weight: 600; padding: 10px 12px; white-space: nowrap; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+    thead th.left { text-align: left; }
+    thead th .arw { color: var(--blue); font-size: 10px; }
+    tbody td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--sep); white-space: nowrap; }
+    tbody td.left { text-align: left; font-weight: 600; }
+    tbody tr.arow { cursor: pointer; }
+    tbody tr.arow:hover td { background: var(--surface2); }
+    tbody tr.arow.open td { background: #eef4ff; }
+    .muted { color: var(--tertiary); }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill.over { background: rgba(37,99,235,.10); color: var(--blue-dk); }
+    .pill.zero { background: transparent; color: var(--tertiary); font-weight: 500; }
+    .lowconn { color: var(--amber-dk); font-weight: 700; }
+    .minii { display: inline-block; height: 6px; border-radius: 3px; background: var(--blue); opacity: .7; vertical-align: middle; margin-left: 7px; }
+    tr.detail td { background: #fafbff; text-align: left; white-space: normal; padding: 11px 14px 13px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+    .chip b { color: var(--blue-dk); }
+    .chip.grey { color: var(--secondary); }
+    tfoot td { padding: 10px 12px; text-align: right; font-weight: 700; border-top: 2px solid var(--border); background: var(--surface2); }
+    tfoot td.left { text-align: left; }
+
+    .note { margin-top: 14px; font-size: 12px; color: var(--tertiary); line-height: 1.7; }
+    .note b { color: var(--secondary); }
+    .err { color: var(--red); font-weight: 600; margin-top: 12px; }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
+      border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    #results { display: none; }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } body { padding: 12px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/v2">← Back to Sales Call Monitor</a>
+    <div class="top">
+      <div>
+        <h1>Interactions Report</h1>
+        <div class="sub">Upload a RingCX <b>Interactions</b> CSV export for any date range and get the full per-agent breakdown — talk time, connect rate, long calls, campaign vs. personal-queue split, and dispositions. Parsed in-browser-fast on the server; no WEM/CDR access needed.</div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="pick">Choose file…</button>
+        <button class="btn primary" id="reset" style="display:none">↻ New file</button>
+      </div>
+    </div>
+
+    <div class="drop" id="drop">
+      <div class="ic">📄</div>
+      <div class="big">Drop the Interactions export here</div>
+      <div class="small">or click to browse · <b>.csv</b> from RingCX → Reports → Interactions</div>
+      <input type="file" id="file" accept=".csv,text/csv" hidden>
+      <div class="filemeta" id="filemeta"></div>
+    </div>
+    <div class="err" id="err" style="display:none"></div>
+
+    <div id="results">
+      <div class="cards" id="cards"></div>
+
+      <h2>Dial source — campaign vs. personal queue</h2>
+      <div class="grid2">
+        <div class="panel pad"><div class="st" id="splitVolT"></div><div id="splitVol"></div></div>
+        <div class="panel pad"><div class="st" id="splitTalkT"></div><div id="splitTalk"></div></div>
+      </div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="panel pad"><h3>Campaign queues — connect rate</h3><div id="camptbl"></div><div class="callout" id="campflag"></div></div>
+        <div class="panel pad"><h3>Personal-book operators <span class="lite">— % of dials from own queue</span></h3><div id="perstbl"></div></div>
+      </div>
+
+      <h2>Daily volume</h2>
+      <div class="days" id="days"></div>
+
+      <h2>Per-agent performance <span class="lite">— sorted by talk time · click a row for dispositions</span></h2>
+      <div class="panel"><div class="table-scroll">
+        <table id="tbl"><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody><tfoot id="tfoot"></tfoot></table>
+      </div></div>
+
+      <h2>Disposition breakdown <span class="lite" id="dispsub"></span></h2>
+      <div class="grid2">
+        <div class="panel pad"><h3>No contact / not dispositioned</h3><div id="dispNo"></div></div>
+        <div class="panel pad"><h3>Reached someone — outcomes</h3><div id="dispYes"></div></div>
+      </div>
+
+      <div class="note" id="note"></div>
+    </div>
+  </div>
+
+<script>
+const NO_CONTACT_SET = new Set(["No Answer","Voicemail","Voicemail / No Answer","No Answer / Voicemail","Answering Machine"]);
+const NO_DISP_SET = new Set(["[No-Agent-Disp]","Disposition Timeout","No Disposition"]);
+let DATA = null, sortKey = "talk_secs", sortDir = -1;
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n||0).toLocaleString("en-US");
+function hms(s){ s=Math.round(s||0); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  if(h) return h+"h "+String(m).padStart(2,"0")+"m"; if(m) return m+"m "+String(x).padStart(2,"0")+"s"; return x+"s"; }
+function hmsLong(s){ s=Math.round(s||0); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"); }
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function dayLabel(d){ const [mm,dd]=d.split("/"); const dt=new Date(2000+ +d.split("/")[2], mm-1, dd);
+  return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dt.getDay()]+" "+mm+"/"+dd; }
+
+// ---- upload wiring ----
+const drop=$("drop"), fileInput=$("file");
+$("pick").onclick = ()=>fileInput.click();
+drop.onclick = e => { if(e.target.tagName!=="INPUT") fileInput.click(); };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = ()=>drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); };
+fileInput.onchange = ()=>{ if(fileInput.files[0]) upload(fileInput.files[0]); };
+$("reset").onclick = ()=>{ $("results").style.display="none"; $("reset").style.display="none"; $("filemeta").style.display="none"; fileInput.value=""; };
+
+async function upload(file){
+  $("err").style.display="none";
+  const fm=$("filemeta"); fm.style.display="block";
+  fm.innerHTML = `<span class="spin"></span> Parsing <b>${esc(file.name)}</b>…`;
+  const fd=new FormData(); fd.append("file", file);
+  try {
+    const resp = await fetch("/api/interactions/analyze", { method:"POST", body:fd });
+    const j = await resp.json();
+    if(j.status!=="ok") throw new Error(j.message||"Parse failed");
+    DATA=j; render();
+    const t=j.totals;
+    fm.innerHTML = `<b>${esc(file.name)}</b> · ${fmt(t.interactions)} interactions · ${t.date_start} → ${t.date_end}`;
+    $("reset").style.display="";
+  } catch(e){
+    fm.style.display="none";
+    $("err").style.display="block"; $("err").textContent = "Couldn't process that file: "+e.message;
+  }
+}
+
+// ---- render ----
+function render(){
+  const t=DATA.totals;
+  $("results").style.display="block";
+  const cards=[
+    ["Outbound placed", fmt(t.outbound), t.agents+" agents"],
+    ["Connected", fmt(t.connected), t.outbound? Math.round(100*t.connected/t.outbound)+"% connect":""],
+    ["Conversations", fmt(t.convos), t.connected? Math.round(100*t.convos/t.connected)+"% of connected":""],
+    ["Calls > 3 min", fmt(t.over3), fmt(t.over10)+" over 10 min"],
+    ["Talk time", hmsLong(t.talk_secs), t.connected? hms(t.talk_secs/t.connected)+"/connect":""],
+    ["Inbound", fmt(t.inbound), fmt(t.ringex)+" calls on RingEX"],
+  ];
+  $("cards").innerHTML = cards.map(c=>`<div class="card"><div class="k">${c[0]}</div><div class="v num">${c[1]}</div><div class="s num">${c[2]}</div></div>`).join("");
+
+  // dial source split
+  const cn=t.camp_n, pn=t.pers_n, cs=t.camp_secs, ps=t.pers_secs;
+  $("splitVolT").textContent = "By call volume — "+fmt(cn+pn)+" dials";
+  $("splitTalkT").textContent = "By talk time — "+hmsLong(cs+ps);
+  stack($("splitVol"), cn, pn, false);
+  stack($("splitTalk"), cs, ps, true);
+
+  // campaign table
+  const camps=DATA.channels.filter(c=>c.source==="campaign");
+  const cmax=Math.max(1,...camps.map(c=>c.n));
+  $("camptbl").innerHTML = camps.map(c=>{
+    const lo=c.connect_pct<50, hi=c.connect_pct>=90;
+    return `<div class="mrow"><span class="lbl" title="${esc(c.channel)}">${esc(c.channel.replace(/ – /g," · "))}</span><span class="n num">${fmt(c.n)}</span><span class="pct num ${lo?'lo':hi?'hi':''}">${Math.round(c.connect_pct)}%</span><div class="mbar"><div class="f ${lo?'lo':''}" style="width:${Math.max(c.n/cmax*100,.8)}%"></div></div></div>`;
+  }).join("") || '<div class="muted">No campaign channels in this export.</div>';
+  const worst=camps.filter(c=>c.n>=50).sort((a,b)=>a.connect_pct-b.connect_pct)[0];
+  const cf=$("campflag");
+  if(worst && worst.connect_pct<50){
+    cf.style.display="block";
+    cf.innerHTML=`<b>${esc(worst.channel)} connects at ${Math.round(worst.connect_pct)}%</b> — ${fmt(worst.n-worst.conn)} of ${fmt(worst.n)} dials never reached a person. Worth checking that list's quality or dialer pacing.`;
+  } else cf.style.display="none";
+
+  // personal operators
+  const ops=DATA.agents.filter(a=>a.pers>0).map(a=>({name:a.name,pers:a.pers,tot:a.camp+a.pers,pct:100*a.pers/(a.camp+a.pers)}))
+    .sort((a,b)=>b.pct-a.pct).slice(0,12);
+  $("perstbl").innerHTML = ops.map(o=>`<div class="mrow"><span class="lbl">${esc(o.name)}</span><span class="n num">${fmt(o.pers)}</span><span class="pct num ${o.pct>=50?'hi':''}">${Math.round(o.pct)}%</span><div class="split2"><div class="cf" style="width:${100-o.pct}%"></div><div class="pf" style="width:${o.pct}%"></div></div></div>`).join("")
+    || '<div class="muted">No personal-queue dials in this export.</div>';
+
+  // daily
+  const dmax=Math.max(1,...DATA.daily.map(d=>d.outbound));
+  $("days").innerHTML = DATA.daily.map(d=>`<div class="day${d.outbound<dmax*0.25?' quiet':''}"><div class="d">${dayLabel(d.date)}</div><div class="v num">${fmt(d.outbound)}</div><div class="m num">${fmt(d.connected)} conn · ${d.over3} &gt;3m · ${hms(d.secs)}</div><div class="track"><div class="fill" style="width:${Math.max(d.outbound/dmax*100,1)}%"></div></div></div>`).join("");
+
+  renderHead(); renderBody();
+
+  // dispositions
+  const noCon=[], out=[]; let noContactTotal=0;
+  DATA.dispositions.forEach(([k,v])=>{
+    if(NO_CONTACT_SET.has(k)||NO_DISP_SET.has(k)){ noCon.push([k,v]); noContactTotal+=v; }
+    else out.push([k,v]);
+  });
+  $("dispsub").textContent = "— "+fmt(t.outbound)+" outbound calls";
+  dispRows($("dispNo"), noCon, t.outbound, true);
+  dispRows($("dispYes"), out, t.outbound, false);
+
+  $("note").innerHTML = `<b>How to read this.</b> Durations come from <b>Interaction Time</b> (connected-call seconds); RingCX leaves Talk Time blank on most outbound legs. <b>Connected</b> includes voicemail pickups &mdash; <b>Conversations</b> are connected calls with a real outcome disposition. <b>&gt;10 min</b> is a subset of &gt;3 min. <b>Campaign</b> = shared dialer queue; <b>Personal</b> = channel named after the agent (their own book). <b>RingEX</b> calls are placed/received on RingEX rather than the RingCX dialer &mdash; they count as normal in/outbound activity, just flagged.`;
+}
+
+function stack(el,c,p,isTime){
+  const tot=c+p||1, cp=100*c/tot, fc=isTime?hmsLong(c):fmt(c), fp=isTime?hmsLong(p):fmt(p);
+  el.innerHTML=`<div class="stackbar"><span class="camp" style="width:${cp}%">${cp>12?Math.round(cp)+"%":""}</span><span class="pers" style="width:${100-cp}%">${100-cp>10?Math.round(100-cp)+"%":""}</span></div>
+  <div class="leg"><span><span class="dot c"></span>Campaign <b class="num">${fc}</b></span><span><span class="dot p"></span>Personal <b class="num">${fp}</b></span></div>`;
+}
+function dispRows(el,data,total,grey){
+  const m=Math.max(1,...data.map(d=>d[1]));
+  el.innerHTML = data.map(d=>`<div class="mrow"><span class="lbl" title="${esc(d[0])}">${esc(d[0])}</span><span class="n num">${fmt(d[1])}</span><span class="pct num muted" style="font-weight:600">${(100*d[1]/total).toFixed(1)}%</span><div class="mbar"><div class="f ${grey?'grey':''}" style="width:${Math.max(d[1]/m*100,.8)}%"></div></div></div>`).join("");
+}
+
+const COLS=[
+  {k:"name",label:"Agent",left:true},
+  {k:"outbound",label:"Placed"},{k:"connected",label:"Conn"},{k:"connect_pct",label:"Conn %"},
+  {k:"convos",label:"Convos"},{k:"over3",label:">3m"},{k:"over10",label:">10m"},
+  {k:"talk_secs",label:"Talk Time"},{k:"avg_secs",label:"Avg/Conn"},{k:"longest_secs",label:"Longest"},
+  {k:"camp",label:"Campaign"},{k:"pers",label:"Personal"},{k:"inbound",label:"Inbound"},{k:"ringex",label:"RingEX"},{k:"days",label:"Days"},
+];
+function renderHead(){
+  $("thead").innerHTML = COLS.map(c=>{
+    const arw = sortKey===c.k ? ` <span class="arw">${sortDir<0?"▼":"▲"}</span>`:"";
+    return `<th class="${c.left?'left':''}" data-k="${c.k}">${c.label}${arw}</th>`;
+  }).join("");
+  $("thead").querySelectorAll("th").forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k;
+    if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir = k==="name"?1:-1; }
+    renderHead(); renderBody();
+  });
+}
+function renderBody(){
+  const maxTalk=Math.max(1,...DATA.agents.map(a=>a.talk_secs));
+  const rows=[...DATA.agents].sort((a,b)=>{
+    const va=a[sortKey],vb=b[sortKey];
+    return (typeof va==="string"? va.localeCompare(vb): (va-vb))*sortDir;
+  });
+  $("tbody").innerHTML = rows.map(a=>{
+    const low = a.outbound>=100 && a.connect_pct<60;
+    const chips = (a.top_disps.length? a.top_disps.map(d=>`<span class="chip">${esc(d[0])} <b>${d[1]}</b></span>`).join("")
+                   : '<span class="chip grey">no outcome dispositions</span>');
+    return `<tr class="arow"><td class="left">${esc(a.name)}</td>
+      <td class="num">${fmt(a.outbound)}</td><td class="num">${fmt(a.connected)}</td>
+      <td class="num ${low?'lowconn':''}">${Math.round(a.connect_pct)}%</td>
+      <td class="num">${a.convos}</td>
+      <td class="num"><span class="pill ${a.over3?'over':'zero'}">${a.over3}</span></td>
+      <td class="num muted">${a.over10}</td>
+      <td class="num">${hmsLong(a.talk_secs)}<span class="minii" style="width:${Math.max(a.talk_secs/maxTalk*54,2)}px"></span></td>
+      <td class="num muted">${hms(a.avg_secs)}</td><td class="num muted">${hms(a.longest_secs)}</td>
+      <td class="num">${fmt(a.camp)}</td><td class="num">${fmt(a.pers)}</td>
+      <td class="num muted">${a.inbound}</td><td class="num muted">${a.ringex}</td><td class="num muted">${a.days}</td></tr>
+    <tr class="detail" hidden><td colspan="${COLS.length}"><div class="chips"><span class="chip grey">No contact ${fmt(a.nocontact)}</span><span class="chip grey">Not dispositioned ${fmt(a.nodisp)}</span>${chips}</div></td></tr>`;
+  }).join("");
+  $("tbody").querySelectorAll("tr.arow").forEach(tr=>tr.onclick=()=>{
+    const det=tr.nextElementSibling; det.hidden=!det.hidden; tr.classList.toggle("open",!det.hidden);
+  });
+
+  const t=DATA.totals;
+  $("tfoot").innerHTML = "<tr>"+COLS.map(c=>{
+    if(c.k==="name") return `<td class="left">Total · ${t.agents} agents</td>`;
+    if(c.k==="connect_pct") return `<td class="num">${t.outbound?Math.round(100*t.connected/t.outbound):0}%</td>`;
+    if(c.k==="talk_secs") return `<td class="num">${hmsLong(t.talk_secs)}</td>`;
+    if(c.k==="avg_secs"||c.k==="longest_secs"||c.k==="days") return `<td></td>`;
+    if(c.k==="camp") return `<td class="num">${fmt(t.camp_n)}</td>`;
+    if(c.k==="pers") return `<td class="num">${fmt(t.pers_n)}</td>`;
+    const map={outbound:t.outbound,connected:t.connected,convos:t.convos,over3:t.over3,over10:t.over10,inbound:t.inbound,ringex:t.ringex};
+    return `<td class="num">${fmt(map[c.k]??"")}</td>`;
+  }).join("")+"</tr>";
+}
+</script>
+</body>
+</html>

@@ -463,6 +463,40 @@ def agents_report_v2():
     return render_template("agents_report.html", current_user=user)
 
 
+@app.route("/v2/interactions")
+@login_required
+def interactions_report_v2():
+    """Upload a RingCX Interactions CSV export and get the full per-agent report
+    (talk time, calls >3/>10 min, connect rate, campaign vs. personal queue,
+    dispositions). Self-contained: parses the file, no live RingCX/WEM access."""
+    user = session.get("user") or {}
+    return render_template("interactions_report.html", current_user=user)
+
+
+@app.route("/api/interactions/analyze", methods=["POST"])
+@login_required
+def api_interactions_analyze():
+    """Parse an uploaded interactions CSV into stats. Returns the same shape the
+    front-end renders (totals, agents, channels, daily, dispositions)."""
+    from interactions_report import analyze_csv, ReportError
+
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"status": "error", "message": "No file uploaded."}), 400
+    try:
+        raw = f.read()
+        # utf-8-sig strips the BOM RingCX puts on the header row
+        text = raw.decode("utf-8-sig", errors="replace")
+        result = analyze_csv(text)
+        result["filename"] = f.filename
+        return jsonify(result)
+    except ReportError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:  # noqa: BLE001 — surface parse failures to the UI
+        log.exception("interactions analyze failed")
+        return jsonify({"status": "error", "message": f"Couldn't parse the file: {e}"}), 500
+
+
 def _parse_local_date_to_utc(
     date_str: str, hour: int, minute: int, second: int,
     tz_offset_minutes=None,
