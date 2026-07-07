@@ -1206,7 +1206,10 @@ class ZohoClient:
     }
 
     def _fetch_deal_stages_by_ids(self, deal_ids: list[str]) -> dict[str, dict]:
-        """Returns {deal_id: {"stage": str, "owner": str}} for the specific deals."""
+        """Returns {deal_id: {"stage", "name", "owner", "owner_id", "language",
+        "contact_name", "contact_id"}} for the specific deals. contact_name/id
+        come from the deal's Contact_Name lookup so a deal-linked scheduled call
+        with no Who_Id can still show the person (not the package name)."""
         import logging
         log = logging.getLogger(__name__)
         result: dict[str, dict] = {}
@@ -1219,7 +1222,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "ids": ids_param,
-                    "fields": "id,Deal_Name,Stage,Owner,Language",
+                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name",
                 },
                 timeout=20,
             )
@@ -1233,12 +1236,15 @@ class ZohoClient:
                     owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
                     owner_id = owner.get("id") if isinstance(owner, dict) else None
                     lang_raw = (deal.get("Language") or "").strip()
+                    con = deal.get("Contact_Name") or {}
                     result[did] = {
                         "stage": deal.get("Stage") or "",
                         "name": deal.get("Deal_Name") or "",
                         "owner": owner_name,
                         "owner_id": owner_id,
                         "language": lang_raw if lang_raw and lang_raw != "Unselected" else "",
+                        "contact_name": (con.get("name") if isinstance(con, dict) else "") or "",
+                        "contact_id": (con.get("id") if isinstance(con, dict) else None),
                     }
         log.info("  → deal stages fetched by ID for %d deals", len(result))
         return result
@@ -1702,12 +1708,17 @@ class ZohoClient:
             ) or "Zoho Admin"
             owner_name = self.OWNER_DISPLAY_NAMES.get(raw_owner, raw_owner)
 
-            # Name: from the linked contact, else the Subject, else the deal.
-            name = who.get("name") if isinstance(who, dict) else None
-            if not name:
-                name = (self._name_from_sched_subject(rec.get("Subject"))
-                        or (what.get("name") if isinstance(what, dict) else None)
-                        or "—")
+            # Name: the linked contact's name — from the Who_Id lookup, then the
+            # contact record itself (the lookup often returns a null name even
+            # when the contact id is set), then the Subject. Never fall back to
+            # the deal name here (a package/procedure title); the deal-linked
+            # contact is adopted in the post-pass below when there's no Who_Id.
+            name = (
+                (who.get("name") if isinstance(who, dict) else None)
+                or cd.get("name")
+                or self._name_from_sched_subject(rec.get("Subject"))
+                or ""
+            )
 
             return {
                 "id": rec["id"],
@@ -1829,6 +1840,13 @@ class ZohoClient:
                     r["deal_owner"] = owner
                 if info.get("name"):
                     r["deal_name"] = info["name"]
+                # If the scheduled call had no Who_Id (so no contact name yet),
+                # adopt the linked deal's contact — shows the person, and wires
+                # up the CRM link + AI summary (id_contact).
+                if not r.get("name") and info.get("contact_name"):
+                    r["name"] = info["contact_name"]
+                    if not r.get("id_contact") and info.get("contact_id"):
+                        r["id_contact"] = info["contact_id"]
                 # Language from deal record
                 if info.get("language"):
                     r["language"] = info["language"]
