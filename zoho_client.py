@@ -1994,9 +1994,12 @@ class ZohoClient:
         for d in deals:
             created = self._parse_dt(d.get("Created_Time"))
             raw = d.get("Best_Contact_Time")
-            is_empty = not (raw and str(raw).strip())
+            raw_str = str(raw).strip() if raw else ""
+            is_empty = not raw_str
+            # Some deals carry the literal "CALL NOW" / "ASAP" as the best time.
+            is_literal = raw_str.upper().replace(" ", "") in ("CALLNOW", "ASAP", "NOW")
             bct = self._parse_best_contact_time(raw)
-            if is_empty or (bct and created and bct < created):
+            if is_empty or is_literal or (bct and created and bct < created):
                 call_now.append(d)
         log.info("Call-now deals: %d of %d deals created in window", len(call_now), len(deals))
         if not call_now:
