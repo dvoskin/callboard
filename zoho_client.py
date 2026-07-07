@@ -1710,21 +1710,25 @@ class ZohoClient:
 
             # Name: the linked contact's name — from the Who_Id lookup, then the
             # contact record itself (the lookup often returns a null name even
-            # when the contact id is set), then the Subject. Never fall back to
-            # the deal name here (a package/procedure title); the deal-linked
-            # contact is adopted in the post-pass below when there's no Who_Id.
-            name = (
-                (who.get("name") if isinstance(who, dict) else None)
-                or cd.get("name")
-                or self._name_from_sched_subject(rec.get("Subject"))
-                or ""
-            )
+            # when the contact id is set). If neither, parse the Subject, but
+            # mark it PROVISIONAL: subjects like "Scheduled Call: FlexSculpt:
+            # Arms" carry a package title, not a person, so the deal's linked
+            # Contact_Name should override it in the post-pass. Never fall back
+            # to the deal name (a package/procedure title).
+            contact_name = (who.get("name") if isinstance(who, dict) else None) or cd.get("name")
+            if contact_name:
+                name = contact_name
+                name_provisional = False
+            else:
+                name = self._name_from_sched_subject(rec.get("Subject")) or ""
+                name_provisional = True
 
             return {
                 "id": rec["id"],
                 "id_contact": cid,
                 "id_deal": what_id,  # deal linked directly to this call
                 "name": name,
+                "_name_provisional": name_provisional,
                 "phone": phone,
                 "lead_source": lead_source,
                 "instagram": instagram,
@@ -1840,10 +1844,11 @@ class ZohoClient:
                     r["deal_owner"] = owner
                 if info.get("name"):
                     r["deal_name"] = info["name"]
-                # If the scheduled call had no Who_Id (so no contact name yet),
-                # adopt the linked deal's contact — shows the person, and wires
-                # up the CRM link + AI summary (id_contact).
-                if not r.get("name") and info.get("contact_name"):
+                # If the name is provisional (no Who_Id contact — parsed from the
+                # subject, which may be a package title), adopt the linked deal's
+                # Contact_Name instead. Shows the person and wires up the CRM
+                # link + AI summary (id_contact).
+                if r.get("_name_provisional") and info.get("contact_name"):
                     r["name"] = info["contact_name"]
                     if not r.get("id_contact") and info.get("contact_id"):
                         r["id_contact"] = info["contact_id"]
@@ -1856,6 +1861,9 @@ class ZohoClient:
                         and stage not in ("New Deal", "Call Scheduled")
                         and r.get("status") in ("missed", "late")):
                     r["deal_moved_on"] = True
+
+            # Provisional flag is internal — never leak it to the client.
+            r.pop("_name_provisional", None)
 
         # ── Cross-deal stage correction ────────────────────────────────────
         # A scheduled call is linked to ONE deal (What_Id), which may be stale
