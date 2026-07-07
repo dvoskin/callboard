@@ -625,6 +625,16 @@ class ZohoClient:
         return None
 
     @staticmethod
+    def _name_from_sched_subject(subject: Optional[str]) -> Optional[str]:
+        """Pull the lead name out of a scheduled-call Subject when there's no
+        linked contact. Handles 'Scheduled call — Name', 'Scheduled Call: Name',
+        'Call scheduled with Name'."""
+        s = (subject or "").strip()
+        m = re.match(r"(?i)^(?:scheduled call|call scheduled)\s*(?:[—–:\-]+|with)\s*(.+)$", s)
+        name = m.group(1).strip() if m else ""
+        return name or None
+
+    @staticmethod
     def _is_outbound_call(c: dict) -> bool:
         """Whether a logged call counts as an outbound dial against a schedule.
 
@@ -1672,11 +1682,18 @@ class ZohoClient:
             ) or "Zoho Admin"
             owner_name = self.OWNER_DISPLAY_NAMES.get(raw_owner, raw_owner)
 
+            # Name: from the linked contact, else the Subject, else the deal.
+            name = who.get("name") if isinstance(who, dict) else None
+            if not name:
+                name = (self._name_from_sched_subject(rec.get("Subject"))
+                        or (what.get("name") if isinstance(what, dict) else None)
+                        or "—")
+
             return {
                 "id": rec["id"],
                 "id_contact": cid,
                 "id_deal": what_id,  # deal linked directly to this call
-                "name": who.get("name") if isinstance(who, dict) else "—",
+                "name": name,
                 "phone": phone,
                 "lead_source": lead_source,
                 "instagram": instagram,

@@ -4366,9 +4366,10 @@
   // ─── contact name cell (with hyperlink + AI buttons) ───
   function nameCell(r, module="Contacts", trailing="") {
     const url = crmUrl(module, r.id_contact || r.id);
+    const _nm = r.name || "—";
     const nameHtml = url
-      ? `<a class="name-link" href="${url}" target="_blank">${r.name}</a>`
-      : r.name;
+      ? `<a class="name-link" href="${url}" target="_blank">${_nm}</a>`
+      : _nm;
     // Single AI entry point — the ✦ full summary (drops the redundant ▶ inline
     // expander). Trailing badges are pruned upstream (no language / observation).
     const aiBtn = r.id_contact
@@ -6296,9 +6297,10 @@
       }
       const isNext = i === 0;
       const url = crmUrl("Contacts", r.id_contact);
+      const _upName = r.name || "—";
       const nameEl = url
-        ? `<a class="name-link up-card-name" href="${url}" target="_blank">${r.name}</a>`
-        : `<span class="up-card-name">${r.name}</span>`;
+        ? `<a class="name-link up-card-name" href="${url}" target="_blank">${_upName}</a>`
+        : `<span class="up-card-name">${_upName}</span>`;
       const aiBtn = r.id_contact
         ? `<button class="summary-btn" onclick="event.stopPropagation();openSummary('${r.id_contact}','${(r.name||'').replace(/'/g,"\\'")}','${r.phone||''}')" title="AI Summary">✦</button>`
         : "";
