@@ -161,6 +161,7 @@
     ];
     if (_hasHandle) cards.push({ k: "Handle Time", v: fmtDur(t.handle_seconds) });
     cards.push({ k: "Calls > 3 min", v: t.calls_over_3m ?? 0 });
+    if (t.unattributed_calls) cards.push({ k: "Unattributed", v: t.unattributed_calls });
     cards.push({ k: "Quotes", v: t.quotes ?? 0 });
     cards.push({ k: "Closings", v: t.closings ?? 0 });
     document.getElementById("cards").innerHTML = cards.map(c =>
@@ -222,9 +223,19 @@
       _totals = j.totals || {};
       _hasHandle = !!(_totals.has_handle_time);
       renderCards(); renderHead(); renderBody();
-      const note = _hasHandle
-        ? "Handle time = talk + hold + wrap (RingCentral Business Analytics). Talk time is connected-call duration."
-        : "Handle time isn't exposed by this account's analytics plan, so only talk time is shown. Talk time = connected-call duration across RingCX + RingEX.";
+      const t = _totals;
+      const srcLabel = {
+        "cdr+calllog": "RingCX CDR + RingEX call log (every dial)",
+        "analytics": "RingCentral Business Analytics (fallback — may undercount dialer calls)",
+        "none": "no telephony source reachable",
+      }[t.call_source] || t.call_source || "—";
+      let note = `Source: ${srcLabel}.`;
+      if (t.unattributed_calls) {
+        note += `  ${t.unattributed_calls} call${t.unattributed_calls === 1 ? "" : "s"} couldn't be tied to a specific agent (dialer legs with no matched extension) — full per-agent attribution of those needs RingCX CDR (WEM) access.`;
+      }
+      note += _hasHandle
+        ? "  Handle time = talk + hold from the RingCX CDR."
+        : "  Handle time (talk+hold+wrap) needs RingCX CDR access, so only talk time is shown.";
       document.getElementById("note").textContent = note + `  ·  ${date}`;
     } catch (e) {
       document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="9" style="color:var(--red)">Couldn't load: ${esc(e.message)}</td></tr>`;

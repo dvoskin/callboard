@@ -965,8 +965,20 @@ class RingCXClient:
                     elif to_ext in ext_names:
                         agent = ext_names[to_ext]["name"]
                     else:
-                        # Fall back to the party name RC reports for the ext leg.
-                        agent = (frm.get("name") if direction == "Outbound" else to.get("name")) or ""
+                        # Dialer / queue calls credit the agent on an inner leg,
+                        # not the top-level from/to — scan the legs for a known
+                        # User extension. This recovers the RingCX dialer calls
+                        # that would otherwise be unattributed.
+                        for leg in (rec.get("legs") or []):
+                            lf = str((leg.get("from") or {}).get("extensionId") or "")
+                            lt = str((leg.get("to") or {}).get("extensionId") or "")
+                            if lf and lf in ext_names:
+                                agent = ext_names[lf]["name"]; break
+                            if lt and lt in ext_names:
+                                agent = ext_names[lt]["name"]; break
+                        # Deliberately NO party-name fallback: an unmatched leg
+                        # is an external party, not an agent — leave it
+                        # unattributed rather than crediting a customer name.
                     from_num = frm.get("phoneNumber", "") or ""
                     to_num = to.get("phoneNumber", "") or ""
                     out.append({
@@ -1129,62 +1141,21 @@ class RingCXClient:
     ) -> dict:
         """Per-agent call stats for all sales agents.
 
-        Primary source: RingCentral Business Analytics (Call Performance)
-        grouped by Users — account-wide, covering both RingEX and RingCX. Falls
-        back to the RingCX CDR + RingEX call-log roll-up only if analytics is
-        unavailable. Returns {"agents": {name: {calls, talk_seconds, ...}}};
-        agents with no identifiable name are excluded.
+        Source of truth = real per-call detail: the RingCX (Engage Voice) CDR
+        (agent-attributed; available once WEM/Data-Management access is enabled)
+        PLUS the RingEX platform call log, which also carries the dialer legs
+        that ride the RingCentral platform. The Business Analytics aggregate is
+        only a last resort — it materially undercounts dialer activity.
+
+        Returns {"agents": {name: {calls, calls_under_3m, calls_over_3m,
+        talk_seconds, handle_seconds}}, "source": str, "unattributed": int}.
+        Calls that can't be tied to a known agent are excluded but counted in
+        "unattributed" so callers can surface the gap.
         """
-        agg = self._fetch_analytics_aggregate(start_dt, end_dt)
-        if agg:
-            # Analytics API only gives total calls + talk_seconds per agent.
-            # Add the duration bucket breakdown from call detail so callers
-            # get calls_under_3m / calls_over_3m even when analytics is primary.
-            for name, a in agg.items():
-                a.setdefault("calls_under_3m", 0)
-                a.setdefault("calls_over_3m", 0)
-                a.setdefault("handle_seconds", 0)
-
-            def _bucket_calls(calls):
-                for c in calls:
-                    agent = (c.get("agent_name") or "").strip()
-                    if not agent:
-                        continue
-                    low = agent.lower()
-                    matched = None
-                    for k in agg:
-                        if k.lower() == low:
-                            matched = k
-                            break
-                    if matched:
-                        dur = 0
-                        try:
-                            dur = int(c.get("duration") or 0)
-                        except (TypeError, ValueError):
-                            pass
-                        if dur >= long_call_seconds:
-                            agg[matched]["calls_over_3m"] += 1
-                        else:
-                            agg[matched]["calls_under_3m"] += 1
-
-            # Try CDR first; if it fails (403), fall back to RingEX call-log
-            try:
-                cdr = self._fetch_ringcx_cdr_rows(start_dt, end_dt)
-                if cdr:
-                    _bucket_calls(cdr)
-                else:
-                    _bucket_calls(self._fetch_ringex_agent_calls(start_dt, end_dt))
-            except Exception:
-                try:
-                    _bucket_calls(self._fetch_ringex_agent_calls(start_dt, end_dt))
-                except Exception:
-                    pass
-            return {"agents": agg, "source": "analytics"}
-
-        log.info("Analytics empty — falling back to CDR + call-log roll-up")
         by_agent: dict[str, dict] = {}
         _canon: dict[str, str] = {}  # lowercase → canonical display name
         seen: list[tuple[str, float]] = []  # (agent_lower, start_ts)
+        unattributed = 0
 
         def _resolve(name: str) -> str:
             low = name.lower()
@@ -1192,9 +1163,9 @@ class RingCXClient:
                 _canon[low] = name
             return _canon[low]
 
-        def add(agent: str, duration, ts: Optional[float]):
-            agent = _resolve(agent)
-            a = by_agent.setdefault(agent, {
+        def add(agent: str, duration, ts: Optional[float], handle=None):
+            key = _resolve(agent)
+            a = by_agent.setdefault(key, {
                 "calls": 0, "calls_under_3m": 0, "calls_over_3m": 0,
                 "talk_seconds": 0, "handle_seconds": 0,
             })
@@ -1206,33 +1177,62 @@ class RingCXClient:
                 dur = 0
             a["calls"] += 1
             a["talk_seconds"] += dur
+            # Handle time only comes from the CDR (talk+hold). The call log has
+            # no separate handle metric, so leave it 0 there rather than faking
+            # it as the call duration.
+            a["handle_seconds"] += int(handle) if handle else 0
             if dur >= long_call_seconds:
                 a["calls_over_3m"] += 1
             else:
                 a["calls_under_3m"] += 1
             if ts is not None:
-                seen.append((agent.lower(), ts))
+                seen.append((key.lower(), ts))
 
-        # RingCX CDR is the source of truth for agent-attributed dials.
+        # RingCX CDR — agent-attributed dials with a real talk/hold breakdown
+        # (empty when WEM/Data-Management access is blocked → 403).
         for c in self._fetch_ringcx_cdr_rows(start_dt, end_dt):
             agent = (c.get("agent_name") or "").strip()
             if not agent:
+                unattributed += 1
                 continue
-            add(agent, c.get("duration"), self._to_ts(c.get("start_time")))
+            handle = 0
+            for k in ("talk_time", "hold_time"):
+                try:
+                    handle += int(float(c.get(k) or 0))
+                except (TypeError, ValueError):
+                    pass
+            add(agent, c.get("duration"), self._to_ts(c.get("start_time")),
+                handle=handle or None)
 
-        # RingEX platform log supplements with anything not already counted.
+        # RingEX platform call log — carries the dialer legs; supplements with
+        # anything the CDR didn't already count.
         for c in self._fetch_ringex_agent_calls(start_dt, end_dt):
             agent = (c.get("agent_name") or "").strip()
-            if not agent:
-                continue
             ts = self._to_ts(c.get("start_time"))
+            if not agent:
+                unattributed += 1
+                continue
             if ts is not None and any(
                 al == agent.lower() and abs(ts - st) < 120 for al, st in seen
             ):
                 continue  # same dial already counted from RingCX
             add(agent, c.get("duration"), ts)
 
-        return {"agents": by_agent, "source": "cdr+calllog"}
+        if by_agent:
+            log.info("Agent call stats: %d agents, %d unattributed (source=cdr+calllog)",
+                     len(by_agent), unattributed)
+            return {"agents": by_agent, "source": "cdr+calllog",
+                    "unattributed": unattributed}
+
+        # Last resort only: Business Analytics aggregate (undercounts dialer).
+        log.info("No call-detail rows — falling back to analytics aggregate")
+        agg = self._fetch_analytics_aggregate(start_dt, end_dt)
+        for name, a in agg.items():
+            a.setdefault("calls_under_3m", 0)
+            a.setdefault("calls_over_3m", 0)
+            a.setdefault("handle_seconds", 0)
+        return {"agents": agg, "source": "analytics" if agg else "none",
+                "unattributed": unattributed}
 
     # ══════════════════════════════════════════════════════════════
     # SMS — send via RingCentral Platform API

@@ -2398,10 +2398,14 @@ def api_agent_analytics():
         #    Engage Voice CDR + RingEX platform call-log), not Zoho-logged
         #    calls. Calls with no identifiable agent are already excluded by
         #    get_agent_call_stats, so no "Unassigned" call bucket appears.
+        call_source = "none"
+        unattributed_calls = 0
         if _ringcx.configured:
             try:
                 stats = _ringcx.get_agent_call_stats(
                     start_dt, end_dt, long_call_seconds=threshold)
+                call_source = stats.get("source", "none")
+                unattributed_calls = int(stats.get("unattributed", 0) or 0)
                 for name, s in (stats.get("agents") or {}).items():
                     a = _agent(name)
                     a["calls"]          += s.get("calls", 0)
@@ -2454,6 +2458,8 @@ def api_agent_analytics():
             "has_handle_time": handle_total > 0,
             "quotes":         sum(r["quotes"] for r in rows),
             "closings":       sum(r["closings"] for r in rows),
+            "unattributed_calls": unattributed_calls,
+            "call_source":    call_source,
         }
 
         return jsonify({
