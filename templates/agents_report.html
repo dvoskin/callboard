@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Productivity — Sales Call Monitor</title>
+  <style>
+    :root {
+      --bg: #eef0f5;
+      --bg-grad: radial-gradient(ellipse at top left, #eaecf7 0%, #eef0f5 35%, #f0f1f6 100%);
+      --surface: #ffffff; --surface2: #f7f8fc;
+      --border: rgba(15,23,42,0.13); --sep: rgba(15,23,42,0.07);
+      --text: #0b0e1a; --secondary: #5b6478; --tertiary: #94a0b8;
+      --blue: #2563eb; --blue-dk: #1d4ed8; --green: #10b981; --green-dk: #047857;
+      --red: #ef4444; --orange: #f59e0b; --purple: #8b5cf6; --teal: #06b6d4;
+      --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+      --shadow: 0 4px 24px rgba(15,23,42,.08), 0 1px 4px rgba(15,23,42,.06);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); background-image: var(--bg-grad);
+      color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; padding: 20px; }
+    a { color: var(--blue); text-decoration: none; }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+
+    /* Header */
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+    .top h1 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+    .top .sub { color: var(--secondary); font-size: 13px; }
+    .back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--secondary); margin-bottom: 8px; }
+    .back:hover { color: var(--blue); }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .controls input[type=date] { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); font: inherit; }
+    .btn { padding: 7px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font: inherit; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface2); }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.primary:hover { background: var(--blue-dk); }
+
+    /* Summary cards */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 18px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow-sm); }
+    .card .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--tertiary); font-weight: 600; }
+    .card .v { font-size: 22px; font-weight: 700; margin-top: 3px; font-feature-settings: "tnum"; }
+    .card .v small { font-size: 12px; font-weight: 500; color: var(--secondary); }
+
+    /* Table */
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { position: sticky; top: 0; background: var(--surface2); text-align: right; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .03em; color: var(--secondary); font-weight: 600; padding: 10px 14px; white-space: nowrap; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+    thead th.left { text-align: left; }
+    thead th .arw { color: var(--blue); font-size: 10px; }
+    tbody td { padding: 9px 14px; text-align: right; border-bottom: 1px solid var(--sep); font-feature-settings: "tnum"; white-space: nowrap; }
+    tbody td.left { text-align: left; }
+    tbody tr:hover { background: var(--surface2); }
+    tbody tr:last-child td { border-bottom: none; }
+    .rank { color: var(--tertiary); font-size: 12px; width: 26px; }
+    .agent { font-weight: 600; }
+    .muted { color: var(--tertiary); }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill.over { background: rgba(37,99,235,.10); color: var(--blue-dk); }
+    .pill.zero { background: transparent; color: var(--tertiary); font-weight: 500; }
+    tfoot td { padding: 10px 14px; text-align: right; font-weight: 700; border-top: 2px solid var(--border); background: var(--surface2); font-feature-settings: "tnum"; }
+    tfoot td.left { text-align: left; }
+
+    .state { padding: 40px; text-align: center; color: var(--secondary); }
+    .note { margin-top: 12px; font-size: 12px; color: var(--tertiary); }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
+      border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    @media (max-width: 640px) { .hide-sm { display: none; } body { padding: 12px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/v2">← Back to Sales Call Monitor</a>
+    <div class="top">
+      <div>
+        <h1>Agent Productivity</h1>
+        <div class="sub">Talk &amp; handle time, calls placed, and long calls across RingCX + RingEX · <span id="src-note">RingCentral Business Analytics</span></div>
+      </div>
+      <div class="controls">
+        <input type="date" id="date">
+        <button class="btn" onclick="setToday()">Today</button>
+        <button class="btn primary" id="reload" onclick="load()">↻ Refresh</button>
+      </div>
+    </div>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="panel">
+      <div class="table-scroll">
+        <table id="tbl">
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="tbody"><tr><td class="state" colspan="9"><span class="spin"></span> Loading…</td></tr></tbody>
+          <tfoot id="tfoot"></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+<script>
+  let _rows = [], _totals = {}, _hasHandle = false;
+  let _sort = { key: "calls", dir: -1 };
+
+  const COLS = [
+    { key: "_rank",           label: "#",            align: "right", cls: "rank", noSort: true },
+    { key: "name",            label: "Agent",        align: "left" },
+    { key: "calls",           label: "Calls Placed", align: "right" },
+    { key: "talk_seconds",    label: "Talk Time",    align: "right" },
+    { key: "avg_talk_seconds",label: "Avg / Call",   align: "right" },
+    { key: "handle_seconds",  label: "Handle Time",  align: "right", handle: true },
+    { key: "calls_over_3m",   label: "Calls > 3 min",align: "right" },
+    { key: "quotes",          label: "Quotes",       align: "right" },
+    { key: "closings",        label: "Closings",     align: "right" },
+  ];
+
+  function todayISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function setToday() { document.getElementById("date").value = todayISO(); load(); }
+
+  function fmtDur(s) {
+    s = Math.round(s || 0);
+    if (!s) return '<span class="muted">—</span>';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h) return `${h}h ${String(m).padStart(2,"0")}m`;
+    if (m) return `${m}m ${String(sec).padStart(2,"0")}s`;
+    return `${sec}s`;
+  }
+  function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c])); }
+
+  function activeCols() { return COLS.filter(c => !c.handle || _hasHandle); }
+
+  function renderHead() {
+    document.getElementById("thead").innerHTML = activeCols().map(c => {
+      const arrow = (!c.noSort && _sort.key === c.key) ? ` <span class="arw">${_sort.dir < 0 ? "▼" : "▲"}</span>` : "";
+      const onclick = c.noSort ? "" : ` onclick="sortBy('${c.key}')"`;
+      return `<th class="${c.align === "left" ? "left" : ""}"${onclick}>${c.label}${arrow}</th>`;
+    }).join("");
+  }
+
+  function sortBy(key) {
+    if (_sort.key === key) _sort.dir *= -1;
+    else _sort = { key, dir: (key === "name" ? 1 : -1) };
+    renderHead(); renderBody();
+  }
+
+  function renderCards() {
+    const t = _totals || {};
+    const cards = [
+      { k: "Agents", v: t.agents ?? 0 },
+      { k: "Calls Placed", v: t.calls ?? 0 },
+      { k: "Talk Time", v: fmtDur(t.talk_seconds) },
+    ];
+    if (_hasHandle) cards.push({ k: "Handle Time", v: fmtDur(t.handle_seconds) });
+    cards.push({ k: "Calls > 3 min", v: t.calls_over_3m ?? 0 });
+    cards.push({ k: "Quotes", v: t.quotes ?? 0 });
+    cards.push({ k: "Closings", v: t.closings ?? 0 });
+    document.getElementById("cards").innerHTML = cards.map(c =>
+      `<div class="card"><div class="k">${c.k}</div><div class="v">${c.v}</div></div>`).join("");
+  }
+
+  function renderBody() {
+    const tbody = document.getElementById("tbody");
+    if (!_rows.length) {
+      tbody.innerHTML = `<tr><td class="state" colspan="${activeCols().length}">No agent activity for this date.</td></tr>`;
+      document.getElementById("tfoot").innerHTML = "";
+      return;
+    }
+    const dir = _sort.dir, key = _sort.key;
+    const sorted = [..._rows].sort((a, b) => {
+      let va = a[key], vb = b[key];
+      if (key === "name") return String(va).localeCompare(String(vb)) * dir;
+      return ((va ?? 0) - (vb ?? 0)) * dir;
+    });
+    tbody.innerHTML = sorted.map((r, i) => {
+      const cells = activeCols().map(c => {
+        if (c.key === "_rank") return `<td class="rank">${i + 1}</td>`;
+        if (c.key === "name") return `<td class="left agent">${esc(r.name)}</td>`;
+        if (c.key === "talk_seconds") return `<td>${fmtDur(r.talk_seconds)}</td>`;
+        if (c.key === "handle_seconds") return `<td>${fmtDur(r.handle_seconds)}</td>`;
+        if (c.key === "avg_talk_seconds") return `<td class="muted">${fmtDur(r.avg_talk_seconds)}</td>`;
+        if (c.key === "calls_over_3m") {
+          const n = r.calls_over_3m || 0;
+          return `<td><span class="pill ${n ? "over" : "zero"}">${n}</span></td>`;
+        }
+        const val = r[c.key] || 0;
+        return `<td class="${val ? "" : "muted"}">${val}</td>`;
+      }).join("");
+      return `<tr>${cells}</tr>`;
+    }).join("");
+
+    const t = _totals;
+    document.getElementById("tfoot").innerHTML = "<tr>" + activeCols().map(c => {
+      if (c.key === "_rank") return `<td></td>`;
+      if (c.key === "name") return `<td class="left">Total · ${t.agents || 0} agents</td>`;
+      if (c.key === "talk_seconds") return `<td>${fmtDur(t.talk_seconds)}</td>`;
+      if (c.key === "handle_seconds") return `<td>${fmtDur(t.handle_seconds)}</td>`;
+      if (c.key === "avg_talk_seconds") return `<td class="muted">${fmtDur(t.calls ? t.talk_seconds / t.calls : 0)}</td>`;
+      return `<td>${t[c.key] ?? 0}</td>`;
+    }).join("") + "</tr>";
+  }
+
+  async function load() {
+    const date = document.getElementById("date").value || todayISO();
+    const btn = document.getElementById("reload");
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Loading…';
+    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="9"><span class="spin"></span> Pulling agent stats…</td></tr>`;
+    try {
+      const tz = new Date().getTimezoneOffset();
+      const resp = await fetch(`/api/agent-analytics?tz=${tz}&start=${date}&end=${date}&_=${Date.now()}`, { headers: { Accept: "application/json" } });
+      const j = await resp.json();
+      if (j.status !== "ok") throw new Error(j.message || "Failed to load");
+      _rows = j.rows || [];
+      _totals = j.totals || {};
+      _hasHandle = !!(_totals.has_handle_time);
+      renderCards(); renderHead(); renderBody();
+      const note = _hasHandle
+        ? "Handle time = talk + hold + wrap (RingCentral Business Analytics). Talk time is connected-call duration."
+        : "Handle time isn't exposed by this account's analytics plan, so only talk time is shown. Talk time = connected-call duration across RingCX + RingEX.";
+      document.getElementById("note").textContent = note + `  ·  ${date}`;
+    } catch (e) {
+      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="9" style="color:var(--red)">Couldn't load: ${esc(e.message)}</td></tr>`;
+      document.getElementById("cards").innerHTML = "";
+      document.getElementById("tfoot").innerHTML = "";
+    } finally {
+      btn.disabled = false; btn.innerHTML = "↻ Refresh";
+    }
+  }
+
+  document.getElementById("date").value = todayISO();
+  document.getElementById("date").addEventListener("change", load);
+  load();
+</script>
+</body>
+</html>

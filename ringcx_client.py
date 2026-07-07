@@ -1044,17 +1044,27 @@ class RingCXClient:
         try:
             self._ensure_rc_token()
             ext_names = self._fetch_extension_names()  # {ext_id: {name, ...}}
-            body = {
-                "grouping": {"groupBy": "Users"},
-                "timeRange": {
-                    "timeFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "timeTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                },
-                "responseOptions": {
-                    "counters": {"allCalls": {"aggregationType": "Sum"}},
-                    "timers": {"allCallsDuration": {"aggregationType": "Sum"}},
-                },
-            }
+
+            def _body(with_handle: bool) -> dict:
+                timers = {"allCallsDuration": {"aggregationType": "Sum"}}
+                if with_handle:
+                    # Total handle time (talk + hold + wrap). Not every account
+                    # exposes this timer on the aggregate endpoint, so the caller
+                    # self-heals to talk-only if the request is rejected.
+                    timers["handlingDuration"] = {"aggregationType": "Sum"}
+                return {
+                    "grouping": {"groupBy": "Users"},
+                    "timeRange": {
+                        "timeFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                        "timeTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    },
+                    "responseOptions": {
+                        "counters": {"allCalls": {"aggregationType": "Sum"}},
+                        "timers": timers,
+                    },
+                }
+
+            want_handle = True
             out: dict[str, dict] = {}
             page = 1
             while page <= 20:
@@ -1062,12 +1072,19 @@ class RingCXClient:
                     f"{self.server_url}/analytics/phone/performance/v1/accounts/{self.account_id}/calls/aggregate",
                     headers={**self._rc_headers(), "Content-Type": "application/json"},
                     params={"perPage": 1000, "page": page},
-                    json=body,
+                    json=_body(want_handle),
                     timeout=30,
                 )
                 if resp.status_code == 204:
                     break
                 if not resp.ok:
+                    # If the handle-time timer is what the API rejected, drop it
+                    # and retry the SAME page with talk-time only.
+                    if want_handle:
+                        log.info("Analytics handle-time timer rejected (%s) — retrying talk-only",
+                                 resp.status_code)
+                        want_handle = False
+                        continue
                     log.warning("Analytics aggregate failed %s: %s",
                                 resp.status_code, resp.text[:200])
                     return {}
@@ -1084,11 +1101,14 @@ class RingCXClient:
                     name = (ext_names.get(uid, {}).get("name") or kname or "").strip()
                     if not name:
                         continue
+                    tmr = rec.get("timers") or {}
                     calls = self._metric_value((rec.get("counters") or {}).get("allCalls"))
-                    talk = self._metric_value((rec.get("timers") or {}).get("allCallsDuration"))
-                    a = out.setdefault(name, {"calls": 0, "talk_seconds": 0})
+                    talk = self._metric_value(tmr.get("allCallsDuration"))
+                    handle = self._metric_value(tmr.get("handlingDuration")) if want_handle else 0
+                    a = out.setdefault(name, {"calls": 0, "talk_seconds": 0, "handle_seconds": 0})
                     a["calls"] += calls
                     a["talk_seconds"] += talk
+                    a["handle_seconds"] += handle
                 paging = data.get("paging") or {}
                 if page < (paging.get("totalPages") or 1):
                     page += 1
@@ -1123,6 +1143,7 @@ class RingCXClient:
             for name, a in agg.items():
                 a.setdefault("calls_under_3m", 0)
                 a.setdefault("calls_over_3m", 0)
+                a.setdefault("handle_seconds", 0)
 
             def _bucket_calls(calls):
                 for c in calls:
@@ -1174,7 +1195,8 @@ class RingCXClient:
         def add(agent: str, duration, ts: Optional[float]):
             agent = _resolve(agent)
             a = by_agent.setdefault(agent, {
-                "calls": 0, "calls_under_3m": 0, "calls_over_3m": 0, "talk_seconds": 0,
+                "calls": 0, "calls_under_3m": 0, "calls_over_3m": 0,
+                "talk_seconds": 0, "handle_seconds": 0,
             })
             try:
                 dur = int(duration or 0)

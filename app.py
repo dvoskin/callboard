@@ -453,6 +453,16 @@ def index_v2():
     return render_template("index_v2.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
 
 
+@app.route("/v2/agents")
+@login_required
+def agents_report_v2():
+    """Per-agent productivity report (talk/handle time, calls, calls >3m) for a
+    day. Consumes /api/agent-analytics (RingCentral Business Analytics, covering
+    both RingEX and RingCX)."""
+    user = session.get("user") or {}
+    return render_template("agents_report.html", current_user=user)
+
+
 def _parse_local_date_to_utc(
     date_str: str, hour: int, minute: int, second: int,
     tz_offset_minutes=None,
@@ -2378,6 +2388,7 @@ def api_agent_analytics():
                     "calls_under_3m": 0,
                     "calls_over_3m": 0,
                     "talk_seconds": 0,
+                    "handle_seconds": 0,
                     "quotes": 0,
                     "closings": 0,
                 }
@@ -2397,6 +2408,7 @@ def api_agent_analytics():
                     a["calls_under_3m"] += s.get("calls_under_3m", 0)
                     a["calls_over_3m"]  += s.get("calls_over_3m", 0)
                     a["talk_seconds"]   += s.get("talk_seconds", 0)
+                    a["handle_seconds"] += s.get("handle_seconds", 0)
             except Exception as ex:
                 log.warning("agent-analytics call stats failed: %s", ex)
 
@@ -2426,7 +2438,10 @@ def api_agent_analytics():
         )
         for r in rows:
             r["talk_minutes"] = round(r["talk_seconds"] / 60.0, 1)
+            r["handle_minutes"] = round(r.get("handle_seconds", 0) / 60.0, 1)
+            r["avg_talk_seconds"] = round(r["talk_seconds"] / r["calls"]) if r["calls"] else 0
 
+        handle_total = sum(r.get("handle_seconds", 0) for r in rows)
         totals = {
             "agents":         len(rows),
             "calls":          sum(r["calls"] for r in rows),
@@ -2434,6 +2449,9 @@ def api_agent_analytics():
             "calls_over_3m":  sum(r["calls_over_3m"] for r in rows),
             "talk_seconds":   sum(r["talk_seconds"] for r in rows),
             "talk_minutes":   round(sum(r["talk_seconds"] for r in rows) / 60.0, 1),
+            "handle_seconds": handle_total,
+            "handle_minutes": round(handle_total / 60.0, 1),
+            "has_handle_time": handle_total > 0,
             "quotes":         sum(r["quotes"] for r in rows),
             "closings":       sum(r["closings"] for r in rows),
         }
