@@ -539,6 +539,39 @@ def api_data():
         )
 
 
+@app.route("/api/call-now-deals")
+@login_required
+def call_now_deals():
+    """Call Now deals (Best Contact Time empty or before deal creation) for a
+    day. Always live (uncached). Loaded separately by the v2 board."""
+    tz_param = request.args.get("tz")
+    tz_offset_minutes = int(tz_param) if tz_param is not None else None
+    start_param = request.args.get("start")
+    end_param = request.args.get("end")
+    try:
+        if start_param:
+            eff_end = end_param or start_param
+            start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
+            end_dt   = _parse_local_date_to_utc(eff_end, 23, 59, 59, tz_offset_minutes)
+        else:
+            start_dt = end_dt = None
+        sup = None
+        if _ringcx.configured:
+            try:
+                sup = _ringcx.fetch_todays_outbound_calls()
+            except Exception:
+                pass
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_zoho.get_call_now_deals, start_dt=start_dt, end_dt=end_dt,
+                            supplemental_calls=sup)
+            data = fut.result(timeout=85)
+        return jsonify({"status": "ok", "last_updated": datetime.now(timezone.utc).isoformat(),
+                        "data": data})
+    except Exception as e:
+        log.exception("/api/call-now-deals error")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/scheduled-call/<rec_id>/resolve", methods=["POST"])
 @login_required
 def resolve_call(rec_id):

@@ -707,13 +707,16 @@ class ZohoClient:
             "caller": None,
         }
 
-    def _classify_scheduled_call(self, rec: dict, calls: list[dict]) -> dict:
+    def _classify_scheduled_call(self, rec: dict, calls: list[dict], apply_floor: bool = True) -> dict:
         """Classify a scheduled call against logged RingCX/MVP calls.
 
         Core principle: actual_call_time is always the RingCX call (with
         disposition) logged in Zoho whose Call_Start_Time is closest to
         the scheduled time.  MVP calls (RingEX, no disposition) contribute
         to dial_attempts and last_attempt_time but never set actual_call_time.
+
+        apply_floor=False skips the pre-9AM clamp — used by "Call Now" deals
+        where the target time is the exact deal-created time, not a slot.
         """
         scheduled = self._parse_dt(rec.get("Call_Start_Time") or rec.get("Call_Scheduled_Date"))
         if not scheduled:
@@ -723,7 +726,7 @@ class ZohoClient:
         # same-day match, offset, and on-time/late verdict agree with what the
         # board displays (previously the backend used the raw time and the
         # frontend floored to 9AM, so on-time dials could be scored "late").
-        effective_scheduled = self._effective_scheduled(scheduled)
+        effective_scheduled = self._effective_scheduled(scheduled) if apply_floor else scheduled
         now = datetime.now(timezone.utc)
 
         def mins_from_schedule(c):
@@ -1903,6 +1906,187 @@ class ZohoClient:
             "new_deals": {"records": nd_results, "summary": summary(nd_results, "new")},
             "scheduled_calls": {"records": sc_results, "summary": summary(sc_results, "scheduled")},
         }
+
+    # ───────────────────────── Call Now deals ─────────────────────────────────
+
+    def get_call_now_deals(self, start_dt=None, end_dt=None, supplemental_calls=None) -> dict:
+        """Deals created in the window whose Best_Contact_Time is empty or set
+        BEFORE the deal was created — these should be called ASAP after the deal
+        lands. Records are shaped like scheduled calls, with 'scheduled_time' =
+        the deal's Created_Time (no 9AM floor). Returns {"records": [...]}."""
+        import logging
+        log = logging.getLogger(__name__)
+        if start_dt and end_dt:
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        else:
+            start_str, end_str = self._call_window()
+
+        # 1. Deals created in the window.
+        deals, offset = [], 0
+        while offset <= 2000:
+            query = (
+                "select id, Deal_Name, Contact_Name, Phone, Stage, Created_Time, "
+                "Best_Contact_Time, Owner from Deals "
+                f"where Created_Time between '{start_str}' and '{end_str}' "
+                f"order by Created_Time desc limit 200 offset {offset}"
+            )
+            try:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql",
+                                     headers=self._headers(),
+                                     json={"select_query": query}, timeout=25)
+            except Exception as e:
+                log.warning("Call-now deals fetch error: %s", e); break
+            if resp.status_code == 204:
+                break
+            if not resp.ok:
+                log.warning("Call-now deals COQL failed %s: %s", resp.status_code, resp.text[:200]); break
+            data = resp.json()
+            deals.extend(data.get("data", []))
+            if not data.get("info", {}).get("more_records"):
+                break
+            offset += 200
+
+        # 2. Filter: Best_Contact_Time empty OR before Created_Time.
+        call_now = []
+        for d in deals:
+            created = self._parse_dt(d.get("Created_Time"))
+            bct = self._parse_dt(d.get("Best_Contact_Time"))
+            if not bct or (created and bct < created):
+                call_now.append(d)
+        log.info("Call-now deals: %d of %d deals created in window", len(call_now), len(deals))
+        if not call_now:
+            return {"records": []}
+
+        # 3. Contacts + phones.
+        contact_ids = list({
+            (d.get("Contact_Name") or {}).get("id")
+            for d in call_now
+            if isinstance(d.get("Contact_Name"), dict) and d["Contact_Name"].get("id")
+        })
+        contact_details = self._fetch_contact_details(contact_ids)
+        contact_phones = {cid: cd.get("phone") for cid, cd in contact_details.items()}
+
+        # 4. Calls (Subject-phone + Who_Id + RingEX supplemental), deduped by id.
+        all_phones = [p for p in contact_phones.values() if p]
+        ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
+        calls_by_whoid = self._fetch_calls_by_contact_ids(contact_ids, start_dt, end_dt)
+        for cid, calls in calls_by_whoid.items():
+            phone = contact_phones.get(cid)
+            if not phone:
+                continue
+            existing = ringcx_by_phone.setdefault(phone, [])
+            seen = {c.get("id") for c in existing if c.get("id")}
+            for c in calls:
+                if c.get("id") and c.get("id") not in seen:
+                    existing.append(c); seen.add(c.get("id"))
+        if supplemental_calls:
+            for phone, rex in supplemental_calls.items():
+                existing = ringcx_by_phone.setdefault(phone, [])
+                ex_ts = {}
+                for c in existing:
+                    t = self._parse_dt(c.get("Call_Start_Time"))
+                    if t:
+                        ex_ts[int(t.timestamp())] = c
+                for rc in rex:
+                    rt = self._parse_dt(rc.get("start_time"))
+                    if not rt:
+                        continue
+                    ts = int(rt.timestamp()); agent = rc.get("agent") or ""
+                    m = next((et for et in ex_ts if abs(ts - et) < 120), None)
+                    if m is not None:
+                        mc = ex_ts[m]; mc["_source"] = "ringex"
+                        if agent and not self._caller_name(mc):
+                            mc["Owner"] = {"name": agent}
+                        continue
+                    nc = {"Call_Start_Time": rc.get("start_time"),
+                          "Subject": f"Outgoing call to {rc.get('to_number', phone)}",
+                          "Outgoing_call_disposition": None,
+                          "Owner": {"name": agent} if agent else None,
+                          "Description": "", "_source": "ringex",
+                          "_duration": rc.get("duration", 0)}
+                    existing.append(nc); ex_ts[ts] = nc
+
+        def calls_for(cid, phone):
+            by_phone = ringcx_by_phone.get(phone, []) if phone else []
+            by_cid = calls_by_whoid.get(cid, []) if cid else []
+            if not by_cid:
+                return by_phone
+            if not by_phone:
+                return by_cid
+            merged = list(by_phone); seen = {c.get("id") for c in merged if c.get("id")}
+            for c in by_cid:
+                if c.get("id") and c.get("id") in seen:
+                    continue
+                merged.append(c)
+                if c.get("id"):
+                    seen.add(c.get("id"))
+            return merged
+
+        # 5. Build records — classify against the deal's created time (no floor).
+        results = []
+        for d in call_now:
+            con = d.get("Contact_Name") or {}
+            cid = con.get("id") if isinstance(con, dict) else None
+            cd = contact_details.get(cid) or {}
+            phone = cd.get("phone") or normalize_phone(d.get("Phone") or "")
+            name = (con.get("name") if isinstance(con, dict) else None) or d.get("Deal_Name") or "—"
+            synthetic = {
+                "id": d["id"],
+                "Call_Start_Time": d.get("Created_Time"),
+                "Who_Id": {"id": cid, "name": name} if cid else None,
+                "Subject": d.get("Deal_Name") or "",
+            }
+            cls = self._classify_scheduled_call(synthetic, calls_for(cid, phone), apply_floor=False)
+            results.append({
+                "id": d["id"], "id_contact": cid, "id_deal": d["id"],
+                "name": name, "phone": phone,
+                "lead_source": cd.get("lead_source", ""),
+                "deal_stage": d.get("Stage") or "",
+                "deal_name": d.get("Deal_Name") or "",
+                "created_time": d.get("Created_Time"),
+                "scheduled_time": d.get("Created_Time"),
+                "best_contact_time": d.get("Best_Contact_Time"),
+                **cls,
+            })
+
+        # 6. Resolve rep/caller owner IDs to names (same as the scheduled path).
+        unresolved = set()
+        for r in results:
+            if not r.get("caller") and r.get("_caller_owner_id"):
+                unresolved.add(str(r["_caller_owner_id"]))
+            for a in r.get("recent_attempts") or []:
+                if not a.get("rep") and a.get("_owner_id"):
+                    unresolved.add(str(a["_owner_id"]))
+        id_to_name = {}
+        for uid in unresolved:
+            for module in ("Calls", "Deals"):
+                try:
+                    resp = requests.get(f"{self.base_url}/crm/v6/{module}/search",
+                                        headers=self._headers(),
+                                        params={"criteria": f"(Owner:equals:{uid})",
+                                                "fields": "Owner", "per_page": 1}, timeout=10)
+                    if resp.ok:
+                        rows = resp.json().get("data", [])
+                        o = rows[0].get("Owner") if rows else None
+                        if isinstance(o, dict) and o.get("name"):
+                            id_to_name[uid] = o["name"]; break
+                except Exception:
+                    pass
+        for r in results:
+            if not r.get("caller"):
+                oid = r.pop("_caller_owner_id", None)
+                if oid and str(oid) in id_to_name:
+                    r["caller"] = id_to_name[str(oid)]
+            else:
+                r.pop("_caller_owner_id", None)
+            for a in r.get("recent_attempts") or []:
+                oid = a.pop("_owner_id", None)
+                if not a.get("rep") and oid and str(oid) in id_to_name:
+                    a["rep"] = id_to_name[str(oid)]
+
+        results.sort(key=lambda r: r.get("created_time") or "", reverse=True)
+        return {"records": results}
 
     # ───────────────────────── contact summary data ──────────────────────────
 

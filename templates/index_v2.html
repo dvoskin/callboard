@@ -335,7 +335,7 @@
 
     /* ════════════ v2 compact table ════════════ */
     /* Contact cell: name on top, phone · source · IG underneath */
-    #sc-activity-table td.col-name { overflow: visible; }
+    .sc-tbl td.col-name { overflow: visible; }
     .name-cell .name-link { font-weight: 600; font-size: 13px; }
     .name-leadsrc { font-size: 10.5px; color: var(--tertiary); margin-top: 1px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -346,11 +346,11 @@
     .sched-leadtz { font-size: 10px; color: var(--tertiary); font-feature-settings: "tnum"; white-space: nowrap; }
     .tz-abbr { font-size: 9px; color: var(--tertiary); font-weight: 600; }
     /* Compact single-line rows */
-    #sc-activity-table th, #sc-activity-table td { padding: 4px 8px; font-size: 12px; vertical-align: middle; line-height: 1.3; white-space: nowrap; }
-    #sc-activity-table td.col-name, #sc-activity-table td.col-notes { white-space: normal; }
-    #sc-thead-row th { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
-    #sc-activity-table .badge { font-size: 10px; padding: 1px 6px; }
-    #sc-activity-table .ts-cell { font-size: 12.5px; font-weight: 600; font-feature-settings: "tnum"; }
+    .sc-tbl th, .sc-tbl td { padding: 4px 8px; font-size: 12px; vertical-align: middle; line-height: 1.3; white-space: nowrap; }
+    .sc-tbl td.col-name, .sc-tbl td.col-notes { white-space: normal; }
+    #sc-thead-row th, #cn-thead-row th { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+    .sc-tbl .badge { font-size: 10px; padding: 1px 6px; }
+    .sc-tbl .ts-cell { font-size: 12.5px; font-weight: 600; font-feature-settings: "tnum"; }
     .table-scroll, .sc-table-wrap { max-width: 100%; overflow-x: auto; }
     /* Instant hover tooltip for ⚡/📝/ⓘ badges */
     .hint { position: relative; cursor: help; }
@@ -380,7 +380,7 @@
     .disp-nodial { color: var(--red-dk); }
     .disp-nodisp { color: var(--tertiary); font-weight: 500; font-style: italic; }
     /* ── Dials: minimal collapsed view + clean reveal ── */
-    #sc-activity-table td.col-dials { overflow: visible; }
+    .sc-tbl td.col-dials { overflow: visible; }
     .dials-min { display: inline-flex; align-items: center; gap: 5px; font-feature-settings: "tnum"; white-space: nowrap; }
     .dials-min .att-time { font-size: 12px; color: var(--text); }
     .manual-dot { width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; display: inline-block; flex-shrink: 0; }
@@ -404,14 +404,14 @@
     .att-dur-none { color: var(--tertiary); opacity: .6; }
     .att-more-pop .att-rep { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
     /* ── Center-align the compact value columns ── */
-    #sc-activity-table th.col-phone, #sc-activity-table td.col-phone,
-    #sc-activity-table th.col-scheduled, #sc-activity-table td.col-scheduled,
-    #sc-activity-table th.col-status, #sc-activity-table td.col-status,
-    #sc-activity-table th.col-result, #sc-activity-table td.col-result,
-    #sc-activity-table th.col-dials, #sc-activity-table td.col-dials,
-    #sc-activity-table th.col-disp, #sc-activity-table td.col-disp,
-    #sc-activity-table th.col-stage, #sc-activity-table td.col-stage { text-align: center; }
-    #sc-activity-table td.col-dials .dials-min { justify-content: center; }
+    .sc-tbl th.col-phone, .sc-tbl td.col-phone,
+    .sc-tbl th.col-scheduled, .sc-tbl td.col-scheduled,
+    .sc-tbl th.col-status, .sc-tbl td.col-status,
+    .sc-tbl th.col-result, .sc-tbl td.col-result,
+    .sc-tbl th.col-dials, .sc-tbl td.col-dials,
+    .sc-tbl th.col-disp, .sc-tbl td.col-disp,
+    .sc-tbl th.col-stage, .sc-tbl td.col-stage { text-align: center; }
+    .sc-tbl td.col-dials .dials-min { justify-content: center; }
     .phone-cell { font-feature-settings: "tnum"; font-size: 12px; color: var(--text); white-space: nowrap; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
@@ -2275,7 +2275,7 @@
       #sc-thead-row th { font-size: 10px; padding: 6px 8px; }
       .col-status { min-width: 60px; }
       .col-status .badge { font-size: 9px; padding: 2px 6px; white-space: nowrap; }
-      #sc-activity-table { table-layout: fixed !important; width: 100% !important; }
+      .sc-tbl { table-layout: fixed !important; width: 100% !important; }
       .col-name { width: 46% !important; }
       .col-sched { width: 30% !important; }
       .col-status { width: 24% !important; }
@@ -3767,7 +3767,7 @@
           </div>
         </div>
         <div class="table-wrap">
-          <table id="sc-activity-table">
+          <table id="sc-activity-table" class="sc-tbl">
             <thead>
               <tr id="sc-thead-row">
                 <th class="sortable col-name" onclick="sortSc('name')">Contact</th>
@@ -3803,7 +3803,36 @@
     </div>
   </div><!-- /card-activity -->
 
+  <!-- ── Call Now Deals card ── -->
+  <div class="card" id="card-call-now">
+    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0">📞 Call Now Deals</h2>
+      <span class="chip" id="call-now-count">0</span>
+      <span class="card-sub" id="call-now-sub" title="Deals whose Best Contact Time is empty or set before the deal was created — call ASAP after creation">Best Contact Time empty or before deal creation · uses the date range above</span>
+      <button class="filter-clear" id="call-now-refresh" onclick="loadCallNowDeals()" style="margin-left:auto" title="Reload">↻</button>
+    </div>
+    <div class="card-body">
+      <div class="table-scroll">
+        <table id="call-now-table" class="sc-table sc-tbl">
+          <thead>
+            <tr id="cn-thead-row">
+              <th class="sortable col-name" onclick="sortCallNow('name')">Contact</th>
+              <th class="col-phone">Phone</th>
+              <th class="col-leadsrc">Lead Source</th>
+              <th class="sortable col-scheduled" onclick="sortCallNow('created_time')">Deal Created</th>
+              <th class="col-status">Status</th>
+              <th class="col-dials">Dials</th>
+              <th class="col-disp">Disposition</th>
+            </tr>
+          </thead>
+          <tbody id="call-now-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /card-call-now -->
+
   </div><!-- /tab-live -->
+
 
   <!-- ══════════════════════ TAB: FOLLOW UP ══════════════════════ -->
   <!-- Hidden until activated. Contained cards only auto-fetch once the
@@ -4901,6 +4930,98 @@
       b.classList.toggle("active", b.dataset.sheet === owner));
     updateScCardSub();
     if (_scFullPayload) renderScheduledCalls(_scFullPayload);
+  }
+
+  // ─────────────────────────── Call Now Deals ───────────────────────────
+  function fmtPhoneNum(p) {
+    const d = String(p || "").replace(/\D/g, "");
+    const d10 = d.length === 11 && d[0] === "1" ? d.slice(1) : d;
+    return d10.length === 10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : (p || "");
+  }
+  // Shared dials cell (first attempt + "+N" reveal with durations).
+  function buildDialsCell(r) {
+    const dials = r.dial_attempts ?? 0;
+    const attList = r.recent_attempts || [];
+    const attT = a => a.time ? new Date(a.time).toLocaleTimeString("en-US",{timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
+    const attDur = s => { s = Math.round(Number(s)||0); if (s<=0) return `<span class="att-dur att-dur-none">—</span>`; const m=Math.floor(s/60), ss=String(s%60).padStart(2,"0"); return `<span class="att-dur">${m}:${ss}</span>`; };
+    const attRowFull = a => { const manual=a.source==="ringex"; const tag=manual?`<span class="att-tag att-manual">Manual</span>`:a.source==="ringcx"?`<span class="att-tag att-dialer">Dialer</span>`:""; const rep=a.rep?`<span class="att-rep">${_qEsc(a.rep)}</span>`:""; return `<div class="att-row"><span class="att-time">${attT(a)}</span>${attDur(a.duration)}${rep}${tag}</div>`; };
+    if (dials === 0) return `<span class="no-data">0</span>`;
+    if (attList.length) {
+      const a0 = attList[0];
+      const dot = a0.source==="ringex" ? `<span class="manual-dot" title="Manual dial"></span>` : "";
+      const firstMin = `<span class="att-time">${attT(a0)}</span>${dot}`;
+      if (attList.length === 1) return `<span class="dials-min">${firstMin}</span>`;
+      return `<span class="dials-min">${firstMin}<span class="att-more-wrap"><button class="att-more-btn" onclick="toggleAttMore(event, this)">+${attList.length-1}</button><div class="att-more-pop" hidden><div class="att-more-title">${dials} dial attempts</div>${attList.map(attRowFull).join("")}</div></span></span>`;
+    }
+    return `<span class="dials-val">${dials}</span>`;
+  }
+  // Shared disposition cell (stage → disposition tiers → not-called indicator).
+  function buildDispCell(r, notDialedLabel="⚠ Not called") {
+    const dials = r.dial_attempts ?? 0;
+    if (r.deal_stage && _isConvertedStage(r.deal_stage)) return `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
+    if (r.disposition) { const dl = r.disposition.trim().toLowerCase(); const notable = !_NO_CONTACT_DISP.has(dl); return `<span class="disp-text ${notable?"disp-notable":"disp-quiet"}">${r.disposition}</span>`; }
+    if (dials === 0) return `<span class="disp-flag disp-nodial">${notDialedLabel}</span>`;
+    return `<span class="disp-flag disp-nodisp">No disposition</span>`;
+  }
+
+  let _callNowRecords = [];
+  let _callNowSort = { key: "created_time", dir: -1 };
+  let _cnInFlight = false, _cnLastLoad = 0;
+  async function loadCallNowDeals(force = false) {
+    // Throttle: this is a separate ~45-85s live fetch — don't run it on every
+    // 15s auto-refresh. Force it on manual refresh / date change.
+    if (_cnInFlight) return;
+    if (!force && Date.now() - _cnLastLoad < 90000 && _callNowRecords.length) { renderCallNowDeals(); return; }
+    _cnInFlight = true;
+    const btn = document.getElementById("call-now-refresh");
+    if (btn) btn.textContent = "…";
+    try {
+      const tzOffset = new Date().getTimezoneOffset();
+      const s = document.getElementById("date-start").value || todayISO();
+      const e = document.getElementById("date-end").value || s;
+      const resp = await fetch(`/api/call-now-deals?tz=${tzOffset}&start=${s}&end=${e}&_nocache=${Date.now()}`);
+      const j = await resp.json();
+      _callNowRecords = (j.status === "ok" && j.data && j.data.records) || [];
+      _cnLastLoad = Date.now();
+    } catch(err) { /* keep last */ }
+    if (btn) btn.textContent = "↻";
+    _cnInFlight = false;
+    renderCallNowDeals();
+  }
+  function sortCallNow(key) {
+    if (_callNowSort.key === key) _callNowSort.dir *= -1;
+    else _callNowSort = { key, dir: key === "created_time" ? -1 : 1 };
+    renderCallNowDeals();
+  }
+  function renderCallNowDeals() {
+    const tbody = document.getElementById("call-now-tbody");
+    const cnt = document.getElementById("call-now-count");
+    if (!tbody) return;
+    const recs = sortedBy([...(_callNowRecords||[])], _callNowSort.key, _callNowSort.dir);
+    if (cnt) cnt.textContent = recs.length;
+    if (!recs.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No Call Now deals for this date range.</td></tr>`;
+      return;
+    }
+    const isSingleDay = document.getElementById("date-start").value === document.getElementById("date-end").value;
+    const cFmt = isSingleDay ? fmtTime : fmt;
+    tbody.innerHTML = recs.map(r => {
+      const createdCell = r.created_time ? `<span class="ts-cell">${cFmt(r.created_time)}</span>` : `<span class="no-data">—</span>`;
+      const phoneCell = r.phone ? `<span class="phone-cell">${fmtPhoneNum(r.phone)}</span>` : `<span class="no-data">—</span>`;
+      const leadCell = r.lead_source ? _qEsc(r.lead_source) : `<span class="no-data">—</span>`;
+      const isConverted = r.deal_stage && _isConvertedStage(r.deal_stage);
+      let cls = (r.status==="completed" ? "row-completed" : r.status==="missed" ? "row-missed" : "");
+      if (isConverted) cls += " row-converted";
+      return `<tr class="${cls}">
+        <td class="col-name">${nameCell(r, "Contacts", "")}</td>
+        <td class="col-phone">${phoneCell}</td>
+        <td class="col-leadsrc" style="font-size:11px">${leadCell}</td>
+        <td class="col-scheduled">${createdCell}</td>
+        <td class="col-status">${statusBadge(r.status, r.on_time)}</td>
+        <td class="col-dials">${buildDialsCell(r)}</td>
+        <td class="col-disp">${buildDispCell(r, "⚠ Not called")}</td>
+      </tr>`;
+    }).join("");
   }
 
   function renderScheduledCalls(scFull) {
@@ -6512,6 +6633,7 @@
       renderScheduledCalls(json.data.scheduled_calls);
       fetchPipelineCounts();
       syncExistingObservations();
+      loadCallNowDeals(!!startDate || opts.user === true);   // force on date/manual, else throttled
       _hideLoadingOverlay();
     } catch(e) {
       cdbLoading.classList.remove("show");
