@@ -123,6 +123,10 @@
     tbody tr.arow.open td { background: rgba(37,99,235,.06); }
     .agentname { font-weight: 600; }
     .muted { color: var(--tertiary); }
+    /* inline talk-time progress bar */
+    .talkcell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .tbar { width: 44px; height: 5px; border-radius: 3px; background: var(--sep); overflow: hidden; flex: 0 0 auto; }
+    .tbar > i { display: block; height: 100%; background: var(--blue); border-radius: 3px; }
     .rank { color: var(--tertiary); font-size: 11px; width: 26px; text-align: right; }
     thead th.rank { cursor: default; }
     tr.detail td { background: var(--surface2); text-align: left; white-space: normal; padding: 9px 12px 11px; }
@@ -231,12 +235,6 @@
         <table id="tbl"><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody><tfoot id="tfoot"></tfoot></table>
       </div></div>
 
-      <h2>Disposition breakdown <span class="lite" id="dispsub"></span></h2>
-      <div class="grid2">
-        <div class="panel pad"><h3>No contact / not dispositioned</h3><div id="dispNo"></div></div>
-        <div class="panel pad"><h3>Reached someone — outcomes</h3><div id="dispYes"></div></div>
-      </div>
-
       <details class="collapsible" id="queueDetail">
         <summary>Queue detail — campaign connect rates &amp; personal-book operators</summary>
         <div class="collapsible-body grid2">
@@ -250,8 +248,6 @@
   </div>
 
 <script>
-const NO_CONTACT_SET = new Set(["No Answer","Voicemail","Voicemail / No Answer","No Answer / Voicemail","Answering Machine"]);
-const NO_DISP_SET = new Set(["[No-Agent-Disp]","Disposition Timeout","No Disposition"]);
 let DATA = null, sortKey = "talk_secs", sortDir = -1, _lastFile = null;
 
 const $ = id => document.getElementById(id);
@@ -422,16 +418,6 @@ function render(){
 
   renderHead(); renderBody();
 
-  // dispositions
-  const noCon=[], out=[]; let noContactTotal=0;
-  DATA.dispositions.forEach(([k,v])=>{
-    if(NO_CONTACT_SET.has(k)||NO_DISP_SET.has(k)){ noCon.push([k,v]); noContactTotal+=v; }
-    else out.push([k,v]);
-  });
-  $("dispsub").textContent = "— "+fmt(t.outbound)+" outbound calls";
-  dispRows($("dispNo"), noCon, t.outbound, true);
-  dispRows($("dispYes"), out, t.outbound, false);
-
   $("note").innerHTML = `Durations use <b>Interaction Time</b> (the RingCX column reads in seconds despite its &ldquo;(min)&rdquo; label; Talk Time is left blank on most outbound legs). Column definitions are in the legend above the table.`;
 }
 
@@ -439,10 +425,6 @@ function stack(el,c,p,isTime){
   const tot=c+p||1, cp=100*c/tot, fc=isTime?hmsLong(c):fmt(c), fp=isTime?hmsLong(p):fmt(p);
   el.innerHTML=`<div class="stackbar"><span class="camp" style="width:${cp}%">${cp>12?Math.round(cp)+"%":""}</span><span class="pers" style="width:${100-cp}%">${100-cp>10?Math.round(100-cp)+"%":""}</span></div>
   <div class="leg"><span><span class="dot c"></span>Campaign <b class="num">${fc}</b></span><span><span class="dot p"></span>Personal <b class="num">${fp}</b></span></div>`;
-}
-function dispRows(el,data,total,grey){
-  const m=Math.max(1,...data.map(d=>d[1]));
-  el.innerHTML = data.map(d=>`<div class="mrow"><span class="lbl" title="${esc(d[0])}">${esc(d[0])}</span><span class="n num">${fmt(d[1])}</span><span class="pct num muted" style="font-weight:600">${(100*d[1]/total).toFixed(1)}%</span><div class="mbar"><div class="f ${grey?'grey':''}" style="width:${Math.max(d[1]/m*100,.8)}%"></div></div></div>`).join("");
 }
 
 const COLS=[
@@ -490,6 +472,7 @@ function renderHead(){
   });
 }
 function renderBody(){
+  const maxTalk=Math.max(1,...DATA.agents.map(a=>a.talk_secs));
   const rows=[...DATA.agents].sort((a,b)=>{
     const va=a[sortKey],vb=b[sortKey];
     return (typeof va==="string"? va.localeCompare(vb): (va-vb))*sortDir;
@@ -499,7 +482,7 @@ function renderBody(){
                    : '<span class="chip grey">no outcome dispositions</span>');
     return `<tr class="arow"><td class="rank">${i+1}</td><td class="left"><span class="agentname">${esc(a.name)}</span></td>
       <td class="num">${fmt(a.outbound)}</td>
-      <td class="num">${hmsLong(a.talk_secs)}</td>
+      <td class="num"><span class="talkcell">${hmsLong(a.talk_secs)}<span class="tbar"><i style="width:${Math.max(a.talk_secs/maxTalk*100,2)}%"></i></span></span></td>
       <td class="num muted">${hms(a.avg_secs)}</td><td class="num muted">${hms(a.longest_secs)}</td>
       <td class="num">${a.over3}</td><td class="num muted">${a.over10}</td>
       <td class="num">${fmt(a.camp)}</td><td class="num">${fmt(a.pers)}</td>
