@@ -753,52 +753,6 @@
       border-radius: 10px; padding: 2px 9px; color: var(--secondary);
       min-width: 22px; text-align: center;
     }
-    .overdue-zone {
-      margin-top: 24px; padding-top: 20px;
-      border-top: 2px solid rgba(239,68,68,.15);
-      border-radius: 0 0 var(--radius) var(--radius);
-    }
-    .overdue-zone .title { color: var(--red); font-size: 14px; }
-    .overdue-zone .chip  {
-      background: rgba(255,59,48,.08);
-      border-color: rgba(255,59,48,.2);
-      color: var(--red-dk);
-      font-weight: 800;
-    }
-    /* overdue section — unified control row */
-    .overdue-controls {
-      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-      padding: 11px 16px;
-      background: var(--surface2);
-      border-bottom: 1px solid var(--sep);
-      border-top: 1px solid var(--sep);
-    }
-    .overdue-controls input[type="text"] {
-      flex: 1; min-width: 130px; max-width: 200px;
-      padding: 5px 10px; border: 1px solid var(--border);
-      border-radius: 8px; font-size: 12px; font-family: inherit;
-      background: var(--surface); color: var(--text); outline: none;
-      transition: border-color .15s;
-    }
-    .overdue-controls input[type="text"]:focus { border-color: var(--blue); }
-    .overdue-controls select {
-      padding: 5px 8px; border: 1px solid var(--border);
-      border-radius: 8px; font-size: 12px; font-family: inherit;
-      background: var(--surface); color: var(--text);
-      outline: none; cursor: pointer;
-    }
-    .overdue-controls .od-spacer { flex: 1; }
-    .overdue-controls .resolved-count {
-      font-size: 11px; color: var(--secondary); font-weight: 500; white-space: nowrap;
-    }
-    .overdue-controls .toggle-resolved {
-      background: none; border: 1px solid var(--border);
-      color: var(--secondary); font-size: 11px; font-weight: 600;
-      padding: 4px 10px; border-radius: 14px;
-      cursor: pointer; font-family: inherit; white-space: nowrap;
-      transition: color .12s, border-color .12s;
-    }
-    .overdue-controls .toggle-resolved:hover { color: var(--blue); border-color: var(--blue); }
     .bulk-resolve-btn {
       display: none;
       background: var(--green); color: #fff;
@@ -816,7 +770,6 @@
       transition: color .12s;
     }
     .od-clear-btn:hover { color: var(--red); border-color: var(--red); }
-    .overdue-cb-col { width: 32px; text-align: center; padding: 0 4px !important; }
     .note-cell { min-width: 140px; }
     .note-wrap { display: flex; align-items: center; }
     .note-input {
@@ -1156,7 +1109,6 @@
     /* Card-header compaction — Scheduled Calls */
     #card-activity .card-header { padding: 8px 14px; }
     #card-activity .card-header h2,
-    #card-overdue .card-header h2 { font-size: 15px; }
     #card-activity .card-date-bar { padding: 6px 14px; }
     .col-fucall  { width: 44px; text-align: center; }
     .col-nxtstep { width: 110px; font-size: 10.5px; white-space: nowrap; }
@@ -1170,8 +1122,6 @@
                      border-radius: 5px; cursor: pointer; padding: 1px 5px; font-size: 11px;
                      color: #7c3aed; line-height: 1.4; }
     .sc-ai-btn:hover { background: rgba(139,92,246,.1); }
-    #card-overdue { border-left: 3px solid #ef4444; }
-    #card-overdue .card-header { background: rgba(239,68,68,.04); }
 
     /* "N need attention" pill — explicit spacing so the count + label don't collide */
     .q-attn-pill { padding: 2px 8px; line-height: 1.5; }
@@ -1956,42 +1906,10 @@
     }
 
     /* ══════════════ CRITICAL ALERT BANNER ══════════════ */
-    .alert-banner {
-      display: none;
-      background: linear-gradient(135deg, rgba(239,68,68,.08), rgba(239,68,68,.04));
-      border: 1px solid rgba(239,68,68,.25);
-      border-left: 4px solid var(--red);
-      border-radius: var(--radius);
-      padding: 14px 18px;
-      margin-bottom: 22px;
-      align-items: center; gap: 14px;
-      box-shadow: 0 2px 10px rgba(239,68,68,.08);
-    }
-    .alert-banner.show { display: flex; }
-    .alert-icon {
-      width: 36px; height: 36px; border-radius: 50%;
-      background: var(--red); color: #fff;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 17px; flex-shrink: 0;
-      animation: alert-pulse 1.8s ease-in-out infinite;
-    }
     @keyframes alert-pulse {
       0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.5); }
       50%     { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
     }
-    .alert-text { flex: 1; }
-    .alert-text h3 { font-size: 14px; font-weight: 700; color: var(--red-dk); }
-    .alert-text p  { font-size: 12px; color: var(--secondary); margin-top: 2px; font-weight: 500; }
-    .alert-cta {
-      background: var(--red); color: #fff; border: none;
-      border-radius: var(--radius-sm); padding: 7px 14px;
-      cursor: pointer; font-size: 12px; font-weight: 700;
-      font-family: inherit;
-      box-shadow: 0 2px 8px rgba(239,68,68,.4);
-      transition: opacity .15s, transform .1s;
-    }
-    .alert-cta:hover  { opacity: .9; }
-    .alert-cta:active { transform: scale(.97); }
 
     /* ══════════════ MANAGER PANELS (hourly + leaderboard) ══════════════ */
     .mgr-grid {
@@ -2223,11 +2141,6 @@
       .up-strip { display: none !important; }
 
       /* ── Alert banner: compact ── */
-      .alert-banner { flex-wrap: wrap; padding: 10px 12px; gap: 8px; border-radius: 10px; }
-      .alert-icon { width: 28px; height: 28px; font-size: 13px; }
-      .alert-text h3 { font-size: 12px; }
-      .alert-text p { font-size: 10px; margin-top: 2px; }
-      .alert-cta { width: 100%; text-align: center; padding: 7px 12px; font-size: 11px; }
 
       /* ── Schedule modal: full-screen bottom sheet ── */
       .modal-overlay { align-items: flex-end !important; }
@@ -2329,21 +2242,6 @@
       .lp-filter-list { max-height: 45vh; }
       .lp-filter-item { padding: 10px 12px; font-size: 14px; }
       .lp-filter-item input[type="checkbox"] { width: 18px; height: 18px; }
-
-      /* Hide Assigned To, Outcome, Resolved By on mobile */
-      #sc-tab-overdue table thead th:nth-child(9),
-      #sc-tab-overdue table tbody td:nth-child(9),
-      #sc-tab-overdue table thead th:nth-child(10),
-      #sc-tab-overdue table tbody td:nth-child(10),
-      #sc-tab-overdue table thead th:nth-child(11),
-      #sc-tab-overdue table tbody td:nth-child(11) { display: none; }
-
-      /* Alert banner: stack vertically */
-      .alert-banner { flex-wrap: wrap; padding: 11px 14px; gap: 10px; }
-      .alert-icon { width: 30px; height: 30px; font-size: 14px; }
-      .alert-text h3 { font-size: 13px; }
-      .alert-text p { font-size: 11px; }
-      .alert-cta { width: 100%; text-align: center; padding: 8px 14px; }
 
       /* Card */
       .card-header { padding: 14px 16px 0; }
@@ -2452,18 +2350,6 @@
       .col-phone, .col-lastdial, .col-source, .col-dials, .col-disp, .col-rec,
       .col-stage, .col-actual { display: none !important; }
 
-      /* Overdue table is its own beast — hide same columns there */
-      #sc-tab-overdue table thead th:nth-child(3),
-      #sc-tab-overdue table tbody td:nth-child(3),
-      #sc-tab-overdue table thead th:nth-child(5),
-      #sc-tab-overdue table tbody td:nth-child(5),
-      #sc-tab-overdue table thead th:nth-child(9),
-      #sc-tab-overdue table tbody td:nth-child(9),
-      #sc-tab-overdue table thead th:nth-child(10),
-      #sc-tab-overdue table tbody td:nth-child(10),
-      #sc-tab-overdue table thead th:nth-child(11),
-      #sc-tab-overdue table tbody td:nth-child(11) { display: none; }
-
       /* Cols menu becomes a bottom sheet on small screens */
       .cols-menu {
         position: fixed !important;
@@ -2491,7 +2377,6 @@
 
       /* Sub-headers */
       .sub-header .title { font-size: 12px; }
-      .overdue-toolbar { flex-wrap: wrap; gap: 8px; }
 
       /* Date range bar — compact row on mobile */
       .card-date-bar { padding: 8px 14px; gap: 5px; }
@@ -2505,12 +2390,6 @@
       /* Card header — wrap schedule button below */
       .card-header { flex-wrap: wrap; }
       .sched-btn { font-size: 11px; padding: 5px 10px; }
-
-      /* Overdue zone */
-      .overdue-zone { margin-top: 16px; padding-top: 14px; }
-      .overdue-controls { padding: 8px 12px; gap: 6px; }
-      .overdue-controls input[type="text"] { min-width: 100px; max-width: none; font-size: 12px; }
-      .overdue-controls select { font-size: 12px; }
 
       /* AI insights drawer: full-width on mobile */
       #summary-drawer { width: 100vw; right: -100vw; }
@@ -2550,11 +2429,6 @@
       .kpi-card .kpi-sub { font-size: 9.5px; margin-top: 3px; line-height: 1.3; }
 
       /* Alert banner — keep CTA tappable */
-      .alert-banner { padding: 10px 12px; gap: 8px; border-radius: 10px; }
-      .alert-icon { width: 26px; height: 26px; font-size: 12px; }
-      .alert-text h3 { font-size: 12px; }
-      .alert-text p { font-size: 10.5px; }
-      .alert-cta { padding: 7px 12px; font-size: 11px; min-height: 36px; min-width: 90px; }
 
       /* Card chrome */
       .card { border-radius: 14px; margin-bottom: 14px; }
@@ -2608,8 +2482,6 @@
         font-size: 10px; padding: 4px 8px; min-height: 28px; border-radius: 10px;
       }
 
-      /* Overdue zone */
-      .overdue-zone { margin-top: 14px; padding-top: 12px; }
       .note-input { font-size: 11px; padding: 3px 6px; }
       .lp-filter-btn { padding: 3px 6px; font-size: 10px; gap: 3px; }
       .lp-filter-badge { font-size: 9px; padding: 0 5px; }
@@ -3308,39 +3180,6 @@
       display: flex; justify-content: space-between;
     }
     /* ══════════════ FLOATING OVERDUE PILL (top-right) ══════════════ */
-    .od-float-pill {
-      position: fixed; top: 16px; right: 16px; z-index: 9999;
-      display: none; align-items: center; gap: 8px;
-      background: linear-gradient(135deg, #dc2626, #b91c1c);
-      color: #fff; padding: 10px 16px 10px 14px;
-      border-radius: 40px; font-size: 13px; font-weight: 600;
-      box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 0 rgba(220,38,38,.5);
-      cursor: pointer; user-select: none;
-      animation: od-pill-glow 2s ease-in-out infinite;
-      transition: transform .15s, opacity .2s;
-    }
-    .od-float-pill:hover { transform: scale(1.05); }
-    .od-float-pill.show { display: flex; }
-    .od-float-pill .od-pill-icon {
-      width: 22px; height: 22px; border-radius: 50%;
-      background: rgba(255,255,255,.2); display: flex;
-      align-items: center; justify-content: center; font-size: 12px;
-    }
-    .od-float-pill .od-pill-count {
-      background: #fff; color: #dc2626; font-weight: 700;
-      min-width: 22px; height: 22px; border-radius: 11px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 12px; padding: 0 6px;
-    }
-    .od-float-pill .od-pill-mute {
-      opacity: .6; margin-left: 2px; font-size: 15px;
-      cursor: pointer; padding: 2px;
-    }
-    .od-float-pill .od-pill-mute:hover { opacity: 1; }
-    @keyframes od-pill-glow {
-      0%, 100% { box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 0 rgba(220,38,38,.4); }
-      50%      { box-shadow: 0 4px 20px rgba(220,38,38,.4), 0 0 0 8px rgba(220,38,38,0); }
-    }
 
     /* ═════════════════ Dashboard tabs (Live / Follow Up) ═════════════════ */
     /* v2: only the Live Dashboard remains — hide the single-tab bar. */
@@ -3367,7 +3206,6 @@
       box-shadow: 0 1px 2px rgba(0,0,0,.05);
     }
     .dash-pane[hidden] { display: none !important; }
-
 
     /* ═══════════════════════════════════════════════════════════════════════
        UNIFIED HEADERS — one rule set governs every card-header and every
@@ -3450,8 +3288,6 @@
 
     /* Per-card accent strip — kept for Overdue, removed background tint on header
        (the strip alone signals severity; tinting the bar breaks visual uniformity). */
-    #card-overdue { border-left: 3px solid #ef4444; }
-    #card-overdue > .card-header { background: transparent; }
 
     /* Tighten on small screens — same rules, smaller padding. */
     @media (max-width: 800px) {
@@ -3586,26 +3422,6 @@
     </div>
   </div>
 
-  <!-- ══════════════════════ CRITICAL ALERT BANNER ══════════════════════ -->
-  <div class="alert-banner" id="alert-banner">
-    <div class="alert-icon">!</div>
-    <div class="alert-text">
-      <h3 id="alert-title">Needs attention</h3>
-      <p id="alert-desc"></p>
-    </div>
-    <button class="alert-cta" onclick="switchScTab('overdue')">Review →</button>
-  </div>
-
-  <!-- ══════════════════════ FLOATING OVERDUE PILL ══════════════════════ -->
-  <div class="od-float-pill" id="od-float-pill"
-       onclick="switchScTab('overdue')">
-    <span class="od-pill-icon">!</span>
-    <span id="od-pill-label">Overdue</span>
-    <span class="od-pill-count" id="od-pill-count">0</span>
-    <span class="od-pill-mute" id="od-pill-mute" title="Mute alert sound"
-          onclick="event.stopPropagation(); toggleOverdueMute();">🔔</span>
-  </div>
-
   <!-- ══════════════════════ LIVE MONITOR PANEL ══════════════════════ -->
   <div class="live-panel" id="live-panel" style="display:none">
     <div class="lp-header" onclick="toggleLivePanel()">
@@ -3660,51 +3476,6 @@
   </div>
 
   <!-- ══════════════════════ SCHEDULED CALLS ══════════════════════ -->
-  <!-- ── Overdue Calls card (shown only when overdue exist) ── -->
-  <div class="card" id="card-overdue" style="display:none">
-    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <h2>⚠️ Overdue Calls</h2>
-      <span class="chip" id="sc-overdue-count" style="font-size:10px;padding:1px 6px;background:rgba(239,68,68,.15);color:#b91c1c">0</span>
-      <div style="flex:1"></div>
-      <span class="resolved-count" id="sc-resolved-count"></span>
-      <button class="toggle-resolved" id="sc-toggle-resolved" onclick="toggleShowResolved()" style="display:none">Show resolved</button>
-      <button class="bulk-resolve-btn" id="sc-bulk-resolve" onclick="bulkResolveSelected()">✓ Resolve (<span id="sc-sel-count">0</span>)</button>
-    </div>
-    <div class="overdue-controls" style="padding:8px 12px;border-bottom:1px solid var(--border)">
-      <input type="text" id="od-search" placeholder="🔍  Name or phone…" oninput="renderOverdueTable()">
-      <select id="od-stage-filter" onchange="renderOverdueTable()">
-        <option value="">All Stages</option>
-      </select>
-      <button class="od-clear-btn" onclick="clearOverdueFilters()">✕</button>
-    </div>
-    <div id="sc-tab-overdue">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th class="overdue-cb-col"><input type="checkbox" id="od-select-all" onchange="toggleSelectAll(this)" title="Select all"></th>
-              <th class="sortable" onclick="sortOverdue('name')">Contact</th>
-              <th>Phone</th>
-              <th class="sortable" onclick="sortOverdue('scheduled_time')">Scheduled (EST)</th>
-              <th>Actual Call (EST)</th>
-              <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
-              <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
-              <th class="sortable" onclick="sortOverdue('lead_source')" style="width:80px">Lead Src</th>
-              <th class="sortable" onclick="sortOverdue('dial_attempts')">Dials</th>
-              <th class="sortable" onclick="sortOverdue('caller')" style="width:90px">Caller</th>
-              <th>Assigned To</th>
-              <th>Outcome</th>
-              <th>Resolved By</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="sc-overdue-tbody"></tbody>
-        </table>
-      </div>
-      <div style="padding:8px 12px;font-size:11px;color:var(--tertiary)" id="overdue-empty-msg">No overdue calls.</div>
-    </div>
-  </div><!-- /card-overdue -->
-
   <!-- ── Scheduled Calls (Activity) card ── -->
   <div class="card" id="card-activity">
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -3851,7 +3622,6 @@
   </div><!-- /card-call-now -->
 
   </div><!-- /tab-live -->
-
 
   <!-- ══════════════════════ TAB: FOLLOW UP ══════════════════════ -->
   <!-- Hidden until activated. Contained cards only auto-fetch once the
@@ -4040,9 +3810,6 @@
   let _scActivityRecords = [];
   let _scOverdueRecords  = [];
   let _scSort = { key: "scheduled_time", dir: 1 };  // earliest first by default
-  let _overdueSort = { key: "minutes_overdue", dir: -1 };
-  let _overdueSelected = new Set();
-  let _showResolved = false;
   let _customDateActive = false;
 
   // Anomaly & coaching flag state (purely client-side)
@@ -4338,83 +4105,6 @@
     _scSort.key = key;
     drawScTable();
   }
-  function sortOverdue(key) {
-    _overdueSort.dir = _overdueSort.key===key ? -_overdueSort.dir : -1;
-    _overdueSort.key = key;
-    renderOverdueTable();
-  }
-  function toggleSelectAll(cb) {
-    const tbody = document.getElementById("sc-overdue-tbody");
-    tbody.querySelectorAll("input.od-cb").forEach(c => {
-      c.checked = cb.checked;
-      const id = c.dataset.id;
-      cb.checked ? _overdueSelected.add(id) : _overdueSelected.delete(id);
-    });
-    _updateBulkBtn();
-  }
-  function _updateBulkBtn() {
-    const btn = document.getElementById("sc-bulk-resolve");
-    const cnt = document.getElementById("sc-sel-count");
-    const n = _overdueSelected.size;
-    btn.style.display = n > 0 ? "" : "none";
-    cnt.textContent = n;
-  }
-  function onOverdueCbChange(cb) {
-    const id = cb.dataset.id;
-    cb.checked ? _overdueSelected.add(id) : _overdueSelected.delete(id);
-    const allCb = document.getElementById("od-select-all");
-    const allVisible = [...document.querySelectorAll("#sc-overdue-tbody input.od-cb")];
-    allCb.checked = allVisible.length > 0 && allVisible.every(c => c.checked);
-    allCb.indeterminate = !allCb.checked && allVisible.some(c => c.checked);
-    _updateBulkBtn();
-  }
-  async function bulkResolveSelected() {
-    const ids = [..._overdueSelected];
-    if (!ids.length) return;
-    const missing = [];
-    ids.forEach(id => {
-      const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
-      if (!rbInput?.value?.trim()) missing.push(rbInput);
-    });
-    if (missing.length) {
-      missing.forEach(el => {
-        el?.focus();
-        el?.classList.add("note-required");
-        setTimeout(() => el?.classList.remove("note-required"), 2000);
-      });
-      if (missing[0]) missing[0].focus();
-      return;
-    }
-    await Promise.all(ids.map(id => {
-      const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
-      return fetch(`/api/scheduled-call/${id}/resolve`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({resolved_by: rbInput?.value?.trim() || ""}),
-      });
-    }));
-    _overdueSelected.clear();
-    _updateBulkBtn();
-    document.getElementById("od-select-all").checked = false;
-    document.getElementById("od-select-all").indeterminate = false;
-    _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
-    _scActivityRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
-    renderOverdueTable();
-    drawScTable();
-    refreshAlertCounts();
-  }
-  function clearOverdueFilters() {
-    document.getElementById("od-search").value = "";
-    document.getElementById("od-stage-filter").value = "";
-    renderOverdueTable();
-  }
-  function populateOverdueStages(records) {
-    const sel = document.getElementById("od-stage-filter");
-    const cur = sel.value;
-    const stages = [...new Set(records.map(r => r.deal_stage).filter(Boolean))].sort();
-    sel.innerHTML = `<option value="">All Stages</option>`
-      + stages.map(s => `<option value="${s}"${s===cur?" selected":""}>${s}</option>`).join("");
-  }
   function populateDisp(selId, records) {
     const sel=document.getElementById(selId), cur=sel.value;
     const disps=[...new Set(records.map(r=>r.disposition).filter(Boolean))].sort();
@@ -4676,18 +4366,6 @@
       </div>`,
     ].join("");
     document.getElementById("hero-grid").innerHTML = html;
-
-    // alert banner
-    const ab = document.getElementById("alert-banner");
-    if (overdue.length > 0) {
-      ab.classList.add("show");
-      document.getElementById("alert-title").textContent =
-        `${overdue.length} call${overdue.length>1?"s":""} overdue`;
-      document.getElementById("alert-desc").textContent =
-        `These contacts haven't been dialed since their scheduled slot. Some may be closed through manual outreach already.`;
-    } else {
-      ab.classList.remove("show");
-    }
   }
 
   // ─── Pipeline counter tiles ───
@@ -5133,11 +4811,11 @@
                 && new Date(r.scheduled_time).getTime() > nowMs)
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
     const past = sc.records.filter(r => r.status !== "upcoming" && r.status !== "pending");
-    // Pending calls (0-15 min) stay in main list; long-overdue (missed) calls
-    // are removed from the Activity table entirely and live only in the
-    // Overdue table below.
+    // Every scheduled call — overdue or not — stays in the single Activity
+    // table, ordered earliest → latest. `overdue` is still derived, but only to
+    // drive the "Needs Attention" KPI; it no longer pulls rows out of the table.
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    const activity = sc.records.filter(r => !isOverdueRow(r));
+    const activity = sc.records;
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;
@@ -5197,139 +4875,7 @@
     drawScTable();
     document.dispatchEvent(new Event("scDataLoaded"));
 
-    renderOverdueTable();
-
     renderUpcomingList();
-  }
-
-  function renderOverdueTable() {
-    const all  = _scOverdueRecords;
-    const resolvedN = all.filter(r => r.resolved).length;
-
-    const resolvedLbl = document.getElementById("sc-resolved-count");
-    const toggleBtn   = document.getElementById("sc-toggle-resolved");
-    if (resolvedN > 0) {
-      resolvedLbl.textContent = `${resolvedN} resolved & hidden`;
-      toggleBtn.style.display = "";
-      toggleBtn.textContent = _showResolved ? "Hide resolved" : "Show resolved";
-    } else {
-      resolvedLbl.textContent = "";
-      toggleBtn.style.display = "none";
-    }
-
-    // Show/hide overdue card
-    const overdueCard = document.getElementById("card-overdue");
-    if (!all.length) {
-      if (overdueCard) overdueCard.style.display = "none";
-      return;
-    }
-    if (overdueCard) {
-      overdueCard.style.display = "";
-    }
-
-    // Populate stage filter
-    populateOverdueStages(all);
-
-    // Apply search / stage filter
-    const q     = (document.getElementById("od-search").value || "").toLowerCase();
-    const stage = document.getElementById("od-stage-filter").value;
-    let visible = _showResolved ? all : all.filter(r => !r.resolved);
-    if (q)     visible = visible.filter(r => (r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q));
-    if (stage) visible = visible.filter(r => r.deal_stage === stage);
-
-    document.getElementById("sc-overdue-count").textContent = visible.length;
-
-    if (!visible.length) {
-      document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="14" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
-      // Reset select-all
-      const allCb = document.getElementById("od-select-all");
-      allCb.checked = false; allCb.indeterminate = false;
-      return;
-    }
-
-    // Apply sort
-    const sorted = sortedBy(visible, _overdueSort.key, _overdueSort.dir);
-    updateSortHeaders("sc-tab-overdue", _overdueSort);
-
-    document.getElementById("sc-overdue-tbody").innerHTML = sorted.map(r => {
-      const stagePill = r.deal_stage
-        ? `<span class="stage-tag ${stageClass(r.deal_stage)}">${r.deal_stage}</span>` : `<span class="no-data">—</span>`;
-      const dials = r.dial_attempts??0;
-      const odAttList = r.recent_attempts || [];
-      const odActualCell = r.actual_call_time
-        ? `<span style="color:var(--text);font-weight:600;font-feature-settings:'tnum';font-size:12px">${fmt(r.actual_call_time)}</span>`
-        : `<span class="no-data">—</span>`;
-      const action = r.resolved
-        ? `<button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`
-        : `<button class="resolve-btn"   onclick="markResolved('${r.id}')"   title="Clear from concerns">✓ Resolve</button>`;
-      let odDialsCell;
-      if (dials === 0) {
-        odDialsCell = `<span class="no-data">0</span>`;
-      } else if (odAttList.length > 0) {
-        const rows = odAttList.map(a => {
-          const t = a.time ? new Date(a.time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"}) : "—";
-          const rep = a.rep ? `<span class="att-rep">${a.rep}</span>` : "";
-          return `<div class="att-row"><span class="att-time">${t}</span>${rep}</div>`;
-        }).join("");
-        odDialsCell = `<div class="att-list">${rows}</div>`;
-      } else {
-        odDialsCell = `<span class="dials-val">${dials}</span>`;
-      }
-      const odCallerCell = r.caller
-        ? `<span style="font-size:11px">${_qEsc(r.caller)}</span>`
-        : `<span class="no-data">—</span>`;
-      const isSel = _overdueSelected.has(r.id);
-      const odLang = (r.language || "").toLowerCase();
-      const odLangTag = odLang.startsWith("sp") || odLang.startsWith("es")
-        ? `<span class="lang-badge lang-es">ES</span>`
-        : `<span class="lang-badge lang-en">EN</span>`;
-      const odLastMin = r.last_minute
-        ? ` <span class="last-min-badge" title="Last-minute: created less than 15 min before scheduled time">⚡</span>`
-        : "";
-      const odConverted = r.deal_stage && _isConvertedStage(r.deal_stage);
-      return `<tr class="row-overdue${r.resolved?" is-resolved":""}${isSel?" is-selected":""}${odConverted?" row-converted":""}">
-        <td class="overdue-cb-col"><input type="checkbox" class="od-cb" data-id="${r.id}" ${isSel?"checked":""} onchange="onOverdueCbChange(this)"></td>
-        <td>${nameCell(r, "Contacts", odLangTag + odLastMin)}</td>
-        <td class="phone-cell">${r.phone || '<span class="no-data">—</span>'}</td>
-        <td style="font-feature-settings:'tnum';font-size:12px;color:var(--secondary)">${(document.getElementById("date-start").value === document.getElementById("date-end").value ? fmtTime : fmt)(r.scheduled_time)}</td>
-        <td>${odActualCell}</td>
-        <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
-        <td>${stagePill}</td>
-        <td style="font-size:11px">${r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'}</td>
-        <td>${odDialsCell}</td>
-        <td>${odCallerCell}</td>
-        <td class="od-assigned-cell">
-          <input type="text" class="note-input od-assigned-input" data-id="${r.id}"
-            value="${(r.assigned_to || r.deal_owner || '').replace(/"/g,'&quot;')}"
-            placeholder="Assign to…"
-            onblur="saveAssignedTo(this)"
-            onkeydown="if(event.key==='Enter'){this.blur()}"
-          >
-        </td>
-        <td class="od-outcome-cell">${odOutcome(r)}</td>
-        <td class="od-resolvedby-cell">
-          <input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
-            value="${(r.resolved_by||'').replace(/"/g,'&quot;')}"
-            placeholder="Your name"
-            onblur="saveResolvedBy(this)"
-            onkeydown="if(event.key==='Enter'){this.blur()}"
-          >
-        </td>
-        <td style="text-align:right">${action}</td>
-      </tr>`;
-    }).join("");
-
-    // Sync select-all checkbox state
-    const allCbs = [...document.querySelectorAll("#sc-overdue-tbody input.od-cb")];
-    const allCb = document.getElementById("od-select-all");
-    allCb.checked = allCbs.length > 0 && allCbs.every(c => c.checked);
-    allCb.indeterminate = !allCb.checked && allCbs.some(c => c.checked);
-  }
-
-  function toggleShowResolved() {
-    _showResolved = !_showResolved;
-    renderOverdueTable();
   }
 
   async function markResolved(id) {
@@ -5345,7 +4891,6 @@
     if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; }
     const actRec = _scActivityRecords.find(r => r.id === id);
     if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; }
-    renderOverdueTable();
     drawScTable();
     try {
       await fetch(`/api/scheduled-call/${id}/resolve`, {
@@ -5356,7 +4901,6 @@
     } catch (e) {
       if (rec) rec.resolved = false;
       if (actRec) actRec.resolved = false;
-      renderOverdueTable();
       drawScTable();
     }
     refreshAlertCounts();
@@ -5367,14 +4911,12 @@
     if (rec) rec.resolved = false;
     const actRec = _scActivityRecords.find(r => r.id === id);
     if (actRec) actRec.resolved = false;
-    renderOverdueTable();
     drawScTable();
     try {
       await fetch(`/api/scheduled-call/${id}/unresolve`, { method: "POST" });
     } catch (e) {
       if (rec) rec.resolved = true;
       if (actRec) actRec.resolved = true;
-      renderOverdueTable();
       drawScTable();
     }
     refreshAlertCounts();
@@ -5479,81 +5021,10 @@
     return `<span class="od-outcome-tag" style="color:${color}">${parts.join(" · ")}</span>`;
   }
 
-  // ─── Overdue alert tone ───
-  let _odMuted = localStorage.getItem("od_muted") === "1";
-  let _odToneInterval = null;
-  const _odAudioCtx = typeof AudioContext !== "undefined" ? new AudioContext() : null;
-
-  function playOverdueTone() {
-    if (_odMuted || !_odAudioCtx) return;
-    // Resume context if suspended (browser autoplay policy)
-    if (_odAudioCtx.state === "suspended") _odAudioCtx.resume();
-    const osc = _odAudioCtx.createOscillator();
-    const gain = _odAudioCtx.createGain();
-    osc.connect(gain); gain.connect(_odAudioCtx.destination);
-    osc.frequency.value = 880;
-    osc.type = "sine";
-    gain.gain.setValueAtTime(0.12, _odAudioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, _odAudioCtx.currentTime + 0.4);
-    osc.start(_odAudioCtx.currentTime);
-    osc.stop(_odAudioCtx.currentTime + 0.4);
-    // Second beep after short pause
-    setTimeout(() => {
-      const osc2 = _odAudioCtx.createOscillator();
-      const g2 = _odAudioCtx.createGain();
-      osc2.connect(g2); g2.connect(_odAudioCtx.destination);
-      osc2.frequency.value = 1100;
-      osc2.type = "sine";
-      g2.gain.setValueAtTime(0.10, _odAudioCtx.currentTime);
-      g2.gain.exponentialRampToValueAtTime(0.001, _odAudioCtx.currentTime + 0.3);
-      osc2.start(_odAudioCtx.currentTime);
-      osc2.stop(_odAudioCtx.currentTime + 0.3);
-    }, 150);
-  }
-
-  function startOverdueToneLoop() {
-    if (_odToneInterval) return;
-    playOverdueTone();
-    _odToneInterval = setInterval(playOverdueTone, 12000); // every 12s
-  }
-
-  function stopOverdueToneLoop() {
-    if (_odToneInterval) { clearInterval(_odToneInterval); _odToneInterval = null; }
-  }
-
-  function toggleOverdueMute() {
-    _odMuted = !_odMuted;
-    localStorage.setItem("od_muted", _odMuted ? "1" : "0");
-    document.getElementById("od-pill-mute").textContent = _odMuted ? "🔇" : "🔔";
-    if (_odMuted) stopOverdueToneLoop();
-    else if ((_scOverdueRecords || []).filter(r => !r.resolved).length > 0) startOverdueToneLoop();
-  }
-
   function refreshAlertCounts() {
-    // Recompute alert banner using current unresolved overdue count
+    // Overdue calls stay in the Scheduled Calls table; the only thing left to
+    // refresh is the "Needs Attention" hero KPI.
     const unresolved = _scOverdueRecords.filter(r => !r.resolved).length;
-    const ab = document.getElementById("alert-banner");
-    if (unresolved > 0) {
-      ab.classList.add("show");
-      document.getElementById("alert-title").textContent =
-        `${unresolved} call${unresolved>1?"s":""} overdue`;
-    } else {
-      ab.classList.remove("show");
-    }
-    // Floating pill
-    const pill = document.getElementById("od-float-pill");
-    if (unresolved > 0) {
-      pill.classList.add("show");
-      document.getElementById("od-pill-count").textContent = unresolved;
-      document.getElementById("od-pill-label").textContent =
-        unresolved === 1 ? "Overdue" : "Overdue";
-      document.getElementById("od-pill-mute").textContent = _odMuted ? "🔇" : "🔔";
-      startOverdueToneLoop();
-    } else {
-      pill.classList.remove("show");
-      stopOverdueToneLoop();
-    }
-    // Update hero KPI "needs attention" card if it exists
     const k = document.querySelector("#hero-grid .kpi-card:last-child");
     if (k) {
       const v = k.querySelector(".kpi-val");
@@ -6598,10 +6069,7 @@
     setTimeout(() => { ov.style.display = "none"; }, 420);
   }
   function _clearStaleUI() {
-    document.getElementById("alert-banner").classList.remove("show");
     document.getElementById("ai-banner").classList.remove("show");
-    const _odCard = document.getElementById("card-overdue");
-    if (_odCard) _odCard.style.display = "none";
     document.getElementById("hero-grid").innerHTML = `
       <div class="kpi-card"><div class="kpi-lbl">Total Today</div><div class="kpi-val dim">—</div></div>
       <div class="kpi-card"><div class="kpi-lbl">Completion Rate</div><div class="kpi-val dim">—</div></div>
@@ -9216,9 +8684,9 @@
     return `<span class="stage-tag" style="background:rgba(148,163,184,.12);color:var(--secondary);white-space:nowrap">📄 Quote Sent</span>`;
   }
 
-  function switchScTab(tab) {
-    const cardMap = { overdue: "card-overdue", activity: "card-activity" };
-    const el = document.getElementById(cardMap[tab] || "card-activity");
+  function switchScTab() {
+    // Single destination now — every scheduled call lives in the Activity card.
+    const el = document.getElementById("card-activity");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
