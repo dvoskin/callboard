@@ -1612,10 +1612,9 @@ class ZohoClient:
         contact_details = self._fetch_contact_details(contact_ids)
         contact_phones = {cid: d["phone"] for cid, d in contact_details.items()}
 
-        # Deals linked directly to a scheduled call (What_Id). Fetched up-front —
-        # not just for the stage, but because a call with no Who_Id has no contact
-        # phone, and the deal's Phone is the only way to both display a number and
-        # match that patient's dial attempts below.
+        # Deals linked directly to a scheduled call (What_Id). Fetched up-front so
+        # sched_phone() below can fall back to the deal's Phone for a call that has
+        # no Who_Id. Same request count as fetching it later — just reordered.
         linked_deal_ids = list({
             self._lookup_id(c, "What_Id") for c in sched_call_records
             if self._lookup_id(c, "What_Id")
@@ -1626,7 +1625,16 @@ class ZohoClient:
             deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
 
         def sched_phone(rec) -> Optional[str]:
-            """Best-known phone for a scheduled call: contact first, then deal."""
+            """Best-known phone for a scheduled call: contact first, then deal.
+
+            Display only. Deliberately NOT used to build `all_phones` below: the
+            Subject-like COQL search allows just 2 phones per query (BATCH = 2),
+            so every extra phone costs another sequential round-trip inside a
+            60s refresh loop that already fires ~64 of them on a single worker.
+            Feeding deal phones in there would let Who_Id-less rows match their
+            own dials, but it starved Render's 5s health check. Revisit once the
+            refresh no longer runs in the web process.
+            """
             cid = self._lookup_id(rec, "Who_Id")
             phone = contact_phones.get(cid) if cid else None
             if phone:
@@ -1638,7 +1646,7 @@ class ZohoClient:
         # Two strategies: (1) Subject-like phone match, (2) Who_Id contact match.
         # Many RingCX dialer calls have subjects like "OUT - Campaign" without
         # the phone number, so Subject-only misses them.
-        all_phones = [p for p in (sched_phone(c) for c in sched_call_records) if p]
+        all_phones = [p for p in contact_phones.values() if p]
         log.info("Fetching outbound calls for %d unique phones...", len(set(all_phones)))
         ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
 
@@ -1727,8 +1735,10 @@ class ZohoClient:
             return nd_phone_to_calls.get(n, []) if n else []
 
         def sc_calls_for(sched_record):
+            # Contact phone only — `ringcx_by_phone` is keyed off `all_phones`,
+            # which deliberately excludes deal phones (see sched_phone).
             cid = self._lookup_id(sched_record, "Who_Id")
-            phone = sched_phone(sched_record)
+            phone = contact_phones.get(cid) if cid else None
             by_phone = ringcx_by_phone.get(phone, []) if phone else []
             by_cid = calls_by_whoid.get(cid, []) if cid else []
             if not by_cid:
