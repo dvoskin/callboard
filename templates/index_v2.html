@@ -790,6 +790,13 @@
     .od-assigned-input { max-width: 120px; }
     .od-resolvedby-cell { min-width: 100px; }
     .od-resolvedby-input { max-width: 120px; }
+    /* Resolve column in the Scheduled Calls table — only overdue rows fill it. */
+    .col-resolve { white-space: nowrap; }
+    .col-resolve .od-resolvedby-input { max-width: 96px; }
+    .resolved-by-tag {
+      font-size: 11px; font-weight: 600; color: var(--green-dk);
+      margin-right: 6px; white-space: nowrap;
+    }
     tr.is-selected td { background: rgba(37,99,235,.05) !important; }
     tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
 
@@ -3573,6 +3580,7 @@
                 <th class="sortable col-leadsrc" onclick="sortSc('lead_source')" style="width:90px">Lead Src</th>
                 <th class="col-sms" style="width:40px" title="Send auto SMS (after 5+ dials, one-time)">💬</th>
                 <th class="col-notes" style="min-width:180px" title="Latest CRM note / AI summary">CRM Note</th>
+                <th class="col-resolve" style="width:170px" title="Clear an overdue call once it's been handled">Resolve</th>
                 <th class="col-actions" style="width:48px" title="Edit / delete">✎</th>
               </tr>
             </thead>
@@ -3806,6 +3814,11 @@
   const CURRENT_USER_NAME = {{ (current_user.name or '')|tojson }};
   const ZOHO_ORG = "goalsplasticsurgery";
   const OVERDUE_MIN = 0;
+
+  // A call that blew past its slot with no dial. Drives the "Needs Attention"
+  // KPI and decides which rows get a Resolve button.
+  const isOverdueRow = r =>
+    r.status === "missed" && (r.minutes_overdue || 0) > OVERDUE_MIN && !r.completed_via_workflow;
 
   let _upcomingCalls = [];
   let _scActivityRecords = [];
@@ -4815,7 +4828,6 @@
     // Every scheduled call — overdue or not — stays in the single Activity
     // table, ordered earliest → latest. `overdue` is still derived, but only to
     // drive the "Needs Attention" KPI; it no longer pulls rows out of the table.
-    const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
     const activity = sc.records;
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
@@ -4877,6 +4889,21 @@
     document.dispatchEvent(new Event("scDataLoaded"));
 
     renderUpcomingList();
+  }
+
+  // Resolve control for a row in the Scheduled Calls table. Only overdue calls
+  // can be resolved — everything else renders a dash so the column stays quiet.
+  function _scResolveCell(r) {
+    if (r.resolved) {
+      const by = r.resolved_by ? ` by ${_qEsc(r.resolved_by)}` : "";
+      return `<span class="resolved-by-tag" title="Resolved${by}">✓ Resolved${by}</span>
+        <button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`;
+    }
+    if (!isOverdueRow(r)) return `<span class="no-data">—</span>`;
+    return `<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+        value="${(r.resolved_by||'').replace(/"/g,'&quot;')}" placeholder="Your name"
+        onblur="saveResolvedBy(this)" onkeydown="if(event.key==='Enter'){this.blur()}">
+      <button class="resolve-btn" onclick="markResolved('${r.id}')" title="Clear from concerns">✓ Resolve</button>`;
   }
 
   async function markResolved(id) {
@@ -5060,6 +5087,7 @@
     { key: "nxtstep",    label: "Next FU",          default: false },
     { key: "sms",        label: "💬 Auto SMS",      default: false },
     { key: "notes",      label: "CRM Note",         default: false },
+    { key: "resolve",    label: "Resolve",          default: true  },
     { key: "actions",    label: "Edit / Delete",    always: true  },
   ];
   function _colIsVisible(c) {
@@ -5486,7 +5514,7 @@
 
     const tbody = document.getElementById("sc-tbody");
     if (!rows.length) {
-      tbody.innerHTML=`<tr><td colspan="24" class="empty-state">No matching records.</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="25" class="empty-state">No matching records.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map(r => {
@@ -5860,6 +5888,7 @@
         }</td>
         <td style="text-align:center" class="col-sms">${_smsBtn(r)}</td>
         <td class="col-notes">${_scNotesCell(r.id_deal, r.id)}</td>
+        <td class="col-resolve">${_scResolveCell(r)}</td>
         <td class="col-actions" style="text-align:center"><button class="row-act-btn" title="Edit or delete this scheduled call" data-id="${r.id}" data-name="${_qEsc(r.name||'')}" data-time="${_qEsc(r.scheduled_time||'')}" data-owner="${_qEsc(r.owner||r.deal_owner||r.caller||'')}" onclick="openEditCallModal(this)">✎</button></td>
       </tr>`;
     }).join("");
@@ -5887,7 +5916,7 @@
         const connected = gRows.filter(r => r.actual_call_time).length;
         const pct = gRows.length > 0 ? Math.round((connected / gRows.length) * 100) : 0;
         gbHtml += `<tr class="group-header-row collapsed" data-group="${gName}" onclick="toggleGroup(this)">
-          <td colspan="24"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
+          <td colspan="25"><span class="group-caret">▾</span>${gName}<span class="group-stats">${gRows.length} calls · ${completed} completed · ${pct}% connect</span></td></tr>`;
         trs.filter(tr => tr.dataset.group === gName).forEach(tr => { gbHtml += tr.outerHTML.replace('<tr ', '<tr style="display:none" '); });
       }
       tbody.innerHTML = gbHtml;
