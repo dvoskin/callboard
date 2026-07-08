@@ -448,6 +448,8 @@
     .name-link  { color: var(--text); text-decoration: none; font-weight: 600; font-size: 12.5px; }
     .name-link:hover { color: var(--blue); text-decoration: underline; }
     .phone-cell { font-family: "SF Mono","Fira Code",monospace; font-size: 11.5px; color: var(--secondary); letter-spacing: -.2px; }
+    a.phone-cell { text-decoration: none; }
+    a.phone-cell:hover { text-decoration: underline; }
     .dim        { font-size: 12px; color: var(--secondary); }
     .empty-state{ padding: 36px; text-align:center; color:var(--tertiary); font-size:13px; font-weight:500; }
     .no-data { color: var(--tertiary); opacity: .35; font-size: 11px; font-weight: 400; letter-spacing: .02em; user-select: none; }
@@ -2187,10 +2189,9 @@
       .filters-toggle .ft-caret { display: none !important; }
       .filters-toggle .ft-active { font-size: 9px !important; }
 
-      /* ── Table: Contact, Scheduled, Status only ── */
-      .col-phone, .col-actual, .col-lastdial, .col-source,
-      .col-result, .col-stage, .col-dials, .col-disp,
-      .col-dist, .col-flag, .col-rec { display: none !important; }
+      /* Columns are no longer cropped away — the table scrolls sideways instead,
+         so Phone / Dials / Disposition stay reachable. Column visibility follows
+         the user's Columns prefs, exactly as on desktop. */
       .expand-btn { display: none !important; }
       .flag-btn { display: none !important; }
       .summary-btn { display: none !important; }
@@ -2198,14 +2199,10 @@
       .observed-badge { display: none !important; }
       .floor-badge { display: none !important; }
       .anomaly-icon { display: none !important; }
-      .name-cell { max-width: none !important; }
-      #sc-thead-row th { font-size: 10px; padding: 6px 8px; }
-      .col-status { min-width: 60px; }
-      .col-status .badge { font-size: 9px; padding: 2px 6px; white-space: nowrap; }
-      .sc-tbl { table-layout: fixed !important; width: 100% !important; }
-      .col-name { width: 46% !important; }
-      .col-sched { width: 30% !important; }
-      .col-status { width: 24% !important; }
+      .col-status .badge { white-space: nowrap; }
+      /* NB: the old .col-name/.col-sched/.col-status percentage widths (46/30/24%)
+         and `table-layout: fixed` lived here. They existed to squeeze the table
+         down to three visible columns; the table now scrolls instead. */
 
       /* ── Filter bar: stacked on mobile ── */
       .filter-bar { padding: 10px; gap: 6px; border-radius: 10px; }
@@ -2353,9 +2350,35 @@
       th[draggable="true"] { cursor: default; }
       th .col-resize { display: none; }
 
-      /* Class-based column hiding (survives reordering) — show only the essentials */
-      .col-phone, .col-lastdial, .col-source, .col-dials, .col-disp, .col-rec,
-      .col-stage, .col-actual { display: none !important; }
+      /* ── Compact table, not cards ──────────────────────────────────────────
+         Same table as desktop: every column present, just denser, and the
+         wrapper scrolls sideways. The Contact column is pinned so you always
+         know whose row you're reading while scrolling across. */
+      #card-activity .table-wrap, .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .sc-tbl { table-layout: auto; }
+      .sc-tbl th, .sc-tbl td { padding: 4px 6px; font-size: 11px; }
+      #sc-thead-row th, #cn-thead-row th { font-size: 9.5px; padding: 5px 6px; }
+
+      /* Pin the contact name while the rest of the row scrolls under it */
+      .sc-tbl th.col-name, .sc-tbl td.col-name {
+        position: sticky; left: 0; z-index: 2;
+        background: var(--surface);
+        box-shadow: 1px 0 0 var(--border);
+        max-width: 128px;
+      }
+      .sc-tbl thead th.col-name { z-index: 3; background: var(--surface2); }
+      tr.row-completed td.col-name { box-shadow: inset 2.5px 0 0 var(--green), 1px 0 0 var(--border); }
+      tr.row-missed    td.col-name { box-shadow: inset 2.5px 0 0 var(--red),   1px 0 0 var(--border); }
+      .sc-tbl td.col-name .name-cell .name-link { font-size: 12px; }
+      .sc-tbl td.col-name .name-leadsrc { font-size: 9.5px; }
+
+      /* Resolve: the name input would otherwise blow the column out to 170px */
+      .col-resolve { width: auto !important; }
+      .col-resolve .od-resolvedby-input { max-width: 76px; font-size: 11px; }
+      .resolve-btn, .unresolve-btn { padding: 3px 6px; font-size: 10.5px; }
+
+      /* Tap targets stay finger-sized without inflating the row */
+      .sc-tbl td a.phone-cell { display: inline-block; padding: 3px 0; }
 
       /* Cols menu becomes a bottom sheet on small screens */
       .cols-menu {
@@ -4666,6 +4689,14 @@
     const d10 = d.length === 11 && d[0] === "1" ? d.slice(1) : d;
     return d10.length === 10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : (p || "");
   }
+  // Phone as a tel: link — on a phone the number is the whole point of the row.
+  // Desktop styling keeps it looking like plain text (see .phone-cell).
+  function _telLink(raw, label) {
+    const d = String(raw || "").replace(/\D/g, "");
+    if (!d) return `<span class="no-data">—</span>`;
+    const e164 = d.length === 10 ? `+1${d}` : (d[0] === "1" && d.length === 11 ? `+${d}` : `+${d}`);
+    return `<a class="phone-cell" href="tel:${e164}" onclick="event.stopPropagation()">${label}</a>`;
+  }
   // Shared dials cell (first attempt + "+N" reveal with durations).
   function buildDialsCell(r) {
     const dials = r.dial_attempts ?? 0;
@@ -4741,7 +4772,7 @@
     const cFmt = isSingleDay ? fmtTime : fmt;
     tbody.innerHTML = recs.map(r => {
       const createdCell = r.created_time ? `<span class="ts-cell">${cFmt(r.created_time)}</span>` : `<span class="no-data">—</span>`;
-      const phoneCell = r.phone ? `<span class="phone-cell">${fmtPhoneNum(r.phone)}</span>` : `<span class="no-data">—</span>`;
+      const phoneCell = r.phone ? _telLink(r.phone, fmtPhoneNum(r.phone)) : `<span class="no-data">—</span>`;
       const leadCell = r.lead_source ? _qEsc(r.lead_source) : `<span class="no-data">—</span>`;
       const isConverted = r.deal_stage && _isConvertedStage(r.deal_stage);
       let cls = (r.status==="completed" ? "row-completed" : r.status==="missed" ? "row-missed" : "");
@@ -5797,7 +5828,7 @@
         return d10.length === 10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : (p || "");
       };
       const phoneCell = r.phone
-        ? `<span class="phone-cell">${_fmtPhone(r.phone)}</span>`
+        ? _telLink(r.phone, _fmtPhone(r.phone))
         : `<span class="no-data">—</span>`;
       // Disposition cell. Priority: Handled → resolution note → advanced deal
       // stage → call disposition → status-aware indicator.
