@@ -984,7 +984,71 @@ class ZohoClient:
 
         log.info("  → %d scheduled call records found (%s, today±)",
                  len(all_records), ", ".join(self.SCHEDULED_CALL_OWNERS))
-        return all_records
+        return self._dedupe_sched_records(all_records)
+
+    @staticmethod
+    def _lookup_id(rec: dict, field: str) -> Optional[str]:
+        """Pull the id out of a Zoho lookup field ({id, name}) — None if unset."""
+        val = rec.get(field) or {}
+        return val.get("id") if isinstance(val, dict) else None
+
+    def _dedupe_sched_records(self, records: list[dict]) -> list[dict]:
+        """Collapse duplicate 'Scheduled Call' activity records.
+
+        Zoho holds two subject formats for the same appointment:
+          • "Scheduled Call: <Name>"  — Who_Id set (the real record)
+          • "Scheduled call — <Name>" — Who_Id null (a phantom, no contact link)
+        `Subject:starts_with:Scheduled Call` is case-insensitive, so the search
+        returns both, and the phantom renders with no phone and no lead source.
+
+        Records are grouped by the appointment they describe (linked deal +
+        start time, falling back to contact or subject when there's no deal).
+        Inside a group, a contact-linked record always beats a Who_Id-less one.
+        Two DIFFERENT contacts are never collapsed together — a shared package
+        deal can legitimately have several people booked at the same minute.
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        groups: dict[tuple, list[dict]] = {}
+        for rec in records:
+            when    = rec.get("Call_Start_Time") or ""
+            deal_id = self._lookup_id(rec, "What_Id")
+            who_id  = self._lookup_id(rec, "Who_Id")
+            if deal_id:
+                key = ("deal", deal_id, when)
+            elif who_id:
+                key = ("contact", who_id, when)
+            else:
+                subj = self._name_from_sched_subject(rec.get("Subject")) or rec.get("Subject") or ""
+                key = ("subject", subj.strip().lower(), when)
+            groups.setdefault(key, []).append(rec)
+
+        keep_ids: set[str] = set()
+        for recs in groups.values():
+            if len(recs) == 1:
+                keep_ids.add(recs[0]["id"])
+                continue
+            # Oldest first so the winner is stable across refreshes.
+            recs = sorted(recs, key=lambda r: r.get("Created_Time") or "")
+            linked = [r for r in recs if self._lookup_id(r, "Who_Id")]
+            if linked:
+                seen: set[str] = set()
+                for r in linked:
+                    cid = self._lookup_id(r, "Who_Id")
+                    if cid not in seen:
+                        seen.add(cid)
+                        keep_ids.add(r["id"])
+            else:
+                # No contact link anywhere in the group — keep a single row.
+                keep_ids.add(recs[0]["id"])
+
+        deduped = [r for r in records if r["id"] in keep_ids]
+        dropped = len(records) - len(deduped)
+        if dropped:
+            log.info("  → dropped %d duplicate scheduled-call record(s); %d remain",
+                     dropped, len(deduped))
+        return deduped
 
     def _fetch_contact_phones(self, contact_ids: list[str]) -> dict[str, Optional[str]]:
         """Batch-fetch Phone for a list of Contact IDs. Returns {contact_id: normalized_phone}."""
@@ -1042,12 +1106,12 @@ class ZohoClient:
         """Batch-fetch Name + Phone + Lead_Source (+ Instagram handle) for Contact IDs.
 
         Returns {contact_id: {"name": str, "phone": str|None,
-        "lead_source": str, "instagram": str}}. The Instagram handle is
-        normalized to '@handle'.
+        "lead_source": str, "instagram": str}}. Phone falls back to Mobile when
+        the Phone field is empty. The Instagram handle is normalized to '@handle'.
         """
         result: dict[str, dict] = {}
         ig_field = self._instagram_field_api_name()
-        fields = "id,Full_Name,First_Name,Last_Name,Phone,Lead_Source" + (f",{ig_field}" if ig_field else "")
+        fields = "id,Full_Name,First_Name,Last_Name,Phone,Mobile,Lead_Source" + (f",{ig_field}" if ig_field else "")
         BATCH = 100
         for i in range(0, len(contact_ids), BATCH):
             batch = contact_ids[i : i + BATCH]
@@ -1064,7 +1128,8 @@ class ZohoClient:
                         nm = f"{c.get('First_Name','') or ''} {c.get('Last_Name','') or ''}".strip()
                     result[c["id"]] = {
                         "name": nm,
-                        "phone": normalize_phone(c.get("Phone") or ""),
+                        "phone": (normalize_phone(c.get("Phone") or "")
+                                  or normalize_phone(c.get("Mobile") or "")),
                         "lead_source": c.get("Lead_Source") or "",
                         "instagram": _normalize_ig_handle(c.get(ig_field)) if ig_field else "",
                     }
@@ -1207,9 +1272,10 @@ class ZohoClient:
 
     def _fetch_deal_stages_by_ids(self, deal_ids: list[str]) -> dict[str, dict]:
         """Returns {deal_id: {"stage", "name", "owner", "owner_id", "language",
-        "contact_name", "contact_id"}} for the specific deals. contact_name/id
-        come from the deal's Contact_Name lookup so a deal-linked scheduled call
-        with no Who_Id can still show the person (not the package name)."""
+        "contact_name", "contact_id", "phone", "lead_source"}} for the specific
+        deals. contact_name/id come from the deal's Contact_Name lookup so a
+        deal-linked scheduled call with no Who_Id can still show the person (not
+        the package name); phone/lead_source back-fill the same gap."""
         import logging
         log = logging.getLogger(__name__)
         result: dict[str, dict] = {}
@@ -1222,7 +1288,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "ids": ids_param,
-                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name",
+                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name,Phone,Lead_Source",
                 },
                 timeout=20,
             )
@@ -1245,6 +1311,8 @@ class ZohoClient:
                         "language": lang_raw if lang_raw and lang_raw != "Unselected" else "",
                         "contact_name": (con.get("name") if isinstance(con, dict) else "") or "",
                         "contact_id": (con.get("id") if isinstance(con, dict) else None),
+                        "phone": normalize_phone(deal.get("Phone") or ""),
+                        "lead_source": deal.get("Lead_Source") or "",
                     }
         log.info("  → deal stages fetched by ID for %d deals", len(result))
         return result
@@ -1544,11 +1612,33 @@ class ZohoClient:
         contact_details = self._fetch_contact_details(contact_ids)
         contact_phones = {cid: d["phone"] for cid, d in contact_details.items()}
 
+        # Deals linked directly to a scheduled call (What_Id). Fetched up-front —
+        # not just for the stage, but because a call with no Who_Id has no contact
+        # phone, and the deal's Phone is the only way to both display a number and
+        # match that patient's dial attempts below.
+        linked_deal_ids = list({
+            self._lookup_id(c, "What_Id") for c in sched_call_records
+            if self._lookup_id(c, "What_Id")
+        })
+        deal_by_id_map = {}
+        if linked_deal_ids:
+            log.info("Fetching deal stages by deal ID for %d linked deals...", len(linked_deal_ids))
+            deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
+
+        def sched_phone(rec) -> Optional[str]:
+            """Best-known phone for a scheduled call: contact first, then deal."""
+            cid = self._lookup_id(rec, "Who_Id")
+            phone = contact_phones.get(cid) if cid else None
+            if phone:
+                return phone
+            did = self._lookup_id(rec, "What_Id")
+            return (deal_by_id_map.get(did) or {}).get("phone") if did else None
+
         # Source B: Outbound calls for the phones we care about.
         # Two strategies: (1) Subject-like phone match, (2) Who_Id contact match.
         # Many RingCX dialer calls have subjects like "OUT - Campaign" without
         # the phone number, so Subject-only misses them.
-        all_phones = [p for p in contact_phones.values() if p]
+        all_phones = [p for p in (sched_phone(c) for c in sched_call_records) if p]
         log.info("Fetching outbound calls for %d unique phones...", len(set(all_phones)))
         ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
 
@@ -1637,9 +1727,8 @@ class ZohoClient:
             return nd_phone_to_calls.get(n, []) if n else []
 
         def sc_calls_for(sched_record):
-            who = sched_record.get("Who_Id") or {}
-            cid = who.get("id") if isinstance(who, dict) else None
-            phone = contact_phones.get(cid) if cid else None
+            cid = self._lookup_id(sched_record, "Who_Id")
+            phone = sched_phone(sched_record)
             by_phone = ringcx_by_phone.get(phone, []) if phone else []
             by_cid = calls_by_whoid.get(cid, []) if cid else []
             if not by_cid:
@@ -1682,7 +1771,9 @@ class ZohoClient:
             who = rec.get("Who_Id") or {}
             cid = who.get("id") if isinstance(who, dict) else None
             cd = contact_details.get(cid) or {}
-            phone = cd.get("phone") if cd else contact_phones.get(cid)
+            # Contact.Phone → Contact.Mobile → linked Deal.Phone. Calls created
+            # without a Who_Id have no contact at all, so the deal is the only source.
+            phone = sched_phone(rec)
             lead_source = cd.get("lead_source", "")
             # For Facebook / Instagram leads, surface the contact's Instagram
             # handle (as @handle) alongside the lead source on the board.
@@ -1751,15 +1842,9 @@ class ZohoClient:
             result = {**sched_base(rec), **self._classify_scheduled_call(rec, sc_calls_for(rec))}
             sc_results.append(result)
 
-        # Look up deal stages ONLY for calls with a direct deal link (What_Id).
-        # We no longer fall back to the contact's most-recent deal, because that
-        # can show the wrong stage when a contact has multiple deals.
-        linked_deal_ids = list({r["id_deal"] for r in sc_results if r.get("id_deal")})
-
-        deal_by_id_map = {}
-        if linked_deal_ids:
-            log.info("Fetching deal stages by deal ID for %d linked deals...", len(linked_deal_ids))
-            deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
+        # deal_by_id_map was fetched up-front (it feeds phone resolution above).
+        # Stages come from the call's direct deal link (What_Id) only — never from
+        # the contact's most-recent deal, which is wrong when a contact has several.
 
         # Build a user ID → name map from deal owners (REST returns full names)
         _user_id_to_name = {}
@@ -1852,6 +1937,10 @@ class ZohoClient:
                     r["name"] = info["contact_name"]
                     if not r.get("id_contact") and info.get("contact_id"):
                         r["id_contact"] = info["contact_id"]
+                # A call with no Who_Id has no contact to read a lead source from
+                # (the phone is already resolved via the deal in sched_base).
+                if not r.get("lead_source") and info.get("lead_source"):
+                    r["lead_source"] = info["lead_source"]
                 # Language from deal record
                 if info.get("language"):
                     r["language"] = info["language"]
