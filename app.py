@@ -340,10 +340,14 @@ def _refresh():
             _cache["stale"] = False
         _persist_cache(data, ts)
         log.info("Refresh complete.")
-    except Exception as exc:
-        log.error("Refresh failed: %s", exc)
+    except BaseException as exc:
+        # BaseException, not Exception: a refresh that raised something outside
+        # the Exception hierarchy (e.g. a library raising GeneratorExit/SystemExit
+        # under a worker recycle) used to slip through here, leaving the cache
+        # frozen with error=None — invisible. Record everything.
+        log.error("Refresh failed: %r", exc)
         with _lock:
-            _cache["error"] = str(exc)
+            _cache["error"] = f"{type(exc).__name__}: {exc}"
 
 
 # ── Self-healing background refresh ────────────────────────────────────────
@@ -383,24 +387,45 @@ def _refresh_tracked():
             _refresh_inflight -= 1
 
 
+def _dispatch_refresh_if_free() -> bool:
+    """Kick off a refresh unless the pool is already saturated. Returns whether
+    one was dispatched. Safe to call from anywhere — it never blocks."""
+    global _refresh_inflight
+    with _refresh_inflight_lock:
+        if _refresh_inflight >= _MAX_INFLIGHT_REFRESHES:
+            return False
+        _refresh_inflight += 1
+    try:
+        _refresh_pool.submit(_refresh_tracked)
+        return True
+    except BaseException:
+        with _refresh_inflight_lock:      # submit failed — don't leak the slot
+            _refresh_inflight -= 1
+        log.exception("Failed to submit refresh")
+        return False
+
+
+def _self_heal_if_stale():
+    """Belt-and-suspenders: if the cache is stale beyond a couple of refresh
+    intervals, kick a refresh from whatever thread is serving traffic. This keeps
+    the board fresh even if the background loop thread has died — the frontend
+    polls /api/data constantly, so that alone drives recovery."""
+    age = _cache_age_seconds()
+    if age is not None and age > 2 * REFRESH_INTERVAL_SECONDS:
+        if _dispatch_refresh_if_free():
+            log.warning("Cache %.0fs stale — self-heal refresh dispatched from request path", age)
+
+
 def _background_loop():
     global _refresh_inflight
     time.sleep(30)  # Let gunicorn fully start + pass health checks before heavy Zoho API calls
     while True:
         try:
-            with _refresh_inflight_lock:
-                inflight = _refresh_inflight
-                can_dispatch = inflight < _MAX_INFLIGHT_REFRESHES
-                if can_dispatch:
-                    _refresh_inflight += 1
-            if can_dispatch:
-                _refresh_pool.submit(_refresh_tracked)
-            else:
-                # Every worker is stuck on a wedged refresh — don't pile on.
+            if not _dispatch_refresh_if_free():
                 age = _cache_age_seconds()
                 log.critical(
-                    "Refresh wedged: %d in-flight, cache %s stale. Not dispatching more.",
-                    inflight, f"{age:.0f}s" if age is not None else "unknown")
+                    "Refresh saturated: %d in-flight, cache %s stale. Not dispatching more.",
+                    _refresh_inflight, f"{age:.0f}s" if age is not None else "unknown")
         except BaseException:  # the loop must NEVER die — that's what froze the board
             log.exception("Background refresh dispatcher hiccup")
         time.sleep(REFRESH_INTERVAL_SECONDS)
@@ -733,6 +758,7 @@ def api_data():
             return jsonify({"status": "error", "message": str(exc)}), 500
 
     # Default: today's cached data
+    _self_heal_if_stale()  # keeps the board fresh even if the bg loop has died
     with _lock:
         if _cache["data"] is None and _cache["error"] is None:
             return jsonify({"status": "loading"}), 202
