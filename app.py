@@ -36,6 +36,18 @@ ALLOWED_DOMAIN = "goalsplasticsurgery.com"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
+# Machine-to-machine shared secret for the back-office bot's overdue-calls poller.
+# Set the SAME value here (Render env: OVERDUE_API_KEY) and in the back-office app.
+OVERDUE_API_KEY = os.environ.get("OVERDUE_API_KEY", "")
+
+def _valid_api_key() -> bool:
+    """True if the request carries the shared overdue-calls secret. Used INSTEAD of
+    session login for the bot-facing endpoints so they work without a browser."""
+    if not OVERDUE_API_KEY:
+        return False  # fail closed if the secret isn't configured
+    key = request.headers.get("X-API-Key", "") or request.args.get("key", "")
+    return key == OVERDUE_API_KEY
+
 GOOGLE_REDIRECT_URI = os.environ.get(
     "GOOGLE_REDIRECT_URI",
     "https://call-tracker-3z6t.onrender.com/auth/callback",
@@ -334,22 +346,64 @@ def _refresh():
             _cache["error"] = str(exc)
 
 
-def _background_loop():
-    time.sleep(30)  # Let gunicorn fully start + pass health checks before heavy Zoho API calls
-    consecutive_failures = 0
-    while True:
+# ── Self-healing background refresh ────────────────────────────────────────
+# The board once froze for 2.5h: the loop called _refresh() inline, so when a
+# refresh wedged (a socket that never honoured its read timeout) the whole loop
+# blocked and the cache stopped updating — silently, with no error. Every call
+# scheduled after that point simply never appeared.
+#
+# The loop now DISPATCHES each refresh to a small pool and never waits on it,
+# so a wedged refresh can't stall the loop: the next tick spawns a fresh one
+# (fresh socket) that updates the cache. Only if every worker is stuck at once
+# do we stop dispatching — and that gets logged loudly.
+_MAX_INFLIGHT_REFRESHES = 2
+_refresh_pool = ThreadPoolExecutor(
+    max_workers=_MAX_INFLIGHT_REFRESHES, thread_name_prefix="refresh")
+_refresh_inflight = 0
+_refresh_inflight_lock = threading.Lock()
+
+
+def _cache_age_seconds():
+    """Seconds since the cache last updated, or None if never."""
+    lu = _cache.get("last_updated")
+    if not lu:
+        return None
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(lu)).total_seconds()
+    except Exception:
+        return None
+
+
+def _refresh_tracked():
+    global _refresh_inflight
+    try:
         _refresh()
-        with _lock:
-            had_error = _cache["error"] is not None
-        if had_error:
-            consecutive_failures += 1
-            # Exponential backoff: 30s, 60s, 120s, 240s … capped at 10 min
-            wait = min(30 * (2 ** (consecutive_failures - 1)), 600)
-            log.warning("Refresh failed (attempt %d). Retrying in %ds.", consecutive_failures, wait)
-        else:
-            consecutive_failures = 0
-            wait = REFRESH_INTERVAL_SECONDS
-        time.sleep(wait)
+    finally:
+        with _refresh_inflight_lock:
+            _refresh_inflight -= 1
+
+
+def _background_loop():
+    global _refresh_inflight
+    time.sleep(30)  # Let gunicorn fully start + pass health checks before heavy Zoho API calls
+    while True:
+        try:
+            with _refresh_inflight_lock:
+                inflight = _refresh_inflight
+                can_dispatch = inflight < _MAX_INFLIGHT_REFRESHES
+                if can_dispatch:
+                    _refresh_inflight += 1
+            if can_dispatch:
+                _refresh_pool.submit(_refresh_tracked)
+            else:
+                # Every worker is stuck on a wedged refresh — don't pile on.
+                age = _cache_age_seconds()
+                log.critical(
+                    "Refresh wedged: %d in-flight, cache %s stale. Not dispatching more.",
+                    inflight, f"{age:.0f}s" if age is not None else "unknown")
+        except BaseException:  # the loop must NEVER die — that's what froze the board
+            log.exception("Background refresh dispatcher hiccup")
+        time.sleep(REFRESH_INTERVAL_SECONDS)
 
 
 # ------------------------------------------------------------------ routes
@@ -838,6 +892,84 @@ def save_distributed(rec_id):
     return jsonify({"status": "ok", "id": rec_id, "distributed": distributed})
 
 
+# ────────── Overdue calls API (for the back-office Telegram bot) ──────────
+#
+# The back-office bot polls this to distribute overdue scheduled calls into the
+# sales Telegram chat as P1 "Claim" cards. Auth is the shared OVERDUE_API_KEY
+# (header X-API-Key or ?key=), NOT session login, so it works machine-to-machine.
+
+def _compute_overdue_calls() -> list[dict]:
+    """The same set the dashboard shows under 'Overdue', computed server-side:
+    a scheduled call is overdue when it's >15 min past its scheduled time, has no
+    logged call, and hasn't been resolved, completed via workflow, or already
+    distributed. Returns lightweight cards: id, name, phone, language, scheduled_time."""
+    with _lock:
+        data = _cache["data"]
+    if not data:
+        return []
+    rd = resolved_data_full()
+    annotated = json.loads(json.dumps(data))  # deep copy — don't mutate cache
+    _annotate_resolved(annotated, rd)          # sets resolved / distributed / status
+    records = (annotated.get("scheduled_calls") or {}).get("records") or []
+
+    now = datetime.now(timezone.utc)
+    out = []
+    for r in records:
+        # Already handled or already sent to the bot → skip.
+        if r.get("resolved") or r.get("distributed") or r.get("completed_via_workflow"):
+            continue
+        if r.get("actual_call_time"):  # a call was logged → not overdue
+            continue
+        sched = r.get("scheduled_time")
+        dt = _zoho._parse_dt(sched)
+        if not dt:
+            continue
+        minutes_overdue = (now - dt).total_seconds() / 60
+        if minutes_overdue <= 15:  # matches the dashboard's 15-min pending window
+            continue
+        out.append({
+            "id": r.get("id"),
+            "name": r.get("name") or "",
+            "phone": r.get("phone") or "",
+            "language": r.get("language") or "",
+            "scheduled_time": sched,
+            "minutes_overdue": round(minutes_overdue, 1),
+            "owner": r.get("owner") or "",
+        })
+    out.sort(key=lambda x: x["minutes_overdue"], reverse=True)  # most overdue first
+    return out
+
+
+@app.route("/api/overdue-calls")
+def api_overdue_calls():
+    if not _valid_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    with _lock:
+        loading = _cache["data"] is None
+    if loading:
+        return jsonify({"status": "loading", "count": 0, "overdue": []})
+    overdue = _compute_overdue_calls()
+    return jsonify({"status": "ok", "count": len(overdue), "overdue": overdue})
+
+
+@app.route("/api/overdue-calls/<rec_id>/distributed", methods=["POST"])
+def api_overdue_mark_distributed(rec_id):
+    """The bot calls this after posting an overdue call to Telegram so it isn't
+    surfaced (or re-distributed) again. Same store/flag the dashboard uses."""
+    if not _valid_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    distributed_by = (body.get("distributed_by") or "bot").strip()
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        if rec_id not in data:
+            data[rec_id] = {"at": datetime.now(timezone.utc).isoformat()}
+        data[rec_id]["distributed"] = True
+        data[rec_id]["distributed_by"] = distributed_by
+        _save_resolved(data)
+    return jsonify({"status": "ok", "id": rec_id, "distributed": True})
+
+
 @app.route("/api/scheduled-call/<rec_id>/update", methods=["POST"])
 @login_required
 def update_scheduled_call(rec_id):
@@ -888,6 +1020,8 @@ def api_diag():
             "cache_data_is_none": data is None,
             "cache_error": _cache.get("error"),
             "cache_last_updated": _cache.get("last_updated"),
+            "cache_age_seconds": _cache_age_seconds(),
+            "refresh_inflight": _refresh_inflight,
             "record_count": len(records),
             "bg_started": _bg_started,
             "id_cache": id(_cache),

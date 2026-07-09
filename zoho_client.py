@@ -23,6 +23,10 @@ DIAL_START_HOUR      = int(os.getenv("DIAL_START_HOUR", "9"))
 SCHEDULED_CALL_TOLERANCE_MINUTES = ON_TIME_AFTER_MIN
 # Local timezone offset from UTC (e.g. -4 for EDT, -5 for EST)
 TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "-4"))
+# Hard ceiling on paginated Zoho searches. A single day never approaches this;
+# it exists only so a bad `more_records` response can't spin a `while True`
+# forever and wedge the background refresh (which froze the board for hours).
+MAX_SEARCH_PAGES = 50
 
 # US timezone abbreviations → UTC offset (July / DST assumed for the 2-letter
 # generic forms). Used to parse the free-text Best Contact Time field, e.g.
@@ -953,7 +957,7 @@ class ZohoClient:
             window_end   = (local_end   - timedelta(hours=TZ_OFFSET_HOURS)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
         all_records, page = [], 1
-        while True:
+        while page <= MAX_SEARCH_PAGES:
             resp = requests.get(
                 f"{self.base_url}/crm/v6/Calls/search",
                 headers=self._headers(),
@@ -1225,7 +1229,7 @@ class ZohoClient:
                 f"and(Modified_Time:greater_equal:{lookback}){upper_clause})"
             )
             all_deals, page = [], 1
-            while True:
+            while page <= MAX_SEARCH_PAGES:
                 resp = requests.get(
                     f"{self.base_url}/crm/v6/Deals/search",
                     headers=self._headers(),
@@ -1375,7 +1379,7 @@ class ZohoClient:
             end_str   = today_end.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
         all_calls, page = [], 1
-        while True:
+        while page <= MAX_SEARCH_PAGES:
             resp = requests.get(
                 f"{self.base_url}/crm/v6/Calls/search",
                 headers=self._headers(),
