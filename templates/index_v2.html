@@ -419,6 +419,10 @@
     .sc-tbl th.col-disp, .sc-tbl td.col-disp,
     .sc-tbl th.col-stage, .sc-tbl td.col-stage { text-align: center; }
     .sc-tbl td.col-dials .dials-min { justify-content: center; }
+    /* Status can now carry a Rescheduled / Distributed badge alongside the main
+       one — let them wrap and sit tight instead of forcing the column wide. */
+    .sc-tbl td.col-status { white-space: normal; }
+    .sc-tbl td.col-status .badge { margin: 1px; }
     .phone-cell { font-feature-settings: "tnum"; font-size: 12px; color: var(--text); white-space: nowrap; }
     tbody tr { transition: background .1s ease; }
     tr:hover td { background: rgba(37,99,235,.035) !important; }
@@ -4914,12 +4918,37 @@
       statPill("Upcoming",       _filtUpcoming.length, "blue", _pct(_filtUpcoming.length)),
     ].join("");
 
+    _markRescheduled(sc.records);
     populateDisp("sc-disp-filter", past);
     populateStageFilter("sc-stage-filter", activity);
     drawScTable();
     document.dispatchEvent(new Event("scDataLoaded"));
 
     renderUpcomingList();
+  }
+
+  // Flag a call as "rescheduled" when it hasn't been completed but the same lead
+  // (by deal, or by contact) has another call scheduled for a later time — so an
+  // overdue slot that's already been re-booked reads as rescheduled, not missed.
+  function _markRescheduled(records) {
+    const latestByDeal = {}, latestByContact = {};
+    records.forEach(r => {
+      const t = r.scheduled_time ? new Date(r.scheduled_time).getTime() : null;
+      if (t == null || isNaN(t)) return;
+      if (r.id_deal)    latestByDeal[r.id_deal]       = Math.max(latestByDeal[r.id_deal]       || 0, t);
+      if (r.id_contact) latestByContact[r.id_contact] = Math.max(latestByContact[r.id_contact] || 0, t);
+    });
+    records.forEach(r => {
+      r._rescheduled = false;
+      const t = r.scheduled_time ? new Date(r.scheduled_time).getTime() : null;
+      if (t == null || isNaN(t)) return;
+      const done = r.actual_call_time || r.status === "completed" || r.status === "early"
+                || r.status === "completed_via_workflow";
+      if (done) return;
+      const laterD = r.id_deal    && latestByDeal[r.id_deal]       > t;
+      const laterC = r.id_contact && latestByContact[r.id_contact] > t;
+      if (laterD || laterC) r._rescheduled = true;
+    });
   }
 
   // Resolve control for a row in the Scheduled Calls table. Only overdue calls
@@ -5818,9 +5847,20 @@
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
-      const statusHtml = r._liveCall
+      let statusHtml = r._liveCall
         ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
         : statusBadge(effStatus, effOnTime);
+      // A re-booked overdue call: show it's been rescheduled, not simply missed.
+      if (r._rescheduled)
+        statusHtml += ` <span class="badge badge-purple" title="Another call is scheduled later for this lead">↻ Rescheduled</span>`;
+      // Distributed to the sales team. The back-office Telegram bot marks these
+      // with distributed_by = "bot"; a manager marking one by hand carries a name.
+      if (r.distributed) {
+        const byBot = String(r.distributed_by || "").toLowerCase() === "bot";
+        statusHtml += byBot
+          ? ` <span class="badge badge-teal" title="Distributed to the sales Telegram by the back-office bot">📲 Distributed</span>`
+          : ` <span class="badge badge-gray" title="Manually distributed${r.distributed_by ? ' by ' + _qEsc(r.distributed_by) : ''}">✋ Distributed</span>`;
+      }
 
       const _fmtPhone = p => {
         const d = String(p || "").replace(/\D/g, "");

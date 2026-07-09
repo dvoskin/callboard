@@ -926,6 +926,8 @@ def _compute_overdue_calls() -> list[dict]:
     a scheduled call is overdue when it's >15 min past its scheduled time, has no
     logged call, and hasn't been resolved, completed via workflow, or already
     distributed. Returns lightweight cards: id, name, phone, language, scheduled_time."""
+    # Bot polling counts as traffic — keep the cache fresh even with no browser open.
+    _self_heal_if_stale()
     with _lock:
         data = _cache["data"]
     if not data:
