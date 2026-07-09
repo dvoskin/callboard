@@ -3562,9 +3562,8 @@
             <option value="">All Statuses</option>
             <option value="completed">Completed</option>
             <option value="early">Early</option>
-            <option value="completed_via_workflow">Workflow Auto-completed</option>
-            <option value="missed">Missed</option>
-            <option value="late">Overdue</option>
+            <option value="missed">Overdue</option>
+            <option value="late">Overdue (late)</option>
           </select>
           <select id="sc-disp-filter" onchange="applyScFilters()">
             <option value="">All Dispositions</option>
@@ -4102,19 +4101,20 @@
 
   function statusBadge(status, onTime) {
     const map = {
-      completed:          onTime ? ["✓ On Time","badge-green"] : ["✓ Late","badge-orange"],
-      early:              ["↑ Early","badge-teal"],
-      completed_via_deal:     ["✓ Other","badge-purple"],
-      completed_via_workflow: ["✓ Workflow","badge-teal"],
-      pending:            ["Pending","badge-yellow"],
-      missed:             ["Overdue","badge-red"],
-      upcoming:           ["Upcoming","badge-blue"],
-      late:               ["Overdue","badge-orange"],
-      no_schedule:        ["N/A","badge-gray"],
-      handled:            ["✓ Handled","badge-green"],
+      completed:  onTime ? ["✓ On Time","badge-green","Call made within ~15 min of the scheduled time"]
+                         : ["✓ Late","badge-orange","Call was made, but more than 10 min after the scheduled time"],
+      early:      ["↑ Early","badge-teal","Call made more than 15 min before the scheduled time"],
+      completed_via_deal: ["✓ Other","badge-purple","Cleared without a logged call — the linked deal advanced on its own"],
+      pending:    ["Pending","badge-yellow","0–15 min past the scheduled time — grace window before it counts as overdue"],
+      missed:     ["Overdue","badge-red","More than 15 min past with no call logged — should be distributed immediately by the back-office bot"],
+      upcoming:   ["Upcoming","badge-blue","Scheduled time is still in the future"],
+      late:       ["Overdue","badge-orange","Past due with no call logged — should be distributed by the back-office bot"],
+      handled:    ["✓ Handled","badge-green","An overdue call cleared without a logged dial"],
     };
-    const [label, cls] = map[status] || [status,"badge-gray"];
-    return `<span class="badge ${cls}">${label}</span>`;
+    const entry = map[status];
+    if (!entry) return `<span class="no-data">—</span>`;  // e.g. no_schedule — no badge
+    const [label, cls, tip] = entry;
+    return `<span class="badge ${cls}" title="${tip}">${label}</span>`;
   }
 
   function statPill(label, value, cls, rate, adjNote) {
@@ -4906,13 +4906,11 @@
     const _adjCompletion = _callsDue > 0 ? Math.round((_adjCompleted / _callsDue) * 100) : null;
     const _pct = v => _total > 0 ? Math.round((v / _total) * 100) : 0;
     const _filtLate = _filt.filter(r => r.status === "late").length;
-    const _filtWf = _filt.filter(r => r.status === "completed_via_workflow").length;
     document.getElementById("sc-stats").innerHTML = [
       statPill("Total",          _total, "blue"),
       statPill("Completed",      _sf.completed,  "green",  _pct(_sf.completed), _resolvedN > 0 ? `${_adjCompletion}% w/ resolved` : null),
       statPill("On Time",        _sf.on_time,    _sf.on_time===_sf.completed&&_sf.completed>0?"green":"orange", _pct(_sf.on_time)),
       statPill("Early",          _sf.early,      _sf.early>0?"teal":"green", _pct(_sf.early)),
-      statPill("Workflow",       _filtWf, _filtWf>0?"teal":"green", _pct(_filtWf)),
       statPill("Missed",         _sf.missed,     _sf.missed>0?"red":"green", _pct(_sf.missed)),
       statPill("Overdue",        _filtLate,       _filtLate>0?"orange":"green", _pct(_filtLate)),
       statPill("Upcoming",       _filtUpcoming.length, "blue", _pct(_filtUpcoming.length)),
@@ -5394,16 +5392,19 @@
 
     // Status badges — reuse statusBadge so they match the table exactly.
     const statuses = [
-      ["completed", true,  "Called within the on-time window of the scheduled slot."],
+      ["upcoming",  false, "Scheduled for later — not due yet."],
+      ["pending",   false, "Due now; inside the first 15-min grace window."],
+      ["missed",    false, "Overdue: 15+ min past with no dial — should be distributed immediately by the back-office bot."],
+      ["completed", true,  "Called within ~15 min of the scheduled slot."],
       ["completed", false, "Called, but more than 10 min after the scheduled time."],
       ["early",     false, "Called more than 15 min before the scheduled time."],
-      ["upcoming",  false, "Scheduled for later today — not due yet."],
-      ["pending",   false, "Due now; inside the first 15-min grace window."],
-      ["late",      false, "Past due (15+ min), not yet dialed."],
-      ["missed",    false, "Long overdue with no dial (shown as Overdue)."],
-      ["handled",   false, "A manager marked the overdue call resolved."],
+      ["handled",   false, "Overdue call cleared without a dial — the badge notes whether the bot or a person cleared it."],
     ];
-    const statusRows = statuses.map(([s, ot, desc]) => row(statusBadge(s, ot), desc)).join("");
+    const statusRows = statuses.map(([s, ot, desc]) => row(statusBadge(s, ot), desc)).join("")
+      + row(`<span class="badge badge-green" style="background:var(--green);color:#fff">🟢 On Call</span>`, "The lead is on a live call right now.")
+      + row(`<span class="badge badge-purple">↻ Rescheduled</span>`, "This overdue call already has a later call booked for the same lead.")
+      + row(`<span class="badge badge-teal">📲 Distributed</span>`, "Sent to the sales Telegram by the back-office bot.")
+      + row(`<span class="badge badge-gray">✋ Distributed</span>`, "Distributed manually by a manager (name shows on hover).");
 
     // Dials & attempts.
     const dialsRows =
@@ -5837,19 +5838,35 @@
         if (r._bucket === "early")          { effStatus = "early";     effOnTime = false; }
         else if (r._bucket === "late_call") { effStatus = "completed"; effOnTime = false; }
         else                                { effStatus = "completed"; effOnTime = true;  }
-      } else if (!hasRealCall && r.resolved_by === "live-monitor" && r.resolved && (r.status === "missed" || r.status === "late")) {
-        // Resolved, no call logged yet — show as Handled
+      } else if (!hasRealCall && r.resolved && (r.status === "missed" || r.status === "late")) {
+        // An overdue call cleared without a logged dial — by the bot, a manager,
+        // or the live monitor. Show as Handled (the badge names who cleared it).
         effStatus = "handled";
       } else if (!hasRealCall && r.resolved_with_match) {
         effStatus = "handled";
-      } else if (r._bucket && r.status !== "completed_via_workflow") {
+      } else if (r._bucket) {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
-      let statusHtml = r._liveCall
-        ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
-        : statusBadge(effStatus, effOnTime);
+      let statusHtml;
+      if (r._liveCall) {
+        statusHtml = `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`;
+      } else if (effStatus === "handled") {
+        // Handled = an overdue call cleared without a logged dial. Say who cleared
+        // it: the back-office bot, or a named person. "live-monitor" is an internal
+        // auto-observation, so it stays generic.
+        const rb = String(r.resolved_by || "");
+        const byBot = rb.toLowerCase() === "bot";
+        const named = rb && rb.toLowerCase() !== "live-monitor" && !byBot ? rb : "";
+        const label = byBot ? "✓ Handled · bot" : (named ? `✓ Handled · ${_qEsc(named)}` : "✓ Handled");
+        const tip = byBot ? "Cleared by the back-office bot without a logged dial"
+                          : (named ? `Cleared manually by ${_qEsc(named)} without a logged dial`
+                                   : "Overdue call cleared without a logged dial");
+        statusHtml = `<span class="badge badge-green" title="${tip}">${label}</span>`;
+      } else {
+        statusHtml = statusBadge(effStatus, effOnTime);
+      }
       // A re-booked overdue call: show it's been rescheduled, not simply missed.
       if (r._rescheduled)
         statusHtml += ` <span class="badge badge-purple" title="Another call is scheduled later for this lead">↻ Rescheduled</span>`;

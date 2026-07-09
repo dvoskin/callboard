@@ -1993,25 +1993,11 @@ class ZohoClient:
                     r["deal_stage"] = _best_stage[cid]
                     r["_stage_from_other_deal"] = True
 
-        # Workflow auto-completion detection: for overdue calls with 0 dials,
-        # check if the Zoho scheduled call was marked Completed by workflow
-        # (either Call_Status == "Completed" or description contains workflow keywords).
-        WORKFLOW_KEYWORDS = (
-            "completed by workflow",
-            "auto-completed",
-            "auto completed",
-            "removed from queue",
-            "workflow completed",
-            "stage changed",
-            "moved to",
-        )
-        for r in sc_results:
-            if r.get("status") in ("missed", "late") and r.get("dial_attempts", 0) == 0:
-                call_status = (r.get("call_status") or "").strip()
-                desc = (r.get("sched_description") or "").lower()
-                if call_status == "Completed" or any(kw in desc for kw in WORKFLOW_KEYWORDS):
-                    r["completed_via_workflow"] = True
-                    r["status"] = "completed_via_workflow"
+        # Workflow auto-completion is intentionally NOT applied. A Zoho workflow
+        # marking an overdue call "Completed" (no dial logged) used to hide it
+        # behind a "Workflow" status — but those calls still need a real dial, so
+        # per the team they must stay visible as Overdue and be distributed by the
+        # back-office bot rather than silently disappear.
 
         # New Deals: sort by created_time descending (most recent first)
         nd_results.sort(key=lambda d: d.get("created_time") or "", reverse=True)
