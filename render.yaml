@@ -6,10 +6,14 @@ services:
     buildCommand: pip install -r requirements.txt
     healthCheckPath: /health
     # Single worker = single in-memory cache + one background refresh thread.
-    # -t 90: kill a worker that takes >90s on a single request (prevents thread starvation).
+    # --threads 8: request-serving thread pool. Bumped from 4 because a few slow
+    #   handlers (custom date-range, AI summaries) plus the refresh could occupy
+    #   every thread and starve Render's /health probe (5s cap) → "Instance failed"
+    #   → worker restart. 8 leaves ample headroom so /health always has a free slot.
+    # -t 90: kill a worker stuck >90s on a single request.
     # --graceful-timeout 20: give in-flight requests 20s to finish before hard kill on deploy.
     # --keep-alive 75: match Render's 75s idle connection timeout.
-    startCommand: gunicorn -w 1 -k gthread --threads 4 -t 90 --graceful-timeout 20 --keep-alive 75 -b 0.0.0.0:$PORT app:app
+    startCommand: gunicorn -w 1 -k gthread --threads 8 -t 90 --graceful-timeout 20 --keep-alive 75 -b 0.0.0.0:$PORT app:app
     envVars:
       - key: ZOHO_CLIENT_ID
         sync: false
