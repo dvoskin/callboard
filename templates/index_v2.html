@@ -5849,13 +5849,18 @@
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
+      // Exactly ONE status per row. When several could apply, the most decisive
+      // wins, in this order: live call → the call's own outcome → handled →
+      // rescheduled → distributed → the plain lifecycle state (Overdue/Pending/…).
       let statusHtml;
       if (r._liveCall) {
         statusHtml = `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`;
+      } else if (effStatus === "completed" || effStatus === "early") {
+        // A call was actually made — its result is the status.
+        statusHtml = statusBadge(effStatus, effOnTime);
       } else if (effStatus === "handled") {
-        // Handled = an overdue call cleared without a logged dial. Say who cleared
-        // it: the back-office bot, or a named person. "live-monitor" is an internal
-        // auto-observation, so it stays generic.
+        // Overdue call cleared without a logged dial. Name who cleared it: the
+        // back-office bot, or a person ("live-monitor" is internal → generic).
         const rb = String(r.resolved_by || "");
         const byBot = rb.toLowerCase() === "bot";
         const named = rb && rb.toLowerCase() !== "live-monitor" && !byBot ? rb : "";
@@ -5864,19 +5869,17 @@
                           : (named ? `Cleared manually by ${_qEsc(named)} without a logged dial`
                                    : "Overdue call cleared without a logged dial");
         statusHtml = `<span class="badge badge-green" title="${tip}">${label}</span>`;
+      } else if (r._rescheduled) {
+        // Overdue but already re-booked → show Rescheduled instead of Overdue.
+        statusHtml = `<span class="badge badge-purple" title="Another call is scheduled later for this lead">↻ Rescheduled</span>`;
+      } else if (r.distributed) {
+        // Overdue and handed to sales → show Distributed instead of Overdue.
+        const byBot = String(r.distributed_by || "").toLowerCase() === "bot";
+        statusHtml = byBot
+          ? `<span class="badge badge-teal" title="Distributed to the sales Telegram by the back-office bot">📲 Distributed</span>`
+          : `<span class="badge badge-gray" title="Manually distributed${r.distributed_by ? ' by ' + _qEsc(r.distributed_by) : ''}">✋ Distributed</span>`;
       } else {
         statusHtml = statusBadge(effStatus, effOnTime);
-      }
-      // A re-booked overdue call: show it's been rescheduled, not simply missed.
-      if (r._rescheduled)
-        statusHtml += ` <span class="badge badge-purple" title="Another call is scheduled later for this lead">↻ Rescheduled</span>`;
-      // Distributed to the sales team. The back-office Telegram bot marks these
-      // with distributed_by = "bot"; a manager marking one by hand carries a name.
-      if (r.distributed) {
-        const byBot = String(r.distributed_by || "").toLowerCase() === "bot";
-        statusHtml += byBot
-          ? ` <span class="badge badge-teal" title="Distributed to the sales Telegram by the back-office bot">📲 Distributed</span>`
-          : ` <span class="badge badge-gray" title="Manually distributed${r.distributed_by ? ' by ' + _qEsc(r.distributed_by) : ''}">✋ Distributed</span>`;
       }
 
       const _fmtPhone = p => {
