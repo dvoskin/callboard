@@ -4951,14 +4951,39 @@
 
   // Resolve control for a row in the Scheduled Calls table. Only overdue calls
   // can be resolved — everything else renders a dash so the column stays quiet.
+  // Human-friendly resolver name: the internal "live-monitor" token and the bot
+  // get readable labels instead of raw strings a manager wouldn't recognise.
+  function _resolverLabel(name) {
+    const n = String(name || "").trim();
+    if (!n) return "";
+    const low = n.toLowerCase();
+    if (low === "bot") return "bot";
+    if (low === "live-monitor") return "auto";
+    return n;
+  }
   function _scResolveCell(r) {
     if (r.resolved) {
-      const by = r.resolved_by ? ` by ${_qEsc(r.resolved_by)}` : "";
-      return `<span class="resolved-by-tag" title="Resolved${by}">✓ Resolved${by}</span>
+      const who = _resolverLabel(r.resolved_by);
+      const label = who ? `✓ Resolved · ${_qEsc(who)}` : "✓ Resolved";
+      const isAuto = String(r.resolved_by || "").toLowerCase() === "live-monitor";
+      const tip = isAuto ? "Auto-cleared when a live call was detected for this lead"
+                         : (who === "bot" ? "Cleared by the back-office bot"
+                                          : (who ? `Resolved by ${_qEsc(who)}` : "Resolved"));
+      return `<span class="resolved-by-tag" title="${tip}">${label}</span>
         <button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`;
     }
     if (!isOverdueRow(r)) return `<span class="no-data">—</span>`;
-    return `<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+    // Not resolved yet. If the bot (or a manager) has already distributed it, show
+    // that here so the column reflects who's on it — the manual Resolve stays open.
+    let distTag = "";
+    if (r.distributed) {
+      const byBot = String(r.distributed_by || "").toLowerCase() === "bot";
+      const who = byBot ? "bot" : _resolverLabel(r.distributed_by);
+      const tip = byBot ? "Sent to the sales Telegram by the back-office bot"
+                        : `Distributed manually${who ? " by " + _qEsc(who) : ""}`;
+      distTag = `<span class="resolved-by-tag" title="${tip}">${byBot ? "📲" : "✋"} Distributed${who ? " · " + _qEsc(who) : ""}</span> `;
+    }
+    return `${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
         value="${(r.resolved_by||'').replace(/"/g,'&quot;')}" placeholder="Your name"
         onblur="saveResolvedBy(this)" onkeydown="if(event.key==='Enter'){this.blur()}">
       <button class="resolve-btn" onclick="markResolved('${r.id}')" title="Clear from concerns">✓ Resolve</button>`;
@@ -5677,8 +5702,9 @@
         if (r.assigned_to) tipParts.push(`Assigned to: ${r.assigned_to}`);
         if (r.note) tipParts.push(`Note: ${r.note}`);
         const tip = tipParts.length ? tipParts.join(' · ') : '';
-        const sub = r.resolved_by ? ` <span class="result-sub">by ${r.resolved_by}</span>` : "";
-        result = `<span class="result-tag r-resolved"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>Resolved manually${sub}</span>`;
+        const _who = _resolverLabel(r.resolved_by);
+        const sub = _who ? ` <span class="result-sub">by ${_qEsc(_who)}</span>` : "";
+        result = `<span class="result-tag r-resolved"${tip ? ` title="${tip.replace(/"/g,'&quot;')}"` : ''}>Resolved${sub}</span>`;
       // Resolved WITH a matched call — show call data with a "resolved" note
       } else if (r.resolved_with_match && liveOffset !== null) {
         // If live-monitor observation was later confirmed by a Zoho-logged call, show as normal On Time
@@ -5894,10 +5920,12 @@
       // stage → call disposition → status-aware indicator.
       let dispCell;
       if (effStatus === "handled") {
-        // Manually resolved with no logged call — surface the resolution note.
+        // Resolved with no logged call — surface the note, tagged with who cleared
+        // it (bot / person / auto), never the raw "live-monitor" token.
+        const _hw = _resolverLabel(r.resolved_by);
         dispCell = r.note
-          ? `<span class="disp-notable disp-handled" title="Resolution note${r.resolved_by ? ' — ' + _qEsc(r.resolved_by) : ''}">${_qEsc(r.note)}</span>`
-          : `<span class="disp-quiet">Handled${r.resolved_by ? ' · ' + _qEsc(r.resolved_by) : ''}</span>`;
+          ? `<span class="disp-notable disp-handled" title="Resolution note${_hw ? ' — ' + _qEsc(_hw) : ''}">${_qEsc(r.note)}</span>`
+          : `<span class="disp-quiet">Handled${_hw ? ' · ' + _qEsc(_hw) : ''}</span>`;
       } else if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
         dispCell = `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
       } else if (r.disposition) {
