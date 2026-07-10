@@ -388,6 +388,10 @@
     .disp-nodisp { color: var(--tertiary); font-weight: 500; font-style: italic; }
     /* ── Dials: minimal collapsed view + clean reveal ── */
     .sc-tbl td.col-dials { overflow: visible; }
+    /* Actual call time folded into the Dials cell (the old "Actual Call" column). */
+    .dial-actual { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px;
+      font-weight: 600; color: #047857; font-feature-settings: "tnum"; white-space: nowrap; }
+    .dials-stack { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.25; }
     .dials-min { display: inline-flex; align-items: center; gap: 5px; font-feature-settings: "tnum"; white-space: nowrap; }
     .dials-min .att-time { font-size: 12px; color: var(--text); }
     .manual-dot { width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; display: inline-block; flex-shrink: 0; }
@@ -5279,7 +5283,7 @@
   const SC_COLUMNS = [
     { key: "name",       label: "Contact",          always: true  },
     { key: "phone",      label: "Phone",            default: true  },
-    { key: "leadsrc",    label: "Lead Source",      default: true  },
+    { key: "leadsrc",    label: "Lead Source",      default: false },
     { key: "scheduled",  label: "Scheduled",        default: true  },
     { key: "status",     label: "Status",           default: true  },
     { key: "result",     label: "Result",           default: false },
@@ -5289,7 +5293,7 @@
     { key: "usernote",   label: "Notes",            default: false },
     { key: "localtz",    label: "Their Time",       default: false },
     { key: "caller",     label: "Caller / Claimed", default: true  },
-    { key: "actual",     label: "Actual Call (EST)",default: true  },
+    { key: "actual",     label: "Actual Call (EST)",default: false },
     { key: "lastdial",   label: "Last Dial",        default: false },
     { key: "source",     label: "Source",           default: false },
     { key: "books",      label: "Books",            default: false },
@@ -5300,7 +5304,7 @@
     { key: "nxtstep",    label: "Next FU",          default: false },
     { key: "sms",        label: "💬 Auto SMS",      default: false },
     { key: "notes",      label: "CRM Note",         default: false },
-    { key: "resolve",    label: "Resolve",          default: true  },
+    { key: "resolve",    label: "Resolve",          default: false },
     { key: "actions",    label: "Edit / Delete",    always: true  },
   ];
   function _colIsVisible(c) {
@@ -5310,11 +5314,11 @@
     return c.default !== false;  // fall back to declared default
   }
   function _loadColPrefs() {
-    try { return JSON.parse(localStorage.getItem("scColPrefsV5") || "{}"); }
+    try { return JSON.parse(localStorage.getItem("scColPrefsV6") || "{}"); }
     catch { return {}; }
   }
   function _saveColPrefs(p) {
-    try { localStorage.setItem("scColPrefsV5", JSON.stringify(p)); } catch {}
+    try { localStorage.setItem("scColPrefsV6", JSON.stringify(p)); } catch {}
   }
   let _colPrefs = _loadColPrefs();
   // Persisted column order + widths (Contact is always first)
@@ -5963,6 +5967,15 @@
         }
       } else {
         dialsCell = `<span class="dials-val">${dials}</span>`;
+      }
+      // The old "Actual Call (EST)" column is folded in here — the real RingCentral / RingCX
+      // call time lives in Dials now. Bot-distribution rows track no dial attempts, so this is
+      // the ONLY place their real logged call time shows.
+      if (r.actual_call_time) {
+        const _ac = `<span class="dial-actual" title="Actual call logged (RingCentral / RingCX)">📞 ${fmtTime(r.actual_call_time)}</span>`;
+        dialsCell = (r.is_bot || dials === 0)
+          ? _ac
+          : `<span class="dials-stack">${_ac}${dialsCell}</span>`;
       }
       // Who called (Zoho call owner) — or, if nobody has called yet, who claimed the card in
       // Telegram. "Distributed" alone never told you who actually picked the lead up.
