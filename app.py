@@ -1102,6 +1102,44 @@ def api_bot_distributions():
     return jsonify(payload)
 
 
+# ── Dialer CDR feed (for the back-office bot) ─────────────────────────────────
+# This app has WORKING RingCX credentials (the reportsStreaming CDR behind the agent
+# report and call history). The back-office needs the same rows to log dialer calls
+# against distributed deals, but its own RINGCX_ACCESS_TOKEN is often unset — so it
+# reads them from here instead of needing its own. Cached 60s: EV report generation
+# is heavy, and the bot polls every few minutes.
+_dialer_cdr_cache = {"at": 0.0, "hours": 0, "rows": None}
+_dialer_cdr_lock = threading.Lock()
+
+@app.route("/api/dialer-calls")
+def api_dialer_calls():
+    if not _valid_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        return jsonify({"status": "ok", "count": 0, "calls": [],
+                        "note": "RingCX not configured on the tracker"})
+    try:
+        hours = max(1, min(int(request.args.get("hours", "24") or 24), 72))
+    except ValueError:
+        hours = 24
+    with _dialer_cdr_lock:
+        fresh = (_dialer_cdr_cache["rows"] is not None
+                 and _dialer_cdr_cache["hours"] == hours
+                 and time.time() - _dialer_cdr_cache["at"] < 60)
+        if fresh:
+            rows = _dialer_cdr_cache["rows"]
+        else:
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(hours=hours)
+            try:
+                rows = _ringcx._fetch_ringcx_cdr_rows(start, end)
+            except Exception as e:
+                log.warning("dialer-calls CDR fetch failed: %s", e)
+                rows = []
+            _dialer_cdr_cache.update({"at": time.time(), "hours": hours, "rows": rows})
+    return jsonify({"status": "ok", "count": len(rows), "calls": rows})
+
+
 @app.route("/api/ai-handled", methods=["GET"])
 @login_required
 def api_ai_handled_list():
