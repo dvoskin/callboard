@@ -3367,6 +3367,38 @@ def api_agent_analytics():
             except Exception as ex:
                 log.warning("agent-analytics call stats failed: %s", ex)
 
+        # ── RingCX dialer calls from the CDR, ADDED on top of the back-office RingEX
+        #    calls (now that RingCX reporting access is granted). Only when the back office
+        #    supplied the RingEX side — otherwise the fallback above already includes the CDR.
+        ringcx_added = 0
+        if calls_only and _ringcx.configured and bo_stats and bo_stats.get("agents"):
+            try:
+                for c in _ringcx._fetch_ringcx_cdr_rows(start_dt, end_dt):
+                    nm = (c.get("agent_name") or "").strip()
+                    if not nm:
+                        continue
+                    try:
+                        dur = int(float(c.get("duration") or 0))
+                    except (TypeError, ValueError):
+                        dur = 0
+                    if dur < 0:
+                        dur = 0
+                    a = _agent(nm)
+                    a["calls"] += 1
+                    a["talk_seconds"] += dur
+                    if dur < 180:
+                        a["calls_under_3m"] += 1
+                    else:
+                        a["calls_over_3m"] += 1
+                    if dur < 900:
+                        a["calls_under_15m"] += 1
+                    ringcx_added += 1
+                if ringcx_added:
+                    call_source = "backoffice-rc + ringcx-cdr"
+            except Exception as ex:
+                log.warning("ringcx CDR merge failed: %s", ex)
+        call_meta["ringcx_calls_added"] = ringcx_added
+
         # ── Quotes sent: Books estimates by salesperson (skipped in calls-only mode) ──
         if not calls_only and _books.configured:
             try:

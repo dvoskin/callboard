@@ -253,6 +253,7 @@
       renderCards(); renderHead(); renderBody();
       const t = _totals;
       const srcLabel = {
+        "backoffice-rc + ringcx-cdr": "RingEX (back-office call log) + RingCX dialer CDR — both platforms",
         "backoffice-rc": "Back-office RingCentral account call log (all RingEX calls)",
         "cdr+calllog": "RingCX CDR + RingEX call log (every dial, both platforms)",
         "analytics": "RingCentral Business Analytics (fallback — may undercount dialer calls)",
@@ -286,6 +287,11 @@
 
       if ((t.calls || 0) === 0 && (m.calls_fetched != null || m.calls_in_window != null)) {
         note += `  (${m.calls_fetched ?? "?"} calls fetched, ${m.calls_in_window ?? "?"} in this window, ${m.unattributed ?? 0} without an agent name.)`;
+      }
+      if (m.ringcx_calls_added) {
+        note += `  ${m.ringcx_calls_added} RingCX dialer call${m.ringcx_calls_added === 1 ? "" : "s"} added from the RingCX CDR. 🎉`;
+      } else if (m.ringcx_calls_added === 0 && t.call_source && t.call_source.indexOf("backoffice-rc") === 0) {
+        note += `  (RingCX CDR returned 0 dialer calls — either none in this range, or reporting access hasn't propagated yet / is still 403.)`;
       }
       if (m.via_leg) {
         note += `  ${m.via_leg} dialer/queue call${m.via_leg === 1 ? "" : "s"} were credited to their agent from an inner leg (RingCX calls routed through RingCentral).`;
