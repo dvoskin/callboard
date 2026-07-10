@@ -108,6 +108,9 @@
 
     <div class="cards" id="cards"></div>
 
+    <div id="diag" style="display:none;margin-bottom:16px;padding:12px 14px;border-radius:12px;
+      background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13px;line-height:1.5;"></div>
+
     <div class="panel">
       <div class="table-scroll">
         <table id="tbl">
@@ -236,6 +239,7 @@
     if (!from || !to) { preset("today"); return; }
     const btn = document.getElementById("reload");
     btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Running…';
+    document.getElementById("diag").style.display = "none";
     document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="7"><span class="spin"></span> Pulling calls from RingEX + RingCX…</td></tr>`;
     try {
       const tz = new Date().getTimezoneOffset();
@@ -256,6 +260,28 @@
       }[t.call_source] || t.call_source || "—";
       let note = `Source: ${srcLabel}.`;
       const m = t.call_meta || {};
+
+      // When calls are 0, say exactly where the pipeline stops so it's not a mystery.
+      const diag = document.getElementById("diag");
+      if ((t.calls || 0) === 0) {
+        let msg = "";
+        if (t.call_source === "backoffice-rc") {
+          const f = m.calls_fetched, w = m.calls_in_window, u = m.unattributed;
+          if (!f) msg = "The back office reached RingCentral but its call log returned <b>0 calls</b> for this range — RingCentral isn't returning the account call log (token scope / permission on the back-office side).";
+          else if (!w) msg = `RingCentral returned <b>${f} calls</b>, but <b>0 fall inside this date/time window</b> — widen the range or pick a day with calls.`;
+          else if (u && u >= w) msg = `RingCentral returned <b>${w} calls</b> in this window but <b>none had an agent name</b> on the leg — attribution issue, tell me and I'll adjust.`;
+          else msg = `Fetched ${f}, ${w} in window, ${u} unattributed — yet totals are 0. Send me this line.`;
+        } else if (t.call_source === "none") {
+          msg = "Couldn't reach a telephony source. The tracker's own RingCX/RingEX returns nothing, and the back-office call-stats endpoint wasn't reachable (check BACKOFFICE_URL + OVERDUE_API_KEY, or the deploy finished).";
+        } else {
+          msg = `Source '${esc(t.call_source)}' returned no calls for this range.`;
+        }
+        diag.innerHTML = `⚠️ <b>No call numbers.</b> ${msg}`;
+        diag.style.display = "block";
+      } else {
+        diag.style.display = "none";
+      }
+
       if ((t.calls || 0) === 0 && (m.calls_fetched != null || m.calls_in_window != null)) {
         note += `  (${m.calls_fetched ?? "?"} calls fetched, ${m.calls_in_window ?? "?"} in this window, ${m.unattributed ?? 0} without an agent name.)`;
       }
