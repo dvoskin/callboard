@@ -112,7 +112,7 @@
       <div class="table-scroll">
         <table id="tbl">
           <thead><tr id="thead"></tr></thead>
-          <tbody id="tbody"><tr><td class="state" colspan="6"><span class="spin"></span> Loading…</td></tr></tbody>
+          <tbody id="tbody"><tr><td class="state" colspan="7"><span class="spin"></span> Loading…</td></tr></tbody>
           <tfoot id="tfoot"></tfoot>
         </table>
       </div>
@@ -131,6 +131,7 @@
     { key: "talk_seconds",     label: "Total Talk Time",       align: "right" },
     { key: "calls_under_3m",   label: "Calls < 3 min",         align: "right" },
     { key: "calls_under_15m",  label: "Calls < 15 min",        align: "right" },
+    { key: "deals_claimed",    label: "Deals Claimed",         align: "right" },
   ];
 
   function pad(n) { return String(n).padStart(2, "0"); }
@@ -187,6 +188,7 @@
       { k: "Total Talk Time", v: fmtDur(t.talk_seconds) },
       { k: "Calls < 3 min", v: t.calls_under_3m ?? 0 },
       { k: "Calls < 15 min",v: t.calls_under_15m ?? 0 },
+      { k: "Deals Claimed", v: t.deals_claimed ?? 0 },
     ];
     document.getElementById("cards").innerHTML = cards.map(c =>
       `<div class="card"><div class="k">${c.k}</div><div class="v">${c.v}</div></div>`).join("");
@@ -212,6 +214,7 @@
         if (c.key === "talk_seconds") return `<td>${fmtDur(r.talk_seconds)}</td>`;
         if (c.key === "calls_under_3m") { const n = r.calls_under_3m || 0; return `<td><span class="pill ${n ? "a" : "zero"}">${n}</span></td>`; }
         if (c.key === "calls_under_15m") { const n = r.calls_under_15m || 0; return `<td><span class="pill ${n ? "b" : "zero"}">${n}</span></td>`; }
+        if (c.key === "deals_claimed") { const n = r.deals_claimed || 0; return `<td><span class="pill ${n ? "a" : "zero"}">${n}</span></td>`; }
         const val = r[c.key] || 0;
         return `<td class="${val ? "" : "muted"}">${val}</td>`;
       }).join("");
@@ -233,10 +236,12 @@
     if (!from || !to) { preset("today"); return; }
     const btn = document.getElementById("reload");
     btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Running…';
-    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="6"><span class="spin"></span> Pulling calls from RingEX + RingCX…</td></tr>`;
+    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="7"><span class="spin"></span> Pulling calls from RingEX + RingCX…</td></tr>`;
     try {
       const tz = new Date().getTimezoneOffset();
-      const resp = await fetch(`/api/agent-analytics?tz=${tz}&start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}&_=${Date.now()}`, { headers: { Accept: "application/json" } });
+      // calls_only=1 → drop Books/CRM agents (quotes/closings); bot_claims=1 → include
+      // whoever claimed deals in the bot. Only real callers + claimers, no stale names.
+      const resp = await fetch(`/api/agent-analytics?tz=${tz}&start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}&calls_only=1&bot_claims=1&_=${Date.now()}`, { headers: { Accept: "application/json" } });
       const j = await resp.json();
       if (j.status !== "ok") throw new Error(j.message || "Failed to load");
       _rows = j.rows || [];
@@ -252,10 +257,10 @@
       if (t.unattributed_calls) {
         note += `  ${t.unattributed_calls} call${t.unattributed_calls === 1 ? "" : "s"} couldn't be tied to a named agent (dialer legs with no matched extension) — full attribution of those needs RingCX CDR (WEM) access.`;
       }
-      note += "  Calls < 3 min and < 15 min are cumulative (a 2-min call counts in both).";
+      note += "  Showing only agents who placed calls (RingEX/RingCX) or claimed a deal in the bot — Books/CRM-only names are excluded.  Calls < 3 min and < 15 min are cumulative (a 2-min call counts in both).";
       document.getElementById("note").textContent = note;
     } catch (e) {
-      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="6" style="color:var(--red)">Couldn't load: ${esc(e.message)}</td></tr>`;
+      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="7" style="color:var(--red)">Couldn't load: ${esc(e.message)}</td></tr>`;
       document.getElementById("cards").innerHTML = "";
       document.getElementById("tfoot").innerHTML = "";
     } finally {

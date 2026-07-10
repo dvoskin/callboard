@@ -1065,6 +1065,44 @@ _botdist_cache = {"at": 0.0, "date": "", "payload": None}
 _botdist_lock = threading.Lock()
 _BOTDIST_TTL = 30.0
 
+
+def _fetch_bot_claim_counts(start_date_str: str, end_date_str: str) -> dict:
+    """Deals claimed per coordinator in the bot (Telegram) over an inclusive ET-day
+    range ('YYYY-MM-DD'..'YYYY-MM-DD'). Reads the back-office /api/bot-distributions
+    once per day with the shared key. Returns {claimed_by: count}; empty if the
+    back-office isn't configured or reachable."""
+    out: dict = {}
+    if not BACKOFFICE_URL or not OVERDUE_API_KEY:
+        return out
+    try:
+        d0 = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        d1 = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return out
+    if d1 < d0:
+        d0, d1 = d1, d0
+    if (d1 - d0).days > 62:          # bound the fan-out — one HTTP call per day
+        d0 = d1 - timedelta(days=62)
+    day = d0
+    while day <= d1:
+        ds = day.isoformat()
+        try:
+            r = requests.get(
+                f"{BACKOFFICE_URL}/api/bot-distributions",
+                params={"date": ds},
+                headers={"X-API-Key": OVERDUE_API_KEY},
+                timeout=12, allow_redirects=False,
+            )
+            if r.status_code == 200 and "application/json" in r.headers.get("Content-Type", ""):
+                for row in ((r.json() or {}).get("distributions") or []):
+                    name = (row.get("claimed_by") or "").strip()
+                    if name:
+                        out[name] = out.get(name, 0) + 1
+        except Exception as ex:
+            log.warning("bot-claim counts for %s failed: %s", ds, ex)
+        day += timedelta(days=1)
+    return out
+
 @app.route("/api/bot-distributions")
 @login_required
 def api_bot_distributions():
@@ -3132,6 +3170,12 @@ def api_agent_analytics():
         end_dt   = _parse_local_date_to_utc(ed, eh, em, es, tz_offset_minutes)
         threshold = AGENT_ANALYTICS_LONG_CALL_SECONDS
 
+        # Interactions Report mode: show ONLY people who actually call (telephony) or
+        # claim deals in the bot — not every Books salesperson / CRM deal owner. Those
+        # extra sources are what dragged ex-employees and unrelated names onto the report.
+        calls_only = request.args.get("calls_only") == "1"
+        bot_claims = request.args.get("bot_claims") == "1"
+
         agents: dict = {}
         _canon: dict = {}  # lowercase → canonical display name
 
@@ -3152,6 +3196,7 @@ def api_agent_analytics():
                     "handle_seconds": 0,
                     "quotes": 0,
                     "closings": 0,
+                    "deals_claimed": 0,
                 }
             return agents[key]
 
@@ -3178,8 +3223,8 @@ def api_agent_analytics():
             except Exception as ex:
                 log.warning("agent-analytics call stats failed: %s", ex)
 
-        # ── Quotes sent: Books estimates by salesperson ──
-        if _books.configured:
+        # ── Quotes sent: Books estimates by salesperson (skipped in calls-only mode) ──
+        if not calls_only and _books.configured:
             try:
                 estimates = _books.list_sent_estimates(date_start, date_end, max_records=500)
                 for e in estimates:
@@ -3187,20 +3232,36 @@ def api_agent_analytics():
             except Exception as ex:
                 log.warning("agent-analytics quotes fetch failed: %s", ex)
 
-        # ── Closings: CRM Closed Won - Surgery Scheduled by owner ──
-        try:
-            counts = _zoho.get_pipeline_counts(start_dt=start_dt, end_dt=end_dt)
-            closed = counts.get("Closed Won - Surgery Scheduled") or {}
-            for row in closed.get("by_agent", []):
-                _agent(row.get("name"))["closings"] += int(row.get("count") or 0)
-        except Exception as ex:
-            log.warning("agent-analytics closings fetch failed: %s", ex)
+        # ── Closings: CRM Closed Won - Surgery Scheduled by owner (skipped in calls-only) ──
+        if not calls_only:
+            try:
+                counts = _zoho.get_pipeline_counts(start_dt=start_dt, end_dt=end_dt)
+                closed = counts.get("Closed Won - Surgery Scheduled") or {}
+                for row in closed.get("by_agent", []):
+                    _agent(row.get("name"))["closings"] += int(row.get("count") or 0)
+            except Exception as ex:
+                log.warning("agent-analytics closings fetch failed: %s", ex)
 
-        # Drop the catch-all "Unassigned" bucket entirely — only real, named
-        # agents belong on the performance board.
+        # ── Deals claimed in the bot (Telegram) — who's actually working leads ──
+        if bot_claims:
+            try:
+                for name, cnt in _fetch_bot_claim_counts(sd, ed).items():
+                    _agent(name)["deals_claimed"] += cnt
+            except Exception as ex:
+                log.warning("agent-analytics bot-claims fetch failed: %s", ex)
+
+        # Drop the catch-all "Unassigned" bucket. In calls-only mode, also drop anyone
+        # with no real activity (no calls AND no bot claims) so only people who actually
+        # called on the tracker or claimed in the bot remain — no stale/unrelated names.
+        def _keep(r):
+            if r["name"] == "Unassigned":
+                return False
+            if calls_only:
+                return (r["calls"] > 0) or (r.get("deals_claimed", 0) > 0)
+            return True
         rows = sorted(
-            (r for r in agents.values() if r["name"] != "Unassigned"),
-            key=lambda r: (-r["calls"], r["name"].lower()),
+            (r for r in agents.values() if _keep(r)),
+            key=lambda r: (-r["calls"], -r.get("deals_claimed", 0), r["name"].lower()),
         )
         for r in rows:
             r["talk_minutes"] = round(r["talk_seconds"] / 60.0, 1)
@@ -3221,6 +3282,7 @@ def api_agent_analytics():
             "has_handle_time": handle_total > 0,
             "quotes":         sum(r["quotes"] for r in rows),
             "closings":       sum(r["closings"] for r in rows),
+            "deals_claimed":  sum(r.get("deals_claimed", 0) for r in rows),
             "unattributed_calls": unattributed_calls,
             "call_source":    call_source,
         }
