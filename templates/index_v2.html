@@ -3511,10 +3511,10 @@
   </div>
 
   <!-- ══════════════════════ SCHEDULED CALLS ══════════════════════ -->
-  <!-- ── Scheduled Calls (Activity) card ── -->
+  <!-- ── Activity card: scheduled calls + bot distributions, one timeline ── -->
   <div class="card" id="card-activity">
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <h2>🗓 Scheduled Calls</h2>
+      <h2>🗓 Activity</h2>
       <span class="card-sub" id="sc-card-sub">Today · All</span>
       <div class="gb-toggle" id="sc-sheet-toggle">
         <button class="gb-btn active" data-sheet="All" onclick="switchSheet('All')">All</button>
@@ -3617,35 +3617,6 @@
       </div>
     </div>
   </div><!-- /card-activity -->
-
-  <!-- ── Bot Distributions card (between Scheduled Calls and Call Now) ── -->
-  <div class="card" id="card-bot-dist">
-    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <h2 style="margin:0">🤖 Distributed by Bot</h2>
-      <span class="chip" id="bot-dist-count">0</span>
-      <span class="card-sub" id="bot-dist-sub">Every lead the bot sent to Telegram today — who took it, and how it ended</span>
-      <button class="filter-clear" id="bot-dist-refresh" onclick="loadBotDistributions(true)" style="margin-left:auto" title="Reload">↻</button>
-    </div>
-    <div class="table-wrap">
-      <table class="sc-table sc-tbl" id="bot-dist-table">
-        <thead>
-          <tr>
-            <th style="width:90px">Sent</th>
-            <th>Contact</th>
-            <th style="width:130px">Phone</th>
-            <th style="width:120px">Source</th>
-            <th style="width:150px">Claimed by</th>
-            <th style="width:90px">To claim</th>
-            <th style="width:130px">Called by</th>
-            <th>Ended with</th>
-            <th style="width:150px">Deal stage</th>
-          </tr>
-        </thead>
-        <tbody id="bot-dist-tbody"></tbody>
-      </table>
-      <div class="table-footer" id="bot-dist-footer"></div>
-    </div>
-  </div><!-- /card-bot-dist -->
 
   <!-- ── Call Now Deals card ── -->
   <div class="card" id="card-call-now">
@@ -4742,70 +4713,61 @@
 
   async function loadBotDistributions(force) {
     if (_botDistInFlight) return;
-    if (!force && Date.now() - _botDistLastLoad < 60000 && _botDistRecords.length) { renderBotDistributions(); return; }
+    if (!force && Date.now() - _botDistLastLoad < 60000 && _botDistRecords.length) { drawScTable(); return; }
     _botDistInFlight = true;
-    const btn = document.getElementById("bot-dist-refresh");
-    if (btn) btn.textContent = "…";
     try {
       const resp = await fetch(`/api/bot-distributions?date=${todayISO()}&_nocache=${Date.now()}`);
       const j = await resp.json();
       if (j.error) {
-        document.getElementById("bot-dist-footer").textContent =
-          j.error === "not configured"
-            ? "Set BACKOFFICE_URL and OVERDUE_API_KEY on this service to show bot distributions."
-            : `Back-office unreachable: ${j.detail || j.error}`;
+        // Surface it once in the console; the table simply shows scheduled calls only.
+        console.warn(`[bot-dist] ${j.error}: ${j.detail || ""}`);
         _botDistRecords = [];
       } else {
         _botDistRecords = j.distributions || [];
         _botDistLastLoad = Date.now();
-        const cl = j.claimed || 0, un = j.unclaimed || 0;
-        document.getElementById("bot-dist-footer").textContent =
-          `${j.count || 0} distributed today · ${cl} claimed · ${un} unclaimed`;
       }
     } catch (err) {
-      document.getElementById("bot-dist-footer").textContent = "Could not load bot distributions.";
+      console.warn("[bot-dist] load failed", err);
     }
-    if (btn) btn.textContent = "↻";
     _botDistInFlight = false;
-    renderBotDistributions();
+    if (_scActivityRecords.length || _botDistRecords.length) drawScTable();
   }
 
-  function renderBotDistributions() {
-    const tb = document.getElementById("bot-dist-tbody");
-    const chip = document.getElementById("bot-dist-count");
-    if (!tb) return;
-    if (chip) chip.textContent = _botDistRecords.length;
-    if (!_botDistRecords.length) {
-      tb.innerHTML = `<tr><td colspan="9" class="no-data" style="text-align:center;padding:18px">No leads distributed by the bot today.</td></tr>`;
-      return;
-    }
-    // The API already returns earliest → latest; sort defensively anyway.
-    const rows = _botDistRecords.slice().sort((a, b) =>
-      new Date(a.distributed_at) - new Date(b.distributed_at));
-    tb.innerHTML = rows.map(r => {
-      const t = new Date(r.distributed_at).toLocaleTimeString("en-US",
-        { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-      const stage = r.stage_moved_to
-        ? `<span class="resolved-by-tag" title="Advanced after the call">${_qEsc(r.deal_stage)} → ${_qEsc(r.stage_moved_to)}</span>`
-        : (r.deal_stage ? _qEsc(r.deal_stage) : `<span class="no-data">—</span>`);
-      const dealLink = r.deal_id
-        ? `<a href="https://crm.zoho.com/crm/org5212466/tab/Potentials/${_qEsc(r.deal_id)}" target="_blank" rel="noopener">${_qEsc(r.name || "(no name)")}</a>`
-        : _qEsc(r.name || "(no name)");
-      return `<tr>
-        <td style="font-size:11px;white-space:nowrap">${t}</td>
-        <td>${dealLink}</td>
-        <td style="font-family:monospace;font-size:11px">${_qEsc(r.phone)}</td>
-        <td style="font-size:11px">${_qEsc(r.source)}</td>
-        <td>${r.claimed_by ? "🙋 " + _qEsc(r.claimed_by) : `<span class="no-data">unclaimed</span>`}</td>
-        <td style="font-size:11px">${_bdSecs(r.claim_seconds)}</td>
-        <td style="font-size:11px">${r.called_by ? _qEsc(r.called_by) : `<span class="no-data">—</span>`}</td>
-        <td>${_bdOutcomeTag(r)}</td>
-        <td style="font-size:11px">${stage}</td>
-      </tr>`;
-    }).join("");
+  /**
+   * Bot distributions live in the same Activity timeline as scheduled calls. A distribution
+   * has no scheduled time — the moment it went to Telegram IS its time — so it maps onto
+   * scheduled_time, which is what the table sorts on (earliest → latest by default).
+   *
+   * They are merged at draw time rather than into _scActivityRecords, so the resolve, flag and
+   * follow-up handlers (which look records up by id and POST to Zoho) never see them.
+   */
+  function _botDistAsActivityRows() {
+    return _botDistRecords.map(r => ({
+      id: `bot:${r.id}`,
+      is_bot: true,
+      name: r.name || "(no name)",
+      phone: r.phone || "",
+      deal_id: r.deal_id || "",
+      scheduled_time: r.distributed_at,     // the action's time — what we sort on
+      actual_call_time: null,
+      status: "bot_distributed",
+      disposition: r.outcome || "",
+      deal_stage: r.deal_stage || "",
+      stage_moved_to: r.stage_moved_to || "",
+      caller: r.called_by || "",
+      claimed_by: r.claimed_by || "",
+      claimed_at: r.claimed_at || "",
+      claim_seconds: r.claim_seconds ?? null,
+      logged_via: r.source || "Bot",
+      owner: "",
+      dial_attempts: 0,
+      resolved: false,
+      distributed: true,
+      recording_url: null,
+    }));
   }
 
-  // ─────────────────────────── Call Now Deals ───────────────────────────
+  // ─────────────────────────── Call Now Deals ───────────────────────────  // ─────────────────────────── Call Now Deals ───────────────────────────
   function fmtPhoneNum(p) {
     const d = String(p || "").replace(/\D/g, "");
     const d10 = d.length === 11 && d[0] === "1" ? d.slice(1) : d;
@@ -5704,7 +5666,9 @@
     const sf = document.getElementById("sc-status-filter").value;
     const df = document.getElementById("sc-disp-filter").value;
     const stf = document.getElementById("sc-stage-filter").value;
-    let rows = _scActivityRecords.filter(r => {
+    // One timeline: scheduled calls + everything the bot distributed today, ordered by
+    // scheduled time or, for a distribution, the moment it went out.
+    let rows = _scActivityRecords.concat(_botDistAsActivityRows()).filter(r => {
       if (sf && r.status!==sf) return false;
       if (df && r.disposition!==df) return false;
       if (stf && (r.deal_stage||"")!==stf) return false;
@@ -6027,7 +5991,13 @@
       // wins, in this order: live call → the call's own outcome → handled →
       // rescheduled → distributed → the plain lifecycle state (Overdue/Pending/…).
       let statusHtml;
-      if (r._liveCall) {
+      if (r.is_bot) {
+        // A bot distribution, not a scheduled call. Its status is what became of the lead.
+        const claimed = !!r.claimed_by;
+        statusHtml = claimed
+          ? `<span class="badge badge-blue" title="Claimed in the sales Telegram${r.claim_seconds != null ? ` after ${_bdSecs(r.claim_seconds)}` : ""}">🤖 Claimed</span>`
+          : `<span class="badge badge-orange" title="Sent to the sales Telegram; nobody has taken it">🤖 Distributed</span>`;
+      } else if (r._liveCall) {
         statusHtml = `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`;
       } else if (effStatus === "completed" || effStatus === "early") {
         // A call was actually made — its result is the status.
