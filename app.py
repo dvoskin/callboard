@@ -247,6 +247,8 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
         r["assigned_to"] = entry.get("assigned_to", "")
         r["distributed"] = entry.get("distributed", False)
         r["distributed_by"] = entry.get("distributed_by", "")
+        r["claimed_by"] = entry.get("claimed_by", "")
+        r["claimed_at"] = entry.get("claimed_at", "")
         ai = ai_map.get(_phone10(r.get("phone")))
         r["ai_handled"] = bool(ai)
         r["ai_scenario"] = (ai or {}).get("scenario", "")
@@ -995,6 +997,32 @@ def api_ai_handled():
         data[phone] = entry
         _save_ai_handled(data)
     return jsonify({"ok": True, "phone": phone, "count": entry["count"]})
+
+
+@app.route("/api/scheduled-call/<rec_id>/claimed", methods=["POST"])
+def api_scheduled_call_claimed(rec_id):
+    """A coordinator claimed this call's Telegram card in the back-office bot.
+
+    "Distributed" only ever meant "a card was posted"; it never said who picked it up, so a
+    claimed call looked identical to one sitting unclaimed in the chat. Machine-to-machine
+    (shared OVERDUE_API_KEY), keyed by our record id — which the bot carries as externalId.
+    """
+    if not _valid_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    claimed_by = (body.get("claimed_by") or "").strip()[:80]
+    if not claimed_by:
+        return jsonify({"error": "claimed_by required"}), 400
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        entry = data.setdefault(rec_id, {"at": datetime.now(timezone.utc).isoformat()})
+        entry["claimed_by"] = claimed_by
+        entry["claimed_at"] = (body.get("at") or datetime.now(timezone.utc).isoformat())
+        # A claimed card is by definition distributed; keep the two consistent.
+        entry["distributed"] = True
+        entry.setdefault("distributed_by", BOT_DISTRIBUTED_BY)
+        _save_resolved(data)
+    return jsonify({"status": "ok", "id": rec_id, "claimed_by": claimed_by})
 
 
 @app.route("/api/ai-handled", methods=["GET"])

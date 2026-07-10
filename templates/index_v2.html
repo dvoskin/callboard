@@ -4991,15 +4991,22 @@
     if (!isOverdueRow(r)) return aiTag || `<span class="no-data">—</span>`;
     // Not resolved yet. If the bot (or a manager) has already distributed it, show
     // that here so the column reflects who's on it — the manual Resolve stays open.
+    // Claimed beats distributed: naming the coordinator who took it is the useful fact.
+    let claimTag = "";
+    if (r.claimed_by) {
+      const when = r.claimed_at ? new Date(r.claimed_at).toLocaleString("en-US",
+        { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+      claimTag = `<span class="resolved-by-tag" title="Claimed in the sales Telegram${when ? " at " + when + " ET" : ""}">🙋 Claimed · ${_qEsc(r.claimed_by)}</span> `;
+    }
     let distTag = "";
-    if (r.distributed) {
+    if (r.distributed && !r.claimed_by) {
       const byBot = ["bot", "backoffice-bot"].includes(String(r.distributed_by || "").toLowerCase());
       const who = byBot ? "bot" : _resolverLabel(r.distributed_by);
       const tip = byBot ? "Sent to the sales Telegram by the back-office bot"
                         : `Distributed manually${who ? " by " + _qEsc(who) : ""}`;
       distTag = `<span class="resolved-by-tag" title="${tip}">${byBot ? "📲" : "✋"} Distributed${who ? " · " + _qEsc(who) : ""}</span> `;
     }
-    return `${aiTag}${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+    return `${aiTag}${claimTag}${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
         value="${(r.resolved_by||'').replace(/"/g,'&quot;')}" placeholder="Your name"
         onblur="saveResolvedBy(this)" onkeydown="if(event.key==='Enter'){this.blur()}">
       <button class="resolve-btn" onclick="markResolved('${r.id}')" title="Clear from concerns">✓ Resolve</button>`;
@@ -5843,9 +5850,13 @@
       } else {
         dialsCell = `<span class="dials-val">${dials}</span>`;
       }
+      // Who called (Zoho call owner) — or, if nobody has called yet, who claimed the card in
+      // Telegram. "Distributed" alone never told you who actually picked the lead up.
       const callerCell = r.caller
         ? `<span style="font-size:11px">${_qEsc(r.caller)}</span>`
-        : `<span class="no-data">—</span>`;
+        : (r.claimed_by
+            ? `<span style="font-size:11px;opacity:.75" title="Claimed in Telegram${r.claimed_at ? " at " + new Date(r.claimed_at).toLocaleString("en-US", {timeZone:"America/New_York", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) + " ET" : ""} — no call logged yet">🙋 ${_qEsc(r.claimed_by)}</span>`
+            : `<span class="no-data">—</span>`);
       // Check if call is imminent (upcoming, ≤7 min away)
       const isImminent = r.status === "upcoming" && r.scheduled_time
         && ((new Date(r.scheduled_time).getTime() - Date.now()) / 60000) <= 7
