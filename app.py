@@ -39,6 +39,16 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 # Machine-to-machine shared secret for the back-office bot's overdue-calls poller.
 # Set the SAME value here (Render env: OVERDUE_API_KEY) and in the back-office app.
 OVERDUE_API_KEY = os.environ.get("OVERDUE_API_KEY", "")
+if not OVERDUE_API_KEY:
+    # Fail-closed is right, but silent fail-closed is how this went unnoticed:
+    # every /api/overdue-calls request 401s, so the back-office bot never learns
+    # about an overdue scheduled call and nobody is ever told why.
+    print(
+        "[overdue] WARNING: OVERDUE_API_KEY is not set — /api/overdue-calls will "
+        "reject every request (401). The back-office bot cannot distribute overdue "
+        "scheduled calls until this is set to the same value on both services.",
+        flush=True,
+    )
 
 def _valid_api_key() -> bool:
     """True if the request carries the shared overdue-calls secret. Used INSTEAD of

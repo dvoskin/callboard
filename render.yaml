@@ -37,5 +37,12 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         value: https://call-tracker-3z6t.onrender.com/auth/callback
+      # Shared machine-to-machine secret for the back-office bot's overdue-calls
+      # poller (GET /api/overdue-calls). _valid_api_key() FAILS CLOSED when this
+      # is unset — every bot request 401s and no overdue scheduled call is ever
+      # distributed to the sales chat. Must be the SAME value as OVERDUE_API_KEY
+      # on the backoffice-app service.
+      - key: OVERDUE_API_KEY
+        sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
