@@ -1117,6 +1117,7 @@ def _fetch_backoffice_call_stats(start_dt: datetime, end_dt: datetime):
         return {"agents": agents, "diag": diag, "meta": {
             "calls_fetched": data.get("calls_fetched"),
             "calls_in_window": data.get("calls_in_window"),
+            "via_leg": data.get("via_leg"),
             "unattributed": data.get("unattributed"),
         }}
     except Exception as ex:
