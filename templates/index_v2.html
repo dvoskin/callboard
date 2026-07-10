@@ -4126,9 +4126,26 @@
   }
 
   // ─── sort/filter ───
+  // Columns holding an instant. These were compared as lowercased STRINGS, so
+  // "2026-07-10T14:00:00-04:00" (Zoho, EDT) sorted before "2026-07-10T10:15:00Z" (UTC) —
+  // a 2 PM call jumped above a 10:15 AM one. Compare the instants, not the text.
+  const TIME_SORT_KEYS = new Set([
+    "scheduled_time", "actual_call_time", "last_attempt_time", "distributed_at", "claimed_at",
+  ]);
+
   function sortedBy(arr, key, dir) {
+    const isTime = TIME_SORT_KEYS.has(key);
     return [...arr].sort((a,b) => {
       let av=a[key]??"", bv=b[key]??"";
+      if (isTime) {
+        // Rows with no time sort last in both directions — an empty cell is not "earliest".
+        const at = av ? Date.parse(av) : NaN, bt = bv ? Date.parse(bv) : NaN;
+        const aBad = Number.isNaN(at), bBad = Number.isNaN(bt);
+        if (aBad && bBad) return 0;
+        if (aBad) return 1;
+        if (bBad) return -1;
+        return at < bt ? -dir : at > bt ? dir : 0;
+      }
       if (typeof av==="string") av=av.toLowerCase();
       if (typeof bv==="string") bv=bv.toLowerCase();
       return av<bv?-dir:av>bv?dir:0;
@@ -4748,7 +4765,12 @@
       name: r.name || "(no name)",
       phone: r.phone || "",
       deal_id: r.deal_id || "",
-      scheduled_time: r.distributed_at,     // the action's time — what we sort on
+      // The instant this row belongs at in the timeline. A scheduled call sorts by its booked
+      // time; a distribution sorts by when a coordinator CLAIMED it — that's the moment the
+      // work actually happened. Nobody has claimed it yet? Then it sits at the time it was
+      // sent, waiting.
+      scheduled_time: r.claimed_at || r.distributed_at,
+      distributed_at: r.distributed_at,
       actual_call_time: null,
       status: "bot_distributed",
       disposition: r.outcome || "",
