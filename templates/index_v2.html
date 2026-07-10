@@ -5937,7 +5937,12 @@
         return `<div class="att-row"><span class="att-time">${_attT(a)}</span>${_attDur(a.duration)}${rep}${tag}</div>`;
       };
       let dialsCell;
-      if (dials === 0) {
+      if (r.is_bot) {
+        // A bot-distribution row doesn't track dial attempts itself — the call data arrives
+        // through the outcome/caller fields once the back-office syncs it. "0" read as
+        // "nobody dialed"; unknown is not zero.
+        dialsCell = `<span class="no-data">—</span>`;
+      } else if (dials === 0) {
         dialsCell = `<span class="no-data">0</span>`;
       } else if (attList.length > 0) {
         // Collapsed: just the first attempt's time + a small amber dot if it
