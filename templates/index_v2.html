@@ -6136,19 +6136,19 @@
         <td class="col-dials">${dialsCell}</td>
         <td class="col-caller">${callerCell}</td>
         <td class="col-disp">${dispCell}</td>
-        <td class="col-usernote"><input type="text" class="note-input" data-id="${r.id}" value="${(r.note||'').replace(/"/g,'&quot;')}" placeholder="Add note…" onblur="saveNote(this)" onkeydown="if(event.key==='Enter'){this.blur()}"></td>
-        <td style="text-align:center" class="col-dist"><button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? `Distributed by ${r.distributed_by || 'unknown'}` : 'Mark as manually distributed'}">✋</button></td>
-        <td style="text-align:center" class="col-flag"><button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button></td>
+        <td class="col-usernote">${r.is_bot ? '<span class="no-data">—</span>' : `<input type="text" class="note-input" data-id="${r.id}" value="${(r.note||'').replace(/"/g,'&quot;')}" placeholder="Add note…" onblur="saveNote(this)" onkeydown="if(event.key==='Enter'){this.blur()}">`}</td>
+        <td style="text-align:center" class="col-dist">${r.is_bot ? '' : `<button class="dist-btn${r.distributed?" is-distributed":""}" onclick="toggleDistributed('${r.id}',this)" title="${r.distributed ? `Distributed by ${r.distributed_by || 'unknown'}` : 'Mark as manually distributed'}">✋</button>`}</td>
+        <td style="text-align:center" class="col-flag">${r.is_bot ? '' : `<button class="flag-btn${_flaggedIds.has(r.id)?" flagged":""}" onclick="toggleFlag('${r.id}',this)" title="Flag for coaching review">🚩</button>`}</td>
         <td style="text-align:center" class="col-rec">${recCell}</td>
         <td style="text-align:center" class="col-fucall">${fuBtn}</td>
         <td class="col-nxtstep">${_scFuCallCell(r.id_deal)}</td>
         <td class="col-leadsrc" style="font-size:11px">${
           r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'
         }</td>
-        <td style="text-align:center" class="col-sms">${_smsBtn(r)}</td>
+        <td style="text-align:center" class="col-sms">${r.is_bot ? '' : _smsBtn(r)}</td>
         <td class="col-notes">${_scNotesCell(r.id_deal, r.id)}</td>
         <td class="col-resolve">${_scResolveCell(r)}</td>
-        <td class="col-actions" style="text-align:center"><button class="row-act-btn" title="Edit or delete this scheduled call" data-id="${r.id}" data-name="${_qEsc(r.name||'')}" data-time="${_qEsc(r.scheduled_time||'')}" data-owner="${_qEsc(r.owner||r.deal_owner||r.caller||'')}" onclick="openEditCallModal(this)">✎</button></td>
+        <td class="col-actions" style="text-align:center">${r.is_bot ? '' : `<button class="row-act-btn" title="Edit or delete this scheduled call" data-id="${r.id}" data-name="${_qEsc(r.name||'')}" data-time="${_qEsc(r.scheduled_time||'')}" data-owner="${_qEsc(r.owner||r.deal_owner||r.caller||'')}" onclick="openEditCallModal(this)">✎</button>`}</td>
       </tr>`;
     }).join("");
 
@@ -6470,9 +6470,13 @@
     btn.disabled = false; btn.textContent = "↻ Refresh";
   }
   initDatePicker();
-  // Instant paint from cache, then immediately refresh live; keep refreshing live.
-  loadData().then(() => loadData(null, null, { live: true }));
-  setInterval(() => { if (!_customDateActive) loadData(null, null, { live: true }); }, REFRESH_INTERVAL);
+  // Instant paint from cache, then keep reading the CACHE on the interval. The background
+  // refresh loop on the server owns the Zoho fetch (it refreshes the cache every 60s); the
+  // old { live: true } steady-state poll forced a full uncached 45-85s Zoho fetch PER OPEN
+  // BOARD per minute — a few tabs saturated all 8 gunicorn threads, starved /health, and
+  // Render restarted the worker. Live fetches are for the manual ↻ Refresh button only.
+  loadData();
+  setInterval(() => { if (!_customDateActive) loadData(); }, REFRESH_INTERVAL);
 
   // ══════════════════════════════════════════════════════════════
   // LIVE MONITOR — RingCX real-time integration

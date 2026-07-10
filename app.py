@@ -791,7 +791,9 @@ def _parse_local_date_to_utc(
         # getTimezoneOffset() is positive for zones behind UTC (CDT=300 → UTC-5)
         tz_offset_hours = -tz_offset_minutes / 60.0
     else:
-        tz_offset_hours = float(os.environ.get("TZ_OFFSET_HOURS", "-6"))
+        # Fallback when the browser didn't send tz: the zone's CURRENT offset (DST-aware),
+        # not a fixed env constant that is an hour wrong half the year.
+        tz_offset_hours = _zoho.LOCAL_TZ.utcoffset(datetime.now(timezone.utc)).total_seconds() / 3600.0
     d = datetime.strptime(date_str, "%Y-%m-%d").replace(
         hour=hour, minute=minute, second=second, tzinfo=timezone.utc
     )
@@ -1145,7 +1147,7 @@ BOT_ALIASES = {"bot", "backoffice-bot"}
 # minutes; if the bot never confirms, the claim lapses and the call comes back.
 _CLAIM_TTL_SECONDS = 300
 _overdue_claims: dict[str, float] = {}
-_claims_lock = threading.Lock()
+_claims_lock = threading.RLock()   # re-entrant: the compute-and-claim block holds it while _is_claimed re-acquires
 
 def _claim_overdue(ids: list[str]) -> None:
     now = time.time()
@@ -1222,8 +1224,17 @@ def api_overdue_calls():
         loading = _cache["data"] is None
     if loading:
         return jsonify({"status": "loading", "count": 0, "overdue": []})
-    overdue = _compute_overdue_calls()
-    _claim_overdue([o["id"] for o in overdue if o.get("id")])
+    # Compute-and-claim under ONE lock. Split, two overlapping GETs (8 gthreads) could both
+    # compute the same unclaimed call before either claimed it → double distribution. The
+    # in-memory claim map itself assumes -w 1 (single process), which render.yaml pins.
+    with _claims_lock:
+        overdue = _compute_overdue_calls()
+        now_ts = time.time()
+        for stale in [k for k, t in _overdue_claims.items() if now_ts - t > _CLAIM_TTL_SECONDS]:
+            _overdue_claims.pop(stale, None)
+        for o in overdue:
+            if o.get("id"):
+                _overdue_claims[o["id"]] = now_ts
     return jsonify({"status": "ok", "count": len(overdue), "overdue": overdue})
 
 
@@ -1701,7 +1712,7 @@ def api_pipeline():
             # table uses) — not a UTC date derived from the converted datetime,
             # which drifts to the wrong day near midnight Central.
             tz_hours = (-tz_offset_minutes / 60.0) if tz_offset_minutes is not None \
-                else float(os.environ.get("TZ_OFFSET_HOURS", "-6"))
+                else _zoho.LOCAL_TZ.utcoffset(datetime.now(timezone.utc)).total_seconds() / 3600.0
             local_today = (datetime.now(timezone.utc) + timedelta(hours=tz_hours)).date().isoformat()
             date_start = start_param or local_today
             date_end   = end_param or start_param or local_today

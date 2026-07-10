@@ -23,6 +23,12 @@ DIAL_START_HOUR      = int(os.getenv("DIAL_START_HOUR", "9"))
 SCHEDULED_CALL_TOLERANCE_MINUTES = ON_TIME_AFTER_MIN
 # Local timezone offset from UTC (e.g. -4 for EDT, -5 for EST)
 TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "-4"))
+# DST-aware local business zone. The fixed TZ_OFFSET_HOURS above (-6 on Render) is CST and is
+# an hour wrong all summer: a 9:30 AM CDT call read as 8:30 "local", got floored to the 9 AM
+# dial start, and everything downstream (overdue detection, on-time scoring, day boundaries)
+# shifted by an hour. astimezone(LOCAL_TZ) applies each instant's own offset, so DST just works.
+from zoneinfo import ZoneInfo
+LOCAL_TZ = ZoneInfo(os.getenv("TZ_NAME", "America/Chicago"))
 # Hard ceiling on paginated Zoho searches. A single day never approaches this;
 # it exists only so a bad `more_records` response can't spin a `while True`
 # forever and wedge the background refresh (which froze the board for hours).
@@ -282,13 +288,10 @@ class ZohoClient:
 
     def _today_bounds(self) -> tuple:
         """Returns (start_of_today, end_of_today) in UTC, based on local business day."""
-        now = datetime.now(timezone.utc)
-        local_now = now + timedelta(hours=TZ_OFFSET_HOURS)
+        local_now = datetime.now(LOCAL_TZ)
         local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
         local_end   = local_now.replace(hour=23, minute=59, second=59, microsecond=0)
-        today_start = local_start - timedelta(hours=TZ_OFFSET_HOURS)
-        today_end   = local_end   - timedelta(hours=TZ_OFFSET_HOURS)
-        return today_start.replace(tzinfo=timezone.utc), today_end.replace(tzinfo=timezone.utc)
+        return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
     def _get_deals_by_stage(self, stage: str) -> list[dict]:
         import logging
@@ -360,7 +363,7 @@ class ZohoClient:
         Uses astimezone() so the math is correct regardless of the timezone the
         incoming datetime carries (Zoho can emit EDT -04:00, UTC, etc.).
         """
-        local_tz = timezone(timedelta(hours=TZ_OFFSET_HOURS))
+        local_tz = LOCAL_TZ
         # Ensure scheduled is tz-aware; assume UTC if naive
         if scheduled.tzinfo is None:
             scheduled = scheduled.replace(tzinfo=timezone.utc)
@@ -752,7 +755,7 @@ class ZohoClient:
         # A call only "belongs" to a scheduled slot if it happens on the SAME
         # local calendar date as the scheduled time.  This prevents yesterday's
         # 9 PM dial from matching today's 9 AM schedule.
-        local_tz = timezone(timedelta(hours=TZ_OFFSET_HOURS))
+        local_tz = LOCAL_TZ
         sched_local_date = effective_scheduled.astimezone(local_tz).date()
         def same_local_date(c):
             t = self._parse_dt(c.get("Call_Start_Time"))
