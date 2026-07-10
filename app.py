@@ -1,6 +1,7 @@
 from __future__ import annotations  # PEP 604 unions (str | None) on Python 3.9
 
 import os
+import re
 import json
 import threading
 import time
@@ -1122,6 +1123,72 @@ def _fetch_backoffice_call_stats(start_dt: datetime, end_dt: datetime):
         diag["error"] = f"{type(ex).__name__}: {ex}"
         log.warning("back-office agent-call-stats fetch failed: %s", ex)
         return {"agents": {}, "meta": {}, "diag": diag}
+
+
+def _merge_duplicate_agents(agents: dict) -> dict:
+    """Same person, two names: the call source uses formal RingCentral names ("Gregory
+    Beltran", "Charlotte McKay") while bot claims use roster/nicknames ("Gregorys Beltran",
+    "Charlotte", "Rothmel (Roe)", "Maisah ."). Merge them conservatively so each agent is one
+    row. Only merges when confident:
+      1) both full names, same last name (prefix-tolerant) + first-name prefix, or
+      2) a first-name-only name that matches EXACTLY ONE full name's first name.
+    The fuller name is kept as the display name."""
+    def toks(n):
+        s = (n or "").lower()
+        s = re.sub(r"\(.*?\)", " ", s)          # drop "(roe)"-style aliases, not a last name
+        s = re.sub(r"[^a-z\s]", " ", s)
+        return [t for t in s.split() if t]
+
+    STAT_KEYS = ("calls", "calls_under_3m", "calls_under_15m", "calls_over_3m",
+                 "talk_seconds", "handle_seconds", "quotes", "closings", "deals_claimed")
+    names = [r["name"] for r in agents.values()]
+    tk = {n: toks(n) for n in names}
+    parent = {}
+
+    def find(x):
+        while parent.get(x, x) != x:
+            x = parent[x]
+        return x
+
+    def pfx(a, b):
+        return a == b or (len(a) >= 3 and len(b) >= 3 and (a.startswith(b) or b.startswith(a)))
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        keep, drop = (ra, rb) if len(tk[ra]) >= len(tk[rb]) else (rb, ra)
+        parent[drop] = keep
+
+    # Pass 1 — full-name pairs: last name matches + first name prefix.
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = names[i], names[j]
+            ta, tb = tk[a], tk[b]
+            if len(ta) >= 2 and len(tb) >= 2 and pfx(ta[-1], tb[-1]) and pfx(ta[0], tb[0]):
+                union(a, b)
+
+    # Pass 2 — first-name-only → the unique full name sharing that first name.
+    first_to_full = {}
+    for n in names:
+        if len(tk[n]) >= 2:
+            first_to_full.setdefault(tk[n][0], []).append(n)
+    for n in names:
+        if len(tk[n]) == 1:
+            cands = first_to_full.get(tk[n][0], [])
+            if cands and len({find(c) for c in cands}) == 1:
+                union(n, cands[0])
+
+    merged = {}
+    for r in agents.values():
+        canon = find(r["name"])
+        m = merged.get(canon)
+        if m is None:
+            m = {"name": canon, **{k: 0 for k in STAT_KEYS}}
+            merged[canon] = m
+        for k in STAT_KEYS:
+            m[k] += int(r.get(k, 0) or 0)
+    return merged
 
 
 def _fetch_bot_claim_counts(start_date_str: str, end_date_str: str) -> dict:
@@ -3329,6 +3396,9 @@ def api_agent_analytics():
         # Drop the catch-all "Unassigned" bucket. In calls-only mode, also drop anyone
         # with no real activity (no calls AND no bot claims) so only people who actually
         # called on the tracker or claimed in the bot remain — no stale/unrelated names.
+        # Merge the same person appearing under a call name and a claim name (report only).
+        if calls_only:
+            agents = _merge_duplicate_agents(agents)
         def _keep(r):
             if r["name"] == "Unassigned":
                 return False
