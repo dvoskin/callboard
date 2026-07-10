@@ -1005,6 +1005,51 @@ def api_overdue_mark_distributed(rec_id):
     return jsonify({"status": "ok", "id": rec_id, "distributed": True})
 
 
+@app.route("/api/overdue-calls/reset-bot-distributed", methods=["POST"])
+def api_overdue_reset_bot_distributed():
+    """Clear the `distributed` flag on calls the BOT marked but never actually sent.
+
+    The back-office bot used to POST /distributed the moment it queued a call, not
+    when the Telegram card was sent. Its queue posts one card at a time and refuses
+    while anything sits unclaimed, so most queued calls expired unseen — yet this
+    endpoint's `distributed` flag had already hidden them from /api/overdue-calls
+    forever. They still show ⚠️ Overdue on the dashboard, which is why they look
+    stuck.
+
+    Scope is deliberately narrow:
+      • only entries with distributed_by == "backoffice-bot" — a human's ✋ manual
+        distribution is never touched;
+      • `resolved` entries are left alone (someone already handled the call).
+
+    Idempotent. Returns how many flags were cleared.
+    """
+    if not _valid_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    dry_run = str(request.args.get("dry_run", "")).lower() in ("1", "true", "yes")
+    cleared = []
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        for rec_id, entry in data.items():
+            if not entry.get("distributed"):
+                continue
+            if str(entry.get("distributed_by", "")).lower() != "backoffice-bot":
+                continue  # manual ✋ distribution — leave it
+            if entry.get("resolved") or entry.get("resolved_by"):
+                continue  # already handled by a human
+            cleared.append(rec_id)
+            if not dry_run:
+                entry.pop("distributed", None)
+                entry.pop("distributed_by", None)
+        if not dry_run and cleared:
+            _save_resolved(data)
+    return jsonify({
+        "status": "ok",
+        "dry_run": dry_run,
+        "cleared": len(cleared),
+        "ids": cleared[:50],
+    })
+
+
 @app.route("/api/scheduled-call/<rec_id>/update", methods=["POST"])
 @login_required
 def update_scheduled_call(rec_id):
