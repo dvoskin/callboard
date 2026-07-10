@@ -1058,14 +1058,30 @@ def api_bot_distributions():
 
     url = f"{BACKOFFICE_URL}/api/bot-distributions"
     try:
+        # allow_redirects=False on purpose. The back-office bounces unauthenticated requests
+        # to /login, and following that redirect returned an HTML page that json() choked on
+        # with "Expecting value: line 1 column 1" — a parse error that says nothing about the
+        # actual problem (a rejected key). Read the status instead, and say what it means.
         r = requests.get(url, params={"date": date} if date else None,
-                         headers={"X-API-Key": OVERDUE_API_KEY}, timeout=12)
+                         headers={"X-API-Key": OVERDUE_API_KEY}, timeout=12,
+                         allow_redirects=False)
+        if r.status_code in (301, 302, 303, 307, 308):
+            raise RuntimeError(
+                "back-office redirected to login — it did not accept the API key. "
+                "Check OVERDUE_API_KEY matches on both services.")
+        if r.status_code == 401:
+            raise RuntimeError("back-office rejected the API key (401). "
+                               "Check OVERDUE_API_KEY matches on both services.")
         r.raise_for_status()
+        ctype = r.headers.get("Content-Type", "")
+        if "application/json" not in ctype:
+            raise RuntimeError(f"back-office returned {ctype or 'no content-type'}, not JSON "
+                               f"(status {r.status_code})")
         payload = r.json()
     except Exception as e:
-        # Never 500 the board because the other service is slow or down.
+        # Never 500 the board because the other service is slow, down, or misconfigured.
         print(f"[bot-dist] fetch failed: {e}", flush=True)
-        return jsonify({"error": "upstream unavailable", "detail": str(e)[:200],
+        return jsonify({"error": "upstream unavailable", "detail": str(e)[:220],
                         "distributions": [], "count": 0}), 200
 
     with _botdist_lock:
