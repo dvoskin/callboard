@@ -17,7 +17,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 import functools
 from flask import Flask, jsonify, render_template, request, redirect, session, url_for
 from authlib.integrations.flask_client import OAuth
-from zoho_client import ZohoClient
+from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
 from telegram_client import TelegramClient
 from books_client import BooksClient
@@ -411,8 +411,11 @@ def _refresh():
         # Fetch RingEX call log as a supplemental source so that ALL dial
         # attempts (including short RingCX campaign calls that Zoho never
         # logs) feed into classification from the start.
-        # RingEX log + RingCX dialer CDR — see _fetch_supplemental.
+        # RingEX log + RingCX dialer CDR — see _fetch_supplemental. The background thread can
+        # afford the full fetch; it also primes the request-thread cache.
         supplemental = _fetch_supplemental() or None
+        with _sup_lock:
+            _sup_cache.update({"at": time.time(), "val": supplemental or {}})
         data = _zoho.get_dashboard_data(supplemental_calls=supplemental)
         ts = datetime.now(timezone.utc).isoformat()
         with _lock:
@@ -789,7 +792,7 @@ def _parse_local_date_to_utc(
     else:
         # Fallback when the browser didn't send tz: the zone's CURRENT offset (DST-aware),
         # not a fixed env constant that is an hour wrong half the year.
-        tz_offset_hours = _zoho.LOCAL_TZ.utcoffset(datetime.now(timezone.utc)).total_seconds() / 3600.0
+        tz_offset_hours = LOCAL_TZ.utcoffset(datetime.now(timezone.utc)).total_seconds() / 3600.0
     d = datetime.strptime(date_str, "%Y-%m-%d").replace(
         hour=hour, minute=minute, second=second, tzinfo=timezone.utc
     )
@@ -815,7 +818,7 @@ def api_data():
             sup = None
             if _ringcx.configured:
                 try:
-                    sup = _fetch_supplemental()
+                    sup = _fetch_supplemental_cached()
                 except Exception:
                     pass
             with ThreadPoolExecutor(max_workers=1) as ex:
@@ -862,15 +865,25 @@ def api_data():
         )
 
 
+_callnow_cache: dict = {}
+_callnow_lock = threading.Lock()
+
 @app.route("/api/call-now-deals")
 @login_or_api_key
 def call_now_deals():
-    """Call Now deals (Best Contact Time empty or before deal creation) for a
-    day. Always live (uncached). Loaded separately by the v2 board."""
+    """Call Now deals (Best Contact Time empty or before deal creation) for a day.
+    Cached 120s per (start,end): the back-office bot polls this every few minutes and
+    each uncached compute holds a request thread for up to 85s — a few overlapping
+    callers starved the 8-thread pool and failed /health."""
     tz_param = request.args.get("tz")
     tz_offset_minutes = int(tz_param) if tz_param is not None else None
     start_param = request.args.get("start")
     end_param = request.args.get("end")
+    cache_key = (start_param or "", end_param or "")
+    with _callnow_lock:
+        hit = _callnow_cache.get(cache_key)
+        if hit and time.time() - hit["at"] < 120:
+            return jsonify(hit["payload"])
     try:
         if start_param:
             eff_end = end_param or start_param
@@ -881,15 +894,22 @@ def call_now_deals():
         sup = None
         if _ringcx.configured:
             try:
-                sup = _fetch_supplemental()
+                sup = _fetch_supplemental_cached()
             except Exception:
                 pass
         with ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(_zoho.get_call_now_deals, start_dt=start_dt, end_dt=end_dt,
                             supplemental_calls=sup)
             data = fut.result(timeout=85)
-        return jsonify({"status": "ok", "last_updated": datetime.now(timezone.utc).isoformat(),
-                        "data": data})
+        payload = {"status": "ok", "last_updated": datetime.now(timezone.utc).isoformat(),
+                   "data": data}
+        with _callnow_lock:
+            _callnow_cache[cache_key] = {"at": time.time(), "payload": payload}
+            # keep the cache tiny — it only ever holds a handful of day windows
+            if len(_callnow_cache) > 8:
+                oldest = min(_callnow_cache, key=lambda k: _callnow_cache[k]["at"])
+                _callnow_cache.pop(oldest, None)
+        return jsonify(payload)
     except Exception as e:
         log.exception("/api/call-now-deals error")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -1126,6 +1146,37 @@ def _get_dialer_cdr_rows(hours: int = 24) -> list:
             rows = []
         _dialer_cdr_cache.update({"at": time.time(), "hours": hours, "rows": rows})
         return rows
+
+
+_sup_cache = {"at": 0.0, "val": {}}
+_sup_lock = threading.Lock()
+_sup_refreshing = {"v": False}
+
+def _fetch_supplemental_cached() -> dict:
+    """Request-thread-safe supplemental: returns the last known value instantly and kicks a
+    background refresh when stale. The full fetch (RingEX pages + the CDR) can take minutes —
+    on a request thread that blows gunicorn's 90s worker timeout, the worker gets killed, and
+    /health starts failing. Request paths use THIS; only the background _refresh fetches inline.
+    """
+    with _sup_lock:
+        fresh = time.time() - _sup_cache["at"] < 60
+        val = _sup_cache["val"]
+        if fresh or _sup_refreshing["v"]:
+            return val
+        _sup_refreshing["v"] = True
+
+    def _work():
+        try:
+            new_val = _fetch_supplemental()
+            with _sup_lock:
+                _sup_cache.update({"at": time.time(), "val": new_val})
+        except Exception as e:
+            log.warning("supplemental background refresh failed: %s", e)
+        finally:
+            with _sup_lock:
+                _sup_refreshing["v"] = False
+    threading.Thread(target=_work, daemon=True, name="sup-refresh").start()
+    return val
 
 
 def _fetch_supplemental() -> dict:
@@ -1788,7 +1839,7 @@ def api_pipeline():
             # table uses) — not a UTC date derived from the converted datetime,
             # which drifts to the wrong day near midnight Central.
             tz_hours = (-tz_offset_minutes / 60.0) if tz_offset_minutes is not None \
-                else _zoho.LOCAL_TZ.utcoffset(datetime.now(timezone.utc)).total_seconds() / 3600.0
+                else LOCAL_TZ.utcoffset(datetime.now(timezone.utc)).total_seconds() / 3600.0
             local_today = (datetime.now(timezone.utc) + timedelta(hours=tz_hours)).date().isoformat()
             date_start = start_param or local_today
             date_end   = end_param or start_param or local_today
