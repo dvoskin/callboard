@@ -936,7 +936,10 @@ class RingCXClient:
                     params={
                         "dateFrom": date_from,
                         "dateTo": date_to,
-                        "view": "Detailed",
+                        # Simple view — same as the board's working account-wide fetch. It
+                        # carries name/duration/result/direction (all the report needs) and
+                        # is lighter than Detailed for the account-wide, no-phone query.
+                        "view": "Simple",
                         "perPage": 250,
                         "page": page,
                     },
@@ -954,33 +957,33 @@ class RingCXClient:
                     direction = rec.get("direction", "") or ""
                     from_ext = str(frm.get("extensionId") or "")
                     to_ext = str(to.get("extensionId") or "")
-                    # The agent is the internal extension's side. Prefer the
-                    # direction-appropriate leg, then fall back to whichever
-                    # side is a known User extension.
-                    agent = ""
-                    if direction == "Outbound" and from_ext in ext_names:
-                        agent = ext_names[from_ext]["name"]
-                    elif direction == "Inbound" and to_ext in ext_names:
-                        agent = ext_names[to_ext]["name"]
-                    elif from_ext in ext_names:
-                        agent = ext_names[from_ext]["name"]
-                    elif to_ext in ext_names:
-                        agent = ext_names[to_ext]["name"]
+                    # The agent is OUR side of the leg. Outbound: we→patient, so the agent
+                    # is `from`; Inbound: patient→us, so the agent is `to`. Read the leg's
+                    # own display NAME — RingCentral fills the user's name there, and it is
+                    # the source that actually works (this is exactly how the board's bulk
+                    # fetch attributes calls). The previous version resolved extensionId
+                    # against the roster and, when those IDs weren't populated / didn't
+                    # match, left EVERY call unattributed — which is why the report read 0.
+                    if direction == "Outbound":
+                        agent = (frm.get("name") or "").strip()
+                    elif direction == "Inbound":
+                        agent = (to.get("name") or "").strip()
                     else:
-                        # Dialer / queue calls credit the agent on an inner leg,
-                        # not the top-level from/to — scan the legs for a known
-                        # User extension. This recovers the RingCX dialer calls
-                        # that would otherwise be unattributed.
-                        for leg in (rec.get("legs") or []):
-                            lf = str((leg.get("from") or {}).get("extensionId") or "")
-                            lt = str((leg.get("to") or {}).get("extensionId") or "")
-                            if lf and lf in ext_names:
-                                agent = ext_names[lf]["name"]; break
-                            if lt and lt in ext_names:
-                                agent = ext_names[lt]["name"]; break
-                        # Deliberately NO party-name fallback: an unmatched leg
-                        # is an external party, not an agent — leave it
-                        # unattributed rather than crediting a customer name.
+                        agent = ""
+                    # Fallbacks for odd/queue legs: the extension roster, then an inner leg.
+                    if not agent:
+                        if from_ext in ext_names:
+                            agent = ext_names[from_ext]["name"]
+                        elif to_ext in ext_names:
+                            agent = ext_names[to_ext]["name"]
+                        else:
+                            for leg in (rec.get("legs") or []):
+                                lf = str((leg.get("from") or {}).get("extensionId") or "")
+                                lt = str((leg.get("to") or {}).get("extensionId") or "")
+                                if lf and lf in ext_names:
+                                    agent = ext_names[lf]["name"]; break
+                                if lt and lt in ext_names:
+                                    agent = ext_names[lt]["name"]; break
                     from_num = frm.get("phoneNumber", "") or ""
                     to_num = to.get("phoneNumber", "") or ""
                     out.append({
