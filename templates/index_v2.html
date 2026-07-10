@@ -4771,7 +4771,9 @@
       // sent, waiting.
       scheduled_time: r.claimed_at || r.distributed_at,
       distributed_at: r.distributed_at,
-      actual_call_time: null,
+      // The REAL call, synced from Ring data by the back-office (anchored at the claim).
+      // Fills the "Actual Call (EST)" column so a claimed row shows when the call happened.
+      actual_call_time: r.called_at || null,
       status: "bot_distributed",
       disposition: r.outcome || "",
       deal_stage: r.deal_stage || "",
