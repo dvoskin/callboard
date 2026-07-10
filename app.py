@@ -91,6 +91,17 @@ def login_required(f):
         return f(*args, **kwargs)
     return wrapper
 
+
+def login_or_api_key(f):
+    """A browser session OR the shared machine key. For endpoints the board renders AND the
+    back-office bot polls, so the bot doesn't need a session it can never have."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if _valid_api_key():
+            return f(*args, **kwargs)
+        return login_required(f)(*args, **kwargs)
+    return wrapper
+
 REFRESH_INTERVAL_SECONDS = 60
 
 _cache: dict = {"data": None, "last_updated": None, "error": None}
@@ -854,7 +865,7 @@ def api_data():
 
 
 @app.route("/api/call-now-deals")
-@login_required
+@login_or_api_key
 def call_now_deals():
     """Call Now deals (Best Contact Time empty or before deal creation) for a
     day. Always live (uncached). Loaded separately by the v2 board."""
