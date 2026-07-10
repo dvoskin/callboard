@@ -4744,7 +4744,10 @@
         console.warn(`[bot-dist] ${j.error}: ${j.detail || ""}`);
         _botDistRecords = [];
       } else {
-        _botDistRecords = j.distributions || [];
+        // Distributed cards + deals the bot deliberately SKIPPED (advanced stage, no
+        // follow-up call or call-now text) — both live in the timeline; skipped rows carry
+        // not_distributed:true and the reason.
+        _botDistRecords = (j.distributions || []).concat(j.skipped || []);
         _botDistLastLoad = Date.now();
       }
     } catch (err) {
@@ -4778,7 +4781,9 @@
       // The REAL call, synced from Ring data by the back-office (anchored at the claim).
       // Fills the "Actual Call (EST)" column so a claimed row shows when the call happened.
       actual_call_time: r.called_at || null,
-      status: "bot_distributed",
+      status: r.not_distributed ? "bot_skipped" : "bot_distributed",
+      not_distributed: !!r.not_distributed,
+      skip_reason: r.skip_reason || "",
       disposition: r.outcome || "",
       deal_stage: r.deal_stage || "",
       stage_moved_to: r.stage_moved_to || "",
@@ -6033,7 +6038,11 @@
       // wins, in this order: live call → the call's own outcome → handled →
       // rescheduled → distributed → the plain lifecycle state (Overdue/Pending/…).
       let statusHtml;
-      if (r.is_bot) {
+      if (r.is_bot && r.not_distributed) {
+        // The bot deliberately did NOT distribute this deal (advanced stage, no follow-up
+        // call or call-now text). Show why.
+        statusHtml = `<span class="badge badge-red" title="${_qEsc(r.skip_reason || "Advanced stage — not distributed")}">🚫 Not distributed</span>`;
+      } else if (r.is_bot) {
         // A bot distribution, not a scheduled call. Its status is what became of the lead.
         const claimed = !!r.claimed_by;
         statusHtml = claimed
