@@ -561,11 +561,12 @@ class RingCXClient:
                         "source": "ringex",
                     })
 
-                nav = data.get("navigation", {})
-                if page < nav.get("totalPages", 1):
-                    page += 1
-                else:
+                # The call-log response has no totalPages; a full page (== perPage) means
+                # there may be more, a short page means we're done. Reading totalPages (default
+                # 1) stopped every fetch at page 1 — the agent-seat calls sit on pages 2+.
+                if len(records) < 250:
                     break
+                page += 1
 
             log.info("RingEX call history: %d records for %s (last %d days)",
                      len(all_calls), digits, days)
@@ -751,7 +752,7 @@ class RingCXClient:
 
             phone_map: dict[str, list[dict]] = {}
             page = 1
-            max_pages = 8  # 2000 records max
+            max_pages = 10  # 2500 records — the Heavy call-log rate cap is ~10 req/min
 
             while page <= max_pages:
                 resp = requests.get(
@@ -794,11 +795,12 @@ class RingCXClient:
                         "source": "ringex",
                     })
 
-                nav = data.get("navigation", {})
-                if page < nav.get("totalPages", 1):
-                    page += 1
-                else:
+                # The call-log response has no totalPages; a full page (== perPage) means
+                # there may be more, a short page means we're done. Reading totalPages (default
+                # 1) stopped every fetch at page 1 — the agent-seat calls sit on pages 2+.
+                if len(records) < 250:
                     break
+                page += 1
 
             total = sum(len(v) for v in phone_map.values())
             log.info("RingEX bulk outbound: %d calls across %d phones (%d pages)",
@@ -994,11 +996,12 @@ class RingCXClient:
                         "session_id": rec.get("sessionId", "") or "",
                         "source": "ringex",
                     })
-                nav = data.get("navigation", {})
-                if page < nav.get("totalPages", 1):
-                    page += 1
-                else:
+                # The call-log response has no totalPages; a full page (== perPage) means
+                # there may be more, a short page means we're done. Reading totalPages (default
+                # 1) stopped every fetch at page 1 — the agent-seat calls sit on pages 2+.
+                if len(records) < 250:
                     break
+                page += 1
             log.info("RingEX call-log (all): %d calls %s..%s",
                      len(out), start_dt.date(), end_dt.date())
             return out
