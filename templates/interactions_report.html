@@ -249,11 +249,16 @@
       renderCards(); renderHead(); renderBody();
       const t = _totals;
       const srcLabel = {
+        "backoffice-rc": "Back-office RingCentral account call log (all RingEX calls)",
         "cdr+calllog": "RingCX CDR + RingEX call log (every dial, both platforms)",
         "analytics": "RingCentral Business Analytics (fallback — may undercount dialer calls)",
         "none": "no telephony source reachable",
       }[t.call_source] || t.call_source || "—";
       let note = `Source: ${srcLabel}.`;
+      const m = t.call_meta || {};
+      if ((t.calls || 0) === 0 && (m.calls_fetched != null || m.calls_in_window != null)) {
+        note += `  (${m.calls_fetched ?? "?"} calls fetched, ${m.calls_in_window ?? "?"} in this window, ${m.unattributed ?? 0} without an agent name.)`;
+      }
       if (t.unattributed_calls) {
         note += `  ${t.unattributed_calls} call${t.unattributed_calls === 1 ? "" : "s"} couldn't be tied to a named agent (dialer legs with no matched extension) — full attribution of those needs RingCX CDR (WEM) access.`;
       }
