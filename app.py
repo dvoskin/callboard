@@ -1126,6 +1126,53 @@ def _fetch_backoffice_call_stats(start_dt: datetime, end_dt: datetime):
         return {"agents": {}, "meta": {}, "diag": diag}
 
 
+def _fetch_zoho_agent_calls(start_dt: datetime, end_dt: datetime):
+    """Per-agent OUTBOUND call stats from Zoho CRM Calls — the CRM system of record, where
+    BOTH platforms log: regular/manual RingEX calls AND RingCX dialer calls. So this is the
+    one source that already includes the dialer (no RingCX reporting permission needed).
+    Returns {"agents": {name: {...}}, "meta": {...}} or None."""
+    if not getattr(_zoho, "configured", True):
+        return None
+    try:
+        start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        rows = _zoho._fetch_calls_full_dump(start_str, end_str)
+    except Exception as ex:
+        log.warning("zoho agent calls fetch failed: %s", ex)
+        return None
+
+    agents = {}
+    unattributed = 0
+    for c in rows or []:
+        owner = c.get("Owner") or {}
+        name = (owner.get("name") or owner.get("full_name") or "").strip() if isinstance(owner, dict) else ""
+        if not name:
+            unattributed += 1
+            continue
+        try:
+            dur = int(float(c.get("Call_Duration_in_seconds") or 0))
+        except (TypeError, ValueError):
+            dur = 0
+        if dur < 0:
+            dur = 0
+        a = agents.setdefault(name, {"calls": 0, "talk_seconds": 0, "calls_under_3m": 0,
+                                     "calls_under_15m": 0, "calls_over_3m": 0, "handle_seconds": 0})
+        a["calls"] += 1
+        a["talk_seconds"] += dur
+        if dur < 180:
+            a["calls_under_3m"] += 1
+        else:
+            a["calls_over_3m"] += 1
+        if dur < 900:
+            a["calls_under_15m"] += 1
+    return {"agents": agents, "meta": {
+        "calls_fetched": len(rows or []),
+        "calls_in_window": len(rows or []),
+        "unattributed": unattributed,
+        "reached": True,
+    }}
+
+
 def _merge_duplicate_agents(agents: dict) -> dict:
     """Same person, two names: the call source uses formal RingCentral names ("Gregory
     Beltran", "Charlotte McKay") while bot claims use roster/nicknames ("Gregorys Beltran",
@@ -3334,70 +3381,43 @@ def api_agent_analytics():
         unattributed_calls = 0
         call_meta = {}
 
-        # Interactions Report (calls_only) uses the BACK OFFICE's working RC account
-        # call-log first — this tracker's own RingEX/RingCX access returns nothing.
-        bo_stats = _fetch_backoffice_call_stats(start_dt, end_dt) if calls_only else None
-        if bo_stats:
-            # Always surface the back-office diagnostic so a 0 explains itself.
-            call_meta = {**(bo_stats.get("meta") or {}), **(bo_stats.get("diag") or {})}
-        if bo_stats and bo_stats.get("agents"):
-            call_source = "backoffice-rc"
-            unattributed_calls = int((bo_stats.get("meta") or {}).get("unattributed", 0) or 0)
-            for name, s in bo_stats["agents"].items():
-                a = _agent(name)
+        def _add_call_stats(src_agents):
+            nonlocal unattributed_calls
+            for nm, s in (src_agents or {}).items():
+                a = _agent(nm)
                 a["calls"]          += s.get("calls", 0)
                 a["calls_under_3m"] += s.get("calls_under_3m", 0)
                 a["calls_under_15m"]+= s.get("calls_under_15m", 0)
                 a["calls_over_3m"]  += s.get("calls_over_3m", 0)
                 a["talk_seconds"]   += s.get("talk_seconds", 0)
-        elif _ringcx.configured:
-            try:
-                stats = _ringcx.get_agent_call_stats(
-                    start_dt, end_dt, long_call_seconds=threshold)
-                call_source = stats.get("source", "none")
-                unattributed_calls = int(stats.get("unattributed", 0) or 0)
-                for name, s in (stats.get("agents") or {}).items():
-                    a = _agent(name)
-                    a["calls"]          += s.get("calls", 0)
-                    a["calls_under_3m"] += s.get("calls_under_3m", 0)
-                    a["calls_under_15m"]+= s.get("calls_under_15m", 0)
-                    a["calls_over_3m"]  += s.get("calls_over_3m", 0)
-                    a["talk_seconds"]   += s.get("talk_seconds", 0)
-                    a["handle_seconds"] += s.get("handle_seconds", 0)
-            except Exception as ex:
-                log.warning("agent-analytics call stats failed: %s", ex)
+                a["handle_seconds"] += s.get("handle_seconds", 0)
 
-        # ── RingCX dialer calls from the CDR, ADDED on top of the back-office RingEX
-        #    calls (now that RingCX reporting access is granted). Only when the back office
-        #    supplied the RingEX side — otherwise the fallback above already includes the CDR.
-        ringcx_added = 0
-        if calls_only and _ringcx.configured and bo_stats and bo_stats.get("agents"):
-            try:
-                for c in _ringcx._fetch_ringcx_cdr_rows(start_dt, end_dt):
-                    nm = (c.get("agent_name") or "").strip()
-                    if not nm:
-                        continue
-                    try:
-                        dur = int(float(c.get("duration") or 0))
-                    except (TypeError, ValueError):
-                        dur = 0
-                    if dur < 0:
-                        dur = 0
-                    a = _agent(nm)
-                    a["calls"] += 1
-                    a["talk_seconds"] += dur
-                    if dur < 180:
-                        a["calls_under_3m"] += 1
-                    else:
-                        a["calls_over_3m"] += 1
-                    if dur < 900:
-                        a["calls_under_15m"] += 1
-                    ringcx_added += 1
-                if ringcx_added:
-                    call_source = "backoffice-rc + ringcx-cdr"
-            except Exception as ex:
-                log.warning("ringcx CDR merge failed: %s", ex)
-        call_meta["ringcx_calls_added"] = ringcx_added
+        # Interactions Report (calls_only): Zoho CRM Calls FIRST — it's the system of record
+        # where BOTH platforms log (manual/regular RingEX AND the RingCX dialer), so it's the
+        # one source that already includes the dialer, no RingCX reporting permission needed.
+        zoho_stats = _fetch_zoho_agent_calls(start_dt, end_dt) if calls_only else None
+        if zoho_stats and zoho_stats.get("agents"):
+            call_source = "zoho-crm-calls"
+            call_meta = zoho_stats.get("meta") or {}
+            unattributed_calls = int(call_meta.get("unattributed", 0) or 0)
+            _add_call_stats(zoho_stats["agents"])
+        else:
+            # Fallback: the back office's RC account call-log (RingEX only, no dialer).
+            bo_stats = _fetch_backoffice_call_stats(start_dt, end_dt) if calls_only else None
+            if bo_stats:
+                call_meta = {**(bo_stats.get("meta") or {}), **(bo_stats.get("diag") or {})}
+            if bo_stats and bo_stats.get("agents"):
+                call_source = "backoffice-rc"
+                unattributed_calls = int((bo_stats.get("meta") or {}).get("unattributed", 0) or 0)
+                _add_call_stats(bo_stats["agents"])
+            elif _ringcx.configured:
+                try:
+                    stats = _ringcx.get_agent_call_stats(start_dt, end_dt, long_call_seconds=threshold)
+                    call_source = stats.get("source", "none")
+                    unattributed_calls = int(stats.get("unattributed", 0) or 0)
+                    _add_call_stats(stats.get("agents"))
+                except Exception as ex:
+                    log.warning("agent-analytics call stats failed: %s", ex)
 
         # ── Quotes sent: Books estimates by salesperson (skipped in calls-only mode) ──
         if not calls_only and _books.configured:
