@@ -4978,6 +4978,16 @@
 
   function _scResolveCell(r) {
     const aiTag = _scAiTag(r);
+    // Who took the lead. Rendered on every row state — a resolved or not-yet-overdue call
+    // that a coordinator claimed still needs to name them, which the overdue-only placement
+    // of this tag silently hid.
+    let claimTag = "";
+    if (r.claimed_by) {
+      const when = r.claimed_at ? new Date(r.claimed_at).toLocaleString("en-US",
+        { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+      claimTag = `<span class="resolved-by-tag" title="Claimed in the sales Telegram${when ? " at " + when + " ET" : ""}">🙋 Claimed · ${_qEsc(r.claimed_by)}</span> `;
+    }
+    const tags = aiTag + claimTag;
     if (r.resolved) {
       const who = _resolverLabel(r.resolved_by);
       const label = who ? `✓ Resolved · ${_qEsc(who)}` : "✓ Resolved";
@@ -4985,19 +4995,12 @@
       const tip = isAuto ? "Auto-cleared when a live call was detected for this lead"
                          : (who === "bot" ? "Cleared by the back-office bot"
                                           : (who ? `Resolved by ${_qEsc(who)}` : "Resolved"));
-      return `${aiTag}<span class="resolved-by-tag" title="${tip}">${label}</span>
+      return `${tags}<span class="resolved-by-tag" title="${tip}">${label}</span>
         <button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`;
     }
-    if (!isOverdueRow(r)) return aiTag || `<span class="no-data">—</span>`;
+    if (!isOverdueRow(r)) return tags || `<span class="no-data">—</span>`;
     // Not resolved yet. If the bot (or a manager) has already distributed it, show
     // that here so the column reflects who's on it — the manual Resolve stays open.
-    // Claimed beats distributed: naming the coordinator who took it is the useful fact.
-    let claimTag = "";
-    if (r.claimed_by) {
-      const when = r.claimed_at ? new Date(r.claimed_at).toLocaleString("en-US",
-        { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
-      claimTag = `<span class="resolved-by-tag" title="Claimed in the sales Telegram${when ? " at " + when + " ET" : ""}">🙋 Claimed · ${_qEsc(r.claimed_by)}</span> `;
-    }
     let distTag = "";
     if (r.distributed && !r.claimed_by) {
       const byBot = ["bot", "backoffice-bot"].includes(String(r.distributed_by || "").toLowerCase());
@@ -5006,7 +5009,7 @@
                         : `Distributed manually${who ? " by " + _qEsc(who) : ""}`;
       distTag = `<span class="resolved-by-tag" title="${tip}">${byBot ? "📲" : "✋"} Distributed${who ? " · " + _qEsc(who) : ""}</span> `;
     }
-    return `${aiTag}${claimTag}${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+    return `${tags}${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
         value="${(r.resolved_by||'').replace(/"/g,'&quot;')}" placeholder="Your name"
         onblur="saveResolvedBy(this)" onkeydown="if(event.key==='Enter'){this.blur()}">
       <button class="resolve-btn" onclick="markResolved('${r.id}')" title="Clear from concerns">✓ Resolve</button>`;
@@ -5181,7 +5184,7 @@
     { key: "stage",      label: "Deal Stage",       default: false },
     { key: "usernote",   label: "Notes",            default: false },
     { key: "localtz",    label: "Their Time",       default: false },
-    { key: "caller",     label: "Caller",           default: false },
+    { key: "caller",     label: "Caller / Claimed", default: true  },
     { key: "actual",     label: "Actual Call (EST)",default: false },
     { key: "lastdial",   label: "Last Dial",        default: false },
     { key: "source",     label: "Source",           default: false },
