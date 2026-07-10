@@ -1714,7 +1714,7 @@ class ZohoClient:
                         # Same call already in Zoho — this is a RingEX call.
                         # Tag the source and backfill the rep if missing.
                         matched = existing_times[match_ts]
-                        matched["_source"] = "ringex"
+                        matched["_source"] = rc.get("source") or "ringex"
                         if agent and not self._caller_name(matched):
                             matched["Owner"] = {"name": agent}
                         tagged_ex += 1
@@ -1725,7 +1725,7 @@ class ZohoClient:
                         "Outgoing_call_disposition": None,
                         "Owner": {"name": agent} if agent else None,
                         "Description": "",
-                        "_source": "ringex",
+                        "_source": rc.get("source") or "ringex",
                         "_duration": rc.get("duration", 0),
                         "_result": rc.get("result", ""),
                     }
@@ -2165,7 +2165,7 @@ class ZohoClient:
                     ts = int(rt.timestamp()); agent = rc.get("agent") or ""
                     m = next((et for et in ex_ts if abs(ts - et) < 120), None)
                     if m is not None:
-                        mc = ex_ts[m]; mc["_source"] = "ringex"
+                        mc = ex_ts[m]; mc["_source"] = rc.get("source") or "ringex"
                         if agent and not self._caller_name(mc):
                             mc["Owner"] = {"name": agent}
                         continue
@@ -2173,7 +2173,7 @@ class ZohoClient:
                           "Subject": f"Outgoing call to {rc.get('to_number', phone)}",
                           "Outgoing_call_disposition": None,
                           "Owner": {"name": agent} if agent else None,
-                          "Description": "", "_source": "ringex",
+                          "Description": "", "_source": rc.get("source") or "ringex",
                           "_duration": rc.get("duration", 0)}
                     existing.append(nc); ex_ts[ts] = nc
 

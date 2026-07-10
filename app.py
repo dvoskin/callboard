@@ -411,12 +411,8 @@ def _refresh():
         # Fetch RingEX call log as a supplemental source so that ALL dial
         # attempts (including short RingCX campaign calls that Zoho never
         # logs) feed into classification from the start.
-        supplemental = None
-        if _ringcx.configured:
-            try:
-                supplemental = _ringcx.fetch_todays_outbound_calls()
-            except Exception as e:
-                log.warning("RingEX supplemental fetch failed: %s", e)
+        # RingEX log + RingCX dialer CDR — see _fetch_supplemental.
+        supplemental = _fetch_supplemental() or None
         data = _zoho.get_dashboard_data(supplemental_calls=supplemental)
         ts = datetime.now(timezone.utc).isoformat()
         with _lock:
@@ -819,7 +815,7 @@ def api_data():
             sup = None
             if _ringcx.configured:
                 try:
-                    sup = _ringcx.fetch_todays_outbound_calls()
+                    sup = _fetch_supplemental()
                 except Exception:
                     pass
             with ThreadPoolExecutor(max_workers=1) as ex:
@@ -885,7 +881,7 @@ def call_now_deals():
         sup = None
         if _ringcx.configured:
             try:
-                sup = _ringcx.fetch_todays_outbound_calls()
+                sup = _fetch_supplemental()
             except Exception:
                 pass
         with ThreadPoolExecutor(max_workers=1) as ex:
@@ -1111,6 +1107,62 @@ def api_bot_distributions():
 _dialer_cdr_cache = {"at": 0.0, "hours": 0, "rows": None}
 _dialer_cdr_lock = threading.Lock()
 
+def _get_dialer_cdr_rows(hours: int = 24) -> list:
+    """RingCX CDR rows for the last N hours, 60s-cached (EV report generation is heavy)."""
+    if not _ringcx.configured:
+        return []
+    with _dialer_cdr_lock:
+        fresh = (_dialer_cdr_cache["rows"] is not None
+                 and _dialer_cdr_cache["hours"] == hours
+                 and time.time() - _dialer_cdr_cache["at"] < 60)
+        if fresh:
+            return _dialer_cdr_cache["rows"]
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=hours)
+        try:
+            rows = _ringcx._fetch_ringcx_cdr_rows(start, end)
+        except Exception as e:
+            log.warning("dialer CDR fetch failed: %s", e)
+            rows = []
+        _dialer_cdr_cache.update({"at": time.time(), "hours": hours, "rows": rows})
+        return rows
+
+
+def _fetch_supplemental() -> dict:
+    """Every call the CRM might not know about, keyed by last-10-digit patient phone:
+    the RingEX account log (coordinators dialing from RingCentral) PLUS the RingCX
+    dialer CDR. The board's classification only ever merged the RingEX log, so campaign
+    calls the dialer placed — which never appear in that log — showed as "not dialed"
+    unless a browser happened to observe them live. This is why calls looked unlogged.
+    """
+    sup: dict = {}
+    if not _ringcx.configured:
+        return sup
+    try:
+        sup = _ringcx.fetch_todays_outbound_calls() or {}
+    except Exception as e:
+        log.warning("RingEX supplemental fetch failed: %s", e)
+        sup = {}
+    for r in _get_dialer_cdr_rows(24):
+        direction = (r.get("direction") or "").upper()
+        raw = r.get("dnis") if "OUT" in direction else r.get("ani")
+        digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+        phone = digits[-10:] if len(digits) >= 10 else ""
+        if not phone or not r.get("start_time"):
+            continue
+        sup.setdefault(phone, []).append({
+            "id": r.get("uii") or "",
+            "start_time": r.get("start_time"),
+            "duration": r.get("duration", 0),
+            "result": r.get("result", ""),
+            "direction": direction or "Outbound",
+            "to_number": raw or phone,
+            "agent": r.get("agent_name", ""),
+            "source": "ringcx",
+        })
+    return sup
+
+
 @app.route("/api/dialer-calls")
 def api_dialer_calls():
     if not _valid_api_key():
@@ -1122,21 +1174,7 @@ def api_dialer_calls():
         hours = max(1, min(int(request.args.get("hours", "24") or 24), 72))
     except ValueError:
         hours = 24
-    with _dialer_cdr_lock:
-        fresh = (_dialer_cdr_cache["rows"] is not None
-                 and _dialer_cdr_cache["hours"] == hours
-                 and time.time() - _dialer_cdr_cache["at"] < 60)
-        if fresh:
-            rows = _dialer_cdr_cache["rows"]
-        else:
-            end = datetime.now(timezone.utc)
-            start = end - timedelta(hours=hours)
-            try:
-                rows = _ringcx._fetch_ringcx_cdr_rows(start, end)
-            except Exception as e:
-                log.warning("dialer-calls CDR fetch failed: %s", e)
-                rows = []
-            _dialer_cdr_cache.update({"at": time.time(), "hours": hours, "rows": rows})
+    rows = _get_dialer_cdr_rows(hours)
     return jsonify({"status": "ok", "count": len(rows), "calls": rows})
 
 
