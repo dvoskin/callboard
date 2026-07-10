@@ -3109,11 +3109,27 @@ def api_agent_analytics():
         tz_param   = request.args.get("tz")
         tz_offset_minutes = int(tz_param) if tz_param is not None else None
 
-        # Convert the selected local day to a UTC window using the browser's tz
+        # Accept either a plain date ('YYYY-MM-DD') or a datetime-local value
+        # ('YYYY-MM-DDTHH:MM[:SS]'), so the report can be filtered to the hour,
+        # not just the day. Plain dates keep the old full-day window.
+        def _split_dt(s, dh, dm, ds):
+            if "T" in s:
+                d, t = s.split("T", 1)
+                p = t.split(":")
+                h = int(p[0]) if p and p[0] != "" else dh
+                m = int(p[1]) if len(p) > 1 and p[1] != "" else dm
+                sec = int(p[2]) if len(p) > 2 and p[2] != "" else ds
+                return d, h, m, sec
+            return s, dh, dm, ds
+
+        sd, sh, sm, ss = _split_dt(date_start, 0, 0, 0)
+        ed, eh, em, es = _split_dt(date_end, 23, 59, 59)
+
+        # Convert the selected local range to a UTC window using the browser's tz
         # (falling back to TZ_OFFSET_HOURS). Used for BOTH the calls query and
-        # the closings query so every metric covers the same local day.
-        start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
-        end_dt   = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
+        # the closings query so every metric covers the same local range.
+        start_dt = _parse_local_date_to_utc(sd, sh, sm, ss, tz_offset_minutes)
+        end_dt   = _parse_local_date_to_utc(ed, eh, em, es, tz_offset_minutes)
         threshold = AGENT_ANALYTICS_LONG_CALL_SECONDS
 
         agents: dict = {}
@@ -3130,6 +3146,7 @@ def api_agent_analytics():
                     "name": key,
                     "calls": 0,
                     "calls_under_3m": 0,
+                    "calls_under_15m": 0,
                     "calls_over_3m": 0,
                     "talk_seconds": 0,
                     "handle_seconds": 0,
@@ -3154,6 +3171,7 @@ def api_agent_analytics():
                     a = _agent(name)
                     a["calls"]          += s.get("calls", 0)
                     a["calls_under_3m"] += s.get("calls_under_3m", 0)
+                    a["calls_under_15m"]+= s.get("calls_under_15m", 0)
                     a["calls_over_3m"]  += s.get("calls_over_3m", 0)
                     a["talk_seconds"]   += s.get("talk_seconds", 0)
                     a["handle_seconds"] += s.get("handle_seconds", 0)
@@ -3194,6 +3212,7 @@ def api_agent_analytics():
             "agents":         len(rows),
             "calls":          sum(r["calls"] for r in rows),
             "calls_under_3m": sum(r["calls_under_3m"] for r in rows),
+            "calls_under_15m":sum(r["calls_under_15m"] for r in rows),
             "calls_over_3m":  sum(r["calls_over_3m"] for r in rows),
             "talk_seconds":   sum(r["talk_seconds"] for r in rows),
             "talk_minutes":   round(sum(r["talk_seconds"] for r in rows) / 60.0, 1),

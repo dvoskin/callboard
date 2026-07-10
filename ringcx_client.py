@@ -1170,6 +1170,7 @@ class RingCXClient:
             key = _resolve(agent)
             a = by_agent.setdefault(key, {
                 "calls": 0, "calls_under_3m": 0, "calls_over_3m": 0,
+                "calls_under_15m": 0,
                 "talk_seconds": 0, "handle_seconds": 0,
             })
             try:
@@ -1188,6 +1189,10 @@ class RingCXClient:
                 a["calls_over_3m"] += 1
             else:
                 a["calls_under_3m"] += 1
+            # Cumulative bucket: calls under 15 min (900s). calls_under_3m already
+            # covers <180s because the caller passes long_call_seconds=180.
+            if dur < 900:
+                a["calls_under_15m"] += 1
             if ts is not None:
                 seen.append((key.lower(), ts))
 
@@ -1233,6 +1238,7 @@ class RingCXClient:
         for name, a in agg.items():
             a.setdefault("calls_under_3m", 0)
             a.setdefault("calls_over_3m", 0)
+            a.setdefault("calls_under_15m", 0)
             a.setdefault("handle_seconds", 0)
         return {"agents": agg, "source": "analytics" if agg else "none",
                 "unattributed": unattributed}
