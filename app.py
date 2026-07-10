@@ -5,6 +5,8 @@ import json
 import threading
 import time
 import logging
+import requests   # used at module scope by several handlers; only ever imported inside
+                  # functions before, so those call sites would NameError at runtime
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1023,6 +1025,52 @@ def api_scheduled_call_claimed(rec_id):
         entry.setdefault("distributed_by", BOT_DISTRIBUTED_BY)
         _save_resolved(data)
     return jsonify({"status": "ok", "id": rec_id, "claimed_by": claimed_by})
+
+
+# ── Bot distributions (proxied from the back-office app) ─────────────────────
+# The back-office owns distribution; we own scheduled calls. It answers "what did the bot
+# hand out today, to whom, and how did it end". Cached briefly so a dozen open boards don't
+# hammer it — the underlying data changes on a human timescale.
+BACKOFFICE_URL = os.environ.get("BACKOFFICE_URL", "").rstrip("/")
+_botdist_cache = {"at": 0.0, "date": "", "payload": None}
+_botdist_lock = threading.Lock()
+_BOTDIST_TTL = 30.0
+
+@app.route("/api/bot-distributions")
+@login_required
+def api_bot_distributions():
+    if not BACKOFFICE_URL or not OVERDUE_API_KEY:
+        return jsonify({
+            "error": "not configured",
+            "detail": "Set BACKOFFICE_URL and OVERDUE_API_KEY on this service.",
+            "distributions": [], "count": 0,
+        }), 200      # 200, not 500: the card renders an explanation rather than a dead spinner
+
+    date = (request.args.get("date") or "").strip()
+    with _botdist_lock:
+        fresh = (
+            _botdist_cache["payload"] is not None
+            and _botdist_cache["date"] == date
+            and time.time() - _botdist_cache["at"] < _BOTDIST_TTL
+        )
+        if fresh:
+            return jsonify(_botdist_cache["payload"])
+
+    url = f"{BACKOFFICE_URL}/api/bot-distributions"
+    try:
+        r = requests.get(url, params={"date": date} if date else None,
+                         headers={"X-API-Key": OVERDUE_API_KEY}, timeout=12)
+        r.raise_for_status()
+        payload = r.json()
+    except Exception as e:
+        # Never 500 the board because the other service is slow or down.
+        print(f"[bot-dist] fetch failed: {e}", flush=True)
+        return jsonify({"error": "upstream unavailable", "detail": str(e)[:200],
+                        "distributions": [], "count": 0}), 200
+
+    with _botdist_lock:
+        _botdist_cache.update({"at": time.time(), "date": date, "payload": payload})
+    return jsonify(payload)
 
 
 @app.route("/api/ai-handled", methods=["GET"])

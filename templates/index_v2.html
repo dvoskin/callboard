@@ -3618,6 +3618,35 @@
     </div>
   </div><!-- /card-activity -->
 
+  <!-- ── Bot Distributions card (between Scheduled Calls and Call Now) ── -->
+  <div class="card" id="card-bot-dist">
+    <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0">🤖 Distributed by Bot</h2>
+      <span class="chip" id="bot-dist-count">0</span>
+      <span class="card-sub" id="bot-dist-sub">Every lead the bot sent to Telegram today — who took it, and how it ended</span>
+      <button class="filter-clear" id="bot-dist-refresh" onclick="loadBotDistributions(true)" style="margin-left:auto" title="Reload">↻</button>
+    </div>
+    <div class="table-wrap">
+      <table class="sc-table sc-tbl" id="bot-dist-table">
+        <thead>
+          <tr>
+            <th style="width:90px">Sent</th>
+            <th>Contact</th>
+            <th style="width:130px">Phone</th>
+            <th style="width:120px">Source</th>
+            <th style="width:150px">Claimed by</th>
+            <th style="width:90px">To claim</th>
+            <th style="width:130px">Called by</th>
+            <th>Ended with</th>
+            <th style="width:150px">Deal stage</th>
+          </tr>
+        </thead>
+        <tbody id="bot-dist-tbody"></tbody>
+      </table>
+      <div class="table-footer" id="bot-dist-footer"></div>
+    </div>
+  </div><!-- /card-bot-dist -->
+
   <!-- ── Call Now Deals card ── -->
   <div class="card" id="card-call-now">
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -4685,6 +4714,95 @@
       b.classList.toggle("active", b.dataset.sheet === owner));
     updateScCardSub();
     if (_scFullPayload) renderScheduledCalls(_scFullPayload);
+  }
+
+
+  // ─────────────────────── Distributed by Bot ───────────────────────
+  // Proxied from the back-office app, which owns distribution. Ordered earliest → latest.
+  let _botDistRecords = [], _botDistInFlight = false, _botDistLastLoad = 0;
+
+  function _bdSecs(sec) {
+    if (sec === null || sec === undefined) return `<span class="no-data">—</span>`;
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    return m < 60 ? `${m}m ${sec % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+  function _bdOutcomeTag(r) {
+    const o = String(r.outcome || "");
+    const low = o.toLowerCase();
+    let cls = "resolved-by-tag";
+    let icon = "";
+    if (low.includes("connect")) icon = "✅ ";
+    else if (low.includes("no answer") || low.includes("voicemail") || low.includes("machine")) icon = "📵 ";
+    else if (low.includes("expired")) icon = "⏰ ";
+    else if (low.includes("waiting")) icon = "🕒 ";
+    else if (low.includes("no call logged")) icon = "🙋 ";
+    return `<span class="${cls}">${icon}${_qEsc(o)}</span>`;
+  }
+
+  async function loadBotDistributions(force) {
+    if (_botDistInFlight) return;
+    if (!force && Date.now() - _botDistLastLoad < 60000 && _botDistRecords.length) { renderBotDistributions(); return; }
+    _botDistInFlight = true;
+    const btn = document.getElementById("bot-dist-refresh");
+    if (btn) btn.textContent = "…";
+    try {
+      const resp = await fetch(`/api/bot-distributions?date=${todayISO()}&_nocache=${Date.now()}`);
+      const j = await resp.json();
+      if (j.error) {
+        document.getElementById("bot-dist-footer").textContent =
+          j.error === "not configured"
+            ? "Set BACKOFFICE_URL and OVERDUE_API_KEY on this service to show bot distributions."
+            : `Back-office unreachable: ${j.detail || j.error}`;
+        _botDistRecords = [];
+      } else {
+        _botDistRecords = j.distributions || [];
+        _botDistLastLoad = Date.now();
+        const cl = j.claimed || 0, un = j.unclaimed || 0;
+        document.getElementById("bot-dist-footer").textContent =
+          `${j.count || 0} distributed today · ${cl} claimed · ${un} unclaimed`;
+      }
+    } catch (err) {
+      document.getElementById("bot-dist-footer").textContent = "Could not load bot distributions.";
+    }
+    if (btn) btn.textContent = "↻";
+    _botDistInFlight = false;
+    renderBotDistributions();
+  }
+
+  function renderBotDistributions() {
+    const tb = document.getElementById("bot-dist-tbody");
+    const chip = document.getElementById("bot-dist-count");
+    if (!tb) return;
+    if (chip) chip.textContent = _botDistRecords.length;
+    if (!_botDistRecords.length) {
+      tb.innerHTML = `<tr><td colspan="9" class="no-data" style="text-align:center;padding:18px">No leads distributed by the bot today.</td></tr>`;
+      return;
+    }
+    // The API already returns earliest → latest; sort defensively anyway.
+    const rows = _botDistRecords.slice().sort((a, b) =>
+      new Date(a.distributed_at) - new Date(b.distributed_at));
+    tb.innerHTML = rows.map(r => {
+      const t = new Date(r.distributed_at).toLocaleTimeString("en-US",
+        { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+      const stage = r.stage_moved_to
+        ? `<span class="resolved-by-tag" title="Advanced after the call">${_qEsc(r.deal_stage)} → ${_qEsc(r.stage_moved_to)}</span>`
+        : (r.deal_stage ? _qEsc(r.deal_stage) : `<span class="no-data">—</span>`);
+      const dealLink = r.deal_id
+        ? `<a href="https://crm.zoho.com/crm/org5212466/tab/Potentials/${_qEsc(r.deal_id)}" target="_blank" rel="noopener">${_qEsc(r.name || "(no name)")}</a>`
+        : _qEsc(r.name || "(no name)");
+      return `<tr>
+        <td style="font-size:11px;white-space:nowrap">${t}</td>
+        <td>${dealLink}</td>
+        <td style="font-family:monospace;font-size:11px">${_qEsc(r.phone)}</td>
+        <td style="font-size:11px">${_qEsc(r.source)}</td>
+        <td>${r.claimed_by ? "🙋 " + _qEsc(r.claimed_by) : `<span class="no-data">unclaimed</span>`}</td>
+        <td style="font-size:11px">${_bdSecs(r.claim_seconds)}</td>
+        <td style="font-size:11px">${r.called_by ? _qEsc(r.called_by) : `<span class="no-data">—</span>`}</td>
+        <td>${_bdOutcomeTag(r)}</td>
+        <td style="font-size:11px">${stage}</td>
+      </tr>`;
+    }).join("");
   }
 
   // ─────────────────────────── Call Now Deals ───────────────────────────
@@ -6333,6 +6451,7 @@
       fetchPipelineCounts();
       syncExistingObservations();
       loadCallNowDeals();   // independent table + date range; throttled internally
+      loadBotDistributions();   // independent; proxied from the back-office, throttled internally
       _hideLoadingOverlay();
     } catch(e) {
       cdbLoading.classList.remove("show");

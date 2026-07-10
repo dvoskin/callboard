@@ -53,5 +53,10 @@ services:
       # on the backoffice-app service.
       - key: OVERDUE_API_KEY
         sync: false
+      # Base URL of the back-office app, e.g. https://backoffice-app-nqat.onrender.com
+      # Used by /api/bot-distributions to ask it what the bot handed out today. Without it
+      # the "Distributed by Bot" card renders an explanation instead of data.
+      - key: BACKOFFICE_URL
+        sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
