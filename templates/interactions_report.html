@@ -265,16 +265,18 @@
       const diag = document.getElementById("diag");
       if ((t.calls || 0) === 0) {
         let msg = "";
-        if (t.call_source === "backoffice-rc") {
-          const f = m.calls_fetched, w = m.calls_in_window, u = m.unattributed;
-          if (!f) msg = "The back office reached RingCentral but its call log returned <b>0 calls</b> for this range — RingCentral isn't returning the account call log (token scope / permission on the back-office side).";
-          else if (!w) msg = `RingCentral returned <b>${f} calls</b>, but <b>0 fall inside this date/time window</b> — widen the range or pick a day with calls.`;
-          else if (u && u >= w) msg = `RingCentral returned <b>${w} calls</b> in this window but <b>none had an agent name</b> on the leg — attribution issue, tell me and I'll adjust.`;
+        const f = m.calls_fetched, w = m.calls_in_window, u = m.unattributed;
+        if (m.reached) {
+          // The back office answered — the 0 is about the calls themselves.
+          if (!f) msg = "The back office reached RingCentral, but its account call log returned <b>0 calls</b> for this range. RingCentral isn't returning the account-wide call log to the back office (token scope / permission on the back-office side).";
+          else if (!w) msg = `RingCentral returned <b>${f} calls</b>, but <b>0 fall in this date/time window</b> — widen the range or pick a day with calls.`;
+          else if (u && u >= w) msg = `<b>${w} calls</b> in this window but <b>none had an agent name</b> on the leg — attribution issue, tell me and I'll adjust.`;
           else msg = `Fetched ${f}, ${w} in window, ${u} unattributed — yet totals are 0. Send me this line.`;
-        } else if (t.call_source === "none") {
-          msg = "Couldn't reach a telephony source. The tracker's own RingCX/RingEX returns nothing, and the back-office call-stats endpoint wasn't reachable (check BACKOFFICE_URL + OVERDUE_API_KEY, or the deploy finished).";
+        } else if (m.error) {
+          // The back office was NOT reached — show exactly why.
+          msg = `Couldn't reach the back-office call-stats endpoint: <b>${esc(m.error)}</b>` + (m.http ? ` (HTTP ${m.http})` : "") + (m.url ? `<br><span style="opacity:.7">${esc(m.url)}</span>` : "");
         } else {
-          msg = `Source '${esc(t.call_source)}' returned no calls for this range.`;
+          msg = "No telephony source reachable, and no diagnostic returned. The deploy may still be in progress — re-run in a minute.";
         }
         diag.innerHTML = `⚠️ <b>No call numbers.</b> ${msg}`;
         diag.style.display = "block";

@@ -1067,14 +1067,18 @@ _BOTDIST_TTL = 30.0
 
 
 def _fetch_backoffice_call_stats(start_dt: datetime, end_dt: datetime):
-    """Per-agent call stats from the back office's WORKING RingCentral account call-log
-    (this tracker's own RingEX/RingCX access returns nothing). Returns
-    {"agents": {name: {...}}, "meta": {...}} or None if unavailable."""
+    """Per-agent call stats from the back office's RingCentral account call-log (this
+    tracker's own RingEX/RingCX access returns nothing). ALWAYS returns a dict with a
+    'diag' block so a 0 result explains itself: {"agents": {...}, "meta": {...},
+    "diag": {"reached": bool, "http": int|None, "error": str|None, "url": str}}."""
+    url = f"{BACKOFFICE_URL}/api/agent-call-stats" if BACKOFFICE_URL else ""
+    diag = {"reached": False, "http": None, "error": None, "url": url}
     if not BACKOFFICE_URL or not OVERDUE_API_KEY:
-        return None
+        diag["error"] = "BACKOFFICE_URL or OVERDUE_API_KEY not set on the tracker"
+        return {"agents": {}, "meta": {}, "diag": diag}
     try:
         r = requests.get(
-            f"{BACKOFFICE_URL}/api/agent-call-stats",
+            url,
             params={
                 "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                 "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
@@ -1082,9 +1086,17 @@ def _fetch_backoffice_call_stats(start_dt: datetime, end_dt: datetime):
             headers={"X-API-Key": OVERDUE_API_KEY},
             timeout=60, allow_redirects=False,
         )
-        if r.status_code != 200 or "application/json" not in r.headers.get("Content-Type", ""):
-            log.warning("back-office agent-call-stats: HTTP %s", r.status_code)
-            return None
+        diag["http"] = r.status_code
+        if r.status_code in (301, 302, 303, 307, 308):
+            diag["error"] = "redirected to login — the back office did not accept the API key"
+            return {"agents": {}, "meta": {}, "diag": diag}
+        if r.status_code != 200:
+            diag["error"] = f"HTTP {r.status_code}: {r.text[:140]}"
+            return {"agents": {}, "meta": {}, "diag": diag}
+        if "application/json" not in r.headers.get("Content-Type", ""):
+            diag["error"] = f"non-JSON response ({r.headers.get('Content-Type', '?')})"
+            return {"agents": {}, "meta": {}, "diag": diag}
+        diag["reached"] = True
         data = r.json() or {}
         agents = {}
         for a in data.get("agents", []):
@@ -1101,14 +1113,15 @@ def _fetch_backoffice_call_stats(start_dt: datetime, end_dt: datetime):
                 "calls_over_3m": max(0, calls - u3),
                 "handle_seconds": 0,
             }
-        return {"agents": agents, "meta": {
+        return {"agents": agents, "diag": diag, "meta": {
             "calls_fetched": data.get("calls_fetched"),
             "calls_in_window": data.get("calls_in_window"),
             "unattributed": data.get("unattributed"),
         }}
     except Exception as ex:
+        diag["error"] = f"{type(ex).__name__}: {ex}"
         log.warning("back-office agent-call-stats fetch failed: %s", ex)
-        return None
+        return {"agents": {}, "meta": {}, "diag": diag}
 
 
 def _fetch_bot_claim_counts(start_date_str: str, end_date_str: str) -> dict:
@@ -3256,10 +3269,12 @@ def api_agent_analytics():
         # Interactions Report (calls_only) uses the BACK OFFICE's working RC account
         # call-log first — this tracker's own RingEX/RingCX access returns nothing.
         bo_stats = _fetch_backoffice_call_stats(start_dt, end_dt) if calls_only else None
+        if bo_stats:
+            # Always surface the back-office diagnostic so a 0 explains itself.
+            call_meta = {**(bo_stats.get("meta") or {}), **(bo_stats.get("diag") or {})}
         if bo_stats and bo_stats.get("agents"):
             call_source = "backoffice-rc"
-            call_meta = bo_stats.get("meta") or {}
-            unattributed_calls = int(call_meta.get("unattributed", 0) or 0)
+            unattributed_calls = int((bo_stats.get("meta") or {}).get("unattributed", 0) or 0)
             for name, s in bo_stats["agents"].items():
                 a = _agent(name)
                 a["calls"]          += s.get("calls", 0)
@@ -3268,8 +3283,6 @@ def api_agent_analytics():
                 a["calls_over_3m"]  += s.get("calls_over_3m", 0)
                 a["talk_seconds"]   += s.get("talk_seconds", 0)
         elif _ringcx.configured:
-            if bo_stats is not None:
-                call_meta = bo_stats.get("meta") or {}   # reached the back office, just no calls in window
             try:
                 stats = _ringcx.get_agent_call_stats(
                     start_dt, end_dt, long_call_seconds=threshold)
