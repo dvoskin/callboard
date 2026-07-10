@@ -14,6 +14,15 @@ services:
     # --graceful-timeout 20: give in-flight requests 20s to finish before hard kill on deploy.
     # --keep-alive 75: match Render's 75s idle connection timeout.
     startCommand: gunicorn -w 1 -k gthread --threads 8 -t 90 --graceful-timeout 20 --keep-alive 75 -b 0.0.0.0:$PORT app:app
+    # Persistent disk. app.py writes resolved_calls.json (resolved / distributed / notes /
+    # assigned_to) and ai_handled.json to /data. Without this mount /data does not exist, the
+    # code silently falls back to the container filesystem, and EVERY flag is wiped on each
+    # deploy or restart — which re-distributes every still-overdue call to Telegram and loses
+    # every note. Requires a paid plan and pins the service to one instance (we already run -w 1).
+    disk:
+      name: call-tracker-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: ZOHO_CLIENT_ID
         sync: false

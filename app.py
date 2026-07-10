@@ -109,6 +109,16 @@ _quotes_fetch_lock = _threading.Lock()  # only one thread fetches at a time
 # ────────── Persistent disk (Render /data mount) ──────────
 # Use persistent disk mount if available (Render), fallback to local
 _data_dir = Path("/data") if Path("/data").exists() else Path(__file__).parent
+if not Path("/data").exists() and os.environ.get("RENDER"):
+    # On Render without the disk mounted, this directory is wiped on every deploy and
+    # restart. Losing resolved_calls.json means every still-overdue call is distributed to
+    # Telegram a second time and every note vanishes. Silence is how that went unnoticed.
+    print(
+        "[storage] WARNING: /data is not mounted — resolved/distributed flags and notes are "
+        "being written to EPHEMERAL container storage and will be lost on the next deploy or "
+        "restart, re-distributing every overdue call. Add the `disk:` block to render.yaml.",
+        flush=True,
+    )
 CACHE_PERSIST_PATH = _data_dir / "dashboard_cache.json"
 
 def _persist_cache(data: dict, last_updated: str) -> None:
@@ -140,16 +150,60 @@ def _load_persisted_cache() -> None:
 RESOLVED_PATH = _data_dir / "resolved_calls.json"
 _resolved_lock = threading.Lock()
 
+# ── AI-handled markers, keyed by 10-digit phone ───────────────────────────────
+# The back-office bot POSTs here whenever its AI actually replied to a patient. The
+# tracker had no idea the bot existed: a call the bot had already rescheduled or booked
+# still sat here looking untouched, and coordinators chased patients it had just handled.
+AI_HANDLED_PATH = _data_dir / "ai_handled.json"
+_ai_lock = threading.Lock()
+
+def _phone10(value) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else ""
+
+def _load_ai_handled() -> dict:
+    if not AI_HANDLED_PATH.exists():
+        return {}
+    try:
+        return json.loads(AI_HANDLED_PATH.read_text())
+    except Exception:
+        return {}
+
+def _save_ai_handled(data: dict) -> None:
+    tmp = AI_HANDLED_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(AI_HANDLED_PATH)   # atomic: a crash mid-write can't truncate the store
+
+def _prune_ai_handled(data: dict) -> dict:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    return {k: v for k, v in data.items() if (v.get("at") or "") > cutoff}
+
+def ai_handled_data() -> dict:
+    with _ai_lock:
+        return _prune_ai_handled(_load_ai_handled())
+
 def _load_resolved() -> dict:
     if not RESOLVED_PATH.exists():
         return {}
     try:
         return json.loads(RESOLVED_PATH.read_text())
-    except Exception:
+    except Exception as e:
+        # Returning {} here silently discarded every resolved/distributed flag, which
+        # re-distributes every overdue call. Preserve the bad file and shout about it.
+        try:
+            RESOLVED_PATH.replace(RESOLVED_PATH.with_suffix(".corrupt"))
+        except Exception:
+            pass
+        print(f"[storage] ERROR: resolved_calls.json unreadable ({e}); saved as .corrupt and "
+              f"starting empty — overdue calls may be re-distributed.", flush=True)
         return {}
 
 def _save_resolved(data: dict) -> None:
-    RESOLVED_PATH.write_text(json.dumps(data, indent=2))
+    # Atomic: a crash between truncate and write used to leave an empty/partial file,
+    # which _load_resolved then read as "nothing is resolved".
+    tmp = RESOLVED_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(RESOLVED_PATH)
 
 def _prune_resolved(data: dict) -> dict:
     """Drop entries older than 7 days, but keep any that carry a note so
@@ -181,6 +235,7 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
     rids = set(rd.keys())
     if not annotated.get("scheduled_calls"):
         return
+    ai_map = ai_handled_data()
     newly_matched = {}  # {rec_id: matched_call_data} — to persist back
     for r in annotated["scheduled_calls"]["records"]:
         rid = r.get("id")
@@ -192,6 +247,12 @@ def _annotate_resolved(annotated: dict, rd: dict) -> None:
         r["assigned_to"] = entry.get("assigned_to", "")
         r["distributed"] = entry.get("distributed", False)
         r["distributed_by"] = entry.get("distributed_by", "")
+        ai = ai_map.get(_phone10(r.get("phone")))
+        r["ai_handled"] = bool(ai)
+        r["ai_scenario"] = (ai or {}).get("scenario", "")
+        r["ai_at"] = (ai or {}).get("at", "")
+        r["ai_reply"] = (ai or {}).get("reply", "")
+        r["ai_inbound"] = (ai or {}).get("inbound", "")
         if not r["resolved"]:
             continue
         # Overlay matched call data if this record was resolved with a call match
@@ -905,6 +966,44 @@ def save_assigned_to(rec_id):
     return jsonify({"status": "ok", "id": rec_id, "assigned_to": name})
 
 
+@app.route("/api/ai-handled", methods=["POST"])
+def api_ai_handled():
+    """The back-office AI replied to a patient. Record it against their phone number so the
+    dashboard can show "Resolved by bot" instead of a call that looks untouched.
+
+    Machine-to-machine: authenticated with the shared OVERDUE_API_KEY, not a browser session.
+    Keyed by phone rather than record id because the bot knows the patient, not our record.
+    """
+    if not _valid_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    phone = _phone10(body.get("phone"))
+    if not phone:
+        return jsonify({"error": "phone required"}), 400
+
+    entry = {
+        "at": (body.get("at") or datetime.now(timezone.utc).isoformat()),
+        "scenario": (body.get("scenario") or "")[:60],
+        "contact_name": (body.get("contact_name") or "")[:80],
+        "inbound": (body.get("inbound") or "")[:200],
+        "reply": (body.get("reply") or "")[:300],
+    }
+    with _ai_lock:
+        data = _prune_ai_handled(_load_ai_handled())
+        prev = data.get(phone) or {}
+        entry["count"] = int(prev.get("count", 0)) + 1   # how many times the bot answered them
+        data[phone] = entry
+        _save_ai_handled(data)
+    return jsonify({"ok": True, "phone": phone, "count": entry["count"]})
+
+
+@app.route("/api/ai-handled", methods=["GET"])
+@login_required
+def api_ai_handled_list():
+    """Everything the bot has handled in the last 7 days, keyed by phone."""
+    return jsonify({"ai_handled": ai_handled_data()})
+
+
 @app.route("/api/scheduled-call/<rec_id>/distributed", methods=["POST"])
 @login_required
 def save_distributed(rec_id):
@@ -931,6 +1030,34 @@ def save_distributed(rec_id):
 # sales Telegram chat as P1 "Claim" cards. Auth is the shared OVERDUE_API_KEY
 # (header X-API-Key or ?key=), NOT session login, so it works machine-to-machine.
 
+# The bot's `distributed_by` value. Three spellings existed: the endpoint defaulted to
+# "bot", the reset endpoint only cleared "backoffice-bot", and the template only recognised
+# "bot". A bot POST that omitted the field was hidden from /api/overdue-calls forever AND
+# unreachable by the cleanup — the call was silently lost.
+BOT_DISTRIBUTED_BY = "backoffice-bot"
+BOT_ALIASES = {"bot", "backoffice-bot"}
+
+# Handing a call to the bot on GET, then waiting for its POST, leaves a window in which a
+# second poll sees the same call and distributes it twice. Claim it at read time for a few
+# minutes; if the bot never confirms, the claim lapses and the call comes back.
+_CLAIM_TTL_SECONDS = 300
+_overdue_claims: dict[str, float] = {}
+_claims_lock = threading.Lock()
+
+def _claim_overdue(ids: list[str]) -> None:
+    now = time.time()
+    with _claims_lock:
+        for stale in [k for k, t in _overdue_claims.items() if now - t > _CLAIM_TTL_SECONDS]:
+            _overdue_claims.pop(stale, None)
+        for i in ids:
+            _overdue_claims[i] = now
+
+def _is_claimed(rec_id: str) -> bool:
+    with _claims_lock:
+        t = _overdue_claims.get(rec_id)
+        return bool(t and time.time() - t <= _CLAIM_TTL_SECONDS)
+
+
 def _compute_overdue_calls() -> list[dict]:
     """The same set the dashboard shows under 'Overdue', computed server-side:
     a scheduled call is overdue when it's >15 min past its scheduled time, has no
@@ -955,10 +1082,19 @@ def _compute_overdue_calls() -> list[dict]:
             continue
         if r.get("actual_call_time"):  # a call was logged → not overdue
             continue
+        if _is_claimed(r.get("id") or ""):
+            continue                      # handed to the bot moments ago; awaiting its POST
         sched = r.get("scheduled_time")
         dt = _zoho._parse_dt(sched)
         if not dt:
             continue
+        # The board floors pre-9 AM calls to 9 AM (_effective_scheduled) but this did not,
+        # so a 6:00 AM call was "20 min overdue" at 6:20 and got distributed while the
+        # dashboard still showed it as upcoming. Measure from the same effective time.
+        try:
+            dt = _zoho._effective_scheduled(dt)
+        except Exception:
+            pass
         minutes_overdue = (now - dt).total_seconds() / 60
         if minutes_overdue <= 15:  # matches the dashboard's 15-min pending window
             continue
@@ -984,6 +1120,7 @@ def api_overdue_calls():
     if loading:
         return jsonify({"status": "loading", "count": 0, "overdue": []})
     overdue = _compute_overdue_calls()
+    _claim_overdue([o["id"] for o in overdue if o.get("id")])
     return jsonify({"status": "ok", "count": len(overdue), "overdue": overdue})
 
 
@@ -994,7 +1131,7 @@ def api_overdue_mark_distributed(rec_id):
     if not _valid_api_key():
         return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(silent=True) or {}
-    distributed_by = (body.get("distributed_by") or "bot").strip()
+    distributed_by = (body.get("distributed_by") or BOT_DISTRIBUTED_BY).strip()
     with _resolved_lock:
         data = _prune_resolved(_load_resolved())
         if rec_id not in data:
@@ -1032,7 +1169,7 @@ def api_overdue_reset_bot_distributed():
         for rec_id, entry in data.items():
             if not entry.get("distributed"):
                 continue
-            if str(entry.get("distributed_by", "")).lower() != "backoffice-bot":
+            if str(entry.get("distributed_by", "")).lower() not in BOT_ALIASES:
                 continue  # manual ✋ distribution — leave it
             if entry.get("resolved") or entry.get("resolved_by"):
                 continue  # already handled by a human

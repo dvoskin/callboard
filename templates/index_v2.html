@@ -4957,11 +4957,27 @@
     const n = String(name || "").trim();
     if (!n) return "";
     const low = n.toLowerCase();
-    if (low === "bot") return "bot";
+    if (low === "bot" || low === "backoffice-bot") return "bot";
     if (low === "live-monitor") return "auto";
     return n;
   }
+  // The back-office AI answered this patient. Shown on EVERY row, overdue or not —
+  // a call the bot already handled should never read as untouched.
+  function _scAiTag(r) {
+    if (!r.ai_handled) return "";
+    const when = r.ai_at ? new Date(r.ai_at).toLocaleString("en-US",
+      { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+    const parts = [];
+    if (r.ai_inbound) parts.push(`Patient: ${r.ai_inbound}`);
+    if (r.ai_reply) parts.push(`Bot: ${r.ai_reply}`);
+    if (when) parts.push(`(${when} ET)`);
+    const tip = _qEsc(parts.join("\n") || "Handled by the back-office AI");
+    const scen = r.ai_scenario ? " · " + _qEsc(String(r.ai_scenario).replace(/_/g, " ")) : "";
+    return `<span class="resolved-by-tag" title="${tip}">🤖 Resolved by bot${scen}</span> `;
+  }
+
   function _scResolveCell(r) {
+    const aiTag = _scAiTag(r);
     if (r.resolved) {
       const who = _resolverLabel(r.resolved_by);
       const label = who ? `✓ Resolved · ${_qEsc(who)}` : "✓ Resolved";
@@ -4969,21 +4985,21 @@
       const tip = isAuto ? "Auto-cleared when a live call was detected for this lead"
                          : (who === "bot" ? "Cleared by the back-office bot"
                                           : (who ? `Resolved by ${_qEsc(who)}` : "Resolved"));
-      return `<span class="resolved-by-tag" title="${tip}">${label}</span>
+      return `${aiTag}<span class="resolved-by-tag" title="${tip}">${label}</span>
         <button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`;
     }
-    if (!isOverdueRow(r)) return `<span class="no-data">—</span>`;
+    if (!isOverdueRow(r)) return aiTag || `<span class="no-data">—</span>`;
     // Not resolved yet. If the bot (or a manager) has already distributed it, show
     // that here so the column reflects who's on it — the manual Resolve stays open.
     let distTag = "";
     if (r.distributed) {
-      const byBot = String(r.distributed_by || "").toLowerCase() === "bot";
+      const byBot = ["bot", "backoffice-bot"].includes(String(r.distributed_by || "").toLowerCase());
       const who = byBot ? "bot" : _resolverLabel(r.distributed_by);
       const tip = byBot ? "Sent to the sales Telegram by the back-office bot"
                         : `Distributed manually${who ? " by " + _qEsc(who) : ""}`;
       distTag = `<span class="resolved-by-tag" title="${tip}">${byBot ? "📲" : "✋"} Distributed${who ? " · " + _qEsc(who) : ""}</span> `;
     }
-    return `${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+    return `${aiTag}${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
         value="${(r.resolved_by||'').replace(/"/g,'&quot;')}" placeholder="Your name"
         onblur="saveResolvedBy(this)" onkeydown="if(event.key==='Enter'){this.blur()}">
       <button class="resolve-btn" onclick="markResolved('${r.id}')" title="Clear from concerns">✓ Resolve</button>`;
@@ -5900,7 +5916,7 @@
         statusHtml = `<span class="badge badge-purple" title="Another call is scheduled later for this lead">↻ Rescheduled</span>`;
       } else if (r.distributed) {
         // Overdue and handed to sales → show Distributed instead of Overdue.
-        const byBot = String(r.distributed_by || "").toLowerCase() === "bot";
+        const byBot = ["bot", "backoffice-bot"].includes(String(r.distributed_by || "").toLowerCase());
         statusHtml = byBot
           ? `<span class="badge badge-teal" title="Distributed to the sales Telegram by the back-office bot">📲 Distributed</span>`
           : `<span class="badge badge-gray" title="Manually distributed${r.distributed_by ? ' by ' + _qEsc(r.distributed_by) : ''}">✋ Distributed</span>`;
