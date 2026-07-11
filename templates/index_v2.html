@@ -5103,10 +5103,13 @@
     const tags = aiTag + claimTag;
     if (r.resolved) {
       const who = _resolverLabel(r.resolved_by);
-      const label = who ? `✓ Resolved · ${_qEsc(who)}` : "✓ Resolved";
+      // The bot doesn't "resolve" a call — it DISTRIBUTES it to a coordinator. Label its
+      // action accordingly; a human/live-monitor clear stays "Resolved".
+      const byBot = String(r.resolved_by || "").toLowerCase() === "bot";
+      const label = byBot ? "✓ Distributed · bot" : (who ? `✓ Resolved · ${_qEsc(who)}` : "✓ Resolved");
       const isAuto = String(r.resolved_by || "").toLowerCase() === "live-monitor";
       const tip = isAuto ? "Auto-cleared when a live call was detected for this lead"
-                         : (who === "bot" ? "Cleared by the back-office bot"
+                         : (byBot ? "Distributed to the sales Telegram by the back-office bot"
                                           : (who ? `Resolved by ${_qEsc(who)}` : "Resolved"));
       return `${tags}<span class="resolved-by-tag" title="${tip}">${label}</span>
         <button class="unresolve-btn" onclick="markUnresolved('${r.id}')" title="Restore to concerns list">↺ Reopen</button>`;
