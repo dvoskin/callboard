@@ -944,6 +944,32 @@ def resolve_call(rec_id):
     return jsonify({"status": "resolved", "id": rec_id, "matched_call": final_match})
 
 
+@app.route("/api/scheduled-calls/resolve-bulk", methods=["POST"])
+@login_required
+def resolve_calls_bulk():
+    """Resolve many scheduled/overdue calls at once. Body: {ids: [...], resolved_by}."""
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids") or []
+    resolved_by = (body.get("resolved_by") or "").strip()
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids required"}), 400
+    ids = [str(i) for i in ids][:1000]   # bound the batch
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with _resolved_lock:
+        data = _prune_resolved(_load_resolved())
+        for rec_id in ids:
+            entry = data.get(rec_id, {})
+            entry["at"] = now_iso
+            if resolved_by:
+                entry["resolved_by"] = resolved_by
+            match = _find_closest_call_for_record(rec_id)
+            if match:
+                entry["matched_call"] = match
+            data[rec_id] = entry
+        _save_resolved(data)
+    return jsonify({"status": "resolved", "count": len(ids), "resolved_by": resolved_by})
+
+
 @app.route("/api/scheduled-call/<rec_id>/unresolve", methods=["POST"])
 @login_required
 def unresolve_call(rec_id):

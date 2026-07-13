@@ -3622,6 +3622,18 @@
     </div>
   </div><!-- /card-activity -->
 
+  <!-- ── Mass manual-resolve action bar (appears when overdue rows are checked) ── -->
+  <div id="bulk-resolve-bar" style="display:none;position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+       z-index:600;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);
+       border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.22);padding:10px 16px;">
+    <span style="font-weight:700;font-size:13px;color:var(--text)"><span id="bulk-resolve-count">0</span> selected</span>
+    <input id="bulk-resolve-name" type="text" placeholder="Your name"
+      onkeydown="if(event.key==='Enter'){bulkResolve()}"
+      style="padding:7px 10px;border:1px solid var(--border);border-radius:9px;font-size:13px;max-width:150px;background:var(--surface);color:var(--text)">
+    <button id="bulk-resolve-go" class="bulk-resolve-btn" style="display:inline-block" onclick="bulkResolve()">✓ Resolve selected</button>
+    <button onclick="clearBulkResolve()" style="background:none;border:none;color:var(--secondary);cursor:pointer;font-size:13px;font-family:inherit">Clear</button>
+  </div>
+
   <!-- ── Call Now Deals card ── -->
   <div class="card" id="card-call-now">
     <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -5125,10 +5137,54 @@
                         : `Distributed manually${who ? " by " + _qEsc(who) : ""}`;
       distTag = `<span class="resolved-by-tag" title="${tip}">${byBot ? "📲" : "✋"} Distributed${who ? " · " + _qEsc(who) : ""}</span> `;
     }
-    return `${tags}${distTag}<input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
+    return `${tags}${distTag}<input type="checkbox" class="bulk-resolve-check" data-id="${r.id}" onchange="onBulkResolveToggle()" title="Select for mass resolve" style="margin-right:6px;vertical-align:middle;cursor:pointer">
+      <input type="text" class="note-input od-resolvedby-input" data-id="${r.id}"
         value="${(r.resolved_by||'').replace(/"/g,'&quot;')}" placeholder="Your name"
         onblur="saveResolvedBy(this)" onkeydown="if(event.key==='Enter'){this.blur()}">
       <button class="resolve-btn" onclick="markResolved('${r.id}')" title="Clear from concerns">✓ Resolve</button>`;
+  }
+
+  // ── Mass manual resolve ─────────────────────────────────────────────────
+  function _bulkResolveChecked() { return [...document.querySelectorAll(".bulk-resolve-check:checked")]; }
+  function onBulkResolveToggle() {
+    const bar = document.getElementById("bulk-resolve-bar");
+    if (!bar) return;
+    const n = _bulkResolveChecked().length;
+    const cnt = document.getElementById("bulk-resolve-count");
+    if (cnt) cnt.textContent = n;
+    bar.style.display = n > 0 ? "flex" : "none";
+  }
+  function clearBulkResolve() {
+    _bulkResolveChecked().forEach(c => { c.checked = false; });
+    onBulkResolveToggle();
+  }
+  async function bulkResolve() {
+    const ids = _bulkResolveChecked().map(c => c.dataset.id);
+    if (!ids.length) return;
+    const nameInput = document.getElementById("bulk-resolve-name");
+    const resolvedBy = (nameInput && nameInput.value || "").trim();
+    if (!resolvedBy) {
+      if (nameInput) { nameInput.focus(); nameInput.classList.add("note-required"); setTimeout(() => nameInput.classList.remove("note-required"), 2000); }
+      return;
+    }
+    const btn = document.getElementById("bulk-resolve-go");
+    if (btn) { btn.disabled = true; btn.textContent = "Resolving…"; }
+    // Optimistic local update — same as the single resolve.
+    for (const id of ids) {
+      const rec = _scOverdueRecords.find(r => r.id === id); if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; }
+      const actRec = _scActivityRecords.find(r => r.id === id); if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; }
+    }
+    drawScTable();
+    try {
+      await fetch("/api/scheduled-calls/resolve-bulk", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, resolved_by: resolvedBy }),
+      });
+    } catch (e) { /* optimistic applied; a later refresh reconciles */ }
+    if (btn) { btn.disabled = false; btn.textContent = "✓ Resolve selected"; }
+    if (nameInput) nameInput.value = "";
+    onBulkResolveToggle();   // rows just redrew as resolved (no checkbox) → hides the bar
+    refreshAlertCounts();
   }
 
   async function markResolved(id) {
