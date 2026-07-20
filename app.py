@@ -615,6 +615,16 @@ def index_v2():
     return render_template("index_v2.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
 
 
+@app.route("/v3")
+@login_required
+def index_v3():
+    """Snapshot of the v2 dashboard as deployed at 102e0b7 (the "call log" agent
+    report cut), preserved verbatim at its own URL while /v2 continues to evolve
+    separately. Shares the same backend/API."""
+    user = session.get("user") or {}
+    return render_template("index_v3.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
+
+
 @app.route("/v2/agents")
 @login_required
 def agents_report_v2():
