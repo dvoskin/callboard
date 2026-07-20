@@ -628,11 +628,22 @@ def agents_report_v2():
 @app.route("/v2/interactions")
 @login_required
 def interactions_report_v2():
-    """Upload a RingCX Interactions CSV export and get the full per-agent report
-    (talk time, calls >3/>10 min, connect rate, campaign vs. personal queue,
-    dispositions). Self-contained: parses the file, no live RingCX/WEM access."""
+    """Automatic per-agent interactions report — pulls calls live from RingEX +
+    RingCX for any date range. The CSV-upload version lives at /v2/interactions/csv."""
     user = session.get("user") or {}
     return render_template("interactions_report.html", current_user=user)
+
+
+@app.route("/v2/interactions/csv")
+@login_required
+def interactions_report_csv():
+    """Upload a RingCX Interactions CSV export and get the full per-agent report
+    (talk time, calls >3/>10 min, connect rate, campaign vs. personal queue,
+    dispositions). Self-contained: parses the file, no live RingCX/WEM access.
+    Kept alongside the automatic report because the RingCX CSV carries WEM/CDR
+    detail (true dialer talk time, dispositions) the live pull can't always see."""
+    user = session.get("user") or {}
+    return render_template("interactions_report_csv.html", current_user=user)
 
 
 @app.route("/api/interactions/analyze", methods=["POST"])

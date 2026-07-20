@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interactions Report (CSV) — Sales Call Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #eef0f5;
+      --bg-grad: radial-gradient(ellipse at top left, #eaecf7 0%, #eef0f5 35%, #f0f1f6 100%);
+      --surface: #ffffff; --surface2: #f7f8fc;
+      --border: rgba(15,23,42,0.13); --sep: rgba(15,23,42,0.07);
+      --text: #0b0e1a; --secondary: #5b6478; --tertiary: #94a0b8;
+      --blue: #2563eb; --blue-dk: #1d4ed8; --green: #10b981; --green-dk: #047857;
+      --red: #ef4444; --orange: #f59e0b; --amber-dk: #b45309; --purple: #8b5cf6; --teal: #06b6d4;
+      --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+      --shadow: 0 4px 24px rgba(15,23,42,.08), 0 1px 4px rgba(15,23,42,.06);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); background-image: var(--bg-grad);
+      color: var(--text); font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      font-size: 14px; line-height: 1.45; letter-spacing: -0.005em;
+      -webkit-font-smoothing: antialiased; padding: 20px; }
+    a { color: var(--blue); text-decoration: none; }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+    .num { font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+    .top h1 { margin: 0 0 2px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+    .top .sub { color: var(--secondary); font-size: 13px; max-width: 70ch; }
+    .back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--secondary); margin-bottom: 8px; }
+    .back:hover { color: var(--blue); }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn { padding: 7px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font: inherit; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface2); }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.primary:hover { background: var(--blue-dk); }
+    .btn[disabled] { opacity: .55; cursor: default; }
+
+    /* Dropzone — compact */
+    .drop { background: var(--surface); border: 1.5px dashed var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      padding: 14px 18px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+      display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    .drop:hover, .drop.over { border-color: var(--blue); background: #f5f8ff; }
+    .drop .ic { font-size: 17px; }
+    .drop .big { font-size: 13px; font-weight: 600; }
+    .drop .small { color: var(--tertiary); font-size: 12px; }
+    .filemeta { flex-basis: 100%; margin-top: 6px; font-size: 12px; color: var(--secondary); display: none; }
+    .filemeta b { color: var(--text); }
+
+    /* Near-monochrome accent: solid blue = primary, light blue = secondary category */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 8px; margin: 16px 0; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; box-shadow: var(--shadow-sm); }
+    .card .k { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--tertiary); font-weight: 700; }
+    .card .v { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin-top: 4px; line-height: 1.1; }
+    .card .s { font-size: 11px; color: var(--tertiary); margin-top: 3px; }
+
+    h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--secondary); margin: 22px 0 10px; }
+    h2 .lite { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--tertiary); font-size: 12px; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+    .panel.pad { padding: 14px 16px; }
+    .panel h3 { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--tertiary); margin: 0 0 11px; }
+
+    /* stacked split bars — one hue, two shades */
+    .stackbar { display: flex; height: 26px; border-radius: 5px; overflow: hidden; background: var(--sep); }
+    .stackbar span { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-feature-settings: "tnum"; }
+    .stackbar .camp { background: var(--blue); color: #fff; } .stackbar .pers { background: #c7d9f7; color: var(--blue-dk); }
+    .leg { display: flex; justify-content: space-between; margin-top: 9px; font-size: 12px; color: var(--secondary); }
+    .leg b { color: var(--text); }
+    .leg .dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 6px; }
+    .leg .dot.c { background: var(--blue); } .leg .dot.p { background: #c7d9f7; }
+    .st { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--tertiary); margin-bottom: 10px; }
+
+    /* mini rows (channels / operators / dispositions) */
+    .mrow { display: grid; grid-template-columns: 1fr 52px 44px; gap: 8px; align-items: center; font-size: 12px; padding: 3px 0; }
+    .mrow .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .mrow .n { text-align: right; font-weight: 600; font-feature-settings: "tnum"; }
+    .mrow .pct { text-align: right; font-weight: 700; color: var(--secondary); font-feature-settings: "tnum"; }
+    .mrow .pct.lo { color: var(--amber-dk); }
+    .mbar { grid-column: 1 / -1; height: 4px; background: var(--sep); border-radius: 2px; overflow: hidden; margin-bottom: 3px; }
+    .mbar .f { height: 100%; border-radius: 2px; background: var(--blue); opacity: .55; }
+    .mbar .f.grey { background: var(--tertiary); opacity: .4; }
+    .split2 { grid-column: 1 / -1; display: flex; height: 4px; border-radius: 2px; overflow: hidden; background: var(--sep); margin-bottom: 3px; }
+    .split2 .cf { background: var(--blue); opacity: .55; } .split2 .pf { background: #c7d9f7; }
+
+    .callout { border-left: 2px solid var(--orange); background: transparent; padding: 8px 0 2px 12px; font-size: 12px; color: var(--secondary); margin-top: 12px; line-height: 1.5; }
+    .callout b { color: var(--text); font-weight: 700; }
+
+    /* Collapsed detail section */
+    .collapsible { margin: 18px 0 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+    .collapsible > summary { cursor: pointer; list-style: none; padding: 12px 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--secondary); display: flex; align-items: center; gap: 9px; }
+    .collapsible > summary::-webkit-details-marker { display: none; }
+    .collapsible > summary::before { content: "\25B8"; color: var(--tertiary); font-size: 10px; transition: transform .15s; }
+    .collapsible[open] > summary::before { transform: rotate(90deg); }
+    .collapsible > summary:hover { color: var(--blue-dk); }
+    .collapsible-body { padding: 0 14px 16px; }
+
+    /* daily */
+    .days { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 8px; }
+    .day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow-sm); }
+    .day.quiet { opacity: .55; }
+    .day .d { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--tertiary); }
+    .day .v { font-size: 17px; font-weight: 700; letter-spacing: -.01em; margin-top: 3px; }
+    .day .m { font-size: 10px; color: var(--tertiary); margin-top: 1px; }
+    .day .track { height: 3px; background: var(--sep); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+    .day .fill { height: 100%; background: var(--blue); opacity: .55; border-radius: 2px; }
+
+    /* main table — dense, dashboard-style */
+    .table-scroll { overflow-x: auto; border-radius: var(--radius); }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th { position: sticky; top: 0; background: var(--surface); text-align: right; font-size: 10px; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--tertiary); font-weight: 700; padding: 9px 10px 8px; white-space: nowrap; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+    thead th.left { text-align: left; }
+    thead th:hover { color: var(--secondary); }
+    thead th .arw { color: var(--blue); font-weight: 700; }
+    tbody td { padding: 6px 10px; text-align: right; border-bottom: 1px solid rgba(15,23,42,.05); white-space: nowrap; font-size: 12px; color: var(--text); font-feature-settings: "tnum"; }
+    tbody td.left { text-align: left; }
+    tbody tr.arow { cursor: pointer; }
+    tbody tr.arow:hover td { background: rgba(37,99,235,.035); }
+    tbody tr.arow.open td { background: rgba(37,99,235,.06); }
+    .agentname { font-weight: 600; }
+    .muted { color: var(--tertiary); }
+    /* inline talk-time progress bar */
+    .talkcell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .tbar { width: 44px; height: 5px; border-radius: 3px; background: var(--sep); overflow: hidden; flex: 0 0 auto; }
+    .tbar > i { display: block; height: 100%; background: var(--blue); border-radius: 3px; }
+    .rank { color: var(--tertiary); font-size: 11px; width: 26px; text-align: right; }
+    thead th.rank { cursor: default; }
+    tr.detail td { background: var(--surface2); text-align: left; white-space: normal; padding: 9px 12px 11px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; font-size: 11px; color: var(--secondary); font-feature-settings: "tnum"; }
+    .chip b { color: var(--text); font-weight: 700; }
+    .chip.grey { color: var(--tertiary); }
+    tfoot td { padding: 8px 10px; text-align: right; font-weight: 700; border-top: 1px solid var(--border); background: var(--surface2); font-size: 12px; font-feature-settings: "tnum"; }
+    tfoot td.left { text-align: left; }
+
+    .note { margin-top: 14px; font-size: 12px; color: var(--tertiary); line-height: 1.7; }
+    .note b { color: var(--secondary); }
+
+    /* Saved reports — the shared record */
+    .saved { margin: 20px 0 6px; }
+    .saved[hidden] { display: none; }
+    .saved-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+    .saved-head h2 { margin: 0; font-size: 14px; font-weight: 700; }
+    .saved-tbl thead th { cursor: default; }
+    .srow { cursor: pointer; }
+    .srow:hover td { background: var(--surface2); }
+    .srow td.left { font-weight: 500; }
+    .srow .rname { font-weight: 600; }
+    .sfile { font-size: 11px; color: var(--tertiary); margin-top: 1px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swhen { color: var(--text); } .swhen small { color: var(--tertiary); }
+    .del { border: 1px solid var(--border); background: var(--surface); color: var(--tertiary); border-radius: 6px;
+      cursor: pointer; padding: 2px 8px; font-size: 12px; line-height: 1.3; }
+    .del:hover { border-color: var(--red); color: var(--red); background: rgba(239,68,68,.05); }
+    td.empty { text-align: center; color: var(--secondary); padding: 26px 16px; font-size: 13px; }
+    .fresh { animation: flash 1.4s ease; }
+    @keyframes flash { 0% { background: rgba(37,99,235,.14); } 100% { background: transparent; } }
+
+    /* Section header with inline legend toggle (matches the main dashboard) */
+    .h2row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0 10px; }
+    .h2row h2 { margin: 0; }
+    .legend-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+      padding: 5px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--secondary); cursor: pointer; }
+    .legend-btn:hover { border-color: var(--blue); color: var(--blue-dk); }
+    .legend-btn[aria-expanded="true"] { border-color: var(--blue); color: var(--blue-dk); background: rgba(37,99,235,.05); }
+    .legend-panel { margin: 0 0 12px; padding: 14px 18px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); box-shadow: var(--shadow-sm);
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 4px 26px; }
+    .legend-panel[hidden] { display: none; }
+    .legend-row { display: flex; align-items: baseline; gap: 9px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--sep); }
+    .legend-row .legend-key { flex: 0 0 84px; font-weight: 600; }
+    .legend-row .legend-desc { color: var(--secondary); line-height: 1.4; }
+    .err { color: var(--red); font-weight: 600; margin-top: 12px; }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
+      border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    #results { display: none; }
+    @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } body { padding: 12px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/v2">← Back to Sales Call Monitor</a>
+    <div class="top">
+      <div>
+        <h1>Interactions Report <span style="font-size:13px;font-weight:600;color:var(--tertiary)">· CSV upload</span></h1>
+        <div class="sub">Upload a RingCX <b>Interactions</b> CSV export for any date range and get the full per-agent breakdown — talk time, connect rate, long calls, campaign vs. personal-queue split, and dispositions. Parsed in-browser-fast on the server; no WEM/CDR access needed. <a href="/v2/interactions" style="font-weight:600">⚡ Prefer the automatic report?</a></div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="pick">Choose file…</button>
+        <button class="btn" id="savedToggle" onclick="toggleSaved()" aria-expanded="false">📁 Saved reports</button>
+        <button class="btn primary" id="saveBtn" style="display:none" onclick="saveCurrentReport()">💾 Save report</button>
+        <button class="btn" id="reset" style="display:none">↻ New file</button>
+      </div>
+    </div>
+
+    <div class="drop" id="drop">
+      <div class="ic">📄</div>
+      <div class="big">Drop the Interactions export here</div>
+      <div class="small">or click to browse · <b>.csv</b> from RingCX → Reports → Interactions</div>
+      <input type="file" id="file" accept=".csv,text/csv" hidden>
+      <div class="filemeta" id="filemeta"></div>
+    </div>
+    <div class="err" id="err" style="display:none"></div>
+
+    <section class="saved" id="savedWrap" hidden>
+      <div class="saved-head"><h2>Saved reports</h2><span class="lite" id="savedCount"></span></div>
+      <div class="panel"><div class="table-scroll">
+        <table class="saved-tbl"><thead><tr>
+          <th class="left">Report</th><th class="left">Date range</th><th class="left">Uploaded</th>
+          <th class="left">By</th><th>Calls</th><th>Talk time</th><th aria-label="actions"></th>
+        </tr></thead><tbody id="savedBody"></tbody></table>
+      </div></div>
+    </section>
+
+    <div id="results">
+      <div class="cards" id="cards"></div>
+
+      <h2>Dial source — campaign vs. personal queue</h2>
+      <div class="grid2">
+        <div class="panel pad"><div class="st" id="splitVolT"></div><div id="splitVol"></div></div>
+        <div class="panel pad"><div class="st" id="splitTalkT"></div><div id="splitTalk"></div></div>
+      </div>
+
+      <h2>Daily volume</h2>
+      <div class="days" id="days"></div>
+
+      <div class="h2row">
+        <h2>Per-agent performance <span class="lite">— sorted by talk time · click a row for dispositions</span></h2>
+        <button class="legend-btn" id="legToggle" aria-expanded="false" onclick="toggleLegend()">ⓘ&nbsp;What each column means</button>
+      </div>
+      <div class="legend-panel" id="legend" hidden></div>
+      <div class="panel"><div class="table-scroll">
+        <table id="tbl"><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody><tfoot id="tfoot"></tfoot></table>
+      </div></div>
+
+      <details class="collapsible" id="queueDetail">
+        <summary>Queue detail — campaign connect rates &amp; personal-book operators</summary>
+        <div class="collapsible-body grid2">
+          <div class="panel pad"><h3>Campaign queues — connect rate</h3><div id="camptbl"></div><div class="callout" id="campflag"></div></div>
+          <div class="panel pad"><h3>Personal-book operators <span class="lite">— % of dials from own queue</span></h3><div id="perstbl"></div></div>
+        </div>
+      </details>
+
+      <div class="note" id="note"></div>
+    </div>
+  </div>
+
+<script>
+let DATA = null, sortKey = "talk_secs", sortDir = -1, _lastFile = null;
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n||0).toLocaleString("en-US");
+function hms(s){ s=Math.round(s||0); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  if(h) return h+"h "+String(m).padStart(2,"0")+"m"; if(m) return m+"m "+String(x).padStart(2,"0")+"s"; return x+"s"; }
+function hmsLong(s){ s=Math.round(s||0); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"); }
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function dayLabel(d){ const [mm,dd]=d.split("/"); const dt=new Date(2000+ +d.split("/")[2], mm-1, dd);
+  return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dt.getDay()]+" "+mm+"/"+dd; }
+
+// ---- upload wiring ----
+const drop=$("drop"), fileInput=$("file");
+$("pick").onclick = ()=>fileInput.click();
+drop.onclick = e => { if(e.target.tagName!=="INPUT") fileInput.click(); };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = ()=>drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); };
+fileInput.onchange = ()=>{ if(fileInput.files[0]) upload(fileInput.files[0]); };
+$("reset").onclick = ()=>{ $("results").style.display="none"; $("reset").style.display="none"; $("saveBtn").style.display="none"; $("filemeta").style.display="none"; _lastFile=null; fileInput.value=""; };
+
+async function upload(file){
+  $("err").style.display="none";
+  const fm=$("filemeta"); fm.style.display="block";
+  fm.innerHTML = `<span class="spin"></span> Parsing <b>${esc(file.name)}</b>…`;
+  const fd=new FormData(); fd.append("file", file);
+  try {
+    const resp = await fetch("/api/interactions/analyze", { method:"POST", body:fd });
+    const j = await resp.json();
+    if(j.status!=="ok") throw new Error(j.message||"Parse failed");
+    DATA=j; _lastFile=file; render();
+    const t=j.totals;
+    fm.innerHTML = `<b>${esc(file.name)}</b> · ${fmt(t.interactions)} interactions · ${t.date_start} → ${t.date_end}`;
+    const sb=$("saveBtn"); sb.style.display=""; sb.disabled=false; sb.textContent="💾 Save report";
+    $("reset").style.display="";
+  } catch(e){
+    fm.style.display="none";
+    $("err").style.display="block"; $("err").textContent = "Couldn't process that file: "+e.message;
+  }
+}
+
+// ---- saved reports (shared record) ----
+function fmtWhen(iso){
+  if(!iso) return "—";
+  const d=new Date(iso), diff=(Date.now()-d.getTime())/1000;
+  let rel;
+  if(diff<60) rel="just now";
+  else if(diff<3600) rel=Math.max(1,Math.floor(diff/60))+" min ago";
+  else if(diff<86400) rel=Math.floor(diff/3600)+" hr ago";
+  else if(diff<172800) rel="yesterday";
+  else if(diff<604800) rel=Math.floor(diff/86400)+" days ago";
+  else rel=d.toLocaleDateString([], {month:"short", day:"numeric"});
+  const abs=d.toLocaleString([], {year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+  return `<span class="swhen" title="${abs}">${rel}<br><small>${abs}</small></span>`;
+}
+
+async function loadSavedList(freshId){
+  try {
+    const r=await fetch("/api/interactions/saved"); const j=await r.json();
+    if(j.status==="ok") renderSaved(j.reports||[], freshId);
+  } catch(e){ /* list is best-effort */ }
+}
+function toggleSaved(){
+  const w=$("savedWrap"), b=$("savedToggle"), show=w.hidden;
+  w.hidden=!show; b.setAttribute("aria-expanded", show?"true":"false");
+  if(show) w.scrollIntoView({behavior:"smooth", block:"start"});
+}
+function renderSaved(list, freshId){
+  const body=$("savedBody"), cnt=$("savedCount");
+  cnt.textContent = list.length ? (list.length===1 ? "1 report" : list.length+" reports") : "";
+  $("savedToggle").textContent = "📁 Saved reports" + (list.length ? " ("+list.length+")" : "");
+  if(!list.length){
+    body.innerHTML=`<tr><td class="empty" colspan="7">No saved reports yet — upload an export and click <b>💾 Save report</b> to keep it here for the team.</td></tr>`;
+    return;
+  }
+  body.innerHTML=list.map(r=>{
+    const by=(r.saved_by||"").split("@")[0]||"—";
+    return `<tr class="srow${r.id===freshId?' fresh':''}" onclick="openSaved('${r.id}')">
+      <td class="left"><div class="rname">${esc(r.name||"Untitled")}</div><div class="sfile" title="${esc(r.filename||"")}">${esc(r.filename||"")}</div></td>
+      <td class="left">${esc(r.date_start||"?")} – ${esc(r.date_end||"?")}</td>
+      <td class="left">${fmtWhen(r.saved_at)}</td>
+      <td class="left">${esc(by)}</td>
+      <td class="num">${fmt(r.outbound||0)}</td>
+      <td class="num">${hmsLong(r.talk_secs||0)}</td>
+      <td class="num"><button class="del" title="Delete report" onclick="event.stopPropagation();deleteSaved('${r.id}',this)">Delete</button></td>
+    </tr>`;
+  }).join("");
+}
+async function openSaved(id){
+  try {
+    const r=await fetch("/api/interactions/saved/"+encodeURIComponent(id)); const j=await r.json();
+    if(j.status!=="ok") throw new Error(j.message||"not found");
+    DATA=j.report; _lastFile=null; render();
+    $("saveBtn").style.display="none"; $("reset").style.display="";
+    const by=(j.saved_by||"").split("@")[0]||"—";
+    const fm=$("filemeta"); fm.style.display="block";
+    fm.innerHTML=`Viewing saved report <b>${esc(j.name||"Untitled")}</b> · uploaded ${fmtWhen(j.saved_at)} by ${esc(by)}`;
+    $("results").scrollIntoView({behavior:"smooth", block:"start"});
+  } catch(e){ alert("Couldn't open that report: "+e.message); }
+}
+async function deleteSaved(id, btn){
+  if(!confirm("Delete this saved report? This can't be undone.")) return;
+  btn.disabled=true; btn.textContent="…";
+  try {
+    const r=await fetch("/api/interactions/saved/"+encodeURIComponent(id)+"/delete",{method:"POST"});
+    const j=await r.json();
+    if(j.status!=="ok") throw new Error(j.message);
+    loadSavedList();
+  } catch(e){ alert("Couldn't delete: "+e.message); btn.disabled=false; btn.textContent="Delete"; }
+}
+async function saveCurrentReport(){
+  if(!_lastFile) return;
+  const t=DATA&&DATA.totals;
+  const def = t ? `${t.date_start} – ${t.date_end}` : (_lastFile.name||"Report");
+  const name = prompt("Name this report so the team can find it later:", def);
+  if(name===null) return;
+  const sb=$("saveBtn"); sb.disabled=true; sb.textContent="Saving…";
+  const fd=new FormData(); fd.append("file",_lastFile); fd.append("name",(name||"").trim());
+  try {
+    const r=await fetch("/api/interactions/save",{method:"POST",body:fd}); const j=await r.json();
+    if(j.status!=="ok") throw new Error(j.message);
+    sb.textContent="✓ Saved";
+    loadSavedList(j.report && j.report.id);
+    $("savedWrap").hidden=false; $("savedToggle").setAttribute("aria-expanded","true");
+    setTimeout(()=>{ sb.style.display="none"; }, 1400);
+  } catch(e){ alert("Couldn't save: "+e.message); sb.disabled=false; sb.textContent="💾 Save report"; }
+}
+loadSavedList();
+
+// ---- render ----
+function render(){
+  const t=DATA.totals;
+  $("results").style.display="block";
+  const avgCall = t.connected ? t.talk_secs/t.connected : 0;
+  const cards=[
+    ["Outbound placed", fmt(t.outbound), t.agents+" agents"],
+    ["Talk time", hmsLong(t.talk_secs), t.date_start+" - "+t.date_end],
+    ["Avg / call", hms(avgCall), "per answered call"],
+    ["Calls > 3 min", fmt(t.over3), fmt(t.over10)+" over 10 min"],
+    ["Inbound", fmt(t.inbound), fmt(t.ringex)+" on RingEX"],
+  ];
+  $("cards").innerHTML = cards.map(c=>`<div class="card"><div class="k">${c[0]}</div><div class="v num">${c[1]}</div><div class="s num">${c[2]}</div></div>`).join("");
+
+  // dial source split
+  const cn=t.camp_n, pn=t.pers_n, cs=t.camp_secs, ps=t.pers_secs;
+  $("splitVolT").textContent = "By call volume — "+fmt(cn+pn)+" dials";
+  $("splitTalkT").textContent = "By talk time — "+hmsLong(cs+ps);
+  stack($("splitVol"), cn, pn, false);
+  stack($("splitTalk"), cs, ps, true);
+
+  // campaign table
+  const camps=DATA.channels.filter(c=>c.source==="campaign");
+  const cmax=Math.max(1,...camps.map(c=>c.n));
+  $("camptbl").innerHTML = camps.map(c=>{
+    const lo=c.connect_pct<50;
+    return `<div class="mrow"><span class="lbl" title="${esc(c.channel)}">${esc(c.channel.replace(/ – /g," · "))}</span><span class="n num">${fmt(c.n)}</span><span class="pct num ${lo?'lo':''}">${Math.round(c.connect_pct)}%</span><div class="mbar"><div class="f" style="width:${Math.max(c.n/cmax*100,.8)}%"></div></div></div>`;
+  }).join("") || '<div class="muted">No campaign channels in this export.</div>';
+  const worst=camps.filter(c=>c.n>=50).sort((a,b)=>a.connect_pct-b.connect_pct)[0];
+  const cf=$("campflag");
+  if(worst && worst.connect_pct<50){
+    cf.style.display="block";
+    cf.innerHTML=`<b>${esc(worst.channel)} connects at ${Math.round(worst.connect_pct)}%</b> — ${fmt(worst.n-worst.conn)} of ${fmt(worst.n)} dials never reached a person. Worth checking that list's quality or dialer pacing.`;
+  } else cf.style.display="none";
+
+  // personal operators
+  const ops=DATA.agents.filter(a=>a.pers>0).map(a=>({name:a.name,pers:a.pers,tot:a.camp+a.pers,pct:100*a.pers/(a.camp+a.pers)}))
+    .sort((a,b)=>b.pct-a.pct).slice(0,12);
+  $("perstbl").innerHTML = ops.map(o=>`<div class="mrow"><span class="lbl">${esc(o.name)}</span><span class="n num">${fmt(o.pers)}</span><span class="pct num">${Math.round(o.pct)}%</span><div class="split2"><div class="cf" style="width:${100-o.pct}%"></div><div class="pf" style="width:${o.pct}%"></div></div></div>`).join("")
+    || '<div class="muted">No personal-queue dials in this export.</div>';
+
+  // daily
+  const dmax=Math.max(1,...DATA.daily.map(d=>d.outbound));
+  $("days").innerHTML = DATA.daily.map(d=>`<div class="day${d.outbound<dmax*0.25?' quiet':''}"><div class="d">${dayLabel(d.date)}</div><div class="v num">${fmt(d.outbound)}</div><div class="m num">${fmt(d.connected)} conn · ${d.over3} &gt;3m · ${hms(d.secs)}</div><div class="track"><div class="fill" style="width:${Math.max(d.outbound/dmax*100,1)}%"></div></div></div>`).join("");
+
+  renderHead(); renderBody();
+
+  $("note").innerHTML = `Durations use <b>Interaction Time</b> (the RingCX column reads in seconds despite its &ldquo;(min)&rdquo; label; Talk Time is left blank on most outbound legs). Column definitions are in the legend above the table.`;
+}
+
+function stack(el,c,p,isTime){
+  const tot=c+p||1, cp=100*c/tot, fc=isTime?hmsLong(c):fmt(c), fp=isTime?hmsLong(p):fmt(p);
+  el.innerHTML=`<div class="stackbar"><span class="camp" style="width:${cp}%">${cp>12?Math.round(cp)+"%":""}</span><span class="pers" style="width:${100-cp}%">${100-cp>10?Math.round(100-cp)+"%":""}</span></div>
+  <div class="leg"><span><span class="dot c"></span>Campaign <b class="num">${fc}</b></span><span><span class="dot p"></span>Personal <b class="num">${fp}</b></span></div>`;
+}
+
+const COLS=[
+  {k:"_rank",label:"",rank:true},
+  {k:"name",label:"Agent",left:true},
+  {k:"outbound",label:"Placed"},
+  {k:"talk_secs",label:"Talk Time"},{k:"avg_secs",label:"Avg / Call"},{k:"longest_secs",label:"Longest"},
+  {k:"over3",label:"> 3 min"},{k:"over10",label:"> 10 min"},
+  {k:"camp",label:"Campaign"},{k:"pers",label:"Personal"},
+  {k:"inbound",label:"Inbound"},{k:"ringex",label:"RingEX"},{k:"days",label:"Days"},
+];
+const LEGEND=[
+  ["Placed","Outbound calls the agent dialed (excludes calls they received)."],
+  ["Talk Time","Total connected talk time, from the Interaction Time field."],
+  ["Avg / Call","Average talk time per answered call."],
+  ["Longest","The agent's single longest call."],
+  ["> 3 min","Answered calls that ran longer than 3 minutes."],
+  ["> 10 min","Answered calls longer than 10 minutes (a subset of > 3 min)."],
+  ["Campaign","Dials from a shared dialer queue (queue name uses an en-dash, e.g. “ENG – Hot Deal”)."],
+  ["Personal","Dials from the agent's own queue (the channel is named after the agent)."],
+  ["Inbound","Calls the agent received."],
+  ["RingEX","Calls placed or received on RingEX instead of the RingCX dialer (also counted in Placed / Inbound)."],
+  ["Days","Distinct days the agent was active in this export."],
+  ["Row detail","Click any agent to see their dispositions: No Answer (no-answer / voicemail / machine) and Not dispositioned counts."],
+];
+let _legendBuilt=false;
+function toggleLegend(){
+  const p=$("legend"), b=$("legToggle"), show=p.hidden;
+  if(show && !_legendBuilt){
+    p.innerHTML = LEGEND.map(d=>`<div class="legend-row"><span class="legend-key">${esc(d[0])}</span><span class="legend-desc">${esc(d[1])}</span></div>`).join("");
+    _legendBuilt=true;
+  }
+  p.hidden=!show; b.setAttribute("aria-expanded", show?"true":"false");
+}
+function renderHead(){
+  $("thead").innerHTML = COLS.map(c=>{
+    if(c.rank) return `<th class="rank"></th>`;
+    const arw = sortKey===c.k ? ` <span class="arw">${sortDir<0?"▼":"▲"}</span>`:"";
+    return `<th class="${c.left?'left':''}" data-k="${c.k}">${c.label}${arw}</th>`;
+  }).join("");
+  $("thead").querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k;
+    if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir = k==="name"?1:-1; }
+    renderHead(); renderBody();
+  });
+}
+function renderBody(){
+  const maxTalk=Math.max(1,...DATA.agents.map(a=>a.talk_secs));
+  const rows=[...DATA.agents].sort((a,b)=>{
+    const va=a[sortKey],vb=b[sortKey];
+    return (typeof va==="string"? va.localeCompare(vb): (va-vb))*sortDir;
+  });
+  $("tbody").innerHTML = rows.map((a,i)=>{
+    const chips = (a.top_disps.length? a.top_disps.map(d=>`<span class="chip">${esc(d[0])} <b>${d[1]}</b></span>`).join("")
+                   : '<span class="chip grey">no outcome dispositions</span>');
+    return `<tr class="arow"><td class="rank">${i+1}</td><td class="left"><span class="agentname">${esc(a.name)}</span></td>
+      <td class="num">${fmt(a.outbound)}</td>
+      <td class="num"><span class="talkcell">${hmsLong(a.talk_secs)}<span class="tbar"><i style="width:${Math.max(a.talk_secs/maxTalk*100,2)}%"></i></span></span></td>
+      <td class="num muted">${hms(a.avg_secs)}</td><td class="num muted">${hms(a.longest_secs)}</td>
+      <td class="num">${a.over3}</td><td class="num muted">${a.over10}</td>
+      <td class="num">${fmt(a.camp)}</td><td class="num">${fmt(a.pers)}</td>
+      <td class="num muted">${a.inbound}</td><td class="num muted">${a.ringex}</td><td class="num muted">${a.days}</td></tr>
+    <tr class="detail" hidden><td colspan="${COLS.length}"><div class="chips"><span class="chip grey">No Answer ${fmt(a.nocontact)}</span><span class="chip grey">Not dispositioned ${fmt(a.nodisp)}</span>${chips}</div></td></tr>`;
+  }).join("");
+  $("tbody").querySelectorAll("tr.arow").forEach(tr=>tr.onclick=()=>{
+    const det=tr.nextElementSibling; det.hidden=!det.hidden; tr.classList.toggle("open",!det.hidden);
+  });
+
+  const t=DATA.totals, avgAll = t.connected ? t.talk_secs/t.connected : 0;
+  $("tfoot").innerHTML = "<tr>"+COLS.map(c=>{
+    if(c.rank) return `<td class="rank"></td>`;
+    if(c.k==="name") return `<td class="left">Total · ${t.agents} agents</td>`;
+    if(c.k==="talk_secs") return `<td class="num">${hmsLong(t.talk_secs)}</td>`;
+    if(c.k==="avg_secs") return `<td class="num muted">${hms(avgAll)}</td>`;
+    if(c.k==="longest_secs"||c.k==="days") return `<td></td>`;
+    if(c.k==="camp") return `<td class="num">${fmt(t.camp_n)}</td>`;
+    if(c.k==="pers") return `<td class="num">${fmt(t.pers_n)}</td>`;
+    const map={outbound:t.outbound,over3:t.over3,over10:t.over10,inbound:t.inbound,ringex:t.ringex};
+    return `<td class="num">${fmt(map[c.k]??"")}</td>`;
+  }).join("")+"</tr>";
+}
+</script>
+</body>
+</html>
