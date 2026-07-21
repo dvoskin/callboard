@@ -354,6 +354,10 @@
     .row-act-btn:hover { background: var(--accent, #4f8cff); border-color: var(--accent, #4f8cff); color: #fff; }
     /* Compact single-line rows */
     .sc-tbl th, .sc-tbl td { padding: 4px 8px; font-size: 12px; vertical-align: middle; line-height: 1.3; white-space: nowrap; }
+    /* Overdue table: Lead Src + Dials hidden by default (declutter). */
+    .od-hide-col { display: none; }
+    /* Scheduled calls table — extra-compact rows (tighter than shared sc-tbl). */
+    #sc-activity-table th, #sc-activity-table td { padding-top: 2px; padding-bottom: 2px; line-height: 1.2; }
     .sc-tbl td.col-name, .sc-tbl td.col-notes { white-space: normal; }
     #sc-thead-row th, #cn-thead-row th { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
     .sc-tbl .badge { font-size: 10px; padding: 1px 6px; }
@@ -3697,8 +3701,8 @@
               <th>Actual Call (EST)</th>
               <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
               <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
-              <th class="sortable" onclick="sortOverdue('lead_source')" style="width:80px">Lead Src</th>
-              <th class="sortable" onclick="sortOverdue('dial_attempts')">Dials</th>
+              <th class="sortable od-hide-col" onclick="sortOverdue('lead_source')" style="width:80px">Lead Src</th>
+              <th class="sortable od-hide-col" onclick="sortOverdue('dial_attempts')">Dials</th>
               <th class="sortable" onclick="sortOverdue('caller')" style="width:90px">Caller</th>
               <th>Assigned</th>
               <th>Outcome</th>
@@ -5354,8 +5358,8 @@
         <td>${odActualCell}</td>
         <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
         <td>${stagePill}</td>
-        <td style="font-size:11px">${r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'}</td>
-        <td>${odDialsCell}</td>
+        <td class="od-hide-col" style="font-size:11px">${r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'}</td>
+        <td class="od-hide-col">${odDialsCell}</td>
         <td>${odCallerCell}</td>
         <td class="od-assigned-cell">
           <select class="od-select od-assigned-input" data-id="${r.id}" onchange="saveAssignedTo(this)">
