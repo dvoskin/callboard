@@ -746,9 +746,19 @@
     .od-outcome-tag { font-size: 11px; font-weight: 500; white-space: nowrap; }
     .od-outcome-cell { max-width: 180px; }
     .od-assigned-cell { min-width: 100px; }
-    .od-assigned-input { max-width: 120px; }
+    .od-assigned-input { max-width: 130px; }
     .od-resolvedby-cell { min-width: 100px; }
     .od-resolvedby-input { max-width: 120px; }
+    .od-reason-cell { min-width: 120px; }
+    .od-reason-input { max-width: 160px; }
+    /* Overdue table: Lead Src + Dials hidden by default (declutter). */
+    .od-hide-col { display: none; }
+    .od-select { max-width: 130px; width: 100%; font: inherit; font-size: 11px;
+      padding: 3px 4px; border: 1px solid var(--sep); border-radius: 6px;
+      background: var(--surface); color: var(--text); cursor: pointer; }
+    .od-select:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+    .od-select.note-required { border-color: var(--red) !important; background: rgba(255,59,48,.06) !important;
+      box-shadow: 0 0 0 2px rgba(255,59,48,.15) !important; }
     tr.is-selected td { background: rgba(37,99,235,.05) !important; }
     tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--blue) !important; }
 
@@ -3602,12 +3612,13 @@
               <th>Actual Call (EST)</th>
               <th class="sortable" onclick="sortOverdue('minutes_overdue')">Overdue</th>
               <th class="sortable" onclick="sortOverdue('deal_stage')">Deal Stage</th>
-              <th class="sortable" onclick="sortOverdue('lead_source')" style="width:80px">Lead Src</th>
-              <th class="sortable" onclick="sortOverdue('dial_attempts')">Dials</th>
+              <th class="sortable od-hide-col" onclick="sortOverdue('lead_source')" style="width:80px">Lead Src</th>
+              <th class="sortable od-hide-col" onclick="sortOverdue('dial_attempts')">Dials</th>
               <th class="sortable" onclick="sortOverdue('caller')" style="width:90px">Caller</th>
-              <th>Assigned To</th>
+              <th>Assigned</th>
               <th>Outcome</th>
               <th>Resolved By</th>
+              <th>Resolution</th>
               <th></th>
             </tr>
           </thead>
@@ -4129,14 +4140,17 @@
   async function bulkResolveSelected() {
     const ids = [..._overdueSelected];
     if (!ids.length) return;
+    // Every selected row must have BOTH a resolver name and a distributed-to
+    // agent before it can be resolved. Resolution reason stays optional.
     const missing = [];
     ids.forEach(id => {
       const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
+      const asInput = document.querySelector(`.od-assigned-input[data-id="${id}"]`);
       if (!rbInput?.value?.trim()) missing.push(rbInput);
+      if (!asInput?.value?.trim()) missing.push(asInput);
     });
     if (missing.length) {
       missing.forEach(el => {
-        el?.focus();
         el?.classList.add("note-required");
         setTimeout(() => el?.classList.remove("note-required"), 2000);
       });
@@ -4144,19 +4158,31 @@
       return;
     }
     await Promise.all(ids.map(id => {
-      const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
-      return fetch(`/api/scheduled-call/${id}/resolve`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({resolved_by: rbInput?.value?.trim() || ""}),
-      });
+      const rb = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`)?.value?.trim() || "";
+      const as = document.querySelector(`.od-assigned-input[data-id="${id}"]`)?.value?.trim() || "";
+      const note = (document.querySelector(`.od-reason-input[data-id="${id}"]`)?.value || "").trim();
+      const noteStep = note
+        ? fetch(`/api/scheduled-call/${id}/note`, {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({note}),
+          })
+        : Promise.resolve();
+      return noteStep
+        .then(() => fetch(`/api/scheduled-call/${id}/assigned-to`, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({assigned_to: as}),
+        }))
+        .then(() => fetch(`/api/scheduled-call/${id}/resolve`, {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({resolved_by: rb, assigned_to: as, note}),
+        }));
     }));
     _overdueSelected.clear();
     _updateBulkBtn();
     document.getElementById("od-select-all").checked = false;
     document.getElementById("od-select-all").indeterminate = false;
-    _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
-    _scActivityRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
+    _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) { r.resolved = true; } });
+    _scActivityRecords.forEach(r => { if (ids.includes(r.id)) { r.resolved = true; } });
     renderOverdueTable();
     drawScTable();
     refreshAlertCounts();
@@ -4850,7 +4876,27 @@
     renderUpcomingList();
   }
 
+  // Our agents, for the overdue "Assigned" dropdown (reuses the Zoho owner
+  // roster). Loaded lazily; re-renders the overdue table once available.
+  let _agentRosterLoading = false;
+  function _ensureAgentRoster() {
+    if (_schedOwners || _agentRosterLoading) return;
+    _agentRosterLoading = true;
+    fetch("/api/zoho/owners").then(r => r.json()).then(data => {
+      _schedOwners = data.owners || [];
+      _agentRosterLoading = false;
+      renderOverdueTable();
+    }).catch(() => { _agentRosterLoading = false; });
+  }
+  function agentOptions(selectedName) {
+    const sel = String(selectedName || "").trim();
+    return (_schedOwners || []).map(o =>
+      `<option value="${_qEsc(o.name)}"${o.name === sel ? " selected" : ""}>${_qEsc(o.name)}</option>`
+    ).join("");
+  }
+
   function renderOverdueTable() {
+    _ensureAgentRoster();
     const all  = _scOverdueRecords;
     const resolvedN = all.filter(r => r.resolved).length;
 
@@ -4889,7 +4935,7 @@
 
     if (!visible.length) {
       document.getElementById("sc-overdue-tbody").innerHTML =
-        `<tr><td colspan="14" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
+        `<tr><td colspan="15" class="empty-state">${all.filter(r=>!r.resolved).length===0 ? `All ${all.length} long-overdue calls have been resolved ✓` : "No records match the current filter."}</td></tr>`;
       // Reset select-all
       const allCb = document.getElementById("od-select-all");
       allCb.checked = false; allCb.indeterminate = false;
@@ -4944,16 +4990,14 @@
         <td>${odActualCell}</td>
         <td><span style="color:var(--red);font-weight:700;font-size:12px;font-feature-settings:'tnum'">${Math.max(0, Math.round((Date.now() - new Date(r.scheduled_time).getTime()) / 60000 * 10) / 10)} min</span></td>
         <td>${stagePill}</td>
-        <td style="font-size:11px">${r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'}</td>
-        <td>${odDialsCell}</td>
+        <td class="od-hide-col" style="font-size:11px">${r.lead_source ? _qEsc(r.lead_source) : '<span class="no-data">—</span>'}</td>
+        <td class="od-hide-col">${odDialsCell}</td>
         <td>${odCallerCell}</td>
         <td class="od-assigned-cell">
-          <input type="text" class="note-input od-assigned-input" data-id="${r.id}"
-            value="${(r.assigned_to || r.deal_owner || '').replace(/"/g,'&quot;')}"
-            placeholder="Assign to…"
-            onblur="saveAssignedTo(this)"
-            onkeydown="if(event.key==='Enter'){this.blur()}"
-          >
+          <select class="od-select od-assigned-input" data-id="${r.id}" onchange="saveAssignedTo(this)">
+            <option value="">Assign to…</option>
+            ${agentOptions(r.assigned_to || "")}
+          </select>
         </td>
         <td class="od-outcome-cell">${odOutcome(r)}</td>
         <td class="od-resolvedby-cell">
@@ -4961,6 +5005,14 @@
             value="${(r.resolved_by||'').replace(/"/g,'&quot;')}"
             placeholder="Your name"
             onblur="saveResolvedBy(this)"
+            onkeydown="if(event.key==='Enter'){this.blur()}"
+          >
+        </td>
+        <td class="od-reason-cell">
+          <input type="text" class="note-input od-reason-input" data-id="${r.id}"
+            value="${(r.note||'').replace(/"/g,'&quot;')}"
+            placeholder="Reason…"
+            onblur="saveNote(this)"
             onkeydown="if(event.key==='Enter'){this.blur()}"
           >
         </td>
@@ -4983,23 +5035,41 @@
   async function markResolved(id) {
     const rec = _scOverdueRecords.find(r => r.id === id);
     const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
+    const asInput = document.querySelector(`.od-assigned-input[data-id="${id}"]`);
     const resolvedBy = rbInput?.value?.trim();
-    if (!resolvedBy) {
-      rbInput?.focus();
-      rbInput?.classList.add("note-required");
-      setTimeout(() => rbInput?.classList.remove("note-required"), 2000);
+    const assignedTo = asInput?.value?.trim();
+    // Gate: the resolver must name themselves AND pick the agent they
+    // distributed the lead to before the call can be marked resolved.
+    const missing = [];
+    if (!resolvedBy) missing.push(rbInput);
+    if (!assignedTo) missing.push(asInput);
+    if (missing.length) {
+      missing.forEach(el => {
+        el?.classList.add("note-required");
+        setTimeout(() => el?.classList.remove("note-required"), 2000);
+      });
+      missing[0]?.focus();
       return;
     }
-    if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; }
+    // Resolution reason is optional (its own column, no modal).
+    const note = (document.querySelector(`.od-reason-input[data-id="${id}"]`)?.value || "").trim();
+    if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; rec.assigned_to = assignedTo; rec.note = note; }
     const actRec = _scActivityRecords.find(r => r.id === id);
-    if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; }
+    if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; actRec.assigned_to = assignedTo; actRec.note = note; }
     renderOverdueTable();
     drawScTable();
     try {
+      if (note) await fetch(`/api/scheduled-call/${id}/note`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({note}),
+      });
+      await fetch(`/api/scheduled-call/${id}/assigned-to`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({assigned_to: assignedTo}),
+      });
       await fetch(`/api/scheduled-call/${id}/resolve`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({resolved_by: resolvedBy}),
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({resolved_by: resolvedBy, assigned_to: assignedTo, note}),
       });
     } catch (e) {
       if (rec) rec.resolved = false;
