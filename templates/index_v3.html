@@ -6326,8 +6326,18 @@
         else if (r._bucket === "on_time")  { effStatus = "completed"; effOnTime = true;  }
         else if (r._bucket === "late_call"){ effStatus = "completed"; effOnTime = false; }
       }
+      // Manual resolution: until a real dial is logged, surface the resolver
+      // in the Dials column (the resolution note itself fills Disposition).
+      if (effStatus === "handled" && dials === 0 && r.resolved_by && r.resolved_by !== "live-monitor") {
+        dialsCell = `<span class="dials-resolver" title="Manually resolved by ${_qEsc(r.resolved_by)}" style="font-size:11px;color:var(--secondary);font-style:italic">${_qEsc(r.resolved_by)}</span>`;
+      }
       const statusHtml = r._liveCall
-        ? `<span class="badge badge-green" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call</span>`
+        ? (() => {
+            const _ld = fmtDuration(r._liveCall.duration_sec || 0);
+            const _lw = r._liveCall.agent_name || r.caller || "";
+            const _tip = `On call${_lw ? ` · ${_lw}` : ""}${_ld ? ` · ${_ld}` : ""}`;
+            return `<span class="badge badge-green" title="${_tip.replace(/"/g,'&quot;')}" style="animation:livePulse 2s infinite;background:var(--green);color:#fff">🟢 On Call${_ld ? ` <span style="font-weight:600;opacity:.85;margin-left:2px">${_ld}</span>` : ""}</span>`;
+          })()
         : statusBadge(effStatus, effOnTime);
 
       const _fmtPhone = p => {
@@ -6342,10 +6352,11 @@
       // stage → call disposition → status-aware indicator.
       let dispCell;
       if (effStatus === "handled") {
-        // Manually resolved with no logged call — surface the resolution note.
+        // Manually resolved — the resolution note fills Disposition (the
+        // resolver name shows in the Dials column instead).
         dispCell = r.note
-          ? `<span class="disp-notable disp-handled" title="Resolution note${r.resolved_by ? ' — ' + _qEsc(r.resolved_by) : ''}">${_qEsc(r.note)}</span>`
-          : `<span class="disp-quiet">Manual${r.resolved_by ? ' · ' + _qEsc(r.resolved_by) : ''}</span>`;
+          ? `<span class="disp-notable disp-handled" title="Resolution${r.resolved_by ? ' — ' + _qEsc(r.resolved_by) : ''}">${_qEsc(r.note)}</span>`
+          : `<span class="disp-quiet">Manual</span>`;
       } else if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
         dispCell = `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
       } else if (r.disposition) {
