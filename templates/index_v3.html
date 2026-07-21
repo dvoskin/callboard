@@ -4303,7 +4303,7 @@
       upcoming:           ["Upcoming","badge-blue"],
       late:               ["Overdue","badge-orange"],
       no_schedule:        ["N/A","badge-gray"],
-      handled:            ["✓ Handled","badge-green"],
+      handled:            ["✓ Manual","badge-green"],
     };
     const [label, cls] = map[status] || [status,"badge-gray"];
     return `<span class="badge ${cls}">${label}</span>`;
@@ -4385,20 +4385,28 @@
       if (missing[0]) missing[0].focus();
       return;
     }
+    // A manager must document the reason. One note applies to the whole batch.
+    const note = (prompt(`Manager note required to resolve ${ids.length} overdue call${ids.length>1?"s":""}.\n\nEnter a resolution note:`) || "").trim();
+    if (!note) return;  // no note → do not resolve
     await Promise.all(ids.map(id => {
       const rbInput = document.querySelector(`.od-resolvedby-input[data-id="${id}"]`);
-      return fetch(`/api/scheduled-call/${id}/resolve`, {
+      const rb = rbInput?.value?.trim() || "";
+      return fetch(`/api/scheduled-call/${id}/note`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({resolved_by: rbInput?.value?.trim() || ""}),
-      });
+        body: JSON.stringify({note}),
+      }).then(() => fetch(`/api/scheduled-call/${id}/resolve`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({resolved_by: rb, note}),
+      }));
     }));
     _overdueSelected.clear();
     _updateBulkBtn();
     document.getElementById("od-select-all").checked = false;
     document.getElementById("od-select-all").indeterminate = false;
-    _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
-    _scActivityRecords.forEach(r => { if (ids.includes(r.id)) r.resolved = true; });
+    _scOverdueRecords.forEach(r => { if (ids.includes(r.id)) { r.resolved = true; r.note = note; } });
+    _scActivityRecords.forEach(r => { if (ids.includes(r.id)) { r.resolved = true; r.note = note; } });
     renderOverdueTable();
     drawScTable();
     refreshAlertCounts();
@@ -5133,11 +5141,11 @@
                 && new Date(r.scheduled_time).getTime() > nowMs)
       .sort((a,b)=>(a.scheduled_time||"")<(b.scheduled_time||"")?-1:1);
     const past = sc.records.filter(r => r.status !== "upcoming" && r.status !== "pending");
-    // Pending calls (0-15 min) stay in main list; long-overdue (missed) calls
-    // are removed from the Activity table entirely and live only in the
-    // Overdue table below.
+    // Pending calls (0-15 min) stay in main list. Long-overdue (missed) calls
+    // now appear in BOTH the Activity table (inline, with overdue row styling)
+    // AND the dedicated Overdue table below.
     const isOverdueRow = r => r.status==="missed" && (r.minutes_overdue||0) > OVERDUE_MIN && !r.completed_via_workflow;
-    const activity = sc.records.filter(r => !isOverdueRow(r));
+    const activity = sc.records;
     const overdue  = past.filter(r =>  isOverdueRow(r));
 
     _scActivityRecords = activity;
@@ -5342,16 +5350,28 @@
       setTimeout(() => rbInput?.classList.remove("note-required"), 2000);
       return;
     }
-    if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; }
+    // A manager must document WHY the overdue call is being cleared. Reuse a
+    // note already typed in the row; otherwise require one before resolving.
+    let note = (rec?.note || "").trim();
+    if (!note) {
+      note = (prompt("Manager note required to mark this overdue call resolved.\n\nEnter a resolution note:") || "").trim();
+      if (!note) return;  // no note → do not resolve
+    }
+    if (rec) { rec.resolved = true; rec.resolved_by = resolvedBy; rec.note = note; }
     const actRec = _scActivityRecords.find(r => r.id === id);
-    if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; }
+    if (actRec) { actRec.resolved = true; actRec.resolved_by = resolvedBy; actRec.note = note; }
     renderOverdueTable();
     drawScTable();
     try {
+      await fetch(`/api/scheduled-call/${id}/note`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({note}),
+      });
       await fetch(`/api/scheduled-call/${id}/resolve`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({resolved_by: resolvedBy}),
+        body: JSON.stringify({resolved_by: resolvedBy, note}),
       });
     } catch (e) {
       if (rec) rec.resolved = false;
@@ -5841,7 +5861,7 @@
       ["pending",   false, "Due now; inside the first 15-min grace window."],
       ["late",      false, "Past due (15+ min), not yet dialed."],
       ["missed",    false, "Long overdue with no dial (shown as Overdue)."],
-      ["handled",   false, "A manager marked the overdue call resolved."],
+      ["handled",   false, "A manager manually resolved the overdue call (note required)."],
     ];
     const statusRows = statuses.map(([s, ot, desc]) => row(statusBadge(s, ot), desc)).join("");
 
@@ -6108,7 +6128,7 @@
         if (r.scheduled_time) tipParts.push(`Scheduled: ${fmt(r.scheduled_time)}`);
         const tip = tipParts.join(' · ');
         const diffTag = monOffset !== null ? `${sign(monOffset)}${monOffset} min` : "";
-        result = `<span class="result-tag r-on-time" title="${tip.replace(/"/g,'&quot;')}">✓ Handled ${diffTag ? `<span class="result-sub">${diffTag}</span>` : ""}</span>`;
+        result = `<span class="result-tag r-on-time" title="${tip.replace(/"/g,'&quot;')}">✓ Manual ${diffTag ? `<span class="result-sub">${diffTag}</span>` : ""}</span>`;
       // Resolved manually (no matching call found) — overrides all other result display
       } else if (r.resolved && (r.status === "missed" || r.status === "late")) {
         const tipParts = [];
@@ -6306,7 +6326,7 @@
         // Manually resolved with no logged call — surface the resolution note.
         dispCell = r.note
           ? `<span class="disp-notable disp-handled" title="Resolution note${r.resolved_by ? ' — ' + _qEsc(r.resolved_by) : ''}">${_qEsc(r.note)}</span>`
-          : `<span class="disp-quiet">Handled${r.resolved_by ? ' · ' + _qEsc(r.resolved_by) : ''}</span>`;
+          : `<span class="disp-quiet">Manual${r.resolved_by ? ' · ' + _qEsc(r.resolved_by) : ''}</span>`;
       } else if (r.deal_stage && _isConvertedStage(r.deal_stage)) {
         dispCell = `<span class="disp-stage">${_qEsc(r.deal_stage)}</span>`;
       } else if (r.disposition) {
