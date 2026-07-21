@@ -1109,6 +1109,31 @@ class ZohoClient:
             logging.getLogger(__name__).warning("Instagram field discovery error: %s", e)
         return self._ig_field_cache
 
+    def probe_deal_fields(self, needles: list[str]) -> list[dict]:
+        """Diagnostic: return Deals fields whose api_name/label matches any needle.
+        Used once to discover the org's 'Ads Form' field API name."""
+        out = []
+        try:
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/settings/fields",
+                headers=self._headers(),
+                params={"module": "Deals"},
+                timeout=25,
+            )
+            if resp.ok:
+                for f in resp.json().get("fields", []):
+                    api = (f.get("api_name") or "")
+                    label = (f.get("field_label") or "")
+                    hay = f"{api} {label}".lower()
+                    if any(n in hay for n in needles):
+                        out.append({"api_name": api, "label": label,
+                                    "type": f.get("data_type")})
+            else:
+                out.append({"error": f"{resp.status_code}: {resp.text[:200]}"})
+        except Exception as e:
+            out.append({"error": str(e)})
+        return out
+
     def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
         """Batch-fetch Name + Phone + Lead_Source (+ Instagram handle) for Contact IDs.
 

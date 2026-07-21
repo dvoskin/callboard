@@ -6298,9 +6298,14 @@
         else if (r._bucket === "late_call") { effStatus = "completed"; effOnTime = false; }
         else                                { effStatus = "completed"; effOnTime = true;  }
       } else if (!hasRealCall && r.resolved_by === "live-monitor" && r.resolved && (r.status === "missed" || r.status === "late")) {
-        // Resolved, no call logged yet — show as Handled
+        // Resolved, no call logged yet — show as Manual
         effStatus = "handled";
       } else if (!hasRealCall && r.resolved_with_match) {
+        effStatus = "handled";
+      } else if (!r.actual_call_time && !r.logged_via && r.resolved && (r.status === "missed" || r.status === "late")) {
+        // Manager manually resolved this overdue/late call. Failed dial attempts
+        // don't count as a real call, so surface it as Manual (not Overdue) —
+        // matches how it reads as resolved in the Overdue table.
         effStatus = "handled";
       } else if (r._bucket && r.status !== "completed_via_workflow") {
         if (r._bucket === "early")     { effStatus = "early";     effOnTime = false; }

@@ -2134,6 +2134,15 @@ def ringcx_status():
     return jsonify({"configured": _ringcx.configured})
 
 
+@app.route("/api/zoho/deal-fields-probe")
+@login_required
+def deal_fields_probe():
+    """Diagnostic: list Deals fields matching ad/form/source/campaign keywords,
+    to discover the 'Ads Form' field API name. Temporary."""
+    return jsonify({"fields": _zoho.probe_deal_fields(
+        ["ad", "form", "source", "campaign", "utm", "channel"])})
+
+
 @app.route("/api/ringcx/cdr-debug")
 @login_required
 def ringcx_cdr_debug():
