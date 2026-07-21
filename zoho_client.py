@@ -1109,65 +1109,6 @@ class ZohoClient:
             logging.getLogger(__name__).warning("Instagram field discovery error: %s", e)
         return self._ig_field_cache
 
-    def probe_deal_fields(self, needles: list[str]) -> list[dict]:
-        """Diagnostic: return Deals fields whose api_name/label matches any needle.
-        Used once to discover the org's 'Ads Form' field API name."""
-        out = []
-        try:
-            resp = requests.get(
-                f"{self.base_url}/crm/v6/settings/fields",
-                headers=self._headers(),
-                params={"module": "Deals"},
-                timeout=25,
-            )
-            if resp.ok:
-                for f in resp.json().get("fields", []):
-                    api = (f.get("api_name") or "")
-                    label = (f.get("field_label") or "")
-                    hay = f"{api} {label}".lower()
-                    if any(n in hay for n in needles):
-                        out.append({"api_name": api, "label": label,
-                                    "type": f.get("data_type")})
-            else:
-                out.append({"error": f"{resp.status_code}: {resp.text[:200]}"})
-        except Exception as e:
-            out.append({"error": str(e)})
-        return out
-
-    def probe_fb_ads_sample(self) -> dict:
-        """Diagnostic: for recent Facebook/Instagram-source deals, dump the
-        candidate 'ads form' fields so we can see which one distinguishes a
-        PAID FB-Ad lead from an organic one. Temporary."""
-        cand = ["leadchain0__Social_Lead_ID", "Campaign", "Meta_Page_Source",
-                "UTM_source", "UTM_medium", "Ad_Network", "Ad_Campaign_Name",
-                "Ad_Click_Date", "ADID"]
-        query = (
-            "select id, Deal_Name, Lead_Source, "
-            + ", ".join(cand) +
-            " from Deals where Lead_Source in ('Facebook','Instagram') "
-            "order by Created_Time desc limit 20"
-        )
-        try:
-            resp = requests.post(
-                f"{self.base_url}/crm/v6/coql",
-                headers=self._headers(),
-                json={"select_query": query},
-                timeout=30,
-            )
-            if not resp.ok:
-                return {"error": f"{resp.status_code}: {resp.text[:300]}"}
-            rows = resp.json().get("data", [])
-            # Summarize: how often each candidate is non-empty
-            fill = {c: 0 for c in cand}
-            for row in rows:
-                for c in cand:
-                    v = row.get(c)
-                    if v not in (None, "", [], {}):
-                        fill[c] += 1
-            return {"n": len(rows), "fill_counts": fill, "rows": rows}
-        except Exception as e:
-            return {"error": str(e)}
-
     def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
         """Batch-fetch Name + Phone + Lead_Source (+ Instagram handle) for Contact IDs.
 
@@ -1354,7 +1295,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "ids": ids_param,
-                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name,Phone,Lead_Source",
+                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name,Phone,Lead_Source,UTM_content",
                 },
                 timeout=20,
             )
@@ -1379,6 +1320,9 @@ class ZohoClient:
                         "contact_id": (con.get("id") if isinstance(con, dict) else None),
                         "phone": normalize_phone(deal.get("Phone") or ""),
                         "lead_source": deal.get("Lead_Source") or "",
+                        # "Ads Name" (UTM_content) — filled only when the lead
+                        # came through a paid Facebook Ad form.
+                        "ads_name": (deal.get("UTM_content") or "").strip(),
                     }
         log.info("  → deal stages fetched by ID for %d deals", len(result))
         return result
@@ -2017,6 +1961,10 @@ class ZohoClient:
                 # (the phone is already resolved via the deal in sched_base).
                 if not r.get("lead_source") and info.get("lead_source"):
                     r["lead_source"] = info["lead_source"]
+                # "Ads Name" (UTM_content) marks a paid Facebook Ad lead; the
+                # frontend uses it to split Facebook → Facebook Ads.
+                if info.get("ads_name"):
+                    r["ads_name"] = info["ads_name"]
                 # Language from deal record
                 if info.get("language"):
                     r["language"] = info["language"]
@@ -2148,7 +2096,7 @@ class ZohoClient:
         while offset <= 2000:
             query = (
                 "select id, Deal_Name, Contact_Name, Phone, Stage, Created_Time, "
-                "Best_Contact_Time, Lead_Source, Timezone, Owner from Deals "
+                "Best_Contact_Time, Lead_Source, UTM_content, Timezone, Owner from Deals "
                 f"where Created_Time between '{start_str}' and '{end_str}' "
                 f"order by Created_Time desc limit 200 offset {offset}"
             )
@@ -2277,6 +2225,8 @@ class ZohoClient:
                 "id": d["id"], "id_contact": cid, "id_deal": d["id"],
                 "name": name, "phone": phone,
                 "lead_source": lead_source,
+                # "Ads Name" (UTM_content) marks a paid Facebook Ad lead.
+                "ads_name": (d.get("UTM_content") or "").strip(),
                 "timezone": (d.get("Timezone") or "").strip(),
                 "deal_stage": d.get("Stage") or "",
                 "deal_name": d.get("Deal_Name") or "",

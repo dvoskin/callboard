@@ -5031,6 +5031,7 @@
       const resp = await fetch(`/api/call-now-deals?tz=${tzOffset}&start=${s}&end=${e}&_nocache=${Date.now()}`);
       const j = await resp.json();
       _callNowRecords = (j.status === "ok" && j.data && j.data.records) || [];
+      _applyAdsLabel(_callNowRecords);
       _cnLastLoad = Date.now();
     } catch(err) { /* keep last */ }
     if (btn) btn.textContent = "↻";
@@ -5082,11 +5083,24 @@
     loadCallNowDeals(true);
   }
 
+  // Paid Facebook Ad leads carry an "Ads Name" (UTM_content) on the Deal.
+  // Relabel their lead source Facebook → Facebook Ads so organic vs paid is
+  // distinguishable. Idempotent (a second pass sees "Facebook Ads" and skips).
+  function _applyAdsLabel(recs) {
+    (recs || []).forEach(r => {
+      if (r && r.ads_name && String(r.ads_name).trim()
+          && String(r.lead_source || "").trim().toLowerCase() === "facebook") {
+        r.lead_source = "Facebook Ads";
+      }
+    });
+  }
+
   function renderScheduledCalls(scFull) {
     // Cache the full multi-owner payload, then narrow to the active sheet so the
     // rest of the renderer (KPIs, stats, tables, overdue, upcoming) sees only
     // the selected owner's records and a matching summary.
     _scFullPayload = scFull;
+    _applyAdsLabel(scFull && scFull.records);
     const _records = _activeSheet === "All"
       ? scFull.records
       : scFull.records.filter(r => (r.owner || "Zoho Admin") === _activeSheet);
