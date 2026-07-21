@@ -1134,6 +1134,40 @@ class ZohoClient:
             out.append({"error": str(e)})
         return out
 
+    def probe_fb_ads_sample(self) -> dict:
+        """Diagnostic: for recent Facebook/Instagram-source deals, dump the
+        candidate 'ads form' fields so we can see which one distinguishes a
+        PAID FB-Ad lead from an organic one. Temporary."""
+        cand = ["leadchain0__Social_Lead_ID", "Campaign", "Meta_Page_Source",
+                "UTM_source", "UTM_medium", "Ad_Network", "Ad_Campaign_Name",
+                "Ad_Click_Date", "ADID"]
+        query = (
+            "select id, Deal_Name, Lead_Source, "
+            + ", ".join(cand) +
+            " from Deals where Lead_Source in ('Facebook','Instagram') "
+            "order by Created_Time desc limit 20"
+        )
+        try:
+            resp = requests.post(
+                f"{self.base_url}/crm/v6/coql",
+                headers=self._headers(),
+                json={"select_query": query},
+                timeout=30,
+            )
+            if not resp.ok:
+                return {"error": f"{resp.status_code}: {resp.text[:300]}"}
+            rows = resp.json().get("data", [])
+            # Summarize: how often each candidate is non-empty
+            fill = {c: 0 for c in cand}
+            for row in rows:
+                for c in cand:
+                    v = row.get(c)
+                    if v not in (None, "", [], {}):
+                        fill[c] += 1
+            return {"n": len(rows), "fill_counts": fill, "rows": rows}
+        except Exception as e:
+            return {"error": str(e)}
+
     def _fetch_contact_details(self, contact_ids: list[str]) -> dict[str, dict]:
         """Batch-fetch Name + Phone + Lead_Source (+ Instagram handle) for Contact IDs.
 

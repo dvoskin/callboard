@@ -2143,6 +2143,13 @@ def deal_fields_probe():
         ["ad", "form", "source", "campaign", "utm", "channel"])})
 
 
+@app.route("/api/zoho/fb-ads-sample")
+@login_required
+def fb_ads_sample():
+    """Diagnostic: sample recent FB/IG deals to see which field marks a paid Ad."""
+    return jsonify(_zoho.probe_fb_ads_sample())
+
+
 @app.route("/api/ringcx/cdr-debug")
 @login_required
 def ringcx_cdr_debug():
