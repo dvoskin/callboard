@@ -5123,6 +5123,17 @@
     // the selected owner's records and a matching summary.
     _scFullPayload = scFull;
     _applyAdsLabel(scFull && scFull.records);
+    // Bot-distributed overdue leads get auto-resolved by the back-office bot
+    // with no human resolver. Per Danny, distribution ≠ resolved — a rep still
+    // needs to call — so surface them as UNRESOLVED (they stay on the
+    // needs-a-call list until a person resolves them). Backend state untouched.
+    (scFull && scFull.records || []).forEach(r => {
+      if (r.resolved && !String(r.resolved_by || "").trim() && !r.resolved_with_match
+          && /bot/i.test(String(r.distributed_by || ""))) {
+        r.resolved = false;
+        r._botDistributed = true;
+      }
+    });
     const _records = _activeSheet === "All"
       ? scFull.records
       : scFull.records.filter(r => (r.owner || "Zoho Admin") === _activeSheet);
