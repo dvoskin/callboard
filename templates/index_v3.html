@@ -389,6 +389,8 @@
     .disp-flag { display: inline-block; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
     .disp-await  { color: var(--secondary); }
     .disp-nodial { color: var(--red-dk); }
+    .disp-observed { color: var(--secondary); }
+    .obs-eye { font-size: 10px; opacity: .7; }
     .disp-nodisp { color: var(--tertiary); font-weight: 500; font-style: italic; }
     /* ── Dials: minimal collapsed view + clean reveal ── */
     .sc-tbl td.col-dials { overflow: visible; }
@@ -5947,7 +5949,8 @@
       row(`<span class="disp-text disp-quiet">No Answer</span>`, "Quiet = no-contact outcome (No Answer, Voicemail, Answering Machine). A later redial with a real outcome wins.") +
       row(`<span class="disp-flag disp-await">◷ Awaiting call</span>`, "Scheduled but not dialed yet (upcoming / pending).") +
       row(`<span class="disp-flag disp-nodial">⚠ Not dialed</span>`, "Overdue with no dial attempt.") +
-      row(`<span class="disp-flag disp-nodisp">No disposition</span>`, "Dialed (manual) but no outcome was recorded.");
+      row(`<span class="disp-flag disp-nodisp">No disposition</span>`, "Dialed (manual) but no outcome was recorded.") +
+      row(`<span class="disp-flag disp-observed">👁 Observed (live)</span>`, "On time via a live-monitor phone match near the scheduled time; no CRM dial or disposition was logged. Dials shows the observed call time.");
 
     // Icons & other cells.
     const iconRows =
@@ -6383,6 +6386,15 @@
       if (effStatus === "handled" && dials === 0 && r.resolved_by && r.resolved_by !== "live-monitor") {
         dialsCell = `<span class="dials-resolver" title="Manually resolved by ${_qEsc(r.resolved_by)}" style="font-size:11px;color:var(--secondary);font-style:italic">${_qEsc(r.resolved_by)}</span>`;
       }
+      // Live-monitor match with no CRM dial + no disposition: the "on time" is
+      // based on a live observation. Surface the observed call time in Dials so
+      // it isn't blank, and mark the Disposition "Observed (live)" below.
+      const isLiveObserved = r.resolved_by === "live-monitor" && r.resolved_with_match
+        && (r.dial_attempts || 0) === 0 && !r.disposition && !!r.actual_call_time;
+      if (isLiveObserved) {
+        const _obsT = new Date(r.actual_call_time).toLocaleTimeString("en-US", {timeZone:TZ,hour:"numeric",minute:"2-digit"});
+        dialsCell = `<span class="dials-min" title="Observed by the live call monitor — no CRM dial was logged"><span class="att-time">${_obsT}</span> <span class="obs-eye">👁</span></span>`;
+      }
       const statusHtml = r._liveCall
         ? (() => {
             const _ld = fmtDuration(r._liveCall.duration_sec || 0);
@@ -6417,6 +6429,9 @@
         const _dl = r.disposition.trim().toLowerCase();
         const notable = !_NO_CONTACT_DISP.has(_dl);
         dispCell = `<span class="disp-text ${notable ? "disp-notable" : "disp-quiet"}">${r.disposition}</span>`;
+      } else if (isLiveObserved) {
+        // On time via live-monitor match only — no CRM dial/disposition logged.
+        dispCell = `<span class="disp-flag disp-observed" title="Matched by the live call monitor near the scheduled time; no CRM dial or disposition was logged">👁 Observed (live)</span>`;
       } else if (dials === 0) {
         // Scheduled but not dialed yet — say so instead of a blank cell.
         if (r.status === "upcoming" || r.status === "pending")
