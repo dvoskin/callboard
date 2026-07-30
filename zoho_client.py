@@ -2,6 +2,7 @@ import os
 import re
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dotenv import load_dotenv
@@ -1295,7 +1296,7 @@ class ZohoClient:
                 headers=self._headers(),
                 params={
                     "ids": ids_param,
-                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name,Phone,Lead_Source,UTM_content",
+                    "fields": "id,Deal_Name,Stage,Owner,Language,Contact_Name,Phone,Lead_Source,UTM_content,Timezone",
                 },
                 timeout=20,
             )
@@ -1323,6 +1324,9 @@ class ZohoClient:
                         # "Ads Name" (UTM_content) — filled only when the lead
                         # came through a paid Facebook Ad form.
                         "ads_name": (deal.get("UTM_content") or "").strip(),
+                        # CRM-stated timezone on the deal (more reliable than the
+                        # area-code guess when present).
+                        "timezone": (deal.get("Timezone") or "").strip(),
                     }
         log.info("  → deal stages fetched by ID for %d deals", len(result))
         return result
@@ -1612,27 +1616,34 @@ class ZohoClient:
                  end_dt.date() if end_dt else "today")
         sched_call_records = self._fetch_scheduled_call_records_today(start_dt, end_dt)
 
-        # Get contact phones for all scheduled records
+        # IDs to fan out on — both derive only from the scheduled-call records.
         contact_ids = list({
             (c.get("Who_Id") or {}).get("id")
             for c in sched_call_records
             if isinstance(c.get("Who_Id"), dict) and c["Who_Id"].get("id")
         })
-        log.info("  → fetching phones + lead source for %d contacts...", len(contact_ids))
-        contact_details = self._fetch_contact_details(contact_ids)
-        contact_phones = {cid: d["phone"] for cid, d in contact_details.items()}
-
-        # Deals linked directly to a scheduled call (What_Id). Fetched up-front so
-        # sched_phone() below can fall back to the deal's Phone for a call that has
-        # no Who_Id. Same request count as fetching it later — just reordered.
         linked_deal_ids = list({
             self._lookup_id(c, "What_Id") for c in sched_call_records
             if self._lookup_id(c, "What_Id")
         })
-        deal_by_id_map = {}
-        if linked_deal_ids:
-            log.info("Fetching deal stages by deal ID for %d linked deals...", len(linked_deal_ids))
-            deal_by_id_map = self._fetch_deal_stages_by_ids(linked_deal_ids)
+
+        # These three batches depend ONLY on the IDs above (not on each other),
+        # so run them concurrently — all I/O-bound Zoho round-trips that used to
+        # run serially and were the bulk of the refresh time:
+        #   • contact details (phone + lead source + tz)
+        #   • deal stages by What_Id (stage/owner/name/ads/tz)
+        #   • Who_Id-based call lookup
+        log.info("  → parallel fetch: %d contacts, %d linked deals, who-id calls...",
+                 len(contact_ids), len(linked_deal_ids))
+        with ThreadPoolExecutor(max_workers=3) as _ex:
+            _f_contacts = _ex.submit(self._fetch_contact_details, contact_ids)
+            _f_deals = (_ex.submit(self._fetch_deal_stages_by_ids, linked_deal_ids)
+                        if linked_deal_ids else None)
+            _f_whoid = _ex.submit(self._fetch_calls_by_contact_ids, contact_ids, start_dt, end_dt)
+            contact_details = _f_contacts.result()
+            deal_by_id_map = _f_deals.result() if _f_deals else {}
+            calls_by_whoid = _f_whoid.result()
+        contact_phones = {cid: d["phone"] for cid, d in contact_details.items()}
 
         def sched_phone(rec) -> Optional[str]:
             """Best-known phone for a scheduled call: contact first, then deal.
@@ -1661,8 +1672,8 @@ class ZohoClient:
         ringcx_by_phone = self._fetch_all_calls_for_phones(all_phones, start_dt, end_dt)
 
         # Source B2: Who_Id-based lookup catches calls Subject-matching missed.
+        # (calls_by_whoid was already fetched concurrently in the block above.)
         cid_to_phone = {cid: phone for cid, phone in contact_phones.items() if phone}
-        calls_by_whoid = self._fetch_calls_by_contact_ids(contact_ids, start_dt, end_dt)
         merged_whoid = 0
         for cid, calls in calls_by_whoid.items():
             phone = cid_to_phone.get(cid)
@@ -1965,6 +1976,10 @@ class ZohoClient:
                 # frontend uses it to split Facebook → Facebook Ads.
                 if info.get("ads_name"):
                     r["ads_name"] = info["ads_name"]
+                # CRM timezone → the frontend's _leadZone() prefers this over the
+                # area-code guess for the lead's local time.
+                if info.get("timezone") and not r.get("timezone"):
+                    r["timezone"] = info["timezone"]
                 # Language from deal record
                 if info.get("language"):
                     r["language"] = info["language"]

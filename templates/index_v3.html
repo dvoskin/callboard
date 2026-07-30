@@ -6840,9 +6840,14 @@
     btn.disabled = false; btn.textContent = "↻ Refresh";
   }
   initDatePicker();
-  // Instant paint from cache, then immediately refresh live; keep refreshing live.
-  loadData().then(() => loadData(null, null, { live: true }));
-  setInterval(() => { if (!_customDateActive) loadData(null, null, { live: true }); }, REFRESH_INTERVAL);
+  // Read the server's background-refreshed cache (never a per-client live
+  // pipeline): the backend recomputes today every ~60s on its own, and resolves
+  // / notes / assignments are annotated LIVE on every read — so what users
+  // change shows instantly and only Zoho-derived fields are up to ~60s old.
+  // Instant, can't 502 or starve the pool. The ↻ Refresh button forces a full
+  // live pull when someone wants the freshest possible snapshot.
+  loadData();
+  setInterval(() => { if (!_customDateActive) loadData(); }, 30000);
 
   // ══════════════════════════════════════════════════════════════
   // LIVE MONITOR — RingCX real-time integration
