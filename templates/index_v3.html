@@ -4696,11 +4696,13 @@
         <div class="kpi-context"><span class="kpi-target">target 70%</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline(s.on_time_rate>=70?"var(--green)":s.on_time_rate>=40?"var(--orange)":"var(--red)", null)}
       </div>`,
-      // Needs attention
+      // Needs attention. The sub-line names the bot's tier so this number is read correctly:
+      // these are queued, but behind hot leads and scheduled calls — a non-zero count here
+      // does not mean the bot is stalled.
       `<div class="kpi-card ${overdue.length>0?"red":"green"}${overdue.length>0?" needs-attn-pulse":""}">
         <div class="kpi-lbl">Needs Attention</div>
         <div class="kpi-val">${overdue.length}</div>
-        <div class="kpi-sub">long-overdue calls · <strong>${s.missed}</strong> missed total</div>
+        <div class="kpi-sub">long-overdue calls · <strong>${s.missed}</strong> missed total · bot sends as <strong>P3</strong></div>
         <div class="kpi-context"><span class="kpi-target">target 0</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline(overdue.length>0?"var(--red)":"var(--green)", null)}
       </div>`,
@@ -5936,10 +5938,13 @@
       ["completed", true,  "Called within the on-time window of the scheduled slot."],
       ["completed", false, "Called, but more than 10 min after the scheduled time."],
       ["early",     false, "Called more than 15 min before the scheduled time."],
-      ["upcoming",  false, "Scheduled for later today — not due yet."],
+      // The back-office bot works a strict ladder: P1 hot (a patient who asked for a call in
+      // the last 20 min), P2 scheduled calls at their time, P3 overdue, P4 the rest. Naming the
+      // tier here stops this board and the bot's queue describing different behaviour.
+      ["upcoming",  false, "Scheduled for later today — not due yet. The bot queues it as <b>P2</b>, 5 min before the start time."],
       ["pending",   false, "Due now; inside the first 15-min grace window."],
-      ["late",      false, "Past due (15+ min), not yet dialed."],
-      ["missed",    false, "Long overdue with no dial (shown as Overdue)."],
+      ["late",      false, "Past due (15+ min), not yet dialed. Distributed as <b>P3</b>, after hot leads and scheduled calls."],
+      ["missed",    false, "Long overdue with no dial (shown as Overdue). Distributed as <b>P3</b>."],
       ["handled",   false, "A manager manually resolved the overdue call (note required)."],
     ];
     const statusRows = statuses.map(([s, ot, desc]) => row(statusBadge(s, ot), desc)).join("");

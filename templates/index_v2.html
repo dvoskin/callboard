@@ -4122,9 +4122,13 @@
       early:      ["↑ Early","badge-teal","Call made more than 15 min before the scheduled time"],
       completed_via_deal: ["✓ Other","badge-purple","Cleared without a logged call — the linked deal advanced on its own"],
       pending:    ["Pending","badge-yellow","0–15 min past the scheduled time — grace window before it counts as overdue"],
-      missed:     ["Overdue","badge-red","More than 15 min past with no call logged — should be distributed immediately by the back-office bot"],
-      upcoming:   ["Upcoming","badge-blue","Scheduled time is still in the future"],
-      late:       ["Overdue","badge-orange","Past due with no call logged — should be distributed by the back-office bot"],
+      // The bot works a strict priority ladder: P1 hot (asked for a call in the last 20 min),
+      // P2 scheduled calls at their time, P3 overdue, P4 the rest. These tips used to promise
+      // overdue calls went out "immediately", which is not what the bot does and made the two
+      // screens disagree — the board said immediate, the queue put them third.
+      missed:     ["Overdue","badge-red","More than 15 min past with no call logged — the back-office bot distributes these as P3, after hot leads (P1) and scheduled calls at their time (P2)"],
+      upcoming:   ["Upcoming","badge-blue","Scheduled time is still in the future — the bot queues it as P2, 5 min before the start time"],
+      late:       ["Overdue","badge-orange","Past due with no call logged — the back-office bot distributes these as P3, after hot leads (P1) and scheduled calls (P2)"],
       handled:    ["✓ Handled","badge-green","An overdue call cleared without a logged dial"],
     };
     const entry = map[status];
@@ -4430,11 +4434,13 @@
         <div class="kpi-context"><span class="kpi-target">target 70%</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline(s.on_time_rate>=70?"var(--green)":s.on_time_rate>=40?"var(--orange)":"var(--red)", null)}
       </div>`,
-      // Needs attention
+      // Needs attention. The sub-line names the bot's tier so this number is read correctly:
+      // these are queued, but behind hot leads and scheduled calls — a non-zero count here
+      // does not mean the bot is stalled.
       `<div class="kpi-card ${overdue.length>0?"red":"green"}${overdue.length>0?" needs-attn-pulse":""}">
         <div class="kpi-lbl">Needs Attention</div>
         <div class="kpi-val">${overdue.length}</div>
-        <div class="kpi-sub">long-overdue calls · <strong>${s.missed}</strong> missed total</div>
+        <div class="kpi-sub">long-overdue calls · <strong>${s.missed}</strong> missed total · bot sends as <strong>P3</strong></div>
         <div class="kpi-context"><span class="kpi-target">target 0</span> <span class="kpi-delta">vs yesterday —</span></div>
         ${kpiSparkline(overdue.length>0?"var(--red)":"var(--green)", null)}
       </div>`,

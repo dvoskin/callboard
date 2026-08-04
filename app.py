@@ -1552,7 +1552,12 @@ def _compute_overdue_calls() -> list[dict]:
     """The same set the dashboard shows under 'Overdue', computed server-side:
     a scheduled call is overdue when it's >15 min past its scheduled time, has no
     logged call, and hasn't been resolved, completed via workflow, or already
-    distributed. Returns lightweight cards: id, name, phone, language, scheduled_time."""
+    distributed. Returns lightweight cards: id, name, phone, language, scheduled_time.
+
+    These land in the back-office bot as tier P3 — worked after P1 (a patient who asked
+    for a call in the last 20 min) and P2 (a call booked in Zoho, at its time). The
+    most-overdue-first ordering below matches how the bot ranks within P3, so what this
+    endpoint hands over is already in the order it will be sent."""
     # Bot polling counts as traffic — keep the cache fresh even with no browser open.
     _self_heal_if_stale()
     with _lock:
