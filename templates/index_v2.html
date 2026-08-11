@@ -499,6 +499,20 @@
     .stage-tag.s-followup { background: rgba(234,179,8,.1);    color: var(--yellow-dk);  }
     .stage-tag.s-prev     { background: rgba(100,116,139,.08); color: #475569;           }
     .stage-tag.s-spanish  { background: rgba(245,158,11,.08);  color: var(--orange-dk);  }
+
+    /* ── Lead language badge (ENG / SPA) ─────────────────────────────────────
+       Small, monospaced-width, sits right after the contact name. Deliberately
+       LOW contrast: it is a scanning aid, not a status. Rows with no Language
+       set in Zoho get nothing at all — see langBadge(). */
+    .lang-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; letter-spacing: .4px;
+      border-radius: 3px; padding: 1px 3px; line-height: 1;
+      vertical-align: middle; flex-shrink: 0;
+    }
+    .lang-badge.l-eng   { background: rgba(37,99,235,.09);  color: var(--blue-dk); }
+    .lang-badge.l-spa   { background: rgba(245,158,11,.14); color: var(--orange-dk); }
+    .lang-badge.l-other { background: rgba(100,116,139,.12); color: var(--secondary); }
     .stage-tag.s-noanswer { background: rgba(239,68,68,.07);   color: var(--red-dk);     }
     .stage-tag.s-unsub    { background: rgba(15,23,42,.04);    color: #94a3b8;           text-decoration: line-through; }
     .stage-tag.s-lost     { background: rgba(239,68,68,.08);   color: var(--red-dk);     }
@@ -4196,6 +4210,31 @@
       +stages.map(s=>`<option value="${s}"${s===cur?" selected":""}>${s}</option>`).join("");
   }
 
+  // ─── lead language badge ─────────────────────────────────────────────────
+  // ENG / SPA next to the contact name, so a coordinator knows which language
+  // to open in before they dial.
+  //
+  // NOTHING IS SHOWN WHEN ZOHO HAS NO LANGUAGE. The original badge (dropped in
+  // the v2 declutter) defaulted an unset field to EN, which is a claim we cannot
+  // make: across 2,000 deals from the last six weeks the field is English 71%,
+  // Spanish 12%, and genuinely EMPTY 16%. Painting those 16% blue would have told
+  // a coordinator "this person speaks English" on one in six leads with nothing
+  // behind it — and Spanish is exactly the case where being wrong costs the call.
+  // Blank means "we don't know", which is the truth and is also a visible nudge
+  // to set the field in the CRM.
+  function langBadge(r) {
+    const v = (r && r.language || "").trim();
+    if (!v) return "";
+    const low = v.toLowerCase();
+    if (low.startsWith("spa") || low.startsWith("esp") || low.startsWith("es"))
+      return `<span class="lang-badge l-spa" title="Spanish-speaking (Zoho: ${_qEsc(v)})">SPA</span>`;
+    if (low.startsWith("eng") || low.startsWith("en"))
+      return `<span class="lang-badge l-eng" title="English-speaking (Zoho: ${_qEsc(v)})">ENG</span>`;
+    // Russian, Portuguese, anything else the CRM holds — show its first three
+    // letters rather than pretending the lead is one of the two common ones.
+    return `<span class="lang-badge l-other" title="${_qEsc(v)}-speaking (Zoho: ${_qEsc(v)})">${_qEsc(v.slice(0, 3).toUpperCase())}</span>`;
+  }
+
   // ─── contact name cell (with hyperlink + AI buttons) ───
   function nameCell(r, module="Contacts", trailing="") {
     const url = crmUrl(module, r.id_contact || r.id);
@@ -4913,7 +4952,7 @@
       let cls = (r.status==="completed" ? "row-completed" : r.status==="missed" ? "row-missed" : "");
       if (isConverted) cls += " row-converted";
       return `<tr class="${cls}">
-        <td class="col-name">${nameCell(r, "Contacts", "")}</td>
+        <td class="col-name">${nameCell(r, "Contacts", langBadge(r))}</td>
         <td class="col-phone">${phoneCell}</td>
         <td class="col-leadsrc" style="font-size:11px">${leadCell}</td>
         <td class="col-scheduled">${createdCell}</td>
@@ -6191,9 +6230,9 @@
         : `<span class="no-data">—</span>`;
 
       const rowBg = r._liveCall ? ' style="background:rgba(16,185,129,.04)"' : '';
-      // Contact cell kept clean: only the last-minute ⚡ flag remains.
-      // (Language badge and call-observation warnings removed to declutter.)
-      let trailingIcons = "";
+      // Contact cell: the language badge, then the last-minute ⚡ flag.
+      // (Call-observation warnings stay removed — those were the clutter.)
+      let trailingIcons = langBadge(r);
       if (r.last_minute) {
         const createdFmt = r.record_created ? fmt(r.record_created) : "?";
         trailingIcons += `<span class="last-min-badge hint" data-tip="Last-minute: created at ${_qEsc(createdFmt)}, less than 15 min before scheduled time">⚡</span>`;
@@ -6334,7 +6373,7 @@
       return `<div class="up-card${isNext?" is-next":""}" id="uc-${i}">
         <div class="up-card-row1">
           <div style="display:flex;align-items:center;gap:2px;overflow:hidden;flex:1;min-width:0">
-            ${nameEl}${aiBtn}
+            ${nameEl}${aiBtn}${langBadge(r)}
           </div>
           <span class="up-card-cd" id="ucd-${i}"></span>
         </div>

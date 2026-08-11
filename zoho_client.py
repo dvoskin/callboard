@@ -249,6 +249,31 @@ def _normalize_activity(kind: str, row: dict, after_dt: datetime) -> Optional[di
     }
 
 
+def _clean_language(raw) -> str:
+    """Zoho's Deal.Language is free-ish text and the data is dirty: over 2,000 recent deals it
+    holds English / Spanish / Russian, but also "eng", "spa", "en", "english", "Espanol", and one
+    "@jeannette". Normalise to a canonical name, or "" when there is no usable value — an unknown
+    language must stay unknown rather than be defaulted to English."""
+    v = (raw or "").strip()
+    if not v or v.lower() in ("unselected", "none", "n/a", "-"):
+        return ""
+    low = v.lower()
+    if low.startswith(("spa", "esp", "es")):
+        return "Spanish"
+    if low.startswith(("eng", "en")):
+        return "English"
+    if low.startswith(("rus", "ru")):
+        return "Russian"
+    if low.startswith(("por", "pt")):
+        return "Portuguese"
+    if low.startswith(("fre", "fra", "fr")):
+        return "French"
+    if low.startswith(("ara", "ar")):
+        return "Arabic"
+    # Anything else — a name, a note, a typo — is not a language.
+    return v if v[0].isalpha() and len(v) <= 20 and " " not in v and v.isalpha() else ""
+
+
 class ZohoClient:
     def __init__(self):
         self.client_id = os.getenv("ZOHO_CLIENT_ID")
@@ -1309,14 +1334,14 @@ class ZohoClient:
                     owner = deal.get("Owner") or {}
                     owner_name = owner.get("name") if isinstance(owner, dict) else (owner or "")
                     owner_id = owner.get("id") if isinstance(owner, dict) else None
-                    lang_raw = (deal.get("Language") or "").strip()
+                    lang_raw = _clean_language(deal.get("Language"))
                     con = deal.get("Contact_Name") or {}
                     result[did] = {
                         "stage": deal.get("Stage") or "",
                         "name": deal.get("Deal_Name") or "",
                         "owner": owner_name,
                         "owner_id": owner_id,
-                        "language": lang_raw if lang_raw and lang_raw != "Unselected" else "",
+                        "language": lang_raw,
                         "contact_name": (con.get("name") if isinstance(con, dict) else "") or "",
                         "contact_id": (con.get("id") if isinstance(con, dict) else None),
                         "phone": normalize_phone(deal.get("Phone") or ""),
@@ -2111,7 +2136,7 @@ class ZohoClient:
         while offset <= 2000:
             query = (
                 "select id, Deal_Name, Contact_Name, Phone, Stage, Created_Time, "
-                "Best_Contact_Time, Lead_Source, UTM_content, Timezone, Owner from Deals "
+                "Best_Contact_Time, Lead_Source, UTM_content, Timezone, Owner, Language from Deals "
                 f"where Created_Time between '{start_str}' and '{end_str}' "
                 f"order by Created_Time desc limit 200 offset {offset}"
             )
@@ -2243,6 +2268,10 @@ class ZohoClient:
                 # "Ads Name" (UTM_content) marks a paid Facebook Ad lead.
                 "ads_name": (d.get("UTM_content") or "").strip(),
                 "timezone": (d.get("Timezone") or "").strip(),
+                # Scheduled calls pick Language up from the deal-info enrichment; Call Now
+                # records are built straight from this COQL, so read it here or the badge
+                # would be blank on the one board that is all fresh leads.
+                "language": _clean_language(d.get("Language")),
                 "deal_stage": d.get("Stage") or "",
                 "deal_name": d.get("Deal_Name") or "",
                 "created_time": d.get("Created_Time"),
