@@ -2200,6 +2200,51 @@ class ZohoClient:
                     "_created": t.get("Created_Time") or "",
                 }
 
+        # 2b) Complete each quote's cadence. The window above filters on the
+        # task's CREATED time, so a quote can surface with only some of its
+        # steps. Re-query every Quote-Follow-Up task for the discovered deals
+        # (no date filter) so each row shows its full 6-step sequence.
+        _deal_ids = list(groups.keys())
+        for i in range(0, len(_deal_ids), 25):
+            chunk = _deal_ids[i:i + 25]
+            ids_in = ",".join(chunk)
+            q = ("select id, Subject, Status, Due_Date, What_Id, Who_Id, Created_Time "
+                 "from Tasks "
+                 f"where (Subject like '%Quote Follow Up%') and (What_Id in ({ids_in})) "
+                 "order by Created_Time desc limit 200")
+            try:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql",
+                                     headers=self._headers(),
+                                     json={"select_query": q}, timeout=25)
+                if not resp.ok:
+                    continue
+                for t in resp.json().get("data", []):
+                    what = t.get("What_Id") or {}
+                    did = what.get("id") if isinstance(what, dict) else None
+                    g = groups.get(did)
+                    if not g:
+                        continue
+                    m = _num_re.search(t.get("Subject") or "")
+                    if not m:
+                        continue
+                    n = int(m.group(1))
+                    prev = g["steps"].get(n)
+                    if not prev or (t.get("Created_Time") or "") > (prev.get("_created") or ""):
+                        if not g.get("contact_id"):
+                            who = t.get("Who_Id") or {}
+                            if isinstance(who, dict) and who.get("id"):
+                                g["contact_id"] = who.get("id")
+                                g["contact_name"] = who.get("name") or g["contact_name"]
+                        g["steps"][n] = {
+                            "id": t.get("id"),
+                            "status": t.get("Status") or "",
+                            "due_date": t.get("Due_Date") or "",
+                            "cadence": self.QUOTE_FU_CADENCE.get(n, f"Step {n}"),
+                            "_created": t.get("Created_Time") or "",
+                        }
+            except Exception as e:
+                log.warning("Quote-FU cadence completion error: %s", e)
+
         # 3) Enrich with deal details. Use REST (not COQL): COQL returns lookup
         # fields (Contact_Name, Owner) with the id but a null NAME, so the
         # contact/owner would render blank. REST returns {id, name} — same as

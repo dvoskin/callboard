@@ -20,65 +20,100 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); background-image: var(--bg-grad);
       color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      -webkit-font-smoothing: antialiased; padding: 20px; }
+      -webkit-font-smoothing: antialiased; padding: 18px; }
     a { color: var(--blue); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .wrap { max-width: 1180px; margin: 0 auto; }
+    .wrap { max-width: 1280px; margin: 0 auto; }
     .back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--secondary); margin-bottom: 8px; }
     .back:hover { color: var(--blue); text-decoration: none; }
-    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .top h1 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-    .top .sub { color: var(--secondary); font-size: 13px; }
-    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .controls input[type=date] { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--text); font: inherit; }
-    .controls .dash { color: var(--tertiary); }
-    .btn { padding: 7px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
-      color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+    .top h1 { margin: 0 0 2px; font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+    .top .sub { color: var(--secondary); font-size: 12.5px; }
+    .controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    input[type=date], select, input[type=search] {
+      padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
+    input[type=search] { min-width: 190px; }
+    .dash { color: var(--tertiary); }
+    .btn { padding: 6px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
     .btn:hover { background: var(--surface2); }
     .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
     .btn.primary:hover { background: var(--blue-dk); }
+    .btn.on { background: var(--text); border-color: var(--text); color: #fff; }
 
-    /* Summary — one calm row, numbers only */
-    .cards { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 16px; padding: 2px 2px; }
-    .card .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--tertiary); font-weight: 600; }
-    .card .v { font-size: 22px; font-weight: 700; margin-top: 1px; font-feature-settings: "tnum"; }
-    .card.late .v.hot { color: var(--red-dk); }
+    /* KPI strip — the daily read */
+    .kpis { display: flex; gap: 26px; flex-wrap: wrap; margin-bottom: 14px; }
+    .kpi .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--tertiary); font-weight: 600; }
+    .kpi .v { font-size: 23px; font-weight: 700; margin-top: 1px; font-feature-settings: "tnum"; letter-spacing: -0.01em; }
+    .kpi .v.hot { color: var(--red-dk); } .kpi .v.good { color: var(--green-dk); }
+    .kpi.click { cursor: pointer; } .kpi.click:hover .k { color: var(--blue); }
+
+    /* Agent scoreboard */
+    .board { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow-sm); margin-bottom: 12px; overflow: hidden; }
+    .board-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 8px 12px; cursor: pointer; user-select: none; }
+    .board-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary); font-weight: 700; }
+    .board-head .hint { font-size: 11.5px; color: var(--tertiary); font-weight: 500; }
+    .board-body { border-top: 1px solid var(--sep); padding: 4px 0; max-height: 260px; overflow-y: auto; }
+    .board-body.hide { display: none; }
+    .agent { display: grid; grid-template-columns: 1fr 60px 92px 52px; align-items: center; gap: 8px;
+      padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+    .agent:hover { background: var(--surface2); }
+    .agent.sel { background: rgba(37,99,235,.07); }
+    .agent .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent .ct { color: var(--tertiary); font-feature-settings: "tnum"; font-size: 11.5px; }
+    .bar { height: 6px; background: var(--sep); border-radius: 999px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; background: var(--green); border-radius: 999px; }
+    .agent .pc { text-align: right; font-weight: 700; font-feature-settings: "tnum"; }
+    .agent .pc.hot { color: var(--red-dk); }
+    .agent .late-dot { color: var(--red-dk); font-weight: 700; font-size: 11.5px; }
+
+    .filters { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
+    .filters .spacer { flex: 1; }
+    .filters .count { font-size: 12px; color: var(--tertiary); font-feature-settings: "tnum"; }
 
     .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; }
     .table-scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
-    thead th { position: sticky; top: 0; background: var(--surface2); text-align: center; font-size: 11px;
+    thead th { position: sticky; top: 0; z-index: 2; background: var(--surface2); text-align: center; font-size: 11px;
       color: var(--secondary); font-weight: 600; padding: 7px 8px; white-space: nowrap; border-bottom: 1px solid var(--border); }
     thead th.left { text-align: left; text-transform: uppercase; letter-spacing: .03em; font-size: 10.5px; }
+    thead th.sortable { cursor: pointer; } thead th.sortable:hover { color: var(--blue); }
     tbody td { padding: 4px 8px; text-align: center; border-bottom: 1px solid var(--sep); white-space: nowrap;
       font-feature-settings: "tnum"; font-size: 12.5px; line-height: 1.25; }
     tbody td.left { text-align: left; }
     tbody tr:hover { background: var(--surface2); }
     tbody tr:last-child td { border-bottom: none; }
-    .c-name { font-weight: 600; max-width: 170px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
-    .c-deal { max-width: 230px; overflow: hidden; text-overflow: ellipsis; color: var(--text); display: inline-block; vertical-align: bottom; }
-    .c-owner { color: var(--secondary); }
+    tbody tr.attn td:first-child { box-shadow: inset 2.5px 0 0 var(--red); }
+    .c-name { font-weight: 600; max-width: 155px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+    .c-deal { max-width: 210px; overflow: hidden; text-overflow: ellipsis; color: var(--text); display: inline-block; vertical-align: bottom; }
+    .c-owner { color: var(--secondary); max-width: 120px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
     .c-quote { font-weight: 600; font-feature-settings: "tnum"; }
     .muted { color: var(--tertiary); }
 
-    /* Follow-up status — two colors only: green done, red late, everything else neutral */
+    /* status — green done, red late, neutral otherwise */
     .fu { display: inline-block; min-width: 40px; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600;
       font-feature-settings: "tnum"; border: 1px solid transparent; }
     .fu-done { background: rgba(16,185,129,.15); color: var(--green-dk); }
     .fu-miss { background: rgba(239,68,68,.13); color: var(--red-dk); }
+    .fu-today { background: rgba(15,23,42,.06); color: var(--text); border-color: var(--border); font-weight: 700; }
     .fu-plan { color: var(--secondary); border-color: var(--border); }
     .fu-none { color: var(--tertiary); }
     .prog { font-weight: 600; color: var(--secondary); font-feature-settings: "tnum"; }
-    .prog.hot { color: var(--red-dk); }
+    .prog.hot { color: var(--red-dk); } .prog.all { color: var(--green-dk); }
+    .next { font-size: 11.5px; color: var(--secondary); }
+    .next.hot { color: var(--red-dk); font-weight: 600; }
+    .next.today { color: var(--text); font-weight: 700; }
 
-    .state { padding: 44px; text-align: center; color: var(--secondary); }
-    .legend { margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--secondary); align-items: center; }
-    .note { margin-top: 8px; font-size: 12px; color: var(--tertiary); }
+    .state { padding: 42px; text-align: center; color: var(--secondary); }
+    .legend { margin-top: 11px; display: flex; gap: 13px; flex-wrap: wrap; font-size: 12px; color: var(--secondary); align-items: center; }
+    .note { margin-top: 7px; font-size: 12px; color: var(--tertiary); }
     .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
       border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
     @keyframes sp { to { transform: rotate(360deg); } }
-    @media (max-width: 640px) { body { padding: 12px; } .c-deal { max-width: 150px; } }
+    @media (max-width: 700px) { body { padding: 11px; } .c-deal { max-width: 130px; } .kpis { gap: 18px; } }
   </style>
 </head>
 <body>
@@ -93,119 +128,270 @@
         <input type="date" id="date-start">
         <span class="dash">–</span>
         <input type="date" id="date-end">
-        <button class="btn" onclick="setRange(30)">Last 30d</button>
+        <button class="btn" onclick="setRange(30)">30d</button>
+        <button class="btn" onclick="setRange(90)">90d</button>
         <button class="btn primary" id="reload" onclick="load()">↻</button>
       </div>
     </div>
 
-    <div class="cards" id="cards"></div>
+    <div class="kpis" id="kpis"></div>
+
+    <div class="board">
+      <div class="board-head" onclick="toggleBoard()">
+        <h2>By Agent <span id="board-caret">▾</span></h2>
+        <span class="hint" id="board-hint">click an agent to filter</span>
+      </div>
+      <div class="board-body" id="board-body"></div>
+    </div>
+
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search contact, deal, agent…" oninput="render()">
+      <select id="owner" onchange="onOwnerSelect()"><option value="">All agents</option></select>
+      <button class="btn" id="attn-btn" onclick="toggleAttn()">Needs attention</button>
+      <select id="sort" onchange="render()">
+        <option value="attn">Sort: needs attention</option>
+        <option value="next">Sort: next due</option>
+        <option value="sent">Sort: newest quote</option>
+        <option value="amount">Sort: quote value</option>
+        <option value="done">Sort: least complete</option>
+        <option value="owner">Sort: agent</option>
+      </select>
+      <span class="spacer"></span>
+      <span class="count" id="count"></span>
+      <button class="btn" onclick="exportCsv()">Export CSV</button>
+    </div>
 
     <div class="panel">
       <div class="table-scroll">
         <table id="tbl">
           <thead><tr id="thead"></tr></thead>
-          <tbody id="tbody"><tr><td class="state" colspan="11"><span class="spin"></span> Loading…</td></tr></tbody>
+          <tbody id="tbody"><tr><td class="state" colspan="12"><span class="spin"></span> Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
 
     <div class="legend">
       <span><span class="fu fu-done">done</span></span>
+      <span><span class="fu fu-today">today</span></span>
       <span><span class="fu fu-plan">planned</span></span>
       <span><span class="fu fu-miss">late</span></span>
+      <span class="muted">· dates shown are task due dates</span>
     </div>
     <div class="note" id="note"></div>
   </div>
 
 <script>
   const ZOHO_ORG = "goalsplasticsurgery";
-  const crmUrl = (module, id) => id ? `https://crm.zoho.com/crm/${ZOHO_ORG}/tab/${module}/${id}` : null;
-  let _records = [], _cadence = {};
+  const crmUrl = (m, id) => id ? `https://crm.zoho.com/crm/${ZOHO_ORG}/tab/${m}/${id}` : null;
+  let _records = [], _cadence = {}, _attnOnly = false, _boardOpen = true, _lastUpdated = null;
   const STEPS = ["1","2","3","4","5","6"];
   const CAD_SHORT = {"24 Hours":"24h","72 Hours":"72h","1 Week":"1wk","10 Days":"10d","2 Weeks":"2wk","1 Month":"1mo"};
 
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  function todayISO() { return iso(new Date()); }
+  const todayISO = () => iso(new Date());
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const shortDate = s => { if (!s) return ""; const p = String(s).slice(0,10).split("-"); return p.length===3 ? `${+p[1]}/${+p[2]}` : s; };
+  const money = n => (n || n === 0) ? "$" + Number(n).toLocaleString("en-US", {maximumFractionDigits: 0}) : "";
+  const kMoney = n => { n = Number(n)||0; return n >= 1000 ? "$" + (n/1000).toFixed(n >= 10000 ? 0 : 1) + "k" : "$" + n; };
+  const shortCad = s => CAD_SHORT[s] || s || "";
+
   function setRange(days) {
     const end = new Date(), start = new Date(); start.setDate(start.getDate() - days);
     document.getElementById("date-start").value = iso(start);
     document.getElementById("date-end").value = iso(end);
     load();
   }
-  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-  const shortDate = s => { if (!s) return ""; const p = String(s).slice(0,10).split("-"); return p.length===3 ? `${+p[1]}/${+p[2]}` : s; };
-  const money = n => (n || n === 0) ? "$" + Number(n).toLocaleString("en-US", {maximumFractionDigits: 0}) : "";
-  const shortCad = s => CAD_SHORT[s] || s || "";
-
   function stepState(step, today) {
     if (!step) return "none";
     if (/complet/i.test(step.status || "")) return "done";
     const due = (step.due_date || "").slice(0,10);
-    return (due && due < today) ? "miss" : "plan";
+    if (!due) return "plan";
+    if (due < today) return "miss";
+    if (due === today) return "today";
+    return "plan";
+  }
+  // Per-quote rollup: counts + the next actionable step.
+  function rollup(r, today) {
+    let done = 0, total = 0, late = 0, dueToday = 0, next = null;
+    STEPS.forEach(n => {
+      const st = r.steps && r.steps[n];
+      if (!st) return;
+      total++;
+      const s = stepState(st, today);
+      if (s === "done") { done++; return; }
+      if (s === "miss") late++;
+      if (s === "today") dueToday++;
+      const due = (st.due_date || "").slice(0,10);
+      if (!next || (due && due < next.due)) next = { n, due, state: s };
+    });
+    return { done, total, late, dueToday, next, pct: total ? Math.round(done/total*100) : 0 };
+  }
+  function agentOf(r) { return (r.owner || "—").trim() || "—"; }
+
+  function toggleBoard() {
+    _boardOpen = !_boardOpen;
+    document.getElementById("board-body").classList.toggle("hide", !_boardOpen);
+    document.getElementById("board-caret").textContent = _boardOpen ? "▾" : "▸";
+  }
+  function toggleAttn() {
+    _attnOnly = !_attnOnly;
+    document.getElementById("attn-btn").classList.toggle("on", _attnOnly);
+    render();
+  }
+  function onOwnerSelect() { render(); }
+  function pickAgent(name) {
+    const sel = document.getElementById("owner");
+    sel.value = (sel.value === name) ? "" : name;
+    render();
+  }
+
+  function visibleRecords() {
+    const today = todayISO();
+    const q = (document.getElementById("q").value || "").trim().toLowerCase();
+    const owner = document.getElementById("owner").value;
+    let rows = _records.map(r => ({ r, roll: rollup(r, today) }));
+    if (owner) rows = rows.filter(x => agentOf(x.r) === owner);
+    if (q) rows = rows.filter(x => `${x.r.contact_name} ${x.r.deal_name} ${x.r.owner}`.toLowerCase().includes(q));
+    if (_attnOnly) rows = rows.filter(x => x.roll.late > 0 || x.roll.dueToday > 0);
+    const sort = document.getElementById("sort").value;
+    const byNext = (a,b) => ((a.roll.next?.due) || "9999").localeCompare((b.roll.next?.due) || "9999");
+    const cmp = {
+      attn: (a,b) => (b.roll.late - a.roll.late) || (b.roll.dueToday - a.roll.dueToday) || byNext(a,b),
+      next: byNext,
+      sent: (a,b) => String(b.r.quote_sent_date||"").localeCompare(String(a.r.quote_sent_date||"")),
+      amount: (a,b) => (Number(b.r.amount)||0) - (Number(a.r.amount)||0),
+      done: (a,b) => a.roll.pct - b.roll.pct,
+      owner: (a,b) => agentOf(a.r).localeCompare(agentOf(b.r)) || byNext(a,b),
+    }[sort] || ((a,b)=>0);
+    return rows.sort(cmp);
+  }
+
+  function renderKpis() {
+    const today = todayISO();
+    let quotes = _records.length, done = 0, total = 0, late = 0, dueToday = 0, atRisk = 0;
+    _records.forEach(r => {
+      const ro = rollup(r, today);
+      done += ro.done; total += ro.total; late += ro.late; dueToday += ro.dueToday;
+      if (ro.late > 0) atRisk += Number(r.amount) || 0;
+    });
+    const pct = total ? Math.round(done/total*100) : 0;
+    const k = [
+      { k: "Quotes", v: quotes },
+      { k: "Due today", v: dueToday, cls: dueToday ? "" : "good", click: "today" },
+      { k: "Overdue", v: late, cls: late ? "hot" : "good", click: "late" },
+      { k: "Completed", v: `${pct}%`, cls: pct >= 80 ? "good" : "" },
+      { k: "$ at risk", v: atRisk ? kMoney(atRisk) : "$0", cls: atRisk ? "hot" : "good" },
+    ];
+    document.getElementById("kpis").innerHTML = k.map(x =>
+      `<div class="kpi${x.click ? " click" : ""}"${x.click ? ` onclick="toggleAttn()" title="Show only quotes needing attention"` : ""}>` +
+      `<div class="k">${x.k}</div><div class="v ${x.cls||""}">${x.v}</div></div>`).join("");
+  }
+
+  function renderBoard() {
+    const today = todayISO();
+    const by = {};
+    _records.forEach(r => {
+      const a = agentOf(r), ro = rollup(r, today);
+      const o = by[a] || (by[a] = { quotes: 0, done: 0, total: 0, late: 0, today: 0 });
+      o.quotes++; o.done += ro.done; o.total += ro.total; o.late += ro.late; o.today += ro.dueToday;
+    });
+    const sel = document.getElementById("owner").value;
+    const list = Object.entries(by).map(([name, o]) => ({
+      name, ...o, pct: o.total ? Math.round(o.done/o.total*100) : 0,
+    })).sort((a,b) => (b.late - a.late) || (a.pct - b.pct) || a.name.localeCompare(b.name));
+    document.getElementById("board-body").innerHTML = list.map(a =>
+      `<div class="agent${sel===a.name?" sel":""}" onclick="pickAgent('${esc(a.name).replace(/'/g,"\\'")}')" title="${esc(a.name)} — ${a.done}/${a.total} follow-ups done${a.late?` · ${a.late} overdue`:""}${a.today?` · ${a.today} due today`:""}">` +
+      `<div class="nm">${esc(a.name)} <span class="ct">${a.quotes}q</span>${a.late?` <span class="late-dot">${a.late} late</span>`:""}</div>` +
+      `<div class="ct">${a.done}/${a.total}</div>` +
+      `<div class="bar"><i style="width:${a.pct}%"></i></div>` +
+      `<div class="pc${a.late?" hot":""}">${a.pct}%</div></div>`).join("")
+      || `<div class="agent"><div class="nm muted">No agents in range</div></div>`;
+    // Owner dropdown
+    const osel = document.getElementById("owner");
+    const cur = osel.value;
+    osel.innerHTML = `<option value="">All agents</option>` +
+      list.map(a => `<option value="${esc(a.name)}"${a.name===cur?" selected":""}>${esc(a.name)} (${a.pct}%)</option>`).join("");
   }
 
   function renderHead() {
     document.getElementById("thead").innerHTML =
-      `<th class="left">Contact</th><th class="left">Deal</th><th class="left">Owner</th><th>Quote</th>` +
+      `<th class="left">Contact</th><th class="left">Deal</th><th class="left">Agent</th><th>Quote</th>` +
       STEPS.map(n => `<th>${esc(shortCad(_cadence[n]))}</th>`).join("") +
-      `<th>Done</th>`;
-  }
-
-  function renderCards() {
-    const today = todayISO();
-    let done = 0, plan = 0, miss = 0;
-    _records.forEach(r => STEPS.forEach(n => {
-      const s = stepState(r.steps && r.steps[n], today);
-      if (s === "done") done++; else if (s === "plan") plan++; else if (s === "miss") miss++;
-    }));
-    const cards = [
-      { k: "Quotes", v: _records.length },
-      { k: "Done", v: done },
-      { k: "Planned", v: plan },
-      { k: "Late", v: miss, late: true },
-    ];
-    document.getElementById("cards").innerHTML = cards.map(c =>
-      `<div class="card ${c.late ? "late" : ""}"><div class="k">${c.k}</div><div class="v ${c.late && c.v>0 ? "hot" : ""}">${c.v}</div></div>`).join("");
+      `<th>Done</th><th class="left">Next</th>`;
   }
 
   function renderBody() {
     const tb = document.getElementById("tbody");
-    if (!_records.length) {
-      tb.innerHTML = `<tr><td class="state" colspan="11">No quote follow-ups in this range.</td></tr>`;
+    const rows = visibleRecords();
+    document.getElementById("count").textContent =
+      `${rows.length} of ${_records.length} quote${_records.length===1?"":"s"}`;
+    if (!rows.length) {
+      tb.innerHTML = `<tr><td class="state" colspan="12">${_records.length ? "Nothing matches these filters." : "No quote follow-ups in this range."}</td></tr>`;
       return;
     }
     const today = todayISO();
-    tb.innerHTML = _records.map(r => {
-      const cUrl = crmUrl("Contacts", r.contact_id);
-      const dUrl = crmUrl("Potentials", r.deal_id);
+    tb.innerHTML = rows.map(({ r, roll }) => {
+      const cUrl = crmUrl("Contacts", r.contact_id), dUrl = crmUrl("Potentials", r.deal_id);
       const contact = cUrl
         ? `<a href="${cUrl}" target="_blank" rel="noopener" class="c-name" title="${esc(r.contact_name)}">${esc(r.contact_name)}</a>`
         : `<span class="c-name">${esc(r.contact_name)}</span>`;
       const deal = dUrl
         ? `<a href="${dUrl}" target="_blank" rel="noopener" class="c-deal" title="${esc(r.deal_name)}">${esc(r.deal_name)}</a>`
         : `<span class="c-deal">${esc(r.deal_name)}</span>`;
-      const owner = `<span class="c-owner">${esc(r.owner || "—")}</span>`;
-      const qLabel = r.estimate_id ? "#" + esc(r.estimate_id) : (money(r.amount) || "Quote");
+      const owner = `<span class="c-owner" title="${esc(r.owner||"")}">${esc(r.owner || "—")}</span>`;
+      const qLabel = money(r.amount) || (r.estimate_id ? "#" + esc(r.estimate_id) : "Quote");
       const qTip = `Quote${r.quote_sent_date ? " sent " + shortDate(r.quote_sent_date) : ""}${r.amount ? " · " + money(r.amount) : ""}`;
       const quote = r.estimate_url
         ? `<a href="${esc(r.estimate_url)}" target="_blank" rel="noopener" class="c-quote" title="${esc(qTip)}">${qLabel}</a>`
         : (qLabel !== "Quote" ? `<span class="c-quote muted" title="${esc(qTip)}">${qLabel}</span>` : `<span class="muted">—</span>`);
 
-      let nDone = 0, nDue = 0, nLate = 0;
       const cells = STEPS.map(n => {
         const st = r.steps && r.steps[n];
         const s = stepState(st, today);
         if (s === "none") return `<td><span class="fu fu-none">—</span></td>`;
-        nDue++;
-        if (s === "done") nDone++; else if (s === "miss") nLate++;
-        const label = { done: "Completed", plan: "Planned", miss: "Late (past due)" }[s];
+        const label = { done: "Completed", plan: "Planned", today: "Due today", miss: "Overdue" }[s];
         const tip = `${label} · ${shortCad(_cadence[n])}${st.due_date ? " · due " + shortDate(st.due_date) : ""}`;
         return `<td><span class="fu fu-${s}" title="${esc(tip)}">${shortDate(st.due_date) || "•"}</span></td>`;
       }).join("");
-      const doneCell = `<span class="prog${nLate ? " hot" : ""}" title="${nDone} of ${nDue} follow-ups completed${nLate ? ` · ${nLate} late` : ""}">${nDone}/${nDue}</span>`;
 
-      return `<tr><td class="left">${contact}</td><td class="left">${deal}</td><td class="left">${owner}</td><td>${quote}</td>${cells}<td>${doneCell}</td></tr>`;
+      const pc = roll.total && roll.done === roll.total ? " all" : (roll.late ? " hot" : "");
+      const doneCell = `<span class="prog${pc}" title="${roll.done} of ${roll.total} completed${roll.late?` · ${roll.late} overdue`:""}">${roll.done}/${roll.total}</span>`;
+      let nextCell = `<span class="muted">—</span>`;
+      if (roll.next) {
+        const cls = roll.next.state === "miss" ? " hot" : (roll.next.state === "today" ? " today" : "");
+        const word = roll.next.state === "miss" ? "overdue" : (roll.next.state === "today" ? "today" : shortDate(roll.next.due));
+        nextCell = `<span class="next${cls}" title="Next: ${esc(shortCad(_cadence[roll.next.n]))} follow-up, due ${esc(shortDate(roll.next.due))}">${esc(shortCad(_cadence[roll.next.n]))} · ${word}</span>`;
+      } else if (roll.total) {
+        nextCell = `<span class="next" style="color:var(--green-dk)">complete</span>`;
+      }
+      const attn = roll.late > 0 ? " class=\"attn\"" : "";
+      return `<tr${attn}><td class="left">${contact}</td><td class="left">${deal}</td><td class="left">${owner}</td><td>${quote}</td>${cells}<td>${doneCell}</td><td class="left">${nextCell}</td></tr>`;
     }).join("");
+  }
+
+  function render() { renderKpis(); renderBoard(); renderHead(); renderBody(); }
+
+  function exportCsv() {
+    const today = todayISO();
+    const head = ["Contact","Deal","Agent","Quote Amount","Quote Sent"]
+      .concat(STEPS.map(n => shortCad(_cadence[n]) || ("FU"+n)))
+      .concat(["Completed","Total","Overdue","Next Due"]);
+    const lines = [head.join(",")];
+    visibleRecords().forEach(({ r, roll }) => {
+      const cells = STEPS.map(n => {
+        const st = r.steps && r.steps[n]; const s = stepState(st, today);
+        return { done:"Completed", plan:"Planned", today:"Due today", miss:"Overdue", none:"" }[s];
+      });
+      const row = [r.contact_name, r.deal_name, r.owner || "", r.amount ?? "", (r.quote_sent_date||"").slice(0,10)]
+        .concat(cells)
+        .concat([roll.done, roll.total, roll.late, roll.next ? roll.next.due : ""]);
+      lines.push(row.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `quote-followups-${todayISO()}.csv`;
+    a.click(); URL.revokeObjectURL(a.href);
   }
 
   async function load() {
@@ -213,7 +399,7 @@
     const e = document.getElementById("date-end").value;
     const btn = document.getElementById("reload");
     btn.disabled = true; btn.textContent = "…";
-    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="11"><span class="spin"></span> Loading…</td></tr>`;
+    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="12"><span class="spin"></span> Loading…</td></tr>`;
     try {
       const tz = new Date().getTimezoneOffset();
       const r = await fetch(`/api/quote-followups?tz=${tz}&start=${s}&end=${e}&_=${Date.now()}`, { headers: { Accept: "application/json" } });
@@ -222,11 +408,12 @@
       if (j.status !== "ok") throw new Error(j.message || "load failed");
       _records = (j.data && j.data.records) || [];
       _cadence = (j.data && j.data.cadence) || {};
-      renderHead(); renderCards(); renderBody();
+      _lastUpdated = j.last_updated;
+      render();
       document.getElementById("note").textContent =
-        `${_records.length} quote${_records.length===1?"":"s"} · updated ${new Date(j.last_updated).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}`;
+        `Updated ${new Date(_lastUpdated).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})} · auto-refreshes every 2 min`;
     } catch (err) {
-      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="11">Error: ${esc(err.message)}</td></tr>`;
+      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="12">Error: ${esc(err.message)}</td></tr>`;
     } finally {
       btn.disabled = false; btn.textContent = "↻";
     }
