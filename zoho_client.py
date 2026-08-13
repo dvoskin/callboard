@@ -2200,18 +2200,22 @@ class ZohoClient:
                     "_created": t.get("Created_Time") or "",
                 }
 
-        # 3) Enrich with deal details (quote link + amount + contact + owner + sent date).
+        # 3) Enrich with deal details. Use REST (not COQL): COQL returns lookup
+        # fields (Contact_Name, Owner) with the id but a null NAME, so the
+        # contact/owner would render blank. REST returns {id, name} — same as
+        # _fetch_deal_stages_by_ids.
         deal_ids = list(groups.keys())
         deal_info: dict[str, dict] = {}
         for i in range(0, len(deal_ids), 50):
-            ids_in = ",".join(deal_ids[i:i + 50])
-            q = ("select id, Deal_Name, Contact_Name, Amount, Estimate_ID, "
-                 "Estimate_URL, Quote_Sent_Date, Owner from Deals "
-                 f"where id in ({ids_in})")
+            ids_param = ",".join(deal_ids[i:i + 50])
             try:
-                resp = requests.post(f"{self.base_url}/crm/v6/coql",
-                                     headers=self._headers(),
-                                     json={"select_query": q}, timeout=25)
+                resp = requests.get(
+                    f"{self.base_url}/crm/v6/Deals",
+                    headers=self._headers(),
+                    params={"ids": ids_param,
+                            "fields": "id,Deal_Name,Contact_Name,Amount,Estimate_ID,Estimate_URL,Quote_Sent_Date,Owner"},
+                    timeout=25,
+                )
                 if resp.ok:
                     for d in resp.json().get("data", []):
                         deal_info[d.get("id")] = d
