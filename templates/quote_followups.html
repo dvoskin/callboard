@@ -12,7 +12,7 @@
       --border: rgba(15,23,42,0.13); --sep: rgba(15,23,42,0.07);
       --text: #0b0e1a; --secondary: #5b6478; --tertiary: #94a0b8;
       --blue: #2563eb; --blue-dk: #1d4ed8; --green: #10b981; --green-dk: #047857;
-      --red: #ef4444; --red-dk: #b91c1c;
+      --red: #ef4444; --red-dk: #b91c1c; --orange: #f59e0b; --orange-dk: #b45309;
       --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
       --shadow-sm: 0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
       --shadow: 0 4px 24px rgba(15,23,42,.08), 0 1px 4px rgba(15,23,42,.06);
@@ -20,114 +20,123 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); background-image: var(--bg-grad);
       color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      -webkit-font-smoothing: antialiased; padding: 18px; }
+      -webkit-font-smoothing: antialiased; padding: 16px; }
     a { color: var(--blue); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .wrap { max-width: 1180px; margin: 0 auto; }
+    .wrap { max-width: 1240px; margin: 0 auto; }
     .back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--secondary); margin-bottom: 8px; }
     .back:hover { color: var(--blue); text-decoration: none; }
-    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
-    .top h1 { margin: 0 0 2px; font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+    .top h1 { margin: 0 0 2px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
     .top .sub { color: var(--secondary); font-size: 12.5px; }
-    .controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     input[type=date], select, input[type=search] {
-      padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
-    input[type=search] { min-width: 190px; }
+      padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; }
+    input[type=search] { min-width: 180px; }
     .dash { color: var(--tertiary); }
-    .btn { padding: 6px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
-      color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
     .btn:hover { background: var(--surface2); }
     .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
     .btn.primary:hover { background: var(--blue-dk); }
     .btn.on { background: var(--text); border-color: var(--text); color: #fff; }
 
-    /* Headline — the whole picture in one sentence */
-    .headline { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      box-shadow: var(--shadow-sm); padding: 13px 16px; margin-bottom: 12px; font-size: 15px; line-height: 1.5; }
-    .headline b { font-size: 17px; font-weight: 700; }
-    .headline .hot { color: var(--red-dk); }
-    .headline .good { color: var(--green-dk); }
-    .headline .sep { color: var(--tertiary); margin: 0 8px; }
-    .headline .calm { color: var(--secondary); font-size: 13.5px; }
+    /* Stat strip — same language as the call tracker */
+    .stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 22px;
+      padding: 6px 14px 6px 12px; display: flex; align-items: baseline; gap: 7px;
+      font-size: 12px; font-weight: 500; box-shadow: var(--shadow-sm); white-space: nowrap; }
+    .stat-pill .val { font-size: 18px; font-weight: 800; line-height: 1.1; font-feature-settings: "tnum"; }
+    .stat-pill .lbl { color: var(--secondary); font-weight: 600; }
+    .stat-pill.green .val { color: var(--green-dk); }
+    .stat-pill.red   .val { color: var(--red-dk); }
+    .stat-pill.orange .val { color: var(--orange-dk); }
+    .stat-pill.blue  .val { color: var(--blue-dk); }
 
-    /* Agent scoreboard */
-    .board { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      box-shadow: var(--shadow-sm); margin-bottom: 12px; overflow: hidden; }
-    .board-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      padding: 9px 14px; cursor: pointer; user-select: none; }
-    .board-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary); font-weight: 700; }
-    .board-head .hint { font-size: 11.5px; color: var(--tertiary); font-weight: 500; }
-    .board-body { border-top: 1px solid var(--sep); padding: 4px 0; max-height: 250px; overflow-y: auto; }
+    /* Cards */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow); overflow: hidden; margin-bottom: 12px; }
+    .card-header { display: flex; align-items: center; gap: 8px; padding: 8px 13px;
+      border-bottom: 1px solid var(--sep); background: var(--surface2); }
+    .card-header h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+    .card-header .chip { font-size: 10px; padding: 1px 6px; border-radius: 999px;
+      background: rgba(37,99,235,.12); color: var(--blue-dk); font-weight: 700; }
+    .card-header .spacer { flex: 1; }
+    .card-header .hint { font-size: 11px; color: var(--tertiary); }
+    .card-header.click { cursor: pointer; user-select: none; }
+
+    /* Rep board — one compact line each */
+    .board-body { max-height: 190px; overflow-y: auto; }
     .board-body.hide { display: none; }
-    .agent { display: grid; grid-template-columns: 1fr 96px 110px 78px; align-items: center; gap: 10px;
-      padding: 6px 14px; font-size: 13px; cursor: pointer; }
+    .agent { display: grid; grid-template-columns: 1fr 62px 96px 62px; align-items: center; gap: 9px;
+      padding: 4px 13px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--sep); }
+    .agent:last-child { border-bottom: none; }
     .agent:hover { background: var(--surface2); }
     .agent.sel { background: rgba(37,99,235,.07); }
     .agent .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .agent .meta { color: var(--tertiary); font-size: 11.5px; font-feature-settings: "tnum"; }
-    .bar { height: 7px; background: var(--sep); border-radius: 999px; overflow: hidden; }
+    .agent .meta { color: var(--tertiary); font-size: 11px; font-feature-settings: "tnum"; }
+    .bar { height: 6px; background: var(--sep); border-radius: 999px; overflow: hidden; }
     .bar > i { display: block; height: 100%; background: var(--green); border-radius: 999px; }
     .bar > i.hot { background: var(--red); }
-    .agent .verdict { text-align: right; font-weight: 700; font-size: 12px; }
+    .agent .verdict { text-align: right; font-weight: 700; font-size: 11px; }
     .agent .verdict.hot { color: var(--red-dk); }
     .agent .verdict.ok { color: var(--green-dk); }
     .agent .verdict.mid { color: var(--secondary); }
 
-    .filters { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
+    .filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 13px;
+      border-bottom: 1px solid var(--sep); }
     .filters .spacer { flex: 1; }
-    .filters .count { font-size: 12px; color: var(--tertiary); font-feature-settings: "tnum"; }
+    .filters .count { font-size: 11.5px; color: var(--tertiary); font-feature-settings: "tnum"; }
 
-    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; }
+    /* Table — call-tracker density: single line, 12px, tight padding */
     .table-scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
-    thead th { position: sticky; top: 0; z-index: 2; background: var(--surface2); text-align: left; font-size: 10.5px;
-      text-transform: uppercase; letter-spacing: .03em; color: var(--secondary); font-weight: 600;
-      padding: 8px 10px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+    thead th { position: sticky; top: 0; z-index: 2; background: var(--surface2); text-align: left;
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--secondary);
+      font-weight: 600; padding: 6px 8px; white-space: nowrap; border-bottom: 1px solid var(--border); }
     thead th.mid { text-align: center; }
-    tbody td { padding: 7px 10px; border-bottom: 1px solid var(--sep); white-space: nowrap;
-      font-size: 13px; line-height: 1.3; }
+    tbody td { padding: 4px 8px; font-size: 12px; vertical-align: middle; line-height: 1.3;
+      white-space: nowrap; border-bottom: 1px solid var(--sep); }
     tbody td.mid { text-align: center; }
     tbody tr:hover { background: var(--surface2); }
     tbody tr:last-child td { border-bottom: none; }
-    tbody tr.attn td:first-child { box-shadow: inset 3px 0 0 var(--red); }
-    tbody tr.done td:first-child { box-shadow: inset 3px 0 0 var(--green); }
-    .c-name { font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
-    .c-deal { max-width: 210px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom;
-      color: var(--secondary); font-size: 12px; }
-    .c-owner { color: var(--text); max-width: 130px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+    tbody tr.attn td:first-child { box-shadow: inset 2.5px 0 0 var(--red); }
+    tbody tr.done td:first-child { box-shadow: inset 2.5px 0 0 var(--green); }
+    .c-name { font-weight: 600; max-width: 150px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+    .c-deal { max-width: 190px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; color: var(--secondary); }
+    .c-rep { max-width: 115px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
     .c-val { font-weight: 700; font-feature-settings: "tnum"; }
-    .c-sent { color: var(--tertiary); font-size: 11.5px; font-feature-settings: "tnum"; }
     .muted { color: var(--tertiary); }
 
-    /* Progress dots — six steps at a glance */
-    .dots { display: inline-flex; gap: 4px; align-items: center; }
-    .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: var(--sep);
-      border: 1px solid transparent; }
+    /* Six steps at a glance */
+    .dots { display: inline-flex; gap: 3.5px; align-items: center; vertical-align: middle; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--sep); border: 1px solid transparent; }
     .dot.done { background: var(--green); }
     .dot.miss { background: var(--red); }
-    .dot.today { background: var(--surface); border-color: var(--text); box-shadow: inset 0 0 0 2px var(--surface); }
+    .dot.today { background: var(--surface); border-color: var(--text); }
     .dot.plan { background: transparent; border-color: var(--border); }
     .dot.none { background: transparent; border: 1px dashed rgba(15,23,42,.18); }
+    .frac { color: var(--tertiary); font-size: 10.5px; font-feature-settings: "tnum"; margin-left: 5px; }
 
-    /* Plain-language status */
-    .chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
-    .chip.ok { background: rgba(16,185,129,.15); color: var(--green-dk); }
-    .chip.late { background: rgba(239,68,68,.13); color: var(--red-dk); }
-    .chip.today { background: rgba(15,23,42,.07); color: var(--text); }
-    .chip.track { background: transparent; color: var(--secondary); border: 1px solid var(--border); }
-    .next { font-size: 12px; color: var(--secondary); }
-    .next.hot { color: var(--red-dk); font-weight: 600; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+    .badge.ok { background: rgba(16,185,129,.14); color: var(--green-dk); }
+    .badge.late { background: rgba(239,68,68,.13); color: var(--red-dk); }
+    .badge.today { background: rgba(15,23,42,.07); color: var(--text); }
+    .badge.track { background: transparent; color: var(--tertiary); border: 1px solid var(--border); }
+    .next { font-size: 11.5px; color: var(--secondary); }
+    .next.hot { color: var(--red-dk); font-weight: 700; }
     .next.today { color: var(--text); font-weight: 700; }
 
-    .state { padding: 42px; text-align: center; color: var(--secondary); }
-    .legend { margin-top: 11px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--secondary); align-items: center; }
+    .state { padding: 34px; text-align: center; color: var(--secondary); }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--secondary);
+      align-items: center; padding: 6px 13px; border-top: 1px solid var(--sep); background: var(--surface2); }
     .legend .dot { vertical-align: -1px; margin-right: 3px; }
-    .note { margin-top: 7px; font-size: 12px; color: var(--tertiary); }
-    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
+    .note { margin-top: 6px; font-size: 11.5px; color: var(--tertiary); }
+    .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--blue);
       border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
     @keyframes sp { to { transform: rotate(360deg); } }
-    @media (max-width: 700px) { body { padding: 11px; } .c-deal { max-width: 130px; } }
+    @media (max-width: 700px) { body { padding: 10px; } .c-deal { max-width: 120px; } }
   </style>
 </head>
 <body>
@@ -148,66 +157,71 @@
       </div>
     </div>
 
-    <div class="headline" id="headline"></div>
+    <div class="stats" id="stats"></div>
 
-    <div class="board">
-      <div class="board-head" onclick="toggleBoard()">
-        <h2>Who's keeping up <span id="board-caret">▾</span></h2>
-        <span class="hint">click a rep to see just their quotes</span>
+    <div class="card">
+      <div class="card-header click" onclick="toggleBoard()">
+        <h2>By Rep</h2>
+        <span class="chip" id="rep-count">0</span>
+        <span class="spacer"></span>
+        <span class="hint" id="board-caret">click a rep to filter · ▸</span>
       </div>
-      <div class="board-body" id="board-body"></div>
+      <div class="board-body hide" id="board-body"></div>
     </div>
 
-    <div class="filters">
-      <button class="btn" id="attn-btn" onclick="toggleAttn()">⚠ Needs action</button>
-      <input type="search" id="q" placeholder="Search contact, deal, rep…" oninput="render()">
-      <select id="owner" onchange="render()"><option value="">All reps</option></select>
-      <select id="sort" onchange="render()">
-        <option value="attn">Sort: most urgent</option>
-        <option value="next">Sort: next due</option>
-        <option value="sent">Sort: newest quote</option>
-        <option value="amount">Sort: quote value</option>
-        <option value="done">Sort: least complete</option>
-        <option value="owner">Sort: rep</option>
-      </select>
-      <span class="spacer"></span>
-      <span class="count" id="count"></span>
-      <button class="btn" onclick="exportCsv()">Export CSV</button>
-    </div>
-
-    <div class="panel">
+    <div class="card">
+      <div class="card-header">
+        <h2>Quotes</h2>
+        <span class="chip" id="count">0</span>
+        <span class="spacer"></span>
+        <span class="hint" id="note"></span>
+      </div>
+      <div class="filters">
+        <button class="btn" id="attn-btn" onclick="toggleAttn()">⚠ Needs action</button>
+        <input type="search" id="q" placeholder="Search…" oninput="render()">
+        <select id="owner" onchange="render()"><option value="">All reps</option></select>
+        <select id="sort" onchange="render()">
+          <option value="attn">Most urgent</option>
+          <option value="next">Next due</option>
+          <option value="sent">Newest quote</option>
+          <option value="amount">Quote value</option>
+          <option value="done">Least complete</option>
+          <option value="owner">Rep</option>
+        </select>
+        <span class="spacer"></span>
+        <button class="btn" onclick="exportCsv()">CSV</button>
+      </div>
       <div class="table-scroll">
-        <table id="tbl">
+        <table>
           <thead><tr>
             <th>Customer</th>
+            <th>Deal</th>
             <th>Rep</th>
             <th>Quote</th>
-            <th class="mid">Follow-ups <span style="text-transform:none;font-weight:500">(1→6)</span></th>
+            <th class="mid">Follow-ups</th>
             <th>Status</th>
-            <th>Next step</th>
+            <th>Next</th>
           </tr></thead>
-          <tbody id="tbody"><tr><td class="state" colspan="6"><span class="spin"></span> Loading…</td></tr></tbody>
+          <tbody id="tbody"><tr><td class="state" colspan="7"><span class="spin"></span> Loading…</td></tr></tbody>
         </table>
       </div>
+      <div class="legend">
+        <span><span class="dot done"></span>done</span>
+        <span><span class="dot miss"></span>overdue</span>
+        <span><span class="dot today"></span>today</span>
+        <span><span class="dot plan"></span>upcoming</span>
+        <span><span class="dot none"></span>not scheduled</span>
+        <span class="muted">· hover a dot for its date</span>
+      </div>
     </div>
-
-    <div class="legend">
-      <span><span class="dot done"></span>done</span>
-      <span><span class="dot miss"></span>overdue</span>
-      <span><span class="dot today"></span>due today</span>
-      <span><span class="dot plan"></span>upcoming</span>
-      <span><span class="dot none"></span>not scheduled</span>
-      <span class="muted">· hover any dot for its date</span>
-    </div>
-    <div class="note" id="note"></div>
   </div>
 
 <script>
   const ZOHO_ORG = "goalsplasticsurgery";
   const crmUrl = (m, id) => id ? `https://crm.zoho.com/crm/${ZOHO_ORG}/tab/${m}/${id}` : null;
-  let _records = [], _cadence = {}, _attnOnly = false, _boardOpen = true, _lastUpdated = null;
+  let _records = [], _cadence = {}, _attnOnly = false, _boardOpen = false, _lastUpdated = null;
   const STEPS = ["1","2","3","4","5","6"];
-  const CAD_SHORT = {"24 Hours":"24h","72 Hours":"72h","1 Week":"1 wk","10 Days":"10 d","2 Weeks":"2 wk","1 Month":"1 mo"};
+  const CAD_SHORT = {"24 Hours":"24h","72 Hours":"72h","1 Week":"1wk","10 Days":"10d","2 Weeks":"2wk","1 Month":"1mo"};
 
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const todayISO = () => iso(new Date());
@@ -254,7 +268,7 @@
   function toggleBoard() {
     _boardOpen = !_boardOpen;
     document.getElementById("board-body").classList.toggle("hide", !_boardOpen);
-    document.getElementById("board-caret").textContent = _boardOpen ? "▾" : "▸";
+    document.getElementById("board-caret").textContent = _boardOpen ? "click a rep to filter · ▾" : "click a rep to filter · ▸";
   }
   function toggleAttn() {
     _attnOnly = !_attnOnly;
@@ -287,24 +301,22 @@
     return rows.sort(cmp);
   }
 
-  function renderHeadline() {
+  function renderStats() {
     const today = todayISO();
-    let late = 0, dueToday = 0, atRisk = 0, done = 0, total = 0, repsBehind = new Set();
+    let late = 0, dueToday = 0, atRisk = 0, done = 0, total = 0;
     _records.forEach(r => {
       const ro = rollup(r, today);
       late += ro.late; dueToday += ro.dueToday; done += ro.done; total += ro.total;
-      if (ro.late > 0) { atRisk += Number(r.amount) || 0; repsBehind.add(agentOf(r)); }
+      if (ro.late > 0) atRisk += Number(r.amount) || 0;
     });
     const pct = total ? Math.round(done/total*100) : 0;
-    const el = document.getElementById("headline");
-    if (!_records.length) { el.innerHTML = `<span class="calm">No quotes with follow-ups in this range.</span>`; return; }
-    const bits = [];
-    if (late) bits.push(`<b class="hot">${late} overdue</b> across ${repsBehind.size} rep${repsBehind.size===1?"":"s"}`);
-    else bits.push(`<b class="good">Nothing overdue</b>`);
-    bits.push(`<b>${dueToday}</b> due today`);
-    if (atRisk) bits.push(`<b class="hot">${kMoney(atRisk)}</b> in quotes at risk`);
-    el.innerHTML = bits.join(`<span class="sep">·</span>`) +
-      `<div class="calm" style="margin-top:4px">${_records.length} quote${_records.length===1?"":"s"} tracked · ${done} of ${total} follow-ups completed (${pct}%)</div>`;
+    const pill = (v, l, cls) => `<div class="stat-pill ${cls||""}"><span class="val">${v}</span><span class="lbl">${l}</span></div>`;
+    document.getElementById("stats").innerHTML =
+      pill(_records.length, "Quotes", "blue") +
+      pill(late, "Overdue", late ? "red" : "green") +
+      pill(dueToday, "Due today", dueToday ? "orange" : "green") +
+      pill(pct + "%", "Complete", pct >= 80 ? "green" : "") +
+      (atRisk ? pill(kMoney(atRisk), "At risk", "red") : "");
   }
 
   function renderBoard() {
@@ -319,18 +331,17 @@
     const list = Object.entries(by).map(([name, o]) => ({
       name, ...o, pct: o.total ? Math.round(o.done/o.total*100) : 0,
     })).sort((a,b) => (b.late - a.late) || (a.pct - b.pct) || a.name.localeCompare(b.name));
-
+    document.getElementById("rep-count").textContent = list.length;
     document.getElementById("board-body").innerHTML = list.map(a => {
-      const verdict = a.late ? `${a.late} late` : (a.today ? `${a.today} today` : (a.pct === 100 ? "all done" : "on track"));
+      const verdict = a.late ? `${a.late} late` : (a.today ? `${a.today} today` : (a.pct === 100 ? "done" : "on track"));
       const vcls = a.late ? "hot" : (a.pct === 100 ? "ok" : "mid");
       return `<div class="agent${sel===a.name?" sel":""}" onclick="pickAgent('${esc(a.name).replace(/'/g,"\\'")}')" ` +
-        `title="${esc(a.name)}: ${a.done} of ${a.total} follow-ups done${a.late?` · ${a.late} overdue`:""}${a.today?` · ${a.today} due today`:""}">` +
+        `title="${esc(a.name)}: ${a.done}/${a.total} done${a.late?` · ${a.late} overdue`:""}${a.today?` · ${a.today} due today`:""}">` +
         `<div class="nm">${esc(a.name)}</div>` +
-        `<div class="meta">${a.quotes} quote${a.quotes===1?"":"s"}</div>` +
+        `<div class="meta">${a.quotes}q · ${a.done}/${a.total}</div>` +
         `<div class="bar"><i class="${a.late?"hot":""}" style="width:${a.pct}%"></i></div>` +
         `<div class="verdict ${vcls}">${verdict}</div></div>`;
     }).join("") || `<div class="agent"><div class="nm muted">No reps in range</div></div>`;
-
     const osel = document.getElementById("owner"), cur = osel.value;
     osel.innerHTML = `<option value="">All reps</option>` +
       list.map(a => `<option value="${esc(a.name)}"${a.name===cur?" selected":""}>${esc(a.name)}${a.late?` — ${a.late} late`:""}</option>`).join("");
@@ -339,9 +350,10 @@
   function renderBody() {
     const tb = document.getElementById("tbody");
     const rows = visibleRecords();
-    document.getElementById("count").textContent = `${rows.length} of ${_records.length} quotes`;
+    document.getElementById("count").textContent = rows.length === _records.length
+      ? _records.length : `${rows.length} / ${_records.length}`;
     if (!rows.length) {
-      tb.innerHTML = `<tr><td class="state" colspan="6">${_records.length ? "Nothing matches these filters." : "No quote follow-ups in this range."}</td></tr>`;
+      tb.innerHTML = `<tr><td class="state" colspan="7">${_records.length ? "Nothing matches these filters." : "No quote follow-ups in this range."}</td></tr>`;
       return;
     }
     const today = todayISO();
@@ -354,25 +366,25 @@
         ? `<a href="${dUrl}" target="_blank" rel="noopener" class="c-deal" title="${esc(r.deal_name)}">${esc(r.deal_name)}</a>`
         : `<span class="c-deal">${esc(r.deal_name)}</span>`;
       const sentAgo = r.quote_sent_date ? daysBetween(r.quote_sent_date, new Date()) : null;
-      const sentTxt = sentAgo === null ? "" : (sentAgo <= 0 ? "sent today" : `sent ${sentAgo}d ago`);
       const qVal = money(r.amount) || "—";
+      const qTip = sentAgo === null ? "Quote" : (sentAgo <= 0 ? "Quote sent today" : `Quote sent ${sentAgo}d ago`);
       const quote = r.estimate_url
-        ? `<a href="${esc(r.estimate_url)}" target="_blank" rel="noopener" class="c-val" title="Open quote">${qVal}</a>`
-        : `<span class="c-val">${qVal}</span>`;
+        ? `<a href="${esc(r.estimate_url)}" target="_blank" rel="noopener" class="c-val" title="${esc(qTip)} — open quote">${qVal}</a>`
+        : `<span class="c-val" title="${esc(qTip)}">${qVal}</span>`;
 
       const dots = STEPS.map(n => {
         const st = r.steps && r.steps[n];
         const s = stepState(st, today);
         const word = { done:"Done", plan:"Upcoming", today:"Due today", miss:"Overdue", none:"Not scheduled" }[s];
-        const tip = `Follow-up ${n} (${shortCad(_cadence[n])}) — ${word}${st && st.due_date ? ` · due ${shortDate(st.due_date)}` : ""}`;
+        const tip = `${n}. ${shortCad(_cadence[n])} — ${word}${st && st.due_date ? ` · due ${shortDate(st.due_date)}` : ""}`;
         return `<span class="dot ${s}" title="${esc(tip)}"></span>`;
       }).join("");
 
-      let chip, rowCls = "";
-      if (roll.complete) { chip = `<span class="chip ok">Complete</span>`; rowCls = " done"; }
-      else if (roll.late) { chip = `<span class="chip late">${roll.late} overdue</span>`; rowCls = " attn"; }
-      else if (roll.dueToday) { chip = `<span class="chip today">Due today</span>`; }
-      else { chip = `<span class="chip track">On track</span>`; }
+      let badge, rowCls = "";
+      if (roll.complete) { badge = `<span class="badge ok">Complete</span>`; rowCls = "done"; }
+      else if (roll.late) { badge = `<span class="badge late">${roll.late} overdue</span>`; rowCls = "attn"; }
+      else if (roll.dueToday) { badge = `<span class="badge today">Due today</span>`; }
+      else { badge = `<span class="badge track">On track</span>`; }
 
       let nextTxt = `<span class="muted">—</span>`;
       if (roll.next) {
@@ -380,22 +392,21 @@
         const cad = shortCad(_cadence[roll.next.n]);
         if (roll.next.state === "miss") nextTxt = `<span class="next hot">${esc(cad)} · ${Math.abs(d)}d late</span>`;
         else if (roll.next.state === "today") nextTxt = `<span class="next today">${esc(cad)} · today</span>`;
-        else nextTxt = `<span class="next">${esc(cad)} · in ${d}d</span>`;
+        else nextTxt = `<span class="next">${esc(cad)} · ${d}d</span>`;
       } else if (roll.total) {
-        nextTxt = `<span class="next" style="color:var(--green-dk)">nothing left</span>`;
+        nextTxt = `<span class="next" style="color:var(--green-dk)">—</span>`;
       }
 
-      return `<tr class="${rowCls.trim()}">` +
-        `<td>${name}<br>${deal}</td>` +
-        `<td><span class="c-owner">${esc(r.owner || "—")}</span></td>` +
-        `<td>${quote}${sentTxt ? `<br><span class="c-sent">${sentTxt}</span>` : ""}</td>` +
-        `<td class="mid"><span class="dots">${dots}</span><br><span class="c-sent">${roll.done}/${roll.total}</span></td>` +
-        `<td>${chip}</td>` +
-        `<td>${nextTxt}</td></tr>`;
+      return `<tr class="${rowCls}">` +
+        `<td>${name}</td><td>${deal}</td>` +
+        `<td><span class="c-rep">${esc(r.owner || "—")}</span></td>` +
+        `<td>${quote}</td>` +
+        `<td class="mid"><span class="dots">${dots}</span><span class="frac">${roll.done}/${roll.total}</span></td>` +
+        `<td>${badge}</td><td>${nextTxt}</td></tr>`;
     }).join("");
   }
 
-  function render() { renderHeadline(); renderBoard(); renderBody(); }
+  function render() { renderStats(); renderBoard(); renderBody(); }
 
   function exportCsv() {
     const today = todayISO();
@@ -422,7 +433,7 @@
     const e = document.getElementById("date-end").value;
     const btn = document.getElementById("reload");
     btn.disabled = true; btn.textContent = "…";
-    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="6"><span class="spin"></span> Loading…</td></tr>`;
+    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="7"><span class="spin"></span> Loading…</td></tr>`;
     try {
       const tz = new Date().getTimezoneOffset();
       const r = await fetch(`/api/quote-followups?tz=${tz}&start=${s}&end=${e}&_=${Date.now()}`, { headers: { Accept: "application/json" } });
@@ -434,9 +445,9 @@
       _lastUpdated = j.last_updated;
       render();
       document.getElementById("note").textContent =
-        `Updated ${new Date(_lastUpdated).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})} · refreshes every 2 min · reps tick tasks off in the CRM`;
+        `Updated ${new Date(_lastUpdated).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}`;
     } catch (err) {
-      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="6">Error: ${esc(err.message)}</td></tr>`;
+      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="7">Error: ${esc(err.message)}</td></tr>`;
     } finally {
       btn.disabled = false; btn.textContent = "↻";
     }
