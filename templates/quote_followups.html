@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quote Follow-Ups — Sales Call Monitor</title>
+  <style>
+    :root {
+      --bg: #eef0f5;
+      --bg-grad: radial-gradient(ellipse at top left, #eaecf7 0%, #eef0f5 35%, #f0f1f6 100%);
+      --surface: #ffffff; --surface2: #f7f8fc;
+      --border: rgba(15,23,42,0.13); --sep: rgba(15,23,42,0.07);
+      --text: #0b0e1a; --secondary: #5b6478; --tertiary: #94a0b8;
+      --blue: #2563eb; --blue-dk: #1d4ed8; --green: #10b981; --green-dk: #047857;
+      --red: #ef4444; --red-dk: #b91c1c; --amber: #f59e0b; --amber-dk: #b45309;
+      --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
+      --shadow-sm: 0 1px 3px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+      --shadow: 0 4px 24px rgba(15,23,42,.08), 0 1px 4px rgba(15,23,42,.06);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); background-image: var(--bg-grad);
+      color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; padding: 20px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1240px; margin: 0 auto; }
+    .back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--secondary); margin-bottom: 8px; }
+    .back:hover { color: var(--blue); text-decoration: none; }
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .top h1 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+    .top .sub { color: var(--secondary); font-size: 13px; }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .controls input[type=date] { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); font: inherit; }
+    .controls .dash { color: var(--tertiary); }
+    .btn { padding: 7px 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+      color: var(--text); font: inherit; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface2); }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.primary:hover { background: var(--blue-dk); }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; box-shadow: var(--shadow-sm); }
+    .card .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--tertiary); font-weight: 600; }
+    .card .v { font-size: 21px; font-weight: 700; margin-top: 3px; font-feature-settings: "tnum"; }
+    .card.ok .v { color: var(--green-dk); } .card.warn .v { color: var(--red-dk); } .card.plan .v { color: var(--blue-dk); }
+
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { position: sticky; top: 0; background: var(--surface2); text-align: center; font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: .03em; color: var(--secondary); font-weight: 600; padding: 8px 8px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+    thead th.left { text-align: left; }
+    thead th .cad { display: block; font-size: 9px; color: var(--tertiary); font-weight: 500; text-transform: none; letter-spacing: 0; margin-top: 1px; }
+    tbody td { padding: 7px 8px; text-align: center; border-bottom: 1px solid var(--sep); white-space: nowrap; font-feature-settings: "tnum"; }
+    tbody td.left { text-align: left; }
+    tbody tr:hover { background: var(--surface2); }
+    tbody tr:last-child td { border-bottom: none; }
+    .c-name { font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+    .c-deal { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+    .c-owner { font-size: 11px; color: var(--tertiary); }
+    .c-quote { font-weight: 600; font-feature-settings: "tnum"; }
+    .muted { color: var(--tertiary); }
+
+    /* Follow-up status pills */
+    .fu { display: inline-block; min-width: 42px; padding: 2px 6px; border-radius: 999px; font-size: 11px; font-weight: 600;
+      font-feature-settings: "tnum"; border: 1px solid transparent; }
+    .fu-done { background: rgba(16,185,129,.14); color: var(--green-dk); }
+    .fu-done::before { content: "✓ "; }
+    .fu-miss { background: rgba(239,68,68,.13); color: var(--red-dk); }
+    .fu-miss::before { content: "✕ "; }
+    .fu-plan { background: transparent; color: var(--secondary); border-color: var(--border); }
+    .fu-none { color: var(--tertiary); font-weight: 500; }
+
+    .state { padding: 44px; text-align: center; color: var(--secondary); }
+    .legend { margin-top: 12px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--secondary); align-items: center; }
+    .legend .fu { pointer-events: none; }
+    .note { margin-top: 8px; font-size: 12px; color: var(--tertiary); }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue);
+      border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    @media (max-width: 640px) { body { padding: 12px; } .c-deal { max-width: 150px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/v3">← Back to Sales Call Monitor</a>
+    <div class="top">
+      <div>
+        <h1>Quote Follow-Ups</h1>
+        <div class="sub">Each quote's 6-step follow-up cadence, synced live from the CRM's "Quote Follow Up" tasks.</div>
+      </div>
+      <div class="controls">
+        <input type="date" id="date-start">
+        <span class="dash">–</span>
+        <input type="date" id="date-end">
+        <button class="btn" onclick="setRange(30)">Last 30d</button>
+        <button class="btn primary" id="reload" onclick="load()">↻ Refresh</button>
+      </div>
+    </div>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="panel">
+      <div class="table-scroll">
+        <table id="tbl">
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="tbody"><tr><td class="state" colspan="9"><span class="spin"></span> Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><span class="fu fu-done">done</span> Completed</span>
+      <span><span class="fu fu-plan">plan</span> Planned (upcoming)</span>
+      <span><span class="fu fu-miss">late</span> Incomplete (past due)</span>
+      <span><span class="fu fu-none">—</span> Not created</span>
+      <span class="muted">· dates are the task due date</span>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+<script>
+  const ZOHO_ORG = "goalsplasticsurgery";
+  const crmUrl = (module, id) => id ? `https://crm.zoho.com/crm/${ZOHO_ORG}/tab/${module}/${id}` : null;
+  let _records = [], _cadence = {};
+  const STEPS = ["1","2","3","4","5","6"];
+
+  function todayISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function setRange(days) {
+    const end = new Date(), start = new Date(); start.setDate(start.getDate() - days);
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    document.getElementById("date-start").value = iso(start);
+    document.getElementById("date-end").value = iso(end);
+    load();
+  }
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const shortDate = s => { if (!s) return ""; const p = String(s).slice(0,10).split("-"); return p.length===3 ? `${+p[1]}/${+p[2]}` : s; };
+  const money = n => (n || n === 0) ? "$" + Number(n).toLocaleString("en-US", {maximumFractionDigits: 0}) : "";
+
+  // planned / completed / failed(incomplete) from a step's status + due date.
+  function stepState(step, today) {
+    if (!step) return "none";
+    if (/complet/i.test(step.status || "")) return "done";
+    const due = (step.due_date || "").slice(0,10);
+    return (due && due < today) ? "miss" : "plan";
+  }
+
+  function renderHead() {
+    const cad = n => _cadence[n] || "";
+    document.getElementById("thead").innerHTML =
+      `<th class="left">Contact</th><th class="left">Deal</th><th>Quote</th>` +
+      STEPS.map(n => `<th>FU${n}<span class="cad">${esc(cad(n))}</span></th>`).join("");
+  }
+
+  function renderCards() {
+    const today = todayISO();
+    let done = 0, plan = 0, miss = 0, tasks = 0;
+    _records.forEach(r => STEPS.forEach(n => {
+      const st = r.steps && r.steps[n]; if (!st) return;
+      tasks++; const s = stepState(st, today);
+      if (s === "done") done++; else if (s === "plan") plan++; else if (s === "miss") miss++;
+    }));
+    const cards = [
+      { k: "Quotes", v: _records.length, cls: "" },
+      { k: "Tasks", v: tasks, cls: "" },
+      { k: "Completed", v: done, cls: "ok" },
+      { k: "Planned", v: plan, cls: "plan" },
+      { k: "Incomplete", v: miss, cls: "warn" },
+    ];
+    document.getElementById("cards").innerHTML = cards.map(c =>
+      `<div class="card ${c.cls}"><div class="k">${c.k}</div><div class="v">${c.v}</div></div>`).join("");
+  }
+
+  function renderBody() {
+    const tb = document.getElementById("tbody");
+    if (!_records.length) {
+      tb.innerHTML = `<tr><td class="state" colspan="9">No quote follow-ups in this range.</td></tr>`;
+      return;
+    }
+    const today = todayISO();
+    tb.innerHTML = _records.map(r => {
+      const cUrl = crmUrl("Contacts", r.contact_id);
+      const dUrl = crmUrl("Potentials", r.deal_id);
+      const contact = cUrl
+        ? `<a href="${cUrl}" target="_blank" rel="noopener" class="c-name" title="${esc(r.contact_name)}">${esc(r.contact_name)}</a>`
+        : `<span class="c-name">${esc(r.contact_name)}</span>`;
+      const owner = r.owner ? `<div class="c-owner">${esc(r.owner)}</div>` : "";
+      const deal = dUrl
+        ? `<a href="${dUrl}" target="_blank" rel="noopener" class="c-deal" title="${esc(r.deal_name)}">${esc(r.deal_name)}</a>`
+        : `<span class="c-deal">${esc(r.deal_name)}</span>`;
+      // Quote: amount (or estimate #) linked to the Books quote, sent date on hover.
+      const qLabel = r.estimate_id ? "#" + esc(r.estimate_id) : (money(r.amount) || "Quote");
+      const qTip = `Quote${r.quote_sent_date ? " sent " + shortDate(r.quote_sent_date) : ""}${r.amount ? " · " + money(r.amount) : ""}`;
+      const quote = r.estimate_url
+        ? `<a href="${esc(r.estimate_url)}" target="_blank" rel="noopener" class="c-quote" title="${esc(qTip)}">${qLabel}</a>`
+        : (qLabel !== "Quote" ? `<span class="c-quote muted" title="${esc(qTip)}">${qLabel}</span>` : `<span class="muted">—</span>`);
+
+      const cells = STEPS.map(n => {
+        const st = r.steps && r.steps[n];
+        const s = stepState(st, today);
+        if (s === "none") return `<td><span class="fu fu-none">—</span></td>`;
+        const cad = _cadence[n] || "";
+        const label = { done: "Completed", plan: "Planned", miss: "Incomplete (past due)" }[s];
+        const tip = `${label} · ${cad}${st.due_date ? " · due " + shortDate(st.due_date) : ""}`;
+        return `<td><span class="fu fu-${s}" title="${esc(tip)}">${shortDate(st.due_date) || "•"}</span></td>`;
+      }).join("");
+
+      return `<tr><td class="left">${contact}${owner}</td><td class="left">${deal}</td><td>${quote}</td>${cells}</tr>`;
+    }).join("");
+  }
+
+  async function load() {
+    const s = document.getElementById("date-start").value;
+    const e = document.getElementById("date-end").value;
+    const btn = document.getElementById("reload");
+    btn.disabled = true; btn.textContent = "…";
+    document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="9"><span class="spin"></span> Loading…</td></tr>`;
+    try {
+      const tz = new Date().getTimezoneOffset();
+      const r = await fetch(`/api/quote-followups?tz=${tz}&start=${s}&end=${e}&_=${Date.now()}`, { headers: { Accept: "application/json" } });
+      if (r.status === 401) { location.href = "/login"; return; }
+      const j = await r.json();
+      if (j.status !== "ok") throw new Error(j.message || "load failed");
+      _records = (j.data && j.data.records) || [];
+      _cadence = (j.data && j.data.cadence) || {};
+      renderHead(); renderCards(); renderBody();
+      document.getElementById("note").textContent =
+        `${_records.length} quote${_records.length===1?"":"s"} · updated ${new Date(j.last_updated).toLocaleTimeString()} · agents mark tasks Completed in the CRM; this reflects it within ~2 min.`;
+    } catch (err) {
+      document.getElementById("tbody").innerHTML = `<tr><td class="state" colspan="9">Error: ${esc(err.message)}</td></tr>`;
+    } finally {
+      btn.disabled = false; btn.textContent = "↻ Refresh";
+    }
+  }
+
+  setRange(30);
+  setInterval(load, 120000);
+</script>
+</body>
+</html>

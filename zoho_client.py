@@ -2118,6 +2118,132 @@ class ZohoClient:
                 continue
         return None
 
+    # Quote follow-up cadence: Subject "Quote Follow Up {N} - {cadence} - {Deal}".
+    QUOTE_FU_CADENCE = {1: "24 Hours", 2: "72 Hours", 3: "1 Week",
+                        4: "10 Days", 5: "2 Weeks", 6: "1 Month"}
+
+    def get_quote_followups(self, start_dt=None, end_dt=None) -> dict:
+        """Quote follow-up tasks (Subject contains 'Quote Follow Up'), grouped by
+        the Deal they belong to (What_Id) = one row per quote. Each row carries
+        the contact, deal, Books-quote link + amount, and the per-step task status.
+        Tasks are auto-created in a 6-step cadence per quote (24h, 72h, 1wk, 10d,
+        2wk, 1mo). Read-only — agents mark the tasks Completed in the CRM and this
+        reflects it. Returns {"records": [...], "cadence": {"1": "24 Hours", ...}}.
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        if start_dt and end_dt:
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = end_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        else:
+            # Default: quotes whose follow-up sequence was created in the last 30d.
+            _end = datetime.now(timezone.utc)
+            start_str = (_end - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            end_str   = _end.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+        # 1) Pull the Quote-Follow-Up tasks created in the window.
+        tasks, offset = [], 0
+        while offset <= 4000:
+            query = (
+                "select id, Subject, Status, Due_Date, What_Id, Who_Id, Owner, Created_Time "
+                "from Tasks "
+                "where (Subject like '%Quote Follow Up%') and "
+                f"(Created_Time between '{start_str}' and '{end_str}') "
+                f"order by Created_Time desc limit 200 offset {offset}"
+            )
+            try:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql",
+                                     headers=self._headers(),
+                                     json={"select_query": query}, timeout=25)
+            except Exception as e:
+                log.warning("Quote-FU tasks fetch error: %s", e); break
+            if resp.status_code == 204:
+                break
+            if not resp.ok:
+                log.warning("Quote-FU tasks COQL failed %s: %s", resp.status_code, resp.text[:200]); break
+            data = resp.json()
+            tasks.extend(data.get("data", []))
+            if not data.get("info", {}).get("more_records"):
+                break
+            offset += 200
+        log.info("Quote-FU: %d tasks in window", len(tasks))
+        if not tasks:
+            return {"records": [], "cadence": {str(k): v for k, v in self.QUOTE_FU_CADENCE.items()}}
+
+        # 2) Group by deal (What_Id); keep the most recent task per FU step.
+        _num_re = re.compile(r"quote follow up\s*(\d+)", re.I)
+        groups: dict[str, dict] = {}
+        for t in tasks:
+            what = t.get("What_Id") or {}
+            deal_id = what.get("id") if isinstance(what, dict) else None
+            if not deal_id:
+                continue
+            m = _num_re.search(t.get("Subject") or "")
+            if not m:
+                continue
+            n = int(m.group(1))
+            who = t.get("Who_Id") or {}
+            g = groups.setdefault(deal_id, {
+                "deal_id": deal_id,
+                "deal_name": (what.get("name") if isinstance(what, dict) else "") or "",
+                "contact_id": (who.get("id") if isinstance(who, dict) else None),
+                "contact_name": (who.get("name") if isinstance(who, dict) else "") or "",
+                "steps": {},
+            })
+            prev = g["steps"].get(n)
+            if not prev or (t.get("Created_Time") or "") > (prev.get("_created") or ""):
+                g["steps"][n] = {
+                    "id": t.get("id"),
+                    "status": t.get("Status") or "",
+                    "due_date": t.get("Due_Date") or "",
+                    "cadence": self.QUOTE_FU_CADENCE.get(n, f"Step {n}"),
+                    "_created": t.get("Created_Time") or "",
+                }
+
+        # 3) Enrich with deal details (quote link + amount + contact + owner + sent date).
+        deal_ids = list(groups.keys())
+        deal_info: dict[str, dict] = {}
+        for i in range(0, len(deal_ids), 50):
+            ids_in = ",".join(deal_ids[i:i + 50])
+            q = ("select id, Deal_Name, Contact_Name, Amount, Estimate_ID, "
+                 "Estimate_URL, Quote_Sent_Date, Owner from Deals "
+                 f"where id in ({ids_in})")
+            try:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql",
+                                     headers=self._headers(),
+                                     json={"select_query": q}, timeout=25)
+                if resp.ok:
+                    for d in resp.json().get("data", []):
+                        deal_info[d.get("id")] = d
+            except Exception as e:
+                log.warning("Quote-FU deal enrich error: %s", e)
+
+        # 4) Build one record per quote.
+        records = []
+        for deal_id, g in groups.items():
+            info = deal_info.get(deal_id) or {}
+            con = info.get("Contact_Name") or {}
+            owner = info.get("Owner") or {}
+            steps = {str(n): {k: v for k, v in s.items() if k != "_created"}
+                     for n, s in g["steps"].items()}
+            records.append({
+                "deal_id": deal_id,
+                "deal_name": info.get("Deal_Name") or g["deal_name"] or "—",
+                "contact_id": (con.get("id") if isinstance(con, dict) else None) or g["contact_id"],
+                "contact_name": (con.get("name") if isinstance(con, dict) else "") or g["contact_name"] or "—",
+                "owner": (owner.get("name") if isinstance(owner, dict) else "") or "",
+                "amount": info.get("Amount"),
+                "estimate_id": info.get("Estimate_ID") or "",
+                "estimate_url": info.get("Estimate_URL") or "",
+                "quote_sent_date": info.get("Quote_Sent_Date") or "",
+                "steps": steps,
+            })
+        # Most recently sent quotes first.
+        records.sort(key=lambda r: r.get("quote_sent_date") or "", reverse=True)
+        log.info("Quote-FU: %d quotes across %d tasks", len(records), len(tasks))
+        return {"records": records,
+                "cadence": {str(k): v for k, v in self.QUOTE_FU_CADENCE.items()}}
+
     def get_call_now_deals(self, start_dt=None, end_dt=None, supplemental_calls=None) -> dict:
         """Deals created in the window whose Best_Contact_Time is empty or set
         BEFORE the deal was created — these should be called ASAP after the deal

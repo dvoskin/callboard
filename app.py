@@ -625,6 +625,15 @@ def index_v3():
     return render_template("index_v3.html", refresh_interval=REFRESH_INTERVAL_SECONDS, current_user=user)
 
 
+@app.route("/v4")
+@login_required
+def quote_followups_page():
+    """Quote Follow-Up tracker: one row per quote (Deal), with the 6-step
+    follow-up task cadence synced live from the CRM's 'Quote Follow Up' tasks."""
+    user = session.get("user") or {}
+    return render_template("quote_followups.html", current_user=user)
+
+
 @app.route("/v2/agents")
 @login_required
 def agents_report_v2():
@@ -934,6 +943,46 @@ def call_now_deals():
         return jsonify(payload)
     except Exception as e:
         log.exception("/api/call-now-deals error")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+_qfu_cache: dict = {}
+_qfu_lock = threading.Lock()
+
+@app.route("/api/quote-followups")
+@login_required
+def quote_followups():
+    """Quote follow-up tasks grouped by quote (Deal). Cached 120s per (start,end)."""
+    tz_param = request.args.get("tz")
+    tz_offset_minutes = int(tz_param) if tz_param is not None else None
+    start_param = request.args.get("start")
+    end_param = request.args.get("end")
+    cache_key = (start_param or "", end_param or "")
+    with _qfu_lock:
+        hit = _qfu_cache.get(cache_key)
+        if hit and time.time() - hit["at"] < 120:
+            return jsonify(hit["payload"])
+    try:
+        start_dt = end_dt = None
+        if start_param:
+            eff_end = end_param or start_param
+            start_dt = _parse_local_date_to_utc(start_param, 0, 0, 0, tz_offset_minutes)
+            end_dt   = _parse_local_date_to_utc(eff_end, 23, 59, 59, tz_offset_minutes)
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_zoho.get_quote_followups, start_dt=start_dt, end_dt=end_dt)
+            data = fut.result(timeout=60)
+        payload = {"status": "ok", "last_updated": datetime.now(timezone.utc).isoformat(),
+                   "data": data}
+        with _qfu_lock:
+            _qfu_cache[cache_key] = {"at": time.time(), "payload": payload}
+            if len(_qfu_cache) > 8:
+                oldest = min(_qfu_cache, key=lambda k: _qfu_cache[k]["at"])
+                _qfu_cache.pop(oldest, None)
+        return jsonify(payload)
+    except FutureTimeoutError:
+        return jsonify({"status": "error", "message": "Zoho is taking too long — try again."}), 504
+    except Exception as e:
+        log.exception("/api/quote-followups error")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
