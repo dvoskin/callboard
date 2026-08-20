@@ -21,7 +21,7 @@ page when it fell back. `?source=api` forces the live pull so the two can be com
 
 Any long random string works for both — different values.
 
-**Then** paste `gmail_to_ingest.gs` into script.google.com, fill in the three
+**Then** paste `gmail_to_ingest.gs` into script.google.com (delete the `myFunction` placeholder first — pasting inside it hides every function from the Run and Trigger dropdowns), set `INGEST_KEY`, run `testOnce`, and add an hourly time-driven trigger on `forwardRingCXReports`.
 settings at the top, run `testOnce` to confirm the search matches your report
 emails, and add an hourly time-driven trigger on `forwardRingCXReports`.
 
