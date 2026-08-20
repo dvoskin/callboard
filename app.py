@@ -22,7 +22,7 @@ from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
 from v5_report import (build_report as build_v5_report,
-                       parse_interaction_csv, CsvShapeError)
+                       parse_interaction_csv, CsvShapeError, parse_ts as _v5_parse_ts)
 from telegram_client import TelegramClient
 from books_client import BooksClient
 
@@ -1074,15 +1074,42 @@ def api_v5_report():
         cx_rows = inbox[0] if inbox else live_cx
         cx_source = inbox[1] if inbox else {"source": "live_cdr_api", "rows": len(cx_rows)}
 
+        # RingEX is pulled live and is current to this second; the emailed RingCX
+        # report lags ~20-25 minutes behind its own send time. Left unaligned, a
+        # rep on their direct line is credited for an hour that a campaign rep is
+        # not -- on a board that ranks people and names the bottom three, that
+        # penalises whoever sits on the slower source. Clamp both to the window
+        # they BOTH cover.
         # _parse_local_date_to_utc takes minutes WEST of UTC (getTimezoneOffset);
         # v5_report takes a signed offset EAST. Negate.
         offset_east = -(tz_offset_minutes if tz_offset_minutes is not None
                         else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
+
+        ex_clamped = 0
+        cov = cx_source.get("covers_to")
+        if cov and len(cov) == 8:
+            try:
+                hh, mm, ss = (int(x) for x in cov.split(":"))
+                cutoff = _parse_local_date_to_utc(date_start, hh, mm, ss, tz_offset_minutes)
+                keep = []
+                for e in ex_rows:
+                    # ISO values carry their own zone; a naive one is local, so
+                    # reading it as UTC would shift it by hours and clamp nothing.
+                    t = _v5_parse_ts(e.get("start_time"), offset_east)
+                    if t is None or t <= cutoff:
+                        keep.append(e)
+                ex_clamped = len(ex_rows) - len(keep)
+                ex_rows = keep
+            except (ValueError, TypeError):
+                pass
+
         report = build_v5_report(ex_rows, cx_rows, tz_offset_minutes=offset_east,
                                  window={"start": date_start, "end": date_end})
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
         report["meta"]["ringcx_source"] = cx_source
-        report["meta"]["ringex_source"] = dict(live_meta, calls=len(ex_rows))
+        report["meta"]["ringex_source"] = dict(live_meta, calls=len(ex_rows),
+                                              clamped_to_ringcx=ex_clamped or None)
+        report["meta"]["covers_to"] = cov
         _note = getattr(_ringcx, "last_ringex_note", None)
         if _note and not live_meta.get("cached"):
             report.setdefault("warnings", []).append(
