@@ -774,8 +774,10 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
     try:
         age_h = (time.time() - p.stat().st_mtime) / 3600.0
         rows, unit = parse_interaction_csv(p.read_text(encoding="utf-8-sig", errors="replace"))
+        covers_to = max(((r.get("start_time") or "").split(" ")[-1] for r in rows), default="")
         meta = {"source": "emailed_interaction_report", "file": p.name,
-                "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2)}
+                "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2),
+                "covers_to": covers_to or None}
         if is_today and age_h > stale_after_hours:
             # Still use it -- a stale report beats a different report -- but say so.
             meta["stale"] = True

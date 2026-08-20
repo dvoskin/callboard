@@ -26,6 +26,8 @@
 
   h1{margin:0 0 2px;font-size:20px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
   .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .sub b{color:var(--ink);font-weight:650}
+  .sub b.down{color:var(--dn)}
   h2{margin:22px 0 6px;font-size:12px;font-weight:700;letter-spacing:.06em;
      text-transform:uppercase;color:var(--muted)}
 
@@ -226,11 +228,21 @@
           return;
         }
         var m = res.j.meta || {}, src = m.ringcx_source || {};
-        $('stamp').textContent =
-          (m.window && m.window.start ? m.window.start + ' · ' : '') +
-          m.ringex_calls + ' RingEX calls · ' + m.ringcx_rows + ' RingCX interactions' +
+        // Say how far into the day the DATA reaches, not just when the page loaded.
+        // Two views of the same day disagree constantly when one has an extra hour
+        // in it, and without this line that looks like a bug rather than a clock.
+        var covers = (src.covers_to || '').slice(0, 5);
+        var pretty = '';
+        if (covers) {
+          var hh = parseInt(covers.slice(0, 2), 10), mm = covers.slice(3, 5);
+          pretty = (hh % 12 || 12) + ':' + mm + (hh < 12 ? ' AM' : ' PM');
+        }
+        $('stamp').innerHTML =
+          (m.window && m.window.start ? esc(m.window.start) + ' · ' : '') +
+          (pretty ? '<b>calls through ' + pretty + '</b> · ' : '') +
+          m.ringex_calls + ' RingEX · ' + m.ringcx_rows + ' RingCX' +
           (src.source === 'live_cdr_api' ? ' · live pull' : '') +
-          ' · as of ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          (m.ringex_calls === 0 ? ' · <b class="down">no RingEX calls</b>' : '');
         var dz = $('days');
         if (dz && m.available_days) {
           dz.innerHTML = '';
