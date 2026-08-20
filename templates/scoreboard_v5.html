@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Where you stand today</title>
+<title>Sales Floor Scoreboard</title>
 <style>
   :root{
     --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
@@ -45,7 +45,13 @@
 
   /* the floor, one line */
   .floor{font-size:12.5px;color:var(--muted);padding:8px 0;
-         border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+         border-top:1px solid var(--rule)}
+  .key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11px;color:var(--muted);
+       padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
+  .key b{font-weight:700}
+  .key .d{padding-right:2px}
+  .key .u{color:var(--up)} .key .d{color:var(--dn)}
+  .key span{white-space:nowrap}
   .floor b{color:var(--ink);font-weight:700}
   .floor .sep{opacity:.45;padding:0 5px}
 
@@ -103,7 +109,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Where you stand today</h1>
+  <h1>Sales Floor Scoreboard</h1>
   <p class="sub" id="stamp">Loading…</p>
   {% if not share_mode %}
   <div class="ctl">
@@ -152,6 +158,13 @@
          '<span class="sep">·</span><b>' + w(f.attempts) + '</b> dials' +
          '<span class="sep">·</span><b>' + w(f.over_3) + '</b> over 3m' +
          '<span class="sep">·</span><b>' + w(f.over_10) + '</b> over 10m</div>';
+    // A legend, not a tooltip: this is read on phones, where hover does not exist.
+    h += '<div class="key">' +
+           '<span><b class="u">▲</b><b class="d">▼</b> vs the floor</span>' +
+           '<span><b>Floor</b> = median rep, not a target</span>' +
+           '<span><b>Talk</b> excludes wrap</span>' +
+           '<span><b>&gt;3m/&gt;10m</b> = real conversations, not dialer touches</span>' +
+         '</div>';
 
     h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">Rep</span>' +
          '<span class="a-tk">Talk</span><span class="a-d">Dials</span>' +
