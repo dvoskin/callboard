@@ -815,19 +815,33 @@ def api_v5_ingest():
             day_iso = day_us
         path = _inbox_path_for(day_iso)
 
-        # A rolling report can arrive out of order (the 1PM one after the 3PM one).
-        # Only replace a day when the incoming file has at least as many rows for
-        # it -- otherwise a late, staler delivery silently rewinds the day.
-        have = 0
+        # A rolling report can arrive out of order (the 1PM one after the 3PM one),
+        # so a day is only replaced by a report that reaches FURTHER INTO it.
+        #
+        # Row count is the wrong test. It assumes both reports are scoped the same,
+        # and they are not -- the emailed report carries 23 agents where a manual
+        # export carried 19. A later report covering more of the day can hold fewer
+        # rows for it, and a count test would reject it and freeze the day forever.
+        # How far a report reaches is knowable: the latest row timestamp in it.
+        def _watermark(rs):
+            return max(((r.get("Interaction Start Time") or "").split(" ")[0] for r in rs),
+                       default="")
+
+        new_wm = _watermark(day_rows)
+        have_wm, have_n = "", 0
         if path.exists():
             try:
-                have = sum(1 for _ in _csv.DictReader(
-                    _io.StringIO(path.read_text(encoding="utf-8-sig", errors="replace")))) 
+                prev = list(_csv.DictReader(_io.StringIO(
+                    path.read_text(encoding="utf-8-sig", errors="replace"))))
+                have_wm, have_n = _watermark(prev), len(prev)
             except Exception:  # noqa: BLE001
-                have = 0
-        if have > len(day_rows):
-            skipped.append({"day": day_iso, "incoming": len(day_rows), "kept": have,
-                            "reason": "stored report is more complete"})
+                pass
+        # Equal reach -> prefer the fuller file, so a re-send never loses rows.
+        if have_wm > new_wm or (have_wm == new_wm and have_n > len(day_rows)):
+            skipped.append({"day": day_iso, "incoming": len(day_rows),
+                            "incoming_covers_to": new_wm or None,
+                            "kept": have_n, "kept_covers_to": have_wm or None,
+                            "reason": "stored report already reaches at least this far"})
             continue
 
         buf = _io.StringIO()
@@ -837,7 +851,8 @@ def api_v5_ingest():
             w.writerow(r)
         path.write_text(buf.getvalue(), encoding="utf-8")
         written.append({"day": day_iso, "rows": len(day_rows), "stored_as": path.name,
-                        "replaced_rows": have or None})
+                        "covers_to": new_wm or None,
+                        "replaced": {"rows": have_n, "covered_to": have_wm} if have_n else None})
 
     log.info("v5 ingest: %d rows (%s) -> %s written, %s skipped",
              len(rows), unit, [w["day"] for w in written], [k["day"] for k in skipped])
@@ -852,9 +867,21 @@ def api_v5_ingest_status():
     """What the inbox currently holds, so a silent forwarder failure is visible."""
     out = []
     try:
+        import csv as _csv
+        import io as _io
         for p in sorted(RINGCX_INBOX_DIR.glob("interactions_*.csv"), reverse=True)[:14]:
             st = p.stat()
-            out.append({"file": p.name, "bytes": st.st_size,
+            rows_n, covers_to = 0, None
+            try:
+                rs = list(_csv.DictReader(_io.StringIO(
+                    p.read_text(encoding="utf-8-sig", errors="replace"))))
+                rows_n = len(rs)
+                covers_to = max(((r.get("Interaction Start Time") or "").split(" ")[0]
+                                 for r in rs), default=None) or None
+            except Exception:  # noqa: BLE001
+                pass
+            out.append({"file": p.name, "rows": rows_n, "covers_to": covers_to,
+                        "bytes": st.st_size,
                         "modified_utc": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(),
                         "age_hours": round((time.time() - st.st_mtime) / 3600.0, 2)})
     except Exception as e:  # noqa: BLE001
