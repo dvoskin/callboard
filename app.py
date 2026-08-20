@@ -861,6 +861,104 @@ def api_v5_ingest():
                     "agents": len({r["agent_name"] for r in rows})})
 
 
+@app.route("/api/v5/diag")
+@login_required
+def api_v5_diag():
+    """Why is a source empty? Answers it instead of leaving it to be guessed.
+
+    _fetch_ringex_agent_calls swallows a non-OK response into an empty list, so a
+    missing ReadCallLog permission, an expired JWT and a genuinely quiet phone all
+    look identical downstream. This makes the same request and reports what came
+    back. Status codes and the API's own error text only -- never a credential.
+    """
+    out = {"configured": _ringcx.configured, "checks": []}
+
+    def add(name, ok, detail, extra=None):
+        row = {"check": name, "ok": ok, "detail": detail}
+        if extra:
+            row.update(extra)
+        out["checks"].append(row)
+
+    if not _ringcx.configured:
+        add("credentials", False,
+            "RC_CLIENT_ID / RC_CLIENT_SECRET / RC_JWT_TOKEN are not all set on this "
+            "instance. Nothing can be fetched from RingCentral.")
+        return jsonify(out)
+    add("credentials", True, "RC_CLIENT_ID, RC_CLIENT_SECRET and RC_JWT_TOKEN are set.")
+
+    # 1. can we get a RingEX token at all?
+    try:
+        _ringcx._ensure_rc_token()
+        add("ringex_token", True, "JWT exchanged for an access token.")
+    except Exception as e:  # noqa: BLE001
+        add("ringex_token", False,
+            "Could not exchange the JWT for an access token: %s. Usually an expired or "
+            "revoked JWT, or the app's client id/secret not matching the JWT." % e)
+        return jsonify(out)
+
+    tz_param = request.args.get("tz")
+    tz_off = int(tz_param) if tz_param is not None else None
+    day = request.args.get("start") or datetime.now(timezone.utc).date().isoformat()
+    start_dt = _parse_local_date_to_utc(day, 0, 0, 0, tz_off)
+    end_dt = _parse_local_date_to_utc(day, 23, 59, 59, tz_off)
+
+    # 2. the exact call the report makes, with the response surfaced
+    try:
+        import requests as _rq
+        resp = _rq.get(
+            "%s/restapi/v1.0/account/%s/call-log" % (_ringcx.server_url, _ringcx.account_id),
+            headers=_ringcx._rc_headers(),
+            params={"dateFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "dateTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "view": "Simple", "perPage": 250, "page": 1},
+            timeout=25)
+        if resp.ok:
+            recs = (resp.json() or {}).get("records", [])
+            named = sum(1 for r in recs
+                        if ((r.get("from") or {}).get("name") or
+                            (r.get("to") or {}).get("name")))
+            add("ringex_call_log", True,
+                "HTTP 200. %d call(s) on page 1 for %s, %d carrying an agent name."
+                % (len(recs), day, named),
+                {"records_page_1": len(recs), "with_agent_name": named})
+            if recs and not named:
+                add("ringex_attribution", False,
+                    "Calls came back but none carry a name on either leg, so every one "
+                    "is dropped as unattributed. The report will read zero.")
+        else:
+            body = (resp.text or "")[:400]
+            hint = ""
+            if resp.status_code in (401, 403):
+                hint = (" The app most likely lacks the ReadCallLog permission, or the "
+                        "JWT is not for an account-level admin. Account-wide call log "
+                        "needs both.")
+            add("ringex_call_log", False,
+                "HTTP %d from the account call-log.%s API said: %s"
+                % (resp.status_code, hint, body),
+                {"status": resp.status_code})
+    except Exception as e:  # noqa: BLE001
+        add("ringex_call_log", False, "Request raised: %s" % e)
+
+    # 3. the RingCX side, for contrast
+    try:
+        cx = _ringcx._fetch_ringcx_cdr_rows(start_dt, end_dt)
+        add("ringcx_cdr", bool(cx), "%d CDR row(s) for %s." % (len(cx), day),
+            {"rows": len(cx)})
+    except Exception as e:  # noqa: BLE001
+        add("ringcx_cdr", False, "Request raised: %s" % e)
+
+    # 4. what the inbox holds
+    try:
+        out["inbox"] = _inbox_days()[:10]
+    except Exception:  # noqa: BLE001
+        out["inbox"] = []
+    bad = [c["check"] for c in out["checks"] if not c["ok"]]
+    out["verdict"] = ("RingEX is returning attributed calls."
+                      if not bad else
+                      "RingEX will report zero — failing: %s" % ", ".join(bad))
+    return jsonify(out)
+
+
 @app.route("/api/v5/ingest/status")
 @login_required
 def api_v5_ingest_status():
