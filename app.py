@@ -765,11 +765,25 @@ def _snapshot_ringex(day_iso: str, tz_offset_minutes=None):
         end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
         rows = _ringcx._fetch_ringex_agent_calls(start_dt, end_dt)
         note = getattr(_ringcx, "last_ringex_note", None)
-        if not rows and note:
-            # A partial or refused fetch must not overwrite a good snapshot with
-            # an empty one -- that is a quiet phone and a broken pull looking alike.
-            log.warning("RingEX snapshot for %s not stored: %s", day_iso, note)
-            return {"stored": False, "reason": note}
+        if not rows:
+            # Never let an empty result clobber a snapshot that has calls in it.
+            # Checking the note alone was not enough: a fetch that RAISES returns
+            # [] with no note, so the guard never fired and an empty snapshot was
+            # written over a good one -- the board would then read zero RingEX
+            # until the next report. An empty first snapshot of a day is fine; a
+            # regression from populated to empty never is.
+            # A KNOWN failure never gets written, even as the first snapshot of a
+            # day: "the fetch broke" and "nobody called yet" must not share a shape
+            # on disk. The note is now always set on the failure path.
+            if note:
+                log.warning("RingEX snapshot for %s not stored: %s", day_iso, note)
+                return {"stored": False, "reason": note}
+            prev = _load_ringex_snapshot(day_iso)
+            if prev and prev[0]:
+                log.warning("RingEX snapshot for %s NOT stored (kept %d existing calls): %s",
+                            day_iso, len(prev[0]), note or "empty result, no reason given")
+                return {"stored": False, "kept_existing": len(prev[0]),
+                        "reason": note or "fetch returned no calls"}
         payload = {"fetched_utc": datetime.now(timezone.utc).isoformat(),
                    "day": day_iso, "calls": rows, "note": note}
         _ringex_snap_path(day_iso).write_text(json.dumps(payload), encoding="utf-8")

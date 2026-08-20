@@ -1041,6 +1041,12 @@ class RingCXClient:
                      len(out), start_dt.date(), end_dt.date())
             return out
         except Exception as e:
+            # Must leave a note. Returning [] silently is how a broken fetch and a
+            # quiet phone became indistinguishable for 41 days; a caller persisting
+            # this result would bake that ambiguity onto disk.
+            self.last_ringex_note = (
+                "RingEX call-log request failed: %s. No calls could be read, which is "
+                "not the same as there being none." % e)
             log.error("RingEX call-log (all) error: %s", e)
             return []
 
