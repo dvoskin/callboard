@@ -29,9 +29,18 @@ The script runs under your own Google account. Nothing else reads the mailbox.
 
 ## Check it is working
 
-- `GET /api/v5/ingest/status` (signed in) — what the inbox holds and how stale it is.
-- In Gmail, an ingested thread gets the `ringcx/ingested` label; a failed one gets
-  `ringcx/failed` and is **retried** on the next run rather than skipped.
+- `GET /api/v5/ingest/status` (signed in) — every day held, with its row count,
+  how far into the day it reaches (`covers_to`) and how old the file is.
+- In Apps Script, **Executions** shows each run and its log.
+- In Gmail, an ingested thread gets `ringcx/ingested`; a failure gets
+  `ringcx/failed` and is retried next tick rather than skipped.
+
+Progress is tracked per **message**, in Script Properties — not per thread.
+Gmail groups messages sharing a subject into one thread, so filtering out
+already-labelled threads goes permanently blind to every later report that
+arrives in the same thread. The labels are for humans; the message ids are the
+gate. `resetAndResend()` clears that history and re-sends everything in the
+window, which is what to run after a fix.
 
 A forwarder that has quietly stopped looks exactly like a quiet day downstream,
 so check the age in `/api/v5/ingest/status` rather than assuming delivery.

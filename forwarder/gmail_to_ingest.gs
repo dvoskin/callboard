@@ -1,91 +1,118 @@
 /**
  * Gmail -> call-tracker  ·  RingCX Interaction Report forwarder
  *
- * RingCX emails an Interaction Report on a schedule. This picks the attachment
- * off that email and POSTs it to /api/v5/ingest, so /v5 reports from the same
- * report the figures were verified against instead of the live CDR pull.
+ * RingCX emails an Interaction Report on a schedule. This takes the CSV off each
+ * message and POSTs it to /api/v5/ingest, so /v5 reports from the same report the
+ * figures were verified against rather than the live CDR pull.
  *
  * Runs inside YOUR Google account. Nothing else ever reads the mailbox.
  *
- * SETUP (about two minutes)
- *   1. script.google.com  ->  New project  ->  DELETE the placeholder
- *      `function myFunction() { }` entirely, then paste this file. Pasting
- *      inside the placeholder nests everything and nothing shows up in the
- *      Run or Trigger dropdowns.
- *   2. Fill in INGEST_KEY below
- *   3. Run `testOnce` once and approve the Gmail + external-request prompts
+ * SETUP
+ *   1. script.google.com -> New project -> DELETE the `function myFunction() { }`
+ *      placeholder entirely, then paste this file. Pasting inside it nests every
+ *      function and none appear in the Run or Trigger dropdowns.
+ *   2. Fill in INGEST_KEY below.
+ *   3. Run `testOnce` and approve the Gmail + external-request prompts.
  *   4. Triggers (clock icon) -> Add Trigger -> forwardRingCXReports,
- *      Time-driven, Hour timer, every hour
+ *      Time-driven, Minutes timer, every 15 minutes.
  *
- * It labels what it has sent, so re-running never double-posts and a backlog
- * after an outage is picked up on the next tick.
+ * Progress is tracked per MESSAGE, not per thread. Gmail groups messages that
+ * share a subject into one thread, so an earlier version that excluded already
+ * -labelled THREADS went permanently blind to every later report arriving in the
+ * same thread. Labels are still applied, but only so a human can see what
+ * happened -- they are not the gate.
  */
 
 // ── settings ───────────────────────────────────────────────────
-const HOST       = 'https://call-tracker-3z6t.onrender.com';  // your Render URL
+const HOST       = 'https://call-tracker-3z6t.onrender.com';
 const INGEST_KEY = 'PASTE_THE_SAME_VALUE_AS_INGEST_API_KEY_ON_RENDER';
 
-// Every report email comes from this address, so match on the sender rather than
-// a subject line that RingCX can reword without telling anyone.
 const SENDER     = 'ringcx.analytics@ringcentral.com';
-// 7 days, not 1: the label makes re-runs idempotent, so a wide window costs
-// nothing and lets a weekend outage catch up on its own instead of losing
-// Friday's reports. Each report files under the day its ROWS cover, not the day
-// it was sent, so backfilling old mail cannot overwrite today.
-const QUERY      = 'from:' + SENDER + ' newer_than:7d';
+const QUERY      = 'from:' + SENDER + ' newer_than:2d';
 
 const LABEL_DONE = 'ringcx/ingested';
 const LABEL_FAIL = 'ringcx/failed';
+const SEEN_KEY   = 'ringcx_seen_message_ids';
+const SEEN_MAX   = 400;
+
+// ── seen-message bookkeeping ───────────────────────────────────
+function seen_() {
+  const raw = PropertiesService.getScriptProperties().getProperty(SEEN_KEY);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (e) { return {}; }
+}
+function markSeen_(map, id) {
+  map[id] = Date.now();
+  const ids = Object.keys(map);
+  if (ids.length > SEEN_MAX) {                       // keep the newest SEEN_MAX
+    ids.sort(function (a, b) { return map[a] - map[b]; })
+       .slice(0, ids.length - SEEN_MAX)
+       .forEach(function (k) { delete map[k]; });
+  }
+}
+function saveSeen_(map) {
+  PropertiesService.getScriptProperties().setProperty(SEEN_KEY, JSON.stringify(map));
+}
 
 // ── main ───────────────────────────────────────────────────────
 function forwardRingCXReports() {
   const done = getOrCreateLabel_(LABEL_DONE);
   const fail = getOrCreateLabel_(LABEL_FAIL);
-  // -label: means an already-ingested thread is skipped, so this is safe to
-  // run as often as you like and safe to re-run after a failure.
-  const threads = GmailApp.search(QUERY + ' -label:' + LABEL_DONE, 0, 25);
-  if (!threads.length) { console.log('nothing new'); return; }
+  const map = seen_();
+  const threads = GmailApp.search(QUERY, 0, 25);     // no label filter — see header
+  let sent = 0, failed = 0, already = 0, noCsv = 0;
 
-  let sent = 0, failed = 0;
   threads.forEach(function (thread) {
-    let threadOk = false;
+    let ok = false, bad = false;
     thread.getMessages().forEach(function (msg) {
-      const atts = msg.getAttachments();
-      if (!atts.length) return;                     // a notification with no report
-      atts.forEach(function (att) {
-        // Inline images and signature parts come through as attachments with no
-        // name and no bytes. They are not a missing report -- don't cry wolf.
-        const name = att.getName() || '';
-        if (!name || att.getSize() === 0) return;
-        if (!/\.csv$/i.test(name)) {
-          // Say so out loud. A silently skipped attachment is how a forwarder
-          // ends up looking healthy while delivering nothing.
-          console.warn('skipped non-CSV attachment: ' + name +
-                       ' — /api/v5/ingest parses CSV only. If RingCX is sending ' +
-                       'XLSX, the server needs an XLSX parser.');
-          return;
+      const id = msg.getId();
+      if (map[id]) { already++; return; }            // this MESSAGE is done
+
+      const atts = msg.getAttachments().filter(function (a) {
+        return a.getName() && a.getSize() > 0;       // skip inline signature images
+      });
+      const csvs = atts.filter(function (a) { return /\.csv$/i.test(a.getName()); });
+      if (!csvs.length) {
+        if (atts.length) {
+          console.warn('no CSV on "' + msg.getSubject() + '" — attachments: ' +
+                       atts.map(function (a) { return a.getName(); }).join(', ') +
+                       '. /api/v5/ingest parses CSV only.');
+          noCsv++;
         }
+        return;                                      // not marked seen: it may be edited/resent
+      }
+
+      let allOk = true;
+      csvs.forEach(function (att) {
         const res = post_(att);
         const code = res.getResponseCode();
         if (code === 200) {
           console.log('ingested ' + att.getName() + ' -> ' + res.getContentText());
-          threadOk = true; sent++;
+          sent++;
         } else {
-          // Do NOT label as done. The report never silently goes missing:
-          // it stays unlabelled and is retried on the next run.
-          console.error('ingest failed ' + code + ' for ' + att.getName() +
+          console.error('ingest FAILED ' + code + ' for ' + att.getName() +
                         ' -> ' + res.getContentText());
-          thread.addLabel(fail); failed++;
+          allOk = false; failed++;
         }
       });
+      // Only a fully successful message is remembered. A failure stays unseen and
+      // is retried next tick, so a report never silently goes missing.
+      if (allOk) { markSeen_(map, id); ok = true; } else { bad = true; }
     });
-    if (threadOk) { thread.addLabel(done); thread.removeLabel(fail); }
+    if (ok) thread.addLabel(done);
+    if (bad) thread.addLabel(fail); else if (ok) thread.removeLabel(fail);
   });
-  console.log('sent ' + sent + ', failed ' + failed);
-  // A forwarder that quietly stops looks exactly like a quiet day downstream.
-  // Anything that failed keeps the ringcx/failed label until it succeeds, and
-  // /api/v5/ingest/status shows how stale the newest delivered report is.
-  if (failed && !sent) throw new Error('every ingest failed — check INGEST_KEY and HOST');
+
+  saveSeen_(map);
+  console.log('threads ' + threads.length + ' | sent ' + sent + ' | failed ' + failed +
+              ' | already done ' + already + ' | messages without a CSV ' + noCsv);
+  if (!threads.length) {
+    console.warn('Query matched nothing. Check the report really comes from ' + SENDER +
+                 ' and arrived within the last 2 days.');
+  }
+  if (failed && !sent) {
+    throw new Error('every ingest failed — check INGEST_KEY matches INGEST_API_KEY on Render');
+  }
 }
 
 function post_(attachment) {
@@ -102,32 +129,43 @@ function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
-/** Run this by hand first: shows what the query matches, and sends nothing. */
+/** Shows what the query matches and what is already recorded. Sends nothing. */
 function testOnce() {
   console.log('QUERY: ' + QUERY);
+  const map = seen_();
   const threads = GmailApp.search(QUERY, 0, 10);
-  console.log('matches ' + threads.length + ' thread(s)');
-  let csv = 0, other = 0;
+  console.log('matches ' + threads.length + ' thread(s); ' +
+              Object.keys(map).length + ' message(s) already recorded as ingested');
+  let csv = 0, other = 0, pending = 0;
   threads.forEach(function (t) {
+    console.log('— thread: "' + t.getFirstMessageSubject() + '" (' +
+                t.getMessageCount() + ' message(s))');
     t.getMessages().forEach(function (m) {
       const names = m.getAttachments().filter(function (a) {
-        return a.getName() && a.getSize() > 0;      // skip inline images
+        return a.getName() && a.getSize() > 0;
       }).map(function (a) {
         if (/\.csv$/i.test(a.getName())) { csv++; } else { other++; }
         return a.getName() + ' (' + Math.round(a.getSize() / 1024) + ' KB)';
       });
-      console.log(m.getDate() + ' | ' + m.getSubject() + ' | ' +
+      const state = map[m.getId()] ? 'ALREADY INGESTED' : 'PENDING';
+      if (!map[m.getId()] && names.length) pending++;
+      console.log('   ' + m.getDate() + ' | ' + state + ' | ' +
                   (names.join(', ') || 'NO ATTACHMENTS'));
     });
   });
-  console.log('→ ' + csv + ' CSV attachment(s) that would be ingested, ' +
-              other + ' other attachment(s) that would be skipped.');
-  if (!threads.length) {
-    console.log('No match. Check the address is exactly ' + SENDER +
-                ' — search "from:' + SENDER + '" in Gmail and see what comes back.');
-  } else if (!csv) {
-    console.log('WARNING: matched mail but no CSV attachment. The report is ' +
-                'probably being sent as XLSX or as a download link, and the ' +
-                'ingest endpoint parses CSV only. Say what the log shows above.');
+  console.log('→ ' + csv + ' CSV, ' + other + ' other; ' + pending +
+              ' message(s) would be sent on the next run.');
+  if (threads.length && !csv) {
+    console.log('WARNING: mail matched but no CSV attachment. The report may be ' +
+                'arriving as XLSX or as a download link; ingest parses CSV only.');
   }
+}
+
+/** Forget everything and re-send every report in the window. Use after a fix. */
+function resetAndResend() {
+  PropertiesService.getScriptProperties().deleteProperty(SEEN_KEY);
+  const done = GmailApp.getUserLabelByName(LABEL_DONE);
+  if (done) GmailApp.search(QUERY, 0, 25).forEach(function (t) { t.removeLabel(done); });
+  console.log('history cleared — running a full pass now');
+  forwardRingCXReports();
 }
