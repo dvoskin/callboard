@@ -53,10 +53,14 @@ function forwardRingCXReports() {
       const atts = msg.getAttachments();
       if (!atts.length) return;                     // a notification with no report
       atts.forEach(function (att) {
-        if (!/\.csv$/i.test(att.getName())) {
+        // Inline images and signature parts come through as attachments with no
+        // name and no bytes. They are not a missing report -- don't cry wolf.
+        const name = att.getName() || '';
+        if (!name || att.getSize() === 0) return;
+        if (!/\.csv$/i.test(name)) {
           // Say so out loud. A silently skipped attachment is how a forwarder
           // ends up looking healthy while delivering nothing.
-          console.warn('skipped non-CSV attachment: ' + att.getName() +
+          console.warn('skipped non-CSV attachment: ' + name +
                        ' — /api/v5/ingest parses CSV only. If RingCX is sending ' +
                        'XLSX, the server needs an XLSX parser.');
           return;
@@ -106,7 +110,9 @@ function testOnce() {
   let csv = 0, other = 0;
   threads.forEach(function (t) {
     t.getMessages().forEach(function (m) {
-      const names = m.getAttachments().map(function (a) {
+      const names = m.getAttachments().filter(function (a) {
+        return a.getName() && a.getSize() > 0;      // skip inline images
+      }).map(function (a) {
         if (/\.csv$/i.test(a.getName())) { csv++; } else { other++; }
         return a.getName() + ' (' + Math.round(a.getSize() / 1024) + ' KB)';
       });

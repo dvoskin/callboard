@@ -760,30 +760,68 @@ def api_v5_ingest():
                         "detail": "No CSV received. Send it as multipart 'file' or a raw body."}), 400
     text = raw.decode("utf-8-sig", errors="replace")
     try:
-        rows, unit = parse_interaction_csv(text)
+        rows, unit = parse_interaction_csv(text)     # shape check before anything is stored
     except CsvShapeError as e:
         return jsonify({"error": "wrong_file", "detail": str(e)}), 400
     except Exception as e:  # noqa: BLE001
         log.exception("v5 ingest parse failed")
         return jsonify({"error": "parse_failed", "detail": str(e)}), 400
 
-    # File the report under the day it actually covers, not the day it arrived --
-    # the hourly email for a shift that crosses midnight would otherwise land wrong.
-    days = {}
-    for r in rows:
-        d = (r.get("start_time") or "").split(" ")[0]
-        if d:
-            days[d] = days.get(d, 0) + 1
-    day_us = max(days, key=days.get) if days else datetime.now(timezone.utc).date().isoformat()
-    try:
-        day_iso = datetime.strptime(day_us, "%m/%d/%Y").date().isoformat()
-    except ValueError:
-        day_iso = day_us
-    p = _inbox_path_for(day_iso)
-    p.write_text(text, encoding="utf-8")
-    log.info("v5 ingest: %d rows (%s) -> %s", len(rows), unit, p.name)
-    return jsonify({"status": "ok", "rows": len(rows), "unit": unit,
-                    "day": day_iso, "stored_as": p.name,
+    # The emailed hourly report is a ROLLING export covering more than one day
+    # (2,525 rows across 08/19-08/20 in the first live delivery). Filing the whole
+    # file under one day put a 3PM report from the 20th into the 19th's slot, and
+    # three reports in a row overwrote each other. Split it and file each day
+    # separately.
+    import csv as _csv
+    import io as _io
+    rdr = _csv.DictReader(_io.StringIO(text.lstrip("\ufeff")))
+    header = rdr.fieldnames or []
+    by_day = {}
+    for r in rdr:
+        d = (r.get("Date") or "").strip()
+        if not d or d.lower() == "average":
+            continue
+        by_day.setdefault(d, []).append(r)
+    if not by_day:
+        return jsonify({"error": "no_dated_rows",
+                        "detail": "No rows carried a Date, so nothing could be filed."}), 400
+
+    written, skipped = [], []
+    for day_us, day_rows in sorted(by_day.items()):
+        try:
+            day_iso = datetime.strptime(day_us, "%m/%d/%Y").date().isoformat()
+        except ValueError:
+            day_iso = day_us
+        path = _inbox_path_for(day_iso)
+
+        # A rolling report can arrive out of order (the 1PM one after the 3PM one).
+        # Only replace a day when the incoming file has at least as many rows for
+        # it -- otherwise a late, staler delivery silently rewinds the day.
+        have = 0
+        if path.exists():
+            try:
+                have = sum(1 for _ in _csv.DictReader(
+                    _io.StringIO(path.read_text(encoding="utf-8-sig", errors="replace")))) 
+            except Exception:  # noqa: BLE001
+                have = 0
+        if have > len(day_rows):
+            skipped.append({"day": day_iso, "incoming": len(day_rows), "kept": have,
+                            "reason": "stored report is more complete"})
+            continue
+
+        buf = _io.StringIO()
+        w = _csv.DictWriter(buf, fieldnames=header, extrasaction="ignore")
+        w.writeheader()
+        for r in day_rows:
+            w.writerow(r)
+        path.write_text(buf.getvalue(), encoding="utf-8")
+        written.append({"day": day_iso, "rows": len(day_rows), "stored_as": path.name,
+                        "replaced_rows": have or None})
+
+    log.info("v5 ingest: %d rows (%s) -> %s written, %s skipped",
+             len(rows), unit, [w["day"] for w in written], [k["day"] for k in skipped])
+    return jsonify({"status": "ok", "total_rows": len(rows), "unit": unit,
+                    "days_written": written, "days_skipped": skipped,
                     "agents": len({r["agent_name"] for r in rows})})
 
 
