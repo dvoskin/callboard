@@ -951,7 +951,8 @@ class RingCXClient:
                     log.warning("RingEX call-log page %d failed: %s", page, resp.status_code)
                     break
                 data = resp.json()
-                for rec in data.get("records", []):
+                records = data.get("records", [])
+                for rec in records:
                     frm = rec.get("from") or {}
                     to = rec.get("to") or {}
                     direction = rec.get("direction", "") or ""
