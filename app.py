@@ -715,22 +715,43 @@ def _inbox_path_for(day: str):
     return RINGCX_INBOX_DIR / ("interactions_%s.csv" % day)
 
 
-def _load_inbox_csv(date_start: str, max_age_hours: float = 26.0):
-    """Newest delivered Interaction Report for a day, or None.
+def _inbox_days():
+    """Every day the inbox holds a report for, newest first."""
+    out = []
+    try:
+        for p in RINGCX_INBOX_DIR.glob("interactions_*.csv"):
+            out.append(p.stem.replace("interactions_", ""))
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(out, reverse=True)
 
-    Returns (rows, meta) so the report can say which source it used -- never
-    silently swap sources, because the two do not contain the same calls.
+
+def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: float = 3.0):
+    """Delivered Interaction Report for a day, or None.
+
+    Staleness only means something for TODAY, where an old file says the hourly
+    forwarder has stopped. A past day's report is final and will always be old --
+    refusing it there would silently fall back to the live CDR API for every
+    historical day, which is a different report with different calls in it.
+
+    Returns (rows, meta) so the report can always say which source it used.
     """
     p = _inbox_path_for(date_start)
     if not p.exists():
         return None
     try:
         age_h = (time.time() - p.stat().st_mtime) / 3600.0
-        if age_h > max_age_hours:
-            return None
         rows, unit = parse_interaction_csv(p.read_text(encoding="utf-8-sig", errors="replace"))
-        return rows, {"source": "emailed_interaction_report", "file": p.name,
-                      "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2)}
+        meta = {"source": "emailed_interaction_report", "file": p.name,
+                "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2)}
+        if is_today and age_h > stale_after_hours:
+            # Still use it -- a stale report beats a different report -- but say so.
+            meta["stale"] = True
+            meta["stale_detail"] = (
+                "The newest delivered report for today is %.1f hours old. The report "
+                "is emailed hourly, so the forwarder has probably stopped. Figures "
+                "below are correct up to that point, not up to now." % age_h)
+        return rows, meta
     except Exception as e:  # noqa: BLE001
         log.warning("ringcx inbox %s unusable: %s", p.name, e)
         return None
@@ -871,7 +892,13 @@ def api_v5_report():
         # pull. They are different reports and do not contain the same calls, so
         # the choice is always reported in meta rather than made silently.
         # ?source=api forces the live pull, for comparing the two.
-        inbox = None if request.args.get("source") == "api" else _load_inbox_csv(date_start)
+        # "today" in the viewer's own timezone, not UTC -- at 8pm Eastern it is
+        # already tomorrow in UTC, and the freshness rule would misfire.
+        _off = tz_offset_minutes if tz_offset_minutes is not None else \
+            -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
+        inbox = (None if request.args.get("source") == "api"
+                 else _load_inbox_csv(date_start, is_today=(date_start == local_today)))
 
         from concurrent.futures import ThreadPoolExecutor as _TP
         with _TP(max_workers=2) as pool:
@@ -890,6 +917,10 @@ def api_v5_report():
                                  window={"start": date_start, "end": date_end})
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
         report["meta"]["ringcx_source"] = cx_source
+        report["meta"]["available_days"] = _inbox_days()[:60]
+        if cx_source.get("stale"):
+            report.setdefault("warnings", []).append(
+                {"kind": "report_stale", "detail": cx_source["stale_detail"]})
         if cx_source["source"] == "live_cdr_api":
             report.setdefault("warnings", []).append({
                 "kind": "ringcx_source_fallback",

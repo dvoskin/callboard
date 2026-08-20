@@ -32,6 +32,11 @@
        border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:0}
   .ctl button{cursor:pointer;font-weight:650}
   .ctl button:hover{border-color:var(--up);color:var(--up)}
+  .day{cursor:pointer;font-family:var(--m);font-size:11px;padding:4px 8px;
+       border:1px solid var(--line);background:var(--card);color:var(--muted)}
+  .day:hover{border-color:var(--up);color:var(--up)}
+  .day.on{border-color:var(--up);color:var(--up);font-weight:650}
+  .card.stale{border-left:3px solid var(--mid)}
   .barline{font-family:var(--m);font-size:11.5px;color:var(--muted);background:var(--card);
            border:1px solid var(--line);padding:8px 11px;line-height:1.7}
   .barline b{color:var(--ink);font-weight:650}
@@ -99,6 +104,7 @@
       <button id="go">Refresh</button>
       <span class="spin" id="spin"></span>
     </div>
+    <div class="ctl" id="days"></div>
     {% endif %}
   </div>
   <div id="out"><div class="msg spin">Pulling calls from RingEX and RingCX…</div></div>
@@ -186,6 +192,11 @@
         '</b> of the connected RingEX calls. The board above merges both, counting each matched call once.</p></div>';
 
       (d.warnings || []).forEach(function (w) {
+        if (w.kind === 'report_stale') {
+          h += '<div class="card stale"><h2>Report is behind</h2><p class="note">' +
+               esc(w.detail) + '</p></div>';
+          return;
+        }
         h += '<div class="card warn"><h2>' + esc(w.kind.replace(/_/g, ' ')) + '</h2>' +
              '<p class="note">' + esc(w.detail || '') +
              (w.values ? ' — ' + w.values.map(function (v) { return esc(v[0]) + ' ×' + v[1]; }).join(', ') : '') +
@@ -217,6 +228,19 @@
           return;
         }
         var m = res.j.meta || {};
+        var dz = $('days');
+        if (dz && m.available_days) {
+          dz.innerHTML = '';
+          m.available_days.slice(0, 10).forEach(function (d) {
+            var b = document.createElement('button');
+            b.className = 'day' + (d === $('start').value ? ' on' : '');
+            b.textContent = d.slice(5);          // MM-DD
+            b.title = d;
+            b.onclick = function () { $('start').value = d; $('end').value = d; load(); };
+            dz.appendChild(b);
+          });
+          if (!m.available_days.length) dz.textContent = '';
+        }
         $('stamp').textContent = (m.window && m.window.start ? m.window.start : '') +
           ' · ' + m.ringex_calls + ' RingEX calls, ' + m.ringcx_rows + ' RingCX interactions' +
           ' · as of ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
