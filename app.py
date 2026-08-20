@@ -16,10 +16,12 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import functools
+import hmac
 from flask import Flask, jsonify, render_template, request, redirect, session, url_for
 from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
+from v5_report import build_report as build_v5_report
 from telegram_client import TelegramClient
 from books_client import BooksClient
 
@@ -632,6 +634,105 @@ def quote_followups_page():
     follow-up task cadence synced live from the CRM's 'Quote Follow Up' tasks."""
     user = session.get("user") or {}
     return render_template("quote_followups.html", current_user=user)
+
+
+# ══════════════════════════════════════════════════════════════
+# v5 — talk-time scoreboard, reconciled live across RingEX + RingCX
+# ══════════════════════════════════════════════════════════════
+# Read-only share link for the sales floor. The board names individuals and their
+# performance, so without a token configured /v5/board serves nothing at all.
+SCOREBOARD_TOKEN = os.environ.get("SCOREBOARD_TOKEN", "")
+if not SCOREBOARD_TOKEN:
+    print(
+        "[v5] SCOREBOARD_TOKEN is not set — /v5/board returns 404 for every request. "
+        "Set it on Render to hand the floor a no-login link. /v5 works regardless, "
+        "behind the normal Google login.",
+        flush=True,
+    )
+
+
+def _v5_token_ok() -> bool:
+    """True if the request carries the read-only scoreboard secret."""
+    if not SCOREBOARD_TOKEN:
+        return False  # fail closed
+    supplied = request.args.get("k", "") or request.headers.get("X-Scoreboard-Token", "")
+    return hmac.compare_digest(supplied, SCOREBOARD_TOKEN)
+
+
+def _v5_allowed() -> bool:
+    """Either a signed-in user or the share token. Mirrors login_required's
+    SSO-disabled fallback so local dev behaves the same."""
+    if not GOOGLE_CLIENT_ID:
+        return True
+    return bool(session.get("user")) or _v5_token_ok()
+
+
+@app.route("/v5")
+@login_required
+def scoreboard_v5():
+    """Talk time and call performance per agent, reconciled live across both phone
+    systems. Full view: adds the RingEX/RingCX reconciliation and data warnings."""
+    return render_template("scoreboard_v5.html",
+                           current_user=session.get("user") or {},
+                           share_mode=False, share_token="")
+
+
+@app.route("/v5/board")
+def scoreboard_v5_board():
+    """Read-only scoreboard on a share link — no login, for the floor.
+
+    404 rather than 403 on a bad token: this URL gets forwarded around, and a 403
+    confirms the endpoint exists and is worth guessing at."""
+    if not _v5_token_ok():
+        return ("Not Found", 404)
+    return render_template("scoreboard_v5.html", current_user={},
+                           share_mode=True, share_token=request.args.get("k", ""))
+
+
+@app.route("/api/v5/report")
+def api_v5_report():
+    """Merged ledger + reconciliation for a window. Serves /v5 and /v5/board."""
+    if not _v5_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        today = datetime.now(timezone.utc).date()
+        date_start = request.args.get("start") or today.isoformat()
+        date_end = request.args.get("end") or date_start
+        tz_param = request.args.get("tz")
+        tz_offset_minutes = int(tz_param) if tz_param is not None else None
+
+        start_dt = _parse_local_date_to_utc(date_start, 0, 0, 0, tz_offset_minutes)
+        end_dt = _parse_local_date_to_utc(date_end, 23, 59, 59, tz_offset_minutes)
+
+        if not _ringcx.configured:
+            # An empty report and a quiet phone look identical. Say which this is —
+            # that ambiguity is exactly what hid the RingEX fetch bug for 41 days.
+            return jsonify({
+                "error": "ringcentral_not_configured",
+                "detail": "RC_CLIENT_ID / RC_CLIENT_SECRET / RC_JWT_TOKEN are not set on "
+                          "this instance, so no calls can be fetched. This is a "
+                          "configuration problem, not a quiet day.",
+            }), 503
+
+        from concurrent.futures import ThreadPoolExecutor as _TP
+        with _TP(max_workers=2) as pool:
+            cx_future = pool.submit(_ringcx._fetch_ringcx_cdr_rows, start_dt, end_dt)
+            ex_future = pool.submit(_ringcx._fetch_ringex_agent_calls, start_dt, end_dt)
+            cx_rows = cx_future.result(timeout=90)
+            ex_rows = ex_future.result(timeout=90)
+
+        # _parse_local_date_to_utc takes minutes WEST of UTC (getTimezoneOffset);
+        # v5_report takes a signed offset EAST. Negate.
+        offset_east = -(tz_offset_minutes if tz_offset_minutes is not None
+                        else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
+        report = build_v5_report(ex_rows, cx_rows, tz_offset_minutes=offset_east,
+                                 window={"start": date_start, "end": date_end})
+        report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
+        report["meta"]["share_mode"] = bool(_v5_token_ok() and not session.get("user"))
+        return jsonify(report)
+    except Exception as e:
+        log.exception("/api/v5/report error")
+        return jsonify({"error": "report_failed", "detail": str(e)}), 500
 
 
 @app.route("/v2/agents")
