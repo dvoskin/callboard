@@ -928,26 +928,51 @@ class RingCXClient:
             date_to = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             out: list[dict] = []
             page = 1
-            max_pages = 20  # 5000 records
+            # The account call-log is in RingCentral's "Heavy" class, ~10 requests
+            # per minute. fetch_todays_outbound_calls already caps at 10 for exactly
+            # this reason; 20 here meant a SINGLE report could blow the whole minute's
+            # budget and come back 429 -> empty, which reads as a quiet phone.
+            max_pages = 10  # 2500 records
+            # Tells the caller the answer is partial. A truncated fetch that looks
+            # complete is worse than one that admits it.
+            self.last_ringex_note = None
+
+            def _get(page_no):
+                """One page, with a single Retry-After-honouring retry on 429."""
+                params = {
+                    "dateFrom": date_from, "dateTo": date_to,
+                    # Simple view — carries name/duration/result/direction (all the
+                    # report needs) and is lighter than Detailed for the account-wide,
+                    # no-phone query.
+                    "view": "Simple", "perPage": 250, "page": page_no,
+                }
+                url = f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log"
+                r = requests.get(url, headers=self._rc_headers(), params=params, timeout=25)
+                if r.status_code == 429:
+                    wait = 5.0
+                    try:
+                        wait = float(r.headers.get("Retry-After") or 5)
+                    except (TypeError, ValueError):
+                        pass
+                    wait = min(max(wait, 1.0), 30.0)
+                    log.warning("RingEX call-log 429 on page %d; waiting %.0fs", page_no, wait)
+                    time.sleep(wait)
+                    r = requests.get(url, headers=self._rc_headers(), params=params, timeout=25)
+                return r
+
             while page <= max_pages:
-                resp = requests.get(
-                    f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log",
-                    headers=self._rc_headers(),
-                    params={
-                        "dateFrom": date_from,
-                        "dateTo": date_to,
-                        # Simple view — same as the board's working account-wide fetch. It
-                        # carries name/duration/result/direction (all the report needs) and
-                        # is lighter than Detailed for the account-wide, no-phone query.
-                        "view": "Simple",
-                        "perPage": 250,
-                        "page": page,
-                    },
-                    timeout=25,
-                )
+                resp = _get(page)
                 if resp.status_code == 204:
                     break
                 if not resp.ok:
+                    self.last_ringex_note = (
+                        "RingEX call-log returned HTTP %d on page %d; the figures below "
+                        "cover only what was fetched before that."
+                        % (resp.status_code, page)
+                        if resp.status_code != 429 else
+                        "RingEX is rate limiting us (HTTP 429). The account call-log allows "
+                        "about 10 requests a minute and this window needed more, so RingEX "
+                        "calls are missing or incomplete.")
                     log.warning("RingEX call-log page %d failed: %s", page, resp.status_code)
                     break
                 data = resp.json()
@@ -1006,6 +1031,12 @@ class RingCXClient:
                 if len(records) < 250:
                     break
                 page += 1
+                time.sleep(1.2)   # pace inside the ~10/min Heavy budget
+            else:
+                self.last_ringex_note = (
+                    "RingEX call-log hit the %d-page cap; there are more calls in this "
+                    "window than were fetched." % max_pages)
+                log.warning("RingEX call-log truncated at %d pages", max_pages)
             log.info("RingEX call-log (all): %d calls %s..%s",
                      len(out), start_dt.date(), end_dt.date())
             return out

@@ -715,6 +715,38 @@ def _inbox_path_for(day: str):
     return RINGCX_INBOX_DIR / ("interactions_%s.csv" % day)
 
 
+# The account call-log is rate limited to roughly 10 requests a minute, and each
+# /v5 load can need several pages of it. Without this, every open tab refreshing
+# itself every 15 minutes, every manual reload and every /api/v5/diag competes for
+# the same budget -- and the loser gets a 429, which the fetch turns into an empty
+# list that reads as a quiet phone. One live pull is shared for a few minutes.
+_V5_LIVE_TTL = 300.0
+_v5_live_cache: dict = {}
+_v5_live_lock = threading.Lock()
+
+
+def _v5_live_fetch(start_dt, end_dt, want_cx: bool):
+    """(ringex_rows, ringcx_rows, meta) — served from a short-lived shared cache."""
+    key = (start_dt.isoformat(), end_dt.isoformat(), bool(want_cx))
+    now = time.time()
+    with _v5_live_lock:
+        hit = _v5_live_cache.get(key)
+        if hit and now - hit["at"] < _V5_LIVE_TTL:
+            return hit["ex"], hit["cx"], {"cached": True,
+                                          "age_seconds": round(now - hit["at"], 1)}
+    from concurrent.futures import ThreadPoolExecutor as _TP
+    with _TP(max_workers=2) as pool:
+        ex_future = pool.submit(_ringcx._fetch_ringex_agent_calls, start_dt, end_dt)
+        cx_future = pool.submit(_ringcx._fetch_ringcx_cdr_rows, start_dt, end_dt) if want_cx else None
+        ex_rows = ex_future.result(timeout=120)
+        cx_rows = cx_future.result(timeout=120) if cx_future else []
+    with _v5_live_lock:
+        _v5_live_cache[key] = {"at": time.time(), "ex": ex_rows, "cx": cx_rows}
+        for k in [k for k, v in _v5_live_cache.items() if time.time() - v["at"] > 3600]:
+            _v5_live_cache.pop(k, None)
+    return ex_rows, cx_rows, {"cached": False, "age_seconds": 0}
+
+
 def _inbox_days():
     """Every day the inbox holds a report for, newest first."""
     out = []
@@ -1025,13 +1057,8 @@ def api_v5_report():
         inbox = (None if request.args.get("source") == "api"
                  else _load_inbox_csv(date_start, is_today=(date_start == local_today)))
 
-        from concurrent.futures import ThreadPoolExecutor as _TP
-        with _TP(max_workers=2) as pool:
-            ex_future = pool.submit(_ringcx._fetch_ringex_agent_calls, start_dt, end_dt)
-            cx_future = None if inbox else pool.submit(
-                _ringcx._fetch_ringcx_cdr_rows, start_dt, end_dt)
-            ex_rows = ex_future.result(timeout=90)
-            cx_rows = inbox[0] if inbox else cx_future.result(timeout=90)
+        ex_rows, live_cx, live_meta = _v5_live_fetch(start_dt, end_dt, want_cx=not inbox)
+        cx_rows = inbox[0] if inbox else live_cx
         cx_source = inbox[1] if inbox else {"source": "live_cdr_api", "rows": len(cx_rows)}
 
         # _parse_local_date_to_utc takes minutes WEST of UTC (getTimezoneOffset);
@@ -1042,6 +1069,11 @@ def api_v5_report():
                                  window={"start": date_start, "end": date_end})
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
         report["meta"]["ringcx_source"] = cx_source
+        report["meta"]["ringex_source"] = dict(live_meta, calls=len(ex_rows))
+        _note = getattr(_ringcx, "last_ringex_note", None)
+        if _note and not live_meta.get("cached"):
+            report.setdefault("warnings", []).append(
+                {"kind": "ringex_incomplete", "detail": _note})
         report["meta"]["available_days"] = _inbox_days()[:60]
         if cx_source.get("stale"):
             report.setdefault("warnings", []).append(
