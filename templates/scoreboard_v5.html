@@ -6,97 +6,137 @@
 <title>Where you stand today</title>
 <style>
   :root{
-    --paper:#F2F5F5;--card:#FFF;--line:#DCE4E3;--line-2:#EAF0EF;
-    --ink:#12211F;--ink-2:#41524F;--muted:#6B7A78;
-    --up:#0B7D77;--mid:#B4700C;--dn:#B33B33;
-    --f:-apple-system,ui-sans-serif,"Segoe UI","Helvetica Neue",Arial,sans-serif;
-    --m:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --paper:#F7F9F9; --card:#FFFFFF; --line:#E4EAE9; --hair:#EFF3F2;
+    --ink:#141F1D; --ink-2:#3E4E4B; --muted:#778785;
+    --up:#0E7C74; --up-bg:#E4F1EF;
+    --mid:#B0761A; --mid-bg:#F8EEDC;
+    --dn:#B4453C; --dn-bg:#F8E7E5;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
   @media (prefers-color-scheme:dark){:root{
-    --paper:#0C1614;--card:#141F1E;--line:#243330;--line-2:#1B2726;
-    --ink:#E9F0EE;--ink-2:#BCCBC8;--muted:#8AA09C;
-    --up:#4DCFC3;--mid:#E8A93F;--dn:#EE8478;}}
+    --paper:#0E1513; --card:#171F1E; --line:#26312F; --hair:#1E2827;
+    --ink:#ECF2F0; --ink-2:#C2CFCC; --muted:#8B9C99;
+    --up:#4FCDC0; --up-bg:#12302D;
+    --mid:#E5A93F; --mid-bg:#2F2611;
+    --dn:#EE8177; --dn-bg:#33201D;
+  }}
   *{box-sizing:border-box}
   body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f);
-       font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:760px;margin:0 auto;padding:20px 13px 48px;display:flex;
-        flex-direction:column;gap:18px}
-  @media(min-width:700px){.wrap{padding:36px 24px 64px;gap:24px}}
-  h1{font-size:22px;line-height:1.15;letter-spacing:-.022em;font-weight:660;margin:0}
-  @media(min-width:700px){h1{font-size:28px}}
-  h2{font-size:13px;font-weight:650;margin:0}
-  .date{font-family:var(--m);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
-  .top{display:flex;flex-direction:column;gap:7px}
+       font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;
+       -webkit-text-size-adjust:100%}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .wrap{max-width:780px;margin:0 auto;padding:22px 16px 56px;
+        display:flex;flex-direction:column;gap:20px}
+  @media(min-width:700px){.wrap{padding:44px 28px 72px;gap:26px}}
+
+  /* ── header ─────────────────────────────────────────── */
+  .top{display:flex;flex-direction:column;gap:10px}
+  .kicker{font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+          color:var(--muted)}
+  h1{margin:0;font-size:25px;line-height:1.12;letter-spacing:-.025em;font-weight:700}
+  @media(min-width:700px){h1{font-size:32px}}
+  h2{margin:0;font-size:13.5px;font-weight:650;letter-spacing:-.005em}
+
   .ctl{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
-  .ctl input,.ctl button{font-family:var(--m);font-size:12px;padding:6px 9px;
-       border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:0}
-  .ctl button{cursor:pointer;font-weight:650}
+  .ctl input,.ctl button{font-family:inherit;font-size:13px;padding:7px 11px;
+       border:1px solid var(--line);background:var(--card);color:var(--ink);
+       border-radius:7px;-webkit-appearance:none}
+  .ctl button{cursor:pointer;font-weight:600}
   .ctl button:hover{border-color:var(--up);color:var(--up)}
-  .day{cursor:pointer;font-family:var(--m);font-size:11px;padding:4px 8px;
+  .day{cursor:pointer;font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:99px;
        border:1px solid var(--line);background:var(--card);color:var(--muted)}
   .day:hover{border-color:var(--up);color:var(--up)}
-  .day.on{border-color:var(--up);color:var(--up);font-weight:650}
-  .card.stale{border-left:3px solid var(--mid)}
-  .barline{font-family:var(--m);font-size:11.5px;color:var(--muted);background:var(--card);
-           border:1px solid var(--line);padding:8px 11px;line-height:1.7}
-  .barline b{color:var(--ink);font-weight:650}
-  .barline u{text-decoration:none;color:var(--up)}
-  .list{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line)}
-  .row{background:var(--card);padding:9px 11px 10px;display:grid;gap:2px 9px;
-       border-left:3px solid var(--bc);grid-template-columns:19px 1fr auto;
+  .day.on{background:var(--up);border-color:var(--up);color:#fff}
+  .spin{font-size:12.5px;color:var(--muted)}
+
+  /* ── the bar to clear ───────────────────────────────── */
+  .bar-card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+            padding:15px 17px;display:flex;flex-direction:column;gap:12px}
+  .bar-head{font-size:12px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;
+            color:var(--muted)}
+  .bar-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:460px){.bar-grid{grid-template-columns:repeat(2,1fr);gap:14px 10px}}
+  .bar-item{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .bar-v{font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+  .bar-l{font-size:11.5px;color:var(--muted);font-weight:500}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);
+          padding-top:11px;border-top:1px solid var(--hair)}
+  .legend b{font-weight:700}
+  .legend .u{color:var(--up)} .legend .d{color:var(--dn)}
+
+  /* ── rows ───────────────────────────────────────────── */
+  .list{display:flex;flex-direction:column;gap:8px}
+  .row{background:var(--card);border:1px solid var(--line);border-radius:11px;
+       padding:12px 14px;display:grid;gap:9px 12px;
+       grid-template-columns:auto 1fr auto;
        grid-template-areas:"rk nm tk" "bar bar bar" "st st st"}
-  .r-ok{--bc:var(--up)}.r-mid{--bc:var(--mid)}.r-low{--bc:var(--dn)}.r-na{--bc:var(--line)}
-  .rk{grid-area:rk;font-family:var(--m);font-size:10.5px;color:var(--muted);align-self:center}
-  .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;align-self:center;
+  .row::before{content:"";position:absolute}
+  .rk{grid-area:rk;align-self:center;width:22px;height:22px;border-radius:99px;
+      display:grid;place-items:center;font-size:11.5px;font-weight:700;
+      background:var(--hair);color:var(--muted)}
+  .r-ok .rk{background:var(--up-bg);color:var(--up)}
+  .r-mid .rk{background:var(--mid-bg);color:var(--mid)}
+  .r-low .rk{background:var(--dn-bg);color:var(--dn)}
+  .nm{grid-area:nm;align-self:center;font-weight:650;font-size:15.5px;letter-spacing:-.015em;
       overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .r-low .nm{color:var(--dn)}
-  .tk{grid-area:tk;font-family:var(--m);font-size:14px;font-weight:650;align-self:center;
-      font-variant-numeric:tabular-nums;white-space:nowrap}
-  .tk i,.st i{font-style:normal;font-size:9px;margin-right:3px;vertical-align:1px}
-  .up{color:var(--up)}.down{color:var(--dn)}
-  .bar{grid-area:bar;display:block;height:4px;background:var(--line-2);margin:4px 0 5px}
-  .bar i{display:block;height:100%;background:var(--bc)}
-  .sts{grid-area:st;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
-  .st{font-family:var(--m);font-size:11px;color:var(--muted);display:flex;
-      align-items:baseline;gap:3px;white-space:nowrap;min-width:0}
-  .st b{font-size:12.5px;font-weight:650;font-variant-numeric:tabular-nums}
-  .st em{font-style:normal;overflow:hidden;text-overflow:ellipsis}
-  .sts .st:nth-child(2){justify-content:center}.sts .st:nth-child(3){justify-content:flex-end}
-  @media(min-width:620px){
-    .row{grid-template-columns:20px 146px 1fr 78px 74px 74px 78px;
-         grid-template-areas:"rk nm bar tk s1 s2 s3";align-items:center;gap:0 12px;padding:8px 13px}
-    .bar{margin:0}.tk{text-align:right}
+  .tk{grid-area:tk;align-self:center;font-size:16px;font-weight:700;letter-spacing:-.02em;
+      white-space:nowrap;display:flex;align-items:baseline;gap:5px}
+  .tk .mk{font-size:10px}
+  .bar{grid-area:bar;height:5px;border-radius:99px;background:var(--hair);overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:var(--bc)}
+  .r-ok{--bc:var(--up)} .r-mid{--bc:var(--mid)} .r-low{--bc:var(--dn)}
+  .sts{grid-area:st;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+       padding-top:9px;border-top:1px solid var(--hair)}
+  .st{display:flex;flex-direction:column;gap:0;min-width:0}
+  .st-v{font-size:14px;font-weight:650;letter-spacing:-.01em;display:flex;
+        align-items:baseline;gap:4px}
+  .st-l{font-size:11px;color:var(--muted);white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .mk{font-size:9.5px;line-height:1}
+  .up{color:var(--up)} .down{color:var(--dn)}
+
+  @media(min-width:660px){
+    .row{grid-template-columns:26px 168px 1fr 92px 78px 78px 84px;
+         grid-template-areas:"rk nm bar tk s1 s2 s3";align-items:center;
+         gap:0 14px;padding:11px 16px}
     .sts{display:contents}
-    .sts .st:nth-child(1){grid-area:s1}.sts .st:nth-child(2){grid-area:s2}
-    .sts .st:nth-child(3){grid-area:s3}.sts .st{justify-content:flex-end}
+    .sts .st:nth-child(1){grid-area:s1} .sts .st:nth-child(2){grid-area:s2}
+    .sts .st:nth-child(3){grid-area:s3}
+    .st{align-items:flex-end;gap:0}
+    .tk{justify-content:flex-end}
   }
-  .card{background:var(--card);border:1px solid var(--line);padding:13px 14px;
-        display:flex;flex-direction:column;gap:9px}
-  .card.flag{border-left:3px solid var(--dn)}
-  .card.warn{border-left:3px solid var(--mid)}
+
+  /* ── cards ──────────────────────────────────────────── */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:15px 17px;display:flex;flex-direction:column;gap:11px}
+  .card.flag{border-color:var(--dn-bg);background:var(--dn-bg)}
+  .card.flag h2{color:var(--dn)}
+  .card.stale{border-color:var(--mid-bg);background:var(--mid-bg)}
+  .card.stale h2{color:var(--mid)}
   ul{list-style:none;margin:0;padding:0}
-  li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 12px;padding:6px 0;
-     border-bottom:1px solid var(--line-2);font-size:14px}
-  li:first-child{padding-top:0}li:last-child{border-bottom:0;padding-bottom:0}
-  li b{font-weight:600}li span{font-family:var(--m);font-size:11px;color:var(--muted)}
-  .note{font-size:12px;color:var(--muted);line-height:1.55;margin:0}
+  li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 14px;
+     padding:8px 0;border-bottom:1px solid var(--hair);font-size:14.5px}
+  li:first-child{padding-top:0} li:last-child{border-bottom:0;padding-bottom:0}
+  li b{font-weight:650}
+  li span{font-size:12.5px;color:var(--muted)}
+  .note{font-size:12.5px;color:var(--muted);line-height:1.6;margin:0}
   .note b{color:var(--ink-2);font-weight:650}
-  .recon{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
-         background:var(--line);border:1px solid var(--line)}
-  .rc{background:var(--card);padding:11px 13px;display:flex;flex-direction:column;gap:3px}
-  .rc b{font-family:var(--m);font-size:20px;font-weight:650;line-height:1.1;color:var(--rc,var(--ink))}
+  .recon{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .rc{background:var(--paper);border-radius:9px;padding:11px 13px;
+      display:flex;flex-direction:column;gap:2px}
+  .rc b{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.1;color:var(--rc,var(--ink))}
   .rc span{font-size:11.5px;color:var(--muted);line-height:1.4}
-  .rc-good{--rc:var(--up)}.rc-bad{--rc:var(--dn)}.rc-warn{--rc:var(--mid)}
-  .msg{padding:16px;border:1px solid var(--line);background:var(--card);font-size:14px}
-  .msg.err{border-left:3px solid var(--dn)}
-  .spin{color:var(--muted);font-family:var(--m);font-size:12px}
+  .rc-good{--rc:var(--up)} .rc-bad{--rc:var(--dn)} .rc-warn{--rc:var(--mid)}
+  .msg{padding:17px;border:1px solid var(--line);border-radius:12px;
+       background:var(--card);font-size:14.5px}
+  .msg.err{border-color:var(--dn-bg);background:var(--dn-bg)}
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <div class="date" id="stamp">loading…</div>
+    <div class="kicker" id="stamp">Loading</div>
     <h1>Where you stand today</h1>
     {% if not share_mode %}
     <div class="ctl">
@@ -107,7 +147,7 @@
     <div class="ctl" id="days"></div>
     {% endif %}
   </div>
-  <div id="out"><div class="msg spin">Pulling calls from RingEX and RingCX…</div></div>
+  <div id="out"><div class="msg">Pulling calls from RingEX and RingCX…</div></div>
 </div>
 
 <script>
@@ -122,41 +162,58 @@
     var p = function (n) { return (n < 10 ? '0' : '') + n; };
     return h ? h + ':' + p(m) + ':' + p(x) : m + ':' + p(x);
   }
+  // A median over an even number of people lands on .5. That is arithmetically
+  // right and reads as a typo on a scoreboard, so the DISPLAY rounds while every
+  // comparison below still uses the true value.
+  function whole(n) { return Math.round(n || 0).toLocaleString(); }
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  function arrow(v, med) {
+  function mark(v, med) {
     var up = v >= med;
-    return '<i class="' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</i>';
+    return '<span class="mk ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>';
+  }
+  function stat(v, med, label) {
+    var up = v >= med;
+    return '<div class="st"><div class="st-v ' + (up ? 'up' : 'down') + '">' +
+           mark(v, med) + '<span class="num">' + whole(v) + '</span></div>' +
+           '<div class="st-l">' + label + '</div></div>';
   }
 
   function render(d) {
     var f = d.floor || {}, ranked = d.ranked || [], thin = d.unranked || [];
     if (!ranked.length && !thin.length) {
-      $('out').innerHTML = '<div class="msg">No calls in this window.</div>';
+      $('out').innerHTML = '<div class="msg">No calls logged in this window.</div>';
       return;
     }
     var mx = ranked.length ? ranked[0].talk : 1;
     var h = '';
 
-    h += '<div class="barline"><b>▲</b> means you’re at or above the floor, ' +
-         '<b>▼</b> means below. Today’s bar to clear: <u><b>' + hm(f.talk) +
-         '</b> talk</u> · <u><b>' + f.attempts + '</b> dials</u> · <u><b>' +
-         f.over_3 + '</b> over 3m</u> · <u><b>' + f.over_10 + '</b> over 10m</u>.</div>';
+    h += '<div class="bar-card"><div class="bar-head">The bar to clear today</div>' +
+         '<div class="bar-grid">' +
+           '<div class="bar-item"><div class="bar-v num">' + hm(f.talk) + '</div><div class="bar-l">talk time</div></div>' +
+           '<div class="bar-item"><div class="bar-v num">' + whole(f.attempts) + '</div><div class="bar-l">dials</div></div>' +
+           '<div class="bar-item"><div class="bar-v num">' + whole(f.over_3) + '</div><div class="bar-l">calls over 3 min</div></div>' +
+           '<div class="bar-item"><div class="bar-v num">' + whole(f.over_10) + '</div><div class="bar-l">calls over 10 min</div></div>' +
+         '</div><div class="legend"><span><b class="u">▲</b> at or above</span>' +
+         '<span><b class="d">▼</b> below</span>' +
+         '<span>the floor median, not a target</span></div></div>';
 
     h += '<div class="list">';
     ranked.forEach(function (a, i) {
-      h += '<div class="row r-' + a.band + '"><span class="rk">' + (i + 1) + '</span>' +
-           '<span class="nm">' + esc(a.name) + '</span>' +
-           '<span class="tk">' + arrow(a.talk, f.talk) + hm(a.talk) + '</span>' +
-           '<span class="bar"><i style="width:' + (a.talk / mx * 100).toFixed(1) + '%"></i></span>' +
-           '<span class="sts">' +
-             '<span class="st">' + arrow(a.attempts, f.attempts) + '<b>' + a.attempts + '</b><em>dials</em></span>' +
-             '<span class="st">' + arrow(a.over_3, f.over_3) + '<b>' + a.over_3 + '</b><em>over 3m</em></span>' +
-             '<span class="st">' + arrow(a.over_10, f.over_10) + '<b>' + a.over_10 + '</b><em>over 10m</em></span>' +
-           '</span></div>';
+      h += '<div class="row r-' + a.band + '">' +
+             '<div class="rk num">' + (i + 1) + '</div>' +
+             '<div class="nm">' + esc(a.name) + '</div>' +
+             '<div class="tk ' + (a.talk >= f.talk ? 'up' : 'down') + '">' +
+               mark(a.talk, f.talk) + '<span class="num">' + hm(a.talk) + '</span></div>' +
+             '<div class="bar"><i style="width:' + (a.talk / mx * 100).toFixed(1) + '%"></i></div>' +
+             '<div class="sts">' +
+               stat(a.attempts, f.attempts, 'dials') +
+               stat(a.over_3, f.over_3, 'over 3 min') +
+               stat(a.over_10, f.over_10, 'over 10 min') +
+             '</div></div>';
     });
     h += '</div>';
 
@@ -164,49 +221,51 @@
     if (low.length) {
       h += '<div class="card flag"><h2>Below the bar on all three</h2><ul>';
       low.slice().reverse().forEach(function (a) {
-        h += '<li><b>' + esc(a.name) + '</b><span>' + hm(a.talk) + ' · ' +
-             a.attempts + ' dials · ' + a.over_3 + ' over 3m</span></li>';
+        h += '<li><b>' + esc(a.name) + '</b><span>' + hm(a.talk) + ' talk · ' +
+             whole(a.attempts) + ' dials · ' + whole(a.over_3) + ' over 3 min</span></li>';
       });
-      h += '</ul><p class="note">Behind on time, volume <b>and</b> conversation length ' +
-           '— not just one. Best place to start is dials.</p></div>';
+      h += '</ul><p class="note">Behind on time, volume <b>and</b> conversation length — ' +
+           'not just one of the three. Dials are the place to start.</p></div>';
     }
     if (thin.length) {
       h += '<div class="card"><h2>Not enough calls logged to rank</h2><ul>';
       thin.forEach(function (a) {
-        h += '<li><b>' + esc(a.name) + '</b><span>' + a.attempts + ' call' +
+        h += '<li><b>' + esc(a.name) + '</b><span>' + whole(a.attempts) + ' call' +
              (a.attempts === 1 ? '' : 's') + ' · ' + hm(a.talk) + ' talk</span></li>';
       });
-      h += '</ul><p class="note">Under ' + (d.meta.min_calls_to_rank) +
+      h += '</ul><p class="note">Under ' + whole(d.meta.min_calls_to_rank) +
            ' calls on the system — usually a part shift, not a slow day.</p></div>';
     }
 
+    (d.warnings || []).forEach(function (w) {
+      if (w.kind !== 'report_stale') return;
+      h += '<div class="card stale"><h2>These figures are behind</h2>' +
+           '<p class="note">' + esc(w.detail) + '</p></div>';
+    });
+
     if (!SHARE) {
       var r = d.recon || {};
-      h += '<div class="card"><h2>RingEX ↔ RingCX reconciliation</h2><div class="recon">' +
-        '<div class="rc rc-good"><b>' + r.matched + '</b><span>matched call for call</span></div>' +
-        '<div class="rc rc-bad"><b>' + r.ex_only + '</b><span>connected in RingEX, absent from RingCX (' +
-          Math.round(r.ex_only_seconds / 60) + ' min)</span></div>' +
-        '<div class="rc rc-warn"><b>' + r.uc_only + '</b><span>in RingCX, absent from RingEX</span></div>' +
-        '<div class="rc"><b>' + r.ex_missed_absent + '</b><span>missed, correctly absent</span></div>' +
+      h += '<div class="card"><h2>RingEX and RingCX reconciliation</h2><div class="recon">' +
+        '<div class="rc rc-good"><b class="num">' + whole(r.matched) + '</b><span>matched call for call</span></div>' +
+        '<div class="rc rc-bad"><b class="num">' + whole(r.ex_only) + '</b><span>in RingEX only (' +
+          whole(r.ex_only_seconds / 60) + ' min)</span></div>' +
+        '<div class="rc rc-warn"><b class="num">' + whole(r.uc_only) + '</b><span>in RingCX only</span></div>' +
+        '<div class="rc"><b class="num">' + whole(r.ex_missed_absent) + '</b><span>missed, correctly absent</span></div>' +
         '</div><p class="note">RingCX holds <b>' + (r.coverage_pct == null ? '—' : r.coverage_pct + '%') +
-        '</b> of the connected RingEX calls. The board above merges both, counting each matched call once.</p></div>';
+        '</b> of the connected RingEX calls. The board merges both, counting each matched call once.</p></div>';
 
       (d.warnings || []).forEach(function (w) {
-        if (w.kind === 'report_stale') {
-          h += '<div class="card stale"><h2>Report is behind</h2><p class="note">' +
-               esc(w.detail) + '</p></div>';
-          return;
-        }
-        h += '<div class="card warn"><h2>' + esc(w.kind.replace(/_/g, ' ')) + '</h2>' +
-             '<p class="note">' + esc(w.detail || '') +
+        if (w.kind === 'report_stale') return;
+        h += '<div class="card"><h2>' + esc(w.kind.replace(/_/g, ' ')) + '</h2><p class="note">' +
+             esc(w.detail || '') +
              (w.values ? ' — ' + w.values.map(function (v) { return esc(v[0]) + ' ×' + v[1]; }).join(', ') : '') +
              (w.count ? ' — ' + w.count + ' rows' : '') + '</p></div>';
       });
     }
 
-    h += '<p class="note">Both phone systems combined, no call counted twice. Talk time only ' +
-         '— wrap and admin not counted. Inbound talk uses the call-log duration, which ' +
-         'includes ring time. Shift length isn’t in the data, so a half day sits beside a full one.</p>';
+    h += '<p class="note">Both phone systems combined, no call counted twice. Talk time only — ' +
+         'wrap and admin are not included. Inbound talk uses call-log duration, which includes ' +
+         'ring time. Shift length is not in the data, so a half day sits beside a full one.</p>';
     $('out').innerHTML = h;
   }
 
@@ -228,22 +287,23 @@
           return;
         }
         var m = res.j.meta || {};
+        var when = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        $('stamp').textContent = (m.window && m.window.start ? m.window.start + ' · ' : '') +
+          whole(m.ringex_calls) + ' RingEX calls · ' + whole(m.ringcx_rows) +
+          ' RingCX interactions · as of ' + when;
         var dz = $('days');
         if (dz && m.available_days) {
           dz.innerHTML = '';
-          m.available_days.slice(0, 10).forEach(function (d) {
+          m.available_days.slice(0, 10).forEach(function (day) {
             var b = document.createElement('button');
-            b.className = 'day' + (d === $('start').value ? ' on' : '');
-            b.textContent = d.slice(5);          // MM-DD
-            b.title = d;
-            b.onclick = function () { $('start').value = d; $('end').value = d; load(); };
+            b.className = 'day' + (day === $('start').value ? ' on' : '');
+            b.textContent = new Date(day + 'T12:00:00').toLocaleDateString(
+              [], { month: 'short', day: 'numeric' });
+            b.title = day;
+            b.onclick = function () { $('start').value = day; $('end').value = day; load(); };
             dz.appendChild(b);
           });
-          if (!m.available_days.length) dz.textContent = '';
         }
-        $('stamp').textContent = (m.window && m.window.start ? m.window.start : '') +
-          ' · ' + m.ringex_calls + ' RingEX calls, ' + m.ringcx_rows + ' RingCX interactions' +
-          ' · as of ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         render(res.j);
       })
       .catch(function (err) {
@@ -259,7 +319,7 @@
     $('go').addEventListener('click', load);
   }
   load();
-  setInterval(load, 15 * 60 * 1000);   // hourly report, refreshed 4x an hour
+  setInterval(load, 15 * 60 * 1000);
 })();
 </script>
 </body>
