@@ -13,3 +13,6 @@ data/
 
 # Saved interactions reports (runtime data, lives on the Render disk)
 saved_reports/
+
+# Delivered RingCX Interaction Reports (runtime data, lives on the Render disk)
+ringcx_inbox/

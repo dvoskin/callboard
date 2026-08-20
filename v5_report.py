@@ -290,3 +290,81 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
         },
         "warnings": warn,
     }
+
+
+# ══════════════════════════════════════════════════════════════
+# RingCX Interaction Report CSV  ->  the row shape the live CDR pull returns
+# ══════════════════════════════════════════════════════════════
+# The emailed/exported "Daily Interaction Report" is a DIFFERENT RingCX report
+# from the GLOBAL_CALL_TYPE_DELIMITED CDR the API pulls, and it is the one whose
+# figures were reconciled by hand. When a fresh one is available it is the
+# authoritative RingCX source; the CDR pull is the fallback.
+CX_REQUIRED_COLUMNS = ("Agent Full Name", "Interaction Start Time", "Channel Type",
+                       "Talk Time (min)", "Sum of Interaction Duration")
+
+
+class CsvShapeError(ValueError):
+    """The uploaded file is not a RingCX Interaction Report."""
+
+
+def parse_interaction_csv(text: str):
+    """Parse an Interaction Report export into CDR-shaped rows.
+
+    Raises CsvShapeError rather than returning a short list -- a silently empty
+    parse is indistinguishable from a quiet day, and that is precisely the failure
+    that hid the RingEX fetch bug for 41 days.
+    """
+    import csv as _csv
+    import io
+
+    rdr = _csv.DictReader(io.StringIO(text.lstrip("﻿")))
+    cols = set(rdr.fieldnames or [])
+    missing = [c for c in CX_REQUIRED_COLUMNS if c not in cols]
+    if missing:
+        raise CsvShapeError(
+            "Not a RingCX Interaction Report — missing column(s): %s. Found: %s"
+            % (", ".join(missing), ", ".join(sorted(cols)[:8]) or "nothing"))
+
+    rows, unit_sec, unit_min = [], 0, 0
+    for r in rdr:
+        if (r.get("Date") or "").strip().lower() == "average":
+            continue
+        if not (r.get("Agent Full Name") or "").strip():
+            continue
+        talk = _num(r.get("Talk Time (min)"))
+        dur = _num(r.get("Sum of Interaction Duration"))
+        if talk > 0 and dur > 0:
+            if abs(talk - dur) < 1.0:
+                unit_sec += 1
+            elif abs(talk * 60 - dur) < 2.0:
+                unit_min += 1
+        uc = (r.get("Channel Type") or "").strip() == "UC Call"
+        ch = (r.get("Channel") or "").strip()
+        rows.append({
+            "agent_name": (r.get("Agent Full Name") or "").strip(),
+            "_talk_raw": talk, "duration": dur,
+            "direction": (r.get("Call Type") or "").strip(),
+            "result": (r.get("Call Result") or "").strip(),
+            "start_time": "%s %s" % ((r.get("Date") or "").strip(),
+                                     (r.get("Interaction Start Time") or "").split(" ")[0]),
+            "ani": (r.get("Lead Phone") or "").strip().strip("'"),     # originating party
+            "dnis": (r.get("Caller ID") or "").strip().strip("'"),     # destination
+            "campaign_name": "" if uc else ch,
+            "queue_name": "UC" if uc else "",
+            "call_type": "UC Call" if uc else "Voice",
+            "agent_disposition": (r.get("Agent Disposition") or "").strip(),
+            "_wrap_raw": _num(r.get("Wrap Time (min)")),
+            "source": "ringcx_csv",
+        })
+    if not rows:
+        raise CsvShapeError("Interaction Report parsed to zero rows — refusing to "
+                            "report an empty day from a file that should have calls.")
+
+    # The columns say "(min)" but the CSV export writes SECONDS while the XLSX
+    # export writes minutes. Decide per file by comparing against Sum of
+    # Interaction Duration, which is always seconds.
+    scale = 60.0 if unit_min > unit_sec else 1.0
+    for r in rows:
+        r["talk_time"] = r.pop("_talk_raw") * scale
+        r["wrap_time"] = r.pop("_wrap_raw") * scale
+    return rows, ("minutes" if scale == 60.0 else "seconds")

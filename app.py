@@ -21,7 +21,8 @@ from flask import Flask, jsonify, render_template, request, redirect, session, u
 from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
-from v5_report import build_report as build_v5_report
+from v5_report import (build_report as build_v5_report,
+                       parse_interaction_csv, CsvShapeError)
 from telegram_client import TelegramClient
 from books_client import BooksClient
 
@@ -689,6 +690,120 @@ def scoreboard_v5_board():
                            share_mode=True, share_token=request.args.get("k", ""))
 
 
+# ── RingCX Interaction Report inbox ────────────────────────────
+# RingCX emails an Interaction Report on a schedule. That report -- not the
+# GLOBAL_CALL_TYPE_DELIMITED CDR the API pulls -- is the one whose figures were
+# reconciled by hand, so when a fresh one has been delivered it wins and the live
+# CDR pull becomes the fallback. A forwarder (Gmail Apps Script, Zapier, anything
+# that can POST) drops the attachment here.
+INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
+RINGCX_INBOX_DIR = _data_dir / "ringcx_inbox"
+try:
+    RINGCX_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+except Exception as e:  # noqa: BLE001
+    log.warning("Could not create ringcx_inbox dir: %s", e)
+if not INGEST_API_KEY:
+    print(
+        "[v5] INGEST_API_KEY is not set — /api/v5/ingest rejects every upload (401), "
+        "so the emailed RingCX Interaction Report cannot be delivered and /v5 falls "
+        "back to the live CDR pull.",
+        flush=True,
+    )
+
+
+def _inbox_path_for(day: str):
+    return RINGCX_INBOX_DIR / ("interactions_%s.csv" % day)
+
+
+def _load_inbox_csv(date_start: str, max_age_hours: float = 26.0):
+    """Newest delivered Interaction Report for a day, or None.
+
+    Returns (rows, meta) so the report can say which source it used -- never
+    silently swap sources, because the two do not contain the same calls.
+    """
+    p = _inbox_path_for(date_start)
+    if not p.exists():
+        return None
+    try:
+        age_h = (time.time() - p.stat().st_mtime) / 3600.0
+        if age_h > max_age_hours:
+            return None
+        rows, unit = parse_interaction_csv(p.read_text(encoding="utf-8-sig", errors="replace"))
+        return rows, {"source": "emailed_interaction_report", "file": p.name,
+                      "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2)}
+    except Exception as e:  # noqa: BLE001
+        log.warning("ringcx inbox %s unusable: %s", p.name, e)
+        return None
+
+
+@app.route("/api/v5/ingest", methods=["POST"])
+def api_v5_ingest():
+    """Accept a RingCX Interaction Report CSV from an email forwarder.
+
+    Auth is a shared secret, not a session: the poster is a script, not a browser.
+    The file is parsed BEFORE it is stored, so a wrong attachment (a PDF, a summary
+    email, an empty report) is rejected loudly instead of quietly replacing a good
+    report with an empty day.
+
+        curl -X POST https://<host>/api/v5/ingest \
+             -H "X-API-Key: $INGEST_API_KEY" \
+             -F "file=@interactions.csv"
+    """
+    supplied = request.headers.get("X-API-Key", "") or request.args.get("key", "")
+    if not INGEST_API_KEY or not hmac.compare_digest(supplied, INGEST_API_KEY):
+        return jsonify({"error": "unauthorized"}), 401
+
+    f = request.files.get("file")
+    raw = f.read() if (f is not None and f.filename) else request.get_data()
+    if not raw:
+        return jsonify({"error": "empty_body",
+                        "detail": "No CSV received. Send it as multipart 'file' or a raw body."}), 400
+    text = raw.decode("utf-8-sig", errors="replace")
+    try:
+        rows, unit = parse_interaction_csv(text)
+    except CsvShapeError as e:
+        return jsonify({"error": "wrong_file", "detail": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        log.exception("v5 ingest parse failed")
+        return jsonify({"error": "parse_failed", "detail": str(e)}), 400
+
+    # File the report under the day it actually covers, not the day it arrived --
+    # the hourly email for a shift that crosses midnight would otherwise land wrong.
+    days = {}
+    for r in rows:
+        d = (r.get("start_time") or "").split(" ")[0]
+        if d:
+            days[d] = days.get(d, 0) + 1
+    day_us = max(days, key=days.get) if days else datetime.now(timezone.utc).date().isoformat()
+    try:
+        day_iso = datetime.strptime(day_us, "%m/%d/%Y").date().isoformat()
+    except ValueError:
+        day_iso = day_us
+    p = _inbox_path_for(day_iso)
+    p.write_text(text, encoding="utf-8")
+    log.info("v5 ingest: %d rows (%s) -> %s", len(rows), unit, p.name)
+    return jsonify({"status": "ok", "rows": len(rows), "unit": unit,
+                    "day": day_iso, "stored_as": p.name,
+                    "agents": len({r["agent_name"] for r in rows})})
+
+
+@app.route("/api/v5/ingest/status")
+@login_required
+def api_v5_ingest_status():
+    """What the inbox currently holds, so a silent forwarder failure is visible."""
+    out = []
+    try:
+        for p in sorted(RINGCX_INBOX_DIR.glob("interactions_*.csv"), reverse=True)[:14]:
+            st = p.stat()
+            out.append({"file": p.name, "bytes": st.st_size,
+                        "modified_utc": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(),
+                        "age_hours": round((time.time() - st.st_mtime) / 3600.0, 2)})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"configured": bool(INGEST_API_KEY), "dir": str(RINGCX_INBOX_DIR),
+                    "files": out})
+
+
 @app.route("/api/v5/report")
 def api_v5_report():
     """Merged ledger + reconciliation for a window. Serves /v5 and /v5/board."""
@@ -714,12 +829,20 @@ def api_v5_report():
                           "configuration problem, not a quiet day.",
             }), 503
 
+        # RingCX: prefer a freshly delivered Interaction Report over the live CDR
+        # pull. They are different reports and do not contain the same calls, so
+        # the choice is always reported in meta rather than made silently.
+        # ?source=api forces the live pull, for comparing the two.
+        inbox = None if request.args.get("source") == "api" else _load_inbox_csv(date_start)
+
         from concurrent.futures import ThreadPoolExecutor as _TP
         with _TP(max_workers=2) as pool:
-            cx_future = pool.submit(_ringcx._fetch_ringcx_cdr_rows, start_dt, end_dt)
             ex_future = pool.submit(_ringcx._fetch_ringex_agent_calls, start_dt, end_dt)
-            cx_rows = cx_future.result(timeout=90)
+            cx_future = None if inbox else pool.submit(
+                _ringcx._fetch_ringcx_cdr_rows, start_dt, end_dt)
             ex_rows = ex_future.result(timeout=90)
+            cx_rows = inbox[0] if inbox else cx_future.result(timeout=90)
+        cx_source = inbox[1] if inbox else {"source": "live_cdr_api", "rows": len(cx_rows)}
 
         # _parse_local_date_to_utc takes minutes WEST of UTC (getTimezoneOffset);
         # v5_report takes a signed offset EAST. Negate.
@@ -728,6 +851,14 @@ def api_v5_report():
         report = build_v5_report(ex_rows, cx_rows, tz_offset_minutes=offset_east,
                                  window={"start": date_start, "end": date_end})
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
+        report["meta"]["ringcx_source"] = cx_source
+        if cx_source["source"] == "live_cdr_api":
+            report.setdefault("warnings", []).append({
+                "kind": "ringcx_source_fallback",
+                "detail": "No Interaction Report has been delivered for this day, so RingCX "
+                          "figures come from the live CDR pull. That is a different report "
+                          "and may not contain every interaction.",
+            })
         report["meta"]["share_mode"] = bool(_v5_token_ok() and not session.get("user"))
         return jsonify(report)
     except Exception as e:
