@@ -747,6 +747,56 @@ def _v5_live_fetch(start_dt, end_dt, want_cx: bool):
     return ex_rows, cx_rows, {"cached": False, "age_seconds": 0}
 
 
+def _ringex_snap_path(day: str):
+    return RINGCX_INBOX_DIR / ("ringex_%s.json" % day)
+
+
+def _snapshot_ringex(day_iso: str, tz_offset_minutes=None):
+    """Capture RingEX for a day and store it beside that day's RingCX report.
+
+    Taken once, when a report arrives -- not on every page load. The board is
+    clamped to the RingCX watermark anyway, so pulling live per request spent a
+    rate-limited budget on an hour of calls that were then discarded. That is
+    what produced the 429. One snapshot per report keeps both halves of the
+    board on the same hourly heartbeat and takes page loads off the API entirely.
+    """
+    try:
+        start_dt = _parse_local_date_to_utc(day_iso, 0, 0, 0, tz_offset_minutes)
+        end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
+        rows = _ringcx._fetch_ringex_agent_calls(start_dt, end_dt)
+        note = getattr(_ringcx, "last_ringex_note", None)
+        if not rows and note:
+            # A partial or refused fetch must not overwrite a good snapshot with
+            # an empty one -- that is a quiet phone and a broken pull looking alike.
+            log.warning("RingEX snapshot for %s not stored: %s", day_iso, note)
+            return {"stored": False, "reason": note}
+        payload = {"fetched_utc": datetime.now(timezone.utc).isoformat(),
+                   "day": day_iso, "calls": rows, "note": note}
+        _ringex_snap_path(day_iso).write_text(json.dumps(payload), encoding="utf-8")
+        log.info("RingEX snapshot %s: %d calls", day_iso, len(rows))
+        return {"stored": True, "calls": len(rows), "note": note}
+    except Exception as e:  # noqa: BLE001
+        log.exception("RingEX snapshot failed for %s", day_iso)
+        return {"stored": False, "reason": str(e)}
+
+
+def _load_ringex_snapshot(day_iso: str):
+    p = _ringex_snap_path(day_iso)
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        age = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(d["fetched_utc"])).total_seconds()
+        return d.get("calls") or [], {"source": "snapshot_at_ingest",
+                                      "fetched_utc": d.get("fetched_utc"),
+                                      "age_minutes": round(age / 60, 1),
+                                      "calls": len(d.get("calls") or [])}
+    except Exception as e:  # noqa: BLE001
+        log.warning("RingEX snapshot %s unreadable: %s", p.name, e)
+        return None
+
+
 def _inbox_days():
     """Every day the inbox holds a report for, newest first."""
     out = []
@@ -896,10 +946,19 @@ def api_v5_ingest():
                         "covers_to": new_wm or None,
                         "replaced": {"rows": have_n, "covered_to": have_wm} if have_n else None})
 
+    # Only for days that actually moved, and only the newest of them: replaying a
+    # backlog should not fire one rate-limited RingEX fetch per report.
+    snaps = {}
+    if written:
+        newest = max(w["day"] for w in written)
+        snaps[newest] = _snapshot_ringex(newest, request.args.get("tz") and
+                                         int(request.args["tz"]) or None)
+
     log.info("v5 ingest: %d rows (%s) -> %s written, %s skipped",
              len(rows), unit, [w["day"] for w in written], [k["day"] for k in skipped])
     return jsonify({"status": "ok", "total_rows": len(rows), "unit": unit,
                     "days_written": written, "days_skipped": skipped,
+                    "ringex_snapshots": snaps,
                     "agents": len({r["agent_name"] for r in rows})})
 
 
@@ -1070,7 +1129,20 @@ def api_v5_report():
         inbox = (None if request.args.get("source") == "api"
                  else _load_inbox_csv(date_start, is_today=(date_start == local_today)))
 
-        ex_rows, live_cx, live_meta = _v5_live_fetch(start_dt, end_dt, want_cx=not inbox)
+        # Prefer the snapshot taken when this day's report arrived: it is already
+        # the right vintage, and it costs no API budget. ?source=api forces live.
+        snap = None if request.args.get("source") == "api" else _load_ringex_snapshot(date_start)
+        need_live = (snap is None) or (not inbox)   # nothing to fetch if both are on disk
+        if need_live:
+            live_ex, live_cx, live_meta = _v5_live_fetch(
+                start_dt, end_dt, want_cx=not inbox)
+        else:
+            live_ex, live_cx, live_meta = [], [], {"cached": True, "age_seconds": 0}
+
+        if snap:
+            ex_rows, ex_meta = snap
+        else:
+            ex_rows, ex_meta = live_ex, dict(live_meta, source="live_pull")
         cx_rows = inbox[0] if inbox else live_cx
         cx_source = inbox[1] if inbox else {"source": "live_cdr_api", "rows": len(cx_rows)}
 
@@ -1107,7 +1179,7 @@ def api_v5_report():
                                  window={"start": date_start, "end": date_end})
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
         report["meta"]["ringcx_source"] = cx_source
-        report["meta"]["ringex_source"] = dict(live_meta, calls=len(ex_rows),
+        report["meta"]["ringex_source"] = dict(ex_meta, calls=len(ex_rows),
                                               clamped_to_ringcx=ex_clamped or None)
         report["meta"]["covers_to"] = cov
         _note = getattr(_ringcx, "last_ringex_note", None)
