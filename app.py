@@ -858,15 +858,23 @@ def api_v5_ingest():
         # rows for it, and a count test would reject it and freeze the day forever.
         # How far a report reaches is knowable: the latest row timestamp in it.
         def _watermark(rs):
-            return max(((r.get("Interaction Start Time") or "").split(" ")[0] for r in rs),
-                       default="")
+            # Only real clock values. RingCX appends an "Average" summary row, and a
+            # lexical max puts any word above any time ("A" > "1"), so one leftover
+            # summary row makes a day claim it reaches further than it does -- and
+            # then refuses every genuinely newer report, forever.
+            times = [t for t in ((r.get("Interaction Start Time") or "").split(" ")[0]
+                                 for r in rs)
+                     if len(t) == 8 and t[2] == ":" and t[5] == ":" and
+                     t.replace(":", "").isdigit()]
+            return max(times, default="")
 
         new_wm = _watermark(day_rows)
         have_wm, have_n = "", 0
         if path.exists():
             try:
-                prev = list(_csv.DictReader(_io.StringIO(
-                    path.read_text(encoding="utf-8-sig", errors="replace"))))
+                prev = [r for r in _csv.DictReader(_io.StringIO(
+                    path.read_text(encoding="utf-8-sig", errors="replace")))
+                    if (r.get("Date") or "").strip().lower() != "average"]
                 have_wm, have_n = _watermark(prev), len(prev)
             except Exception:  # noqa: BLE001
                 pass
@@ -1008,8 +1016,11 @@ def api_v5_ingest_status():
                 rs = list(_csv.DictReader(_io.StringIO(
                     p.read_text(encoding="utf-8-sig", errors="replace"))))
                 rows_n = len(rs)
-                covers_to = max(((r.get("Interaction Start Time") or "").split(" ")[0]
-                                 for r in rs), default=None) or None
+                _t = [t for t in ((r.get("Interaction Start Time") or "").split(" ")[0]
+                                  for r in rs)
+                      if len(t) == 8 and t[2] == ":" and t[5] == ":" and
+                      t.replace(":", "").isdigit()]
+                covers_to = max(_t, default=None)
             except Exception:  # noqa: BLE001
                 pass
             out.append({"file": p.name, "rows": rows_n, "covers_to": covers_to,
