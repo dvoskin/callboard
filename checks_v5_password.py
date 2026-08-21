@@ -16,11 +16,15 @@ import os, sys, tempfile
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 os.environ["INGEST_API_KEY"] = "k"
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="data_")
-os.environ["V5_PASSWORDS"] = "ella,sally,ari,winner,anna"
+# Placeholders, never the real words: this file is tracked in a PUBLIC repo,
+# so a real password here is a published password -- which is exactly what
+# happened on the first pass, and what the last check below now prevents.
+FAKE = ("alpha", "bravo", "charlie", "delta", "echo")
+os.environ["V5_PASSWORDS"] = ",".join(FAKE)
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")   # SSO on, so the gate is live
 
 import app as A
-A.V5_PASSWORDS = ("ella", "sally", "ari", "winner", "anna")
+A.V5_PASSWORDS = FAKE
 A.GOOGLE_CLIENT_ID = "test-client-id"
 A.app.config["TESTING"] = True
 
@@ -34,14 +38,14 @@ def fresh():
     return A.app.test_client()
 
 # 1. every configured password works
-for pw in ("ella", "sally", "ari", "winner", "anna"):
+for pw in FAKE:
     c = fresh()
     r = c.post("/v5", data={"password": pw}, follow_redirects=False)
     ok("'%s' is accepted" % pw, r.status_code in (301, 302), r.status_code)
 
 # 2. a wrong password does not
 c = fresh()
-r = c.post("/v5", data={"password": "sallyy"}, follow_redirects=False)
+r = c.post("/v5", data={"password": "bravoo"}, follow_redirects=False)
 ok("a near miss is rejected", r.status_code == 401, r.status_code)
 ok("rejection does not set the session", "v5_pw" not in (c.get_cookie("session") or ""),
    "cookie set on failure")
@@ -59,7 +63,7 @@ c = fresh()
 ok("API refuses before the password",
    c.get("/api/v5/report").status_code == 401,
    c.get("/api/v5/report").status_code)
-c.post("/v5", data={"password": "ari"})
+c.post("/v5", data={"password": FAKE[2]})
 # Not 200: RingCentral is unconfigured in a test env, so the report answers 503
 # ringcentral_not_configured. What is being tested is the AUTH gate, and 503
 # means the request got past it -- asserting 200 would be asserting the fixture.
@@ -79,19 +83,30 @@ last = c.post("/v5", data={"password": "nope-final"})
 ok("guessing is throttled", "Too many tries" in last.get_data(as_text=True),
    "no throttle after %d bad guesses" % len(codes))
 ok("a correct password is refused while throttled",
-   "Too many tries" in c.post("/v5", data={"password": "ella"}).get_data(as_text=True),
+   "Too many tries" in c.post("/v5", data={"password": FAKE[0]}).get_data(as_text=True),
    "throttle bypassed by a correct guess")
 
-# 7. no password may be hardcoded -- the repo is public
+# 7. no password may be written into tracked source -- the repo is PUBLIC.
+#
+# A substring scan for the words themselves is useless: they are short dictionary
+# words, so "ella" matches Bella and Marbella, "anna" matches Hanna and Savannah,
+# and the check drowns in false positives. What CAN be checked precisely is the
+# shape -- V5_PASSWORDS must be built from the environment, and no tracked file
+# may assign it a literal.
 import io, subprocess
 src = io.open("app.py", encoding="utf-8").read()
-for pw in ("ella", "sally", "winner", "anna"):
-    ok("'%s' is not hardcoded in app.py" % pw,
-       ('"%s"' % pw) not in src and ("'%s'" % pw) not in src,
-       "literal password in a public repo")
-tracked = subprocess.run(["git", "grep", "-lE", r'V5_PASSWORDS *= *\("?ella'],
-                         capture_output=True, text=True).stdout.strip()
-ok("no tracked file assigns the passwords literally", not tracked, tracked)
+ok("app.py builds V5_PASSWORDS from the environment",
+   "V5_PASSWORDS = tuple(" in src and 'os.environ.get("V5_PASSWORDS"' in src,
+   "it should never be written out as a literal")
+
+# Any assignment whose right-hand side starts with a quote, list or tuple-of-quote
+# is a literal. The os.environ form and this test's FAKE alias are the only
+# legitimate shapes.
+LITERAL = r'V5_PASSWORDS[[:space:]]*=[[:space:]]*[\("\x27\[]'
+hits = subprocess.run(["git", "grep", "-nE", LITERAL], capture_output=True, text=True).stdout
+bad = [ln for ln in hits.splitlines()
+       if "os.environ" not in ln and "tuple(" not in ln]
+ok("no tracked file assigns V5_PASSWORDS a literal", not bad, bad)
 
 # 8. the comparison must visit every candidate.
 # A short-circuiting `any(...)` returns as soon as it matches, so the reply is
