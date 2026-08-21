@@ -22,7 +22,8 @@ from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
 from v5_report import (build_report as build_v5_report,
-                       parse_interaction_csv, CsvShapeError, parse_ts as _v5_parse_ts)
+                       parse_interaction_csv, CsvShapeError, EmptyReportError,
+                       parse_ts as _v5_parse_ts)
 from telegram_client import TelegramClient
 from books_client import BooksClient
 
@@ -957,6 +958,18 @@ def api_v5_ingest():
     text = raw.decode("utf-8-sig", errors="replace")
     try:
         rows, unit = parse_interaction_csv(text)     # shape check before anything is stored
+    except EmptyReportError as e:
+        # Every report between midnight and the first dial of the day is this.
+        # It is not a wrong file and there is nothing to file: with no dated rows
+        # it cannot name a day, so it can never overwrite one -- the risk the
+        # blanket refusal existed to prevent does not exist here.
+        #
+        # Refusing it as 400 meant the forwarder never marked it seen, so ~33
+        # empty reports were re-posted every five minutes and every run reported
+        # Failed. That made a quiet night and a broken pipeline look identical,
+        # and sent the run's own error text chasing an API key that was fine.
+        return jsonify({"status": "empty_report", "stored": False,
+                        "detail": str(e)}), 200
     except CsvShapeError as e:
         return jsonify({"error": "wrong_file", "detail": str(e)}), 400
     except Exception as e:  # noqa: BLE001

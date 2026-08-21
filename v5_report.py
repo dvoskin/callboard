@@ -313,12 +313,24 @@ class CsvShapeError(ValueError):
     """The uploaded file is not a RingCX Interaction Report."""
 
 
+class EmptyReportError(CsvShapeError):
+    """A correctly-shaped Interaction Report that contains no interactions.
+
+    Subclasses CsvShapeError so every existing `except CsvShapeError` keeps its
+    protective behaviour -- a STORED file that reads empty is still refused.
+    Only callers that opt in (the ingest endpoint) treat it as the ordinary
+    before-the-first-dial case that it usually is.
+    """
+
+
 def parse_interaction_csv(text: str):
     """Parse an Interaction Report export into CDR-shaped rows.
 
-    Raises CsvShapeError rather than returning a short list -- a silently empty
-    parse is indistinguishable from a quiet day, and that is precisely the failure
-    that hid the RingEX fetch bug for 41 days.
+    Raises rather than returning a short list -- a silently empty parse is
+    indistinguishable from a quiet day, and that is precisely the failure that hid
+    the RingEX fetch bug for 41 days. The two causes are separate types:
+    CsvShapeError for a file that is not an Interaction Report, EmptyReportError
+    for one that is but holds no interactions yet.
     """
     import csv as _csv
     import io
@@ -363,8 +375,13 @@ def parse_interaction_csv(text: str):
             "source": "ringcx_csv",
         })
     if not rows:
-        raise CsvShapeError("Interaction Report parsed to zero rows — refusing to "
-                            "report an empty day from a file that should have calls.")
+        # The header check above already rejected anything that is not an
+        # Interaction Report, so reaching here means a real report covering a
+        # stretch with no interactions. That is a different fact from "wrong
+        # file", and conflating the two is what made every pre-dawn report an
+        # error. Callers decide; the type carries the distinction.
+        raise EmptyReportError(
+            "Interaction Report is correctly shaped but contains no interactions.")
 
     # The columns say "(min)" but the CSV export writes SECONDS while the XLSX
     # export writes minutes. Decide per file by comparing against Sum of
