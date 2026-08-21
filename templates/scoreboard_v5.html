@@ -101,26 +101,27 @@
 
   @media(max-width:560px){
     .hd{display:none}
-    /* Three real columns, shared by every row, so dials / over 3m / over 10m
-       line up DOWN the list. They used to sit in one cell as start-centre-end,
-       which put each row's middle figure at a different x depending on how wide
-       its own text was -- the column could not be scanned, only read row by row. */
-    .r{grid-template-columns:18px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
-       grid-template-areas:"rk nm nm tk" ".  d  t3 t10";
-       row-gap:3px;padding:10px 0;column-gap:6px}
+    /* The three sub-figures sit in AUTO columns, so each one is only as wide as
+       the widest value in that column across the whole list -- they stay tight
+       together under the name instead of spanning the screen, and still line up
+       down the page. Equal 1fr columns aligned them but pushed them apart, which
+       made a list you scroll daily harder to read, not easier. The trailing
+       column absorbs the slack. */
+    .r{grid-template-columns:16px auto auto minmax(0,1fr) auto;
+       grid-template-areas:"rk nm nm nm tk" ".  d  t3 t10 .";
+       row-gap:0;column-gap:9px;padding:6px 0}
     .rk{font-size:11px}
-    .nm{font-size:15px;padding-right:6px}
-    .tk{font-size:15px}
+    .nm{font-size:14px;padding-right:6px}
+    .tk{font-size:14px}
     .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10}
-    .d,.t3,.t10{font-size:12px;font-weight:600;text-align:left}
-    .r>.t10{text-align:right}
-    /* The number carries the row; the word is only there to say which number. */
-    .lbl{display:inline;font-size:11px;opacity:.75}
+    .d,.t3,.t10{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
+    /* The number carries the row; the word only says which number. */
+    .lbl{display:inline;font-size:10.5px;opacity:.7}
     .mk{font-size:8px}
-    .det{padding:10px 0 12px 18px}
-    /* Two columns in the panel: three made "Quotes sent" and "Longest" wrap on a
-       narrow phone, and a wrapped label reads as two fields. */
-    .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px}
+    .det{padding:8px 0 10px 16px}
+    /* Two columns in the panel: three wrapped "Quotes sent" on a narrow phone,
+       and a wrapped label reads as two fields. */
+    .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px}
   }
 
   ul{list-style:none;margin:0;padding:0}
