@@ -122,7 +122,9 @@
   .recon{font-size:12.5px;color:var(--muted);padding:7px 0;border-top:1px solid var(--rule)}
   .recon b{color:var(--ink);font-weight:700}
   .warn{font-size:12.5px;color:var(--mid);padding:7px 0;border-top:1px solid var(--rule)}
-  .msg{padding:14px 0;font-size:13.5px;color:var(--muted)}
+  .msg{padding:14px 0;font-size:13.5px;color:var(--muted);line-height:1.5;max-width:52ch}
+  .msg b{color:var(--fg);font-weight:600}
+  .msg .sub{margin-top:6px;font-size:12.5px;opacity:.8}
   .msg.err{color:var(--dn)}
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -171,7 +173,28 @@
   function render(d) {
     var f = d.floor || {}, ranked = d.ranked || [], thin = d.unranked || [];
     if (!ranked.length && !thin.length) {
-      $('out').innerHTML = '<div class="msg">No calls logged in this window.</div>'; return;
+      // "No calls logged" was the one thing that wasn't true: the header counts
+      // RingEX, but rows are built from RingCX, so an interaction report that
+      // hasn't arrived yet and a genuinely quiet floor rendered identically --
+      // and the page contradicted its own subtitle.
+      var m = d.meta || {}, rc = d.recon || {};
+      var cxEmpty = (d.warnings || []).some(function (x) { return x.kind === 'source_empty'; });
+      var ex = m.ringex_calls || 0, msg;
+      if (cxEmpty) {
+        msg = '<b>No agent rows yet.</b> Today\'s RingCX interaction report hasn\'t arrived. ' +
+              'Agent names, talk time and the campaign split all come from that report — ' +
+              'the first one lands about 7:45 AM.';
+        var bits = [];
+        if (rc.ex_missed_absent) bits.push(rc.ex_missed_absent + ' rang out unanswered');
+        if (rc.ex_connected) bits.push(rc.ex_connected + ' answered but not attributed to an agent');
+        if (ex) {
+          msg += '<div class="sub">' + ex + ' RingEX call' + (ex === 1 ? '' : 's') +
+                 ' on the line so far' + (bits.length ? ': ' + bits.join(', ') : '') + '.</div>';
+        }
+      } else {
+        msg = 'No calls logged in this window.';
+      }
+      $('out').innerHTML = '<div class="msg">' + msg + '</div>'; return;
     }
     var h = '';
     h += '<div class="floor">Floor to clear&nbsp; <b>' + hm(f.talk) + '</b> talk' +
