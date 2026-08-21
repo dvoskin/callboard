@@ -101,13 +101,26 @@
 
   @media(max-width:560px){
     .hd{display:none}
-    .r{grid-template-columns:22px minmax(0,1fr) auto;
-       grid-template-areas:"rk nm tk" ". s s";row-gap:2px;padding:9px 0}
-    .d,.t3,.t10{grid-area:s;font-size:12.5px;font-weight:600}
-    .r>.d{justify-self:start} .r>.t3{justify-self:center} .r>.t10{justify-self:end}
-    .lbl{display:inline}
-    .r{grid-template-columns:22px minmax(0,1fr) auto}
-    .srow{grid-area:s;display:flex;justify-content:space-between;gap:10px}
+    /* Three real columns, shared by every row, so dials / over 3m / over 10m
+       line up DOWN the list. They used to sit in one cell as start-centre-end,
+       which put each row's middle figure at a different x depending on how wide
+       its own text was -- the column could not be scanned, only read row by row. */
+    .r{grid-template-columns:18px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
+       grid-template-areas:"rk nm nm tk" ".  d  t3 t10";
+       row-gap:3px;padding:10px 0;column-gap:6px}
+    .rk{font-size:11px}
+    .nm{font-size:15px;padding-right:6px}
+    .tk{font-size:15px}
+    .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10}
+    .d,.t3,.t10{font-size:12px;font-weight:600;text-align:left}
+    .r>.t10{text-align:right}
+    /* The number carries the row; the word is only there to say which number. */
+    .lbl{display:inline;font-size:11px;opacity:.75}
+    .mk{font-size:8px}
+    .det{padding:10px 0 12px 18px}
+    /* Two columns in the panel: three made "Quotes sent" and "Longest" wrap on a
+       narrow phone, and a wrapped label reads as two fields. */
+    .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px}
   }
 
   ul{list-style:none;margin:0;padding:0}
@@ -238,13 +251,12 @@
              '<span class="rule"></span>' +
              cell2('Quotes sent', w(bk.quotes_sent), !bk.quotes_sent) +
              cell2('Invoiced', w(bk.quotes_invoiced || 0), !bk.quotes_invoiced) +
-             // Follow-ups the rep created inside this window. Hidden entirely at
-             // zero -- Danny wants it only where there is something to show. null
-             // is different from 0: it means we could not tell, so it still shows,
-             // as a dash, rather than passing for "created none".
-             (a.followups == null ? cell2('Follow Up Created', '–', true)
-              : a.followups > 0 ? cell2('Follow Up Created', w(a.followups))
-              : '') +
+             // Follow Up Created is HIDDEN, not removed: the API still computes
+             // it, so it returns the moment the CRM name join is sorted. Owner
+             // arrives without a name on this token (owner_surnames: [""]), so
+             // nothing can be attributed and every cell would read as a dash --
+             // worse than not showing the row at all.
+             '' +
              // Retainers paid is hidden, not removed: the API still computes it,
              // so it reappears the moment the Books token is sorted. Showing a
              // confident 0 for money that may well have been collected is worse

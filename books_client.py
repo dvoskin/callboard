@@ -129,15 +129,50 @@ class BooksClient:
         "sent", "viewed", "declined", "invoiced", "signed",
     })
 
+    # How many days either side of the window to widen the ESTIMATE-DATE fetch so
+    # that everything CREATED inside the window is caught. Three covers a weekend.
+    _CREATED_PAD_DAYS = 3
+
     def list_sent_estimates(
         self,
         date_start: str,
         date_end: str,
         max_records: int = 2000,
     ) -> list[dict]:
-        return self._list_documents(
-            "estimates", date_start, date_end, max_records,
+        """Quotes CREATED in [date_start, date_end].
+
+        Not the estimate `date` field, which is what Books filters on and what
+        this used to return. They are different days often enough to matter:
+        Rothmel Foncham wrote three quotes on the evening of 08/20 that carry
+        08/21 as their date, so the board credited today with work done last
+        night -- 8 quotes and 4 invoiced against the 5 and 2 he actually did.
+
+        Books exposes no created-date filter for estimates, so the estimate-date
+        window is widened and the created date is applied here. A row with no
+        created_time falls back to its date rather than being dropped: an
+        unclassifiable quote still happened.
+        """
+        from datetime import date as _date, timedelta as _td
+        try:
+            lo = (_date.fromisoformat(date_start)
+                  - _td(days=self._CREATED_PAD_DAYS)).isoformat()
+            hi = (_date.fromisoformat(date_end)
+                  + _td(days=self._CREATED_PAD_DAYS)).isoformat()
+        except ValueError:
+            lo, hi = date_start, date_end
+
+        rows = self._list_documents(
+            "estimates", lo, hi, max_records,
             include_statuses=set(self._QUOTE_SENT_STATUSES))
+
+        out = []
+        for r in rows:
+            day = (r.get("created_time") or "")[:10] or (r.get("date") or "")
+            if date_start <= day <= date_end:
+                out.append(r)
+        log.info("Books: %d of %d estimates were CREATED between %s and %s",
+                 len(out), len(rows), date_start, date_end)
+        return out
 
     # Retainer statuses that still owe money — these are what the Follow Up
     # Tracker needs to chase. In Goals' workflow most retainers go straight

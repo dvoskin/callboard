@@ -153,10 +153,10 @@ except Exception as e:
 # ---- the panel ------------------------------------------------------------
 import io
 tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read()
-ok("labelled Follow Up Created", "cell2('Follow Up Created'" in tpl)
-ok("hidden at zero", "a.followups > 0 ? cell2('Follow Up Created'" in tpl)
-ok("unknown still shows, as a dash", "a.followups == null ? cell2('Follow Up Created', '\u2013'" in tpl
-   or "a.followups == null ? cell2('Follow Up Created', '–'" in tpl)
+# The cell is HIDDEN for now -- CRM returns Owner without a name on this token,
+# so nothing attributes and every cell would be a dash. The API still computes it.
+ok("the cell is not rendered", "cell2('Follow Up Created'" not in tpl)
+ok("but the hiding is explained, not silent", "Follow Up Created is HIDDEN" in tpl)
 ok("the old label is gone", "Booked ahead" not in tpl)
 
 print("\n%d failed" % len(fail))

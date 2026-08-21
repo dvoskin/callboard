@@ -93,5 +93,59 @@ c, calls = client_returning([["sent"] * 100 + ["invoiced"] * 24 + ["draft"]])
 rows = c.list_sent_estimates("2026-08-20", "2026-08-20")
 ok("2026-08-20 reproduces 124, not 100", len(rows) == 124, len(rows))
 
+# ---- counted by CREATION date, not the estimate date ----------------------
+# Rothmel Foncham wrote three quotes on the evening of 08/20 that carry 08/21 as
+# their estimate date. Filtering on `date` credited today with last night's work:
+# 8 quotes / 4 invoiced against the 5 / 2 he actually did that day.
+def created_client(rows):
+    calls = {"params": []}
+    def _get(url, headers=None, params=None, timeout=None):
+        calls["params"].append(dict(params or {}))
+        class R:
+            status_code, ok = 200, True
+            text = ""
+            def json(self):
+                return {"estimates": rows, "page_context": {"has_more_page": False}}
+        return R()
+    bc.requests = types.SimpleNamespace(get=_get, post=None)
+    c = bc.BooksClient.__new__(bc.BooksClient)
+    c.client_id, c.client_secret, c.refresh_token, c.org_id = "i", "s", "r", "o"
+    c.base_url = "https://books/v3"
+    c.cache_path = type("P", (), {"exists": staticmethod(lambda: False)})()
+    c.last_source_was_cache = False
+    c._headers = lambda: {}
+    return c, calls
+
+ROWS = [
+    # dated today, written last night -- must NOT count today
+    {"estimate_id": "a", "status": "invoiced", "date": "2026-08-21",
+     "created_time": "2026-08-20T21:30:33-0400"},
+    {"estimate_id": "b", "status": "sent", "date": "2026-08-21",
+     "created_time": "2026-08-20T22:43:42-0400"},
+    # dated and written today -- counts
+    {"estimate_id": "c", "status": "invoiced", "date": "2026-08-21",
+     "created_time": "2026-08-21T10:10:24-0400"},
+    {"estimate_id": "d", "status": "sent", "date": "2026-08-21",
+     "created_time": "2026-08-21T12:35:28-0400"},
+    # dated TOMORROW but written today -- counts, and the old rule missed it
+    {"estimate_id": "e", "status": "sent", "date": "2026-08-22",
+     "created_time": "2026-08-21T18:02:00-0400"},
+    # no created_time -- falls back to its date rather than vanishing
+    {"estimate_id": "f", "status": "sent", "date": "2026-08-21", "created_time": ""},
+]
+c, calls = created_client(ROWS)
+got = c.list_sent_estimates("2026-08-21", "2026-08-21")
+ids = sorted(r["estimate_id"] for r in got)
+ok("last night's quotes are not counted today", "a" not in ids and "b" not in ids, ids)
+ok("today's quotes are counted", "c" in ids and "d" in ids, ids)
+ok("a quote written today for tomorrow still counts today", "e" in ids, ids)
+ok("a row with no created_time falls back to its date", "f" in ids, ids)
+ok("Rothmel's day is 4, not 6", len(ids) == 4, ids)
+
+# the fetch window must be widened, or the tomorrow-dated one could never arrive
+p0 = calls["params"][0]
+ok("the estimate-date window is widened to catch them",
+   p0.get("date_start") < "2026-08-21" and p0.get("date_end") > "2026-08-21", p0)
+
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)
