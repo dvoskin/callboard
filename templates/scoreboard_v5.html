@@ -122,6 +122,8 @@
   .recon{font-size:12.5px;color:var(--muted);padding:7px 0;border-top:1px solid var(--rule)}
   .recon b{color:var(--ink);font-weight:700}
   .warn{font-size:12.5px;color:var(--mid);padding:7px 0;border-top:1px solid var(--rule)}
+  .age{margin:-6px 0 10px;font-size:12px;color:var(--muted)}
+  .age.bad{color:var(--dn);font-weight:600}
   .msg{padding:14px 0;font-size:13.5px;color:var(--muted);line-height:1.5;max-width:52ch}
   .msg b{color:var(--fg);font-weight:600}
   .msg .sub{margin-top:6px;font-size:12.5px;opacity:.8}
@@ -133,6 +135,7 @@
 <div class="wrap">
   <h1>Sales Floor Scoreboard</h1>
   <p class="sub" id="stamp">Loading…</p>
+  <p class="age" id="age"></p>
   {% if not share_mode %}
   <div class="ctl">
     <input type="date" id="start" /><input type="date" id="end" />
@@ -299,6 +302,27 @@
     });
   }
 
+  var LAST_OK = null, STALE = false;
+
+  function stampAge() {
+    var el = $('age');
+    if (!el) return;
+    if (!LAST_OK) { el.textContent = ''; return; }
+    var mins = Math.floor((Date.now() - LAST_OK.getTime()) / 60000);
+    var t = LAST_OK.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    // Past two refresh intervals something is wrong -- say so rather than let a
+    // frozen page pass for a quiet one.
+    if (STALE || mins >= 11) {
+      el.className = 'age bad';
+      el.textContent = 'not updating — last reached the server at ' + t +
+                       ' (' + mins + ' min ago). Reload.';
+    } else {
+      el.className = 'age';
+      el.textContent = 'updated ' + (mins < 1 ? 'just now' : mins + ' min ago') + ' · ' + t;
+    }
+  }
+  setInterval(stampAge, 30 * 1000);
+
   function load() {
     var s = $('start'), e = $('end'), q = new URLSearchParams();
     if (s && s.value) q.set('start', s.value);
@@ -331,6 +355,13 @@
           m.ringex_calls + ' RingEX · ' + m.ringcx_rows + ' RingCX' +
           (src.source === 'live_cdr_api' ? ' · live pull' : '') +
           (m.ringex_calls === 0 ? ' · <b class="down">no RingEX calls</b>' : '');
+        // When the page last actually FETCHED, which is a different fact from how
+        // far the data reaches. Without it a tab that quietly stopped refreshing
+        // looks exactly like a quiet floor -- the same failure as a zero that
+        // might mean "none" or might mean "could not read".
+        LAST_OK = new Date();
+        STALE = false;
+        stampAge();
         var dz = $('days');
         if (dz && m.available_days) {
           dz.innerHTML = '';
@@ -357,7 +388,15 @@
       })
       .catch(function (err) {
         if ($('spin')) $('spin').textContent = '';
-        $('out').innerHTML = '<div class="msg err">Could not reach the report: ' + esc(err) + '</div>';
+        // Keep whatever is on screen -- stale figures with a warning beat an empty
+        // board -- but mark it, and keep the interval running so it self-heals
+        // once the server comes back (a deploy restart is the usual cause).
+        STALE = true;
+        stampAge();
+        if (!LAST_OK) {
+          $('out').innerHTML = '<div class="msg err">Could not reach the report: ' +
+                               esc(err) + '</div>';
+        }
       });
   }
 
