@@ -48,6 +48,8 @@
          border-top:1px solid var(--rule)}
   .key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11px;color:var(--muted);
        padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
+  .lead-short{display:none}
+  .counts{white-space:nowrap}
   .key b{font-weight:700}
   .key .d{padding-right:2px}
   .key .u{color:var(--up)} .key .d{color:var(--dn)}
@@ -122,6 +124,19 @@
     /* Two columns in the panel: three wrapped "Quotes sent" on a narrow phone,
        and a wrapped label reads as two fields. */
     .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px}
+
+    /* Everything above the first row is chrome, and on a phone it was pushing
+       the data down a third of the screen: the header orphaned "525 RingCX"
+       onto its own line, the floor line orphaned "10m", and the legend ran to
+       three. Shorter words, tighter leading, and the two call counts break as
+       one unit instead of splitting. */
+    .lead-long{display:none} .lead-short{display:inline}
+    .floor{font-size:12px;padding:6px 0;line-height:1.45}
+    .floor .sep{padding:0 4px}
+    #stamp{font-size:12px;line-height:1.45}
+    .key{font-size:10.5px;gap:0 10px;line-height:1.45;padding:0 0 6px}
+    .key span:nth-child(2){display:none}   /* "Floor = median rep" -- the word
+                                              Floor is right above it */
   }
 
   ul{list-style:none;margin:0;padding:0}
@@ -214,10 +229,11 @@
       $('out').innerHTML = '<div class="msg">' + msg + '</div>'; return;
     }
     var h = '';
-    h += '<div class="floor">Floor to clear&nbsp; <b>' + hm(f.talk) + '</b> talk' +
+    h += '<div class="floor"><span class="lead-long">Floor to clear</span>' +
+         '<span class="lead-short">Floor</span>&nbsp; <b>' + hm(f.talk) + '</b> talk' +
          '<span class="sep">·</span><b>' + w(f.attempts) + '</b> dials' +
-         '<span class="sep">·</span><b>' + w(f.over_3) + '</b> over 3m' +
-         '<span class="sep">·</span><b>' + w(f.over_10) + '</b> over 10m</div>';
+         '<span class="sep">·</span><b>' + w(f.over_3) + '</b> &gt;3m' +
+         '<span class="sep">·</span><b>' + w(f.over_10) + '</b> &gt;10m</div>';
     // A legend, not a tooltip: this is read on phones, where hover does not exist.
     h += '<div class="key">' +
            '<span><b class="u">▲</b><b class="d">▼</b> vs the floor</span>' +
@@ -242,8 +258,11 @@
            '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' +
              (up ? '▲' : '▼') + '</span>' + hm(a.talk) + '</span>' +
            cell(a.attempts, f.attempts, 'd', ' dials') +
-           cell(a.over_3, f.over_3, 't3', ' over 3m') +
-           cell(a.over_10, f.over_10, 't10', ' over 10m') +
+           // ">3m" not " over 3m": these labels appear on phones only -- above
+           // 560px the column headers say it -- and the long form was most of
+           // the width of the row it sat under.
+           cell(a.over_3, f.over_3, 't3', ' >3m') +
+           cell(a.over_10, f.over_10, 't10', ' >10m') +
            '</div>';
       h += '<div class="det" id="d' + i + '"><div class="dg">' +
              cell2('Campaign', hm(a.campaign), !a.campaign) +
@@ -401,7 +420,8 @@
           (m.window && m.window.start ? esc(m.window.start) + ' · ' : '') +
           (pretty ? '<b>through ' + pretty + '</b> · ' : '') +
           (got ? 'updated ' + got + ' · ' : '') +
-          m.ringex_calls + ' RingEX · ' + m.ringcx_rows + ' RingCX' +
+          '<span class="counts">' + m.ringex_calls + ' RingEX · ' +
+          m.ringcx_rows + ' RingCX</span>' +
           (src.source === 'live_cdr_api' ? ' · live pull' : '') +
           (m.ringex_calls === 0 ? ' · <b class="down">no RingEX calls</b>' : '');
         // When the page last actually FETCHED, which is a different fact from how
