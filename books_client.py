@@ -105,14 +105,30 @@ class BooksClient:
                  self.cache_path.name)
         return filt[:max_records]
 
+    # An estimate stops reading "sent" the moment it moves on -- viewed by the
+    # customer, accepted, declined, expired, or converted to an invoice. Filtering
+    # status=="sent" therefore counts only the quotes that have gone NOWHERE, and
+    # penalises a rep exactly when a quote succeeds.
+    #
+    # Measured against Books for 2026-08-20: 125 estimates, 1 draft, so 124 quotes
+    # actually left the office -- the board showed 100. All 24 it dropped had been
+    # invoiced. The error was not uniform, so the RANKING was wrong too: Adelita
+    # Flowers read 6 against 10 sent, Alicia Mckenzie 2 against 5, while Adriana
+    # Gentry (13, none converted) was untouched and stayed on top.
+    #
+    # For a scoreboard "sent" means "it left the office", so the test is the
+    # complement: everything except the states that mean it never went out.
+    _NEVER_SENT_ESTIMATE_STATUSES = frozenset({"draft", "pending_approval"})
+
     def list_sent_estimates(
         self,
         date_start: str,
         date_end: str,
-        max_records: int = 500,
+        max_records: int = 2000,
     ) -> list[dict]:
-        return self._list_documents("estimates", date_start, date_end, max_records,
-                                     status="sent")
+        return self._list_documents(
+            "estimates", date_start, date_end, max_records,
+            exclude_statuses=set(self._NEVER_SENT_ESTIMATE_STATUSES))
 
     # Retainer statuses that still owe money — these are what the Follow Up
     # Tracker needs to chase. In Goals' workflow most retainers go straight

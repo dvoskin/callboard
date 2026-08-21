@@ -864,7 +864,7 @@ def _v5_books(date_start: str, date_end: str):
             return 0.0
 
     for label, fn, field in (
-        ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 500), None),
+        ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 2000), None),
         ("retainers_sent", lambda: _books.list_sent_retainer_invoices(date_start, date_end, 500), None),
         ("retainers_paid", lambda: _books.list_retainer_payments(date_start, date_end), "amount"),
     ):
