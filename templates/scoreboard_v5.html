@@ -312,8 +312,20 @@
       const open = function () {
         const d = document.getElementById(row.getAttribute('data-det'));
         if (!d) return;
-        const now = d.classList.toggle('on');
-        row.setAttribute('aria-expanded', now ? 'true' : 'false');
+        const wasOpen = d.classList.contains('on');
+        // One at a time. Several panels open at once pushed the rows below off
+        // screen, so comparing two reps meant scrolling past the first one's
+        // detail to reach the second.
+        $('out').querySelectorAll('.det.on').forEach(function (o) {
+          o.classList.remove('on');
+        });
+        $('out').querySelectorAll('.r[aria-expanded="true"]').forEach(function (r) {
+          r.setAttribute('aria-expanded', 'false');
+        });
+        if (!wasOpen) {
+          d.classList.add('on');
+          row.setAttribute('aria-expanded', 'true');
+        }
       };
       row.addEventListener('click', open);
       row.addEventListener('keydown', function (e) {
