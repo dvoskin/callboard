@@ -238,6 +238,10 @@
              '<span class="rule"></span>' +
              cell2('Quotes sent', w(bk.quotes_sent), !bk.quotes_sent) +
              cell2('Invoiced', w(bk.quotes_invoiced || 0), !bk.quotes_invoiced) +
+             // Booked ahead: CRM activities dated in the future. null means the
+             // fetch failed -- show a dash, never a confident 0.
+             cell2('Booked ahead', a.followups == null ? '–' : w(a.followups),
+                   a.followups === 0) +
              // Retainers paid is hidden, not removed: the API still computes it,
              // so it reappears the moment the Books token is sorted. Showing a
              // confident 0 for money that may well have been collected is worse

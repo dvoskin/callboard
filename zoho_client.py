@@ -3090,6 +3090,83 @@ class ZohoClient:
             "deal_name": data.get("Deal_Name", ""),
         }
 
+    def list_users(self) -> dict:
+        """CRM user id -> full name.
+
+        Owner on a Call carries only the surname ("Rodriguez"), and this floor has
+        three of them -- Alexander, Grace and Francisco. Matching on surname would
+        silently merge their numbers, so attribution goes through the id.
+        """
+        out = {}
+        try:
+            resp = requests.get(
+                f"{self.base_url}/crm/v6/users",
+                headers=self._headers(),
+                params={"type": "ActiveUsers", "per_page": 200},
+                timeout=20,
+            )
+            if not resp.ok:
+                log.warning("CRM users %s: %s", resp.status_code, resp.text[:200])
+                return {}
+            for u in (resp.json().get("users") or []):
+                uid = str(u.get("id") or "")
+                name = (u.get("full_name")
+                        or " ".join(x for x in (u.get("first_name"), u.get("last_name")) if x)
+                        or "").strip()
+                if uid and name:
+                    out[uid] = name
+        except Exception as e:  # noqa: BLE001
+            log.warning("CRM users lookup failed: %s", e)
+            return {}
+        return out
+
+    def count_future_activities(self, start_iso: str, end_iso: str,
+                                max_records: int = 4000) -> dict:
+        """CRM activities BOOKED AHEAD, per owner id.
+
+        "Scheduled" is this org's own convention, already used by
+        get_scheduled_followup_calls: a Call with no Outgoing_call_disposition has
+        not been worked yet. Anything already dispositioned is a logged call, not a
+        booking, and must not be counted -- otherwise this metric just re-counts
+        the dialling that talk time already measures.
+        """
+        counts, offset = {}, 0
+        while offset < max_records:
+            query = (
+                "select id, Owner, Call_Start_Time, Outgoing_call_disposition "
+                "from Calls "
+                f"where Call_Start_Time between '{start_iso}' and '{end_iso}' "
+                "and id is not null "
+                f"order by Call_Start_Time asc limit 200 offset {offset}"
+            )
+            resp = requests.post(
+                f"{self.base_url}/crm/v6/coql",
+                headers=self._headers(),
+                json={"select_query": query},
+                timeout=25,
+            )
+            if resp.status_code == 204:
+                break
+            if not resp.ok:
+                # Raise rather than return a short count: a partial number that
+                # looks complete is worse than an error the board can report.
+                raise RuntimeError("CRM COQL returned HTTP %d. %s"
+                                   % (resp.status_code, (resp.text or "")[:160]))
+            body = resp.json() or {}
+            rows = body.get("data") or []
+            for c in rows:
+                if c.get("Outgoing_call_disposition"):
+                    continue                      # already worked = not a booking
+                owner = c.get("Owner") or {}
+                uid = str(owner.get("id") or "") if isinstance(owner, dict) else ""
+                if uid:
+                    counts[uid] = counts.get(uid, 0) + 1
+            if not (body.get("info") or {}).get("more_records"):
+                break
+            offset += 200
+        return counts
+
+
     def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
         """Return Zoho CRM Call records that look scheduled (no disposition yet) in [start_iso, end_iso].
 

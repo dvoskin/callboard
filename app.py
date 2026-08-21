@@ -973,6 +973,58 @@ _v5_roster_lock = threading.Lock()
 _NOT_SALES_NAMES = {"zoho admin", "unassigned", ""}
 
 
+_V5_CRM_TTL = 300.0
+_V5_CRM_HORIZON_DAYS = 90
+_v5_crm_cache: dict = {}
+_v5_crm_lock = threading.Lock()
+
+
+def _v5_future_activities():
+    """Per agent, how many CRM activities they have BOOKED AHEAD.
+
+    Counts Call records dated in the future with no disposition yet -- the same
+    "not worked yet" test get_scheduled_followup_calls uses, so this agrees with
+    the rest of the app rather than inventing a second definition of scheduled.
+
+    Attribution is by owner ID, never surname: Owner on a Call is just
+    "Rodriguez", and Alexander, Grace and Francisco would collapse into one.
+
+    Returns (by_agent, meta). by_agent is None when the figure could not be
+    fetched -- a zero that means "CRM errored" must not sit next to a zero that
+    means "booked nothing", which is the whole reason retainers paid is hidden.
+    """
+    now = time.time()
+    with _v5_crm_lock:
+        hit = _v5_crm_cache.get("v")
+        if hit and now - hit["at"] < _V5_CRM_TTL:
+            return hit["by_agent"], dict(hit["meta"], cached=True)
+
+    meta = {"cached": False, "horizon_days": _V5_CRM_HORIZON_DAYS}
+    try:
+        start = datetime.now(timezone.utc)
+        end = start + timedelta(days=_V5_CRM_HORIZON_DAYS)
+        fmt = "%Y-%m-%dT%H:%M:%S+00:00"
+        users = _zoho.list_users()
+        counts = _zoho.count_future_activities(start.strftime(fmt), end.strftime(fmt))
+        by_agent, unknown = {}, 0
+        for uid, n in counts.items():
+            name = users.get(uid)
+            if not name:
+                unknown += n
+                continue
+            by_agent[_norm_name(name)] = by_agent.get(_norm_name(name), 0) + n
+        meta["agents"] = len(by_agent)
+        meta["unattributed"] = unknown
+        with _v5_crm_lock:
+            _v5_crm_cache["v"] = {"at": time.time(), "by_agent": by_agent,
+                                  "meta": dict(meta)}
+        return by_agent, meta
+    except Exception as e:  # noqa: BLE001
+        log.warning("v5 future activities unavailable: %s", _redact(e))
+        meta["error"] = _redact(e)[:200]
+        return None, meta
+
+
 def _sales_roster():
     """Who belongs on the sales board: whoever dials a RingCX campaign.
 
@@ -1643,6 +1695,14 @@ def api_v5_report():
                        and (v["quotes_sent"] or v["quotes_invoiced"]
                             or v["retainers_sent"] or v["retainers_paid"])]
             books_meta["not_on_board"] = sorted(orphans)[:12]
+
+            # CRM activities booked ahead. None means "could not fetch" -- the
+            # template shows a dash for that rather than a confident 0.
+            crm, crm_meta = _v5_future_activities()
+            report["meta"]["crm"] = crm_meta
+            for a in report.get("ranked", []) + report.get("unranked", []):
+                a["followups"] = (None if crm is None
+                                  else crm.get(_norm_name(a["name"]), 0))
             report["meta"]["books"] = books_meta
             if books_meta.get("errors"):
                 report.setdefault("warnings", []).append({
