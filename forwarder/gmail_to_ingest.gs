@@ -28,7 +28,14 @@ const HOST       = 'https://call-tracker-3z6t.onrender.com';
 const INGEST_KEY = 'PASTE_THE_SAME_VALUE_AS_INGEST_API_KEY_ON_RENDER';
 
 const SENDER     = 'ringcx.analytics@ringcentral.com';
-const QUERY      = 'from:' + SENDER + ' newer_than:2d';
+// in:anywhere because GmailApp.search() skips Trash and archived mail by default,
+// and these reports do get filed away -- two of one day's were sitting in Trash,
+// never ingested, invisible to the forwarder. A report it cannot see is a gap in
+// the board that nothing reports.
+// -in:spam is deliberate: `from:` matches a header, which can be spoofed, and spam
+// is where a forged lookalike would land. Trash and All Mail are the user's own
+// filing; Spam is not.
+const QUERY      = 'from:' + SENDER + ' in:anywhere -in:spam newer_than:2d';
 
 const LABEL_DONE = 'ringcx/ingested';
 const LABEL_FAIL = 'ringcx/failed';
