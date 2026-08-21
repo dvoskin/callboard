@@ -196,10 +196,6 @@
         return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + label +
                '</em><b>' + value + '</b></div>';
       };
-      const paid = bk.retainers_paid
-        ? w(bk.retainers_paid) + (bk.paid_amount
-            ? ' · $' + Math.round(bk.paid_amount).toLocaleString() : '')
-        : '0';
       h += '<div class="r ' + a.band + '" role="button" tabindex="0" aria-expanded="false"' +
            ' data-det="d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
            '<span class="nm">' + esc(a.name) + '</span>' +
@@ -215,7 +211,10 @@
              cell2('Longest', hm(a.longest)) +
              '<span class="rule"></span>' +
              cell2('Quotes', w(bk.quotes_sent), !bk.quotes_sent) +
-             cell2('Retainers paid', paid, !bk.retainers_paid) +
+             // Retainers paid is hidden, not removed: the API still computes it,
+             // so it reappears the moment the Books token is sorted. Showing a
+             // confident 0 for money that may well have been collected is worse
+             // than showing nothing.
            '</div></div>';
     });
 
