@@ -653,6 +653,61 @@ if not SCOREBOARD_TOKEN:
     )
 
 
+# Shared passwords for /v5, comma-separated, e.g. "ella,sally,ari,winner,anna".
+#
+# Read from the environment and NEVER written here: dvoskin/callboard is a PUBLIC
+# repository, so a literal in this file is a published password. (The same is true
+# of the INGEST_KEY literal in forwarder/gmail_to_ingest.gs -- that one is already
+# published and needs rotating.)
+#
+# These are short dictionary words, so the throttle below is doing real work: five
+# 3-6 character words fall to an unthrottled guesser in seconds.
+V5_PASSWORDS = tuple(
+    p.strip() for p in os.environ.get("V5_PASSWORDS", "").split(",") if p.strip()
+)
+if not V5_PASSWORDS:
+    print("[v5] V5_PASSWORDS is not set — /v5 is Google login only. Set it to a "
+          "comma-separated list to hand out word passwords instead.", flush=True)
+
+_V5_PW_MAX_TRIES = 8          # per IP, per window
+_V5_PW_WINDOW = 300.0         # 5 minutes
+_v5_pw_tries: dict = {}
+_v5_pw_lock = threading.Lock()
+
+
+def _v5_pw_throttled(ip: str) -> bool:
+    """True if this IP has burned its guesses. Short word passwords are only as
+    safe as the guess rate, so the rate is the control."""
+    now = time.time()
+    with _v5_pw_lock:
+        hits = [t for t in _v5_pw_tries.get(ip, []) if now - t < _V5_PW_WINDOW]
+        _v5_pw_tries[ip] = hits
+        for k in [k for k, v in list(_v5_pw_tries.items()) if not v]:
+            _v5_pw_tries.pop(k, None)
+        return len(hits) >= _V5_PW_MAX_TRIES
+
+
+def _v5_pw_record_failure(ip: str) -> None:
+    with _v5_pw_lock:
+        _v5_pw_tries.setdefault(ip, []).append(time.time())
+
+
+def _v5_password_matches(supplied: str) -> bool:
+    """Constant-time against every configured password.
+
+    Every candidate is compared even after a match so the reply takes the same
+    time whichever password was given -- otherwise the response time says which
+    one, and with five words that is most of the secret.
+    """
+    if not supplied or not V5_PASSWORDS:
+        return False
+    ok = False
+    for p in V5_PASSWORDS:
+        if hmac.compare_digest(supplied, p):
+            ok = True
+    return ok
+
+
 def _v5_token_ok() -> bool:
     """True if the request carries the read-only scoreboard secret."""
     if not SCOREBOARD_TOKEN:
@@ -666,17 +721,51 @@ def _v5_allowed() -> bool:
     SSO-disabled fallback so local dev behaves the same."""
     if not GOOGLE_CLIENT_ID:
         return True
-    return bool(session.get("user")) or _v5_token_ok()
+    return (bool(session.get("user")) or bool(session.get("v5_pw"))
+            or _v5_token_ok())
 
 
-@app.route("/v5")
-@login_required
+@app.route("/v5", methods=["GET", "POST"])
 def scoreboard_v5():
     """Talk time and call performance per agent, reconciled live across both phone
-    systems. Full view: adds the RingEX/RingCX reconciliation and data warnings."""
-    return render_template("scoreboard_v5.html",
-                           current_user=session.get("user") or {},
-                           share_mode=False, share_token="")
+    systems. Full view: adds the RingEX/RingCX reconciliation and data warnings.
+
+    Two ways in: the normal Google session, or one of the shared word passwords.
+    The password path exists so the floor can be handed a word instead of an
+    account; it grants the same read-only view, nothing more.
+    """
+    ip = (request.headers.get("CF-Connecting-IP")
+          or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+          or request.remote_addr or "?")
+    error = ""
+
+    if request.method == "POST":
+        if _v5_pw_throttled(ip):
+            error = "Too many tries. Wait five minutes."
+        elif _v5_password_matches(request.form.get("password", "").strip()):
+            session["v5_pw"] = True
+            return redirect(url_for("scoreboard_v5"))
+        else:
+            _v5_pw_record_failure(ip)
+            error = "That is not the password."
+
+    if session.get("user") or session.get("v5_pw") or not GOOGLE_CLIENT_ID:
+        return render_template("scoreboard_v5.html",
+                               current_user=session.get("user") or {},
+                               share_mode=False, share_token="")
+
+    # No session. Offer the password when one is configured; otherwise the only
+    # way in is Google, so send them there rather than showing a form that
+    # cannot succeed.
+    if not V5_PASSWORDS:
+        return redirect("/login")
+    return render_template("v5_password.html", error=error), (401 if error else 200)
+
+
+@app.route("/v5/logout")
+def scoreboard_v5_logout():
+    session.pop("v5_pw", None)
+    return redirect(url_for("scoreboard_v5"))
 
 
 @app.route("/v5/board")
