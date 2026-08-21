@@ -1,9 +1,12 @@
-"""Regression: quotes sent and quotes invoiced are counted apart.
+"""Regression: quotes sent is INCLUSIVE of invoiced, and invoiced is the subset.
 
-An invoiced quote was signed -- a different fact from one still sitting with the
-customer. Merging both into a single "Quotes" number hid which of the two had
-actually moved: Adelita Flowers on 2026-08-19 is 12 sent and 4 invoiced, and the
-merged 16 read as though nobody had closed anything.
+"Quotes sent" counts every quote that left the office. "Invoiced" counts how many
+of those converted -- a subset shown beside it, not carved out of it.
+
+Carving it out was the first attempt and it failed in the same direction as the
+original status=="sent" bug: the headline shrank as quotes succeeded. Adelita
+Flowers on 2026-08-19 sent 16 and closed 4; reporting "sent 12" understated her
+by exactly the quotes that worked. On 08-20 it is 10 sent, 4 invoiced.
 
 Exercises the real _v5_books bucketing, not a copy of it.
 """
@@ -39,11 +42,14 @@ by_agent, meta = A._v5_books("2026-08-19", "2026-08-19")
 ade = by_agent[A._norm_name("Adelita Flowers")]
 cha = by_agent[A._norm_name("Charlotte Mckay")]
 
-ok("Adelita sent is 12, not 16", ade["quotes_sent"] == 12, ade)
+ok("Adelita sent is 16 -- inclusive of the 4 invoiced", ade["quotes_sent"] == 16, ade)
 ok("Adelita invoiced is 4", ade["quotes_invoiced"] == 4, ade)
-ok("the two are not merged", ade["quotes_sent"] + ade["quotes_invoiced"] == 16, ade)
-ok("viewed counts as sent", cha["quotes_sent"] == 3, cha)          # 2 viewed + 1 declined
-ok("signed counts as invoiced", cha["quotes_invoiced"] == 1, cha)
+ok("invoiced is a SUBSET, not an extra bucket",
+   ade["quotes_invoiced"] < ade["quotes_sent"], ade)
+ok("viewed and declined count as sent", cha["quotes_sent"] == 4, cha)   # 2 viewed + 1 declined + 1 signed
+ok("signed counts as invoiced too", cha["quotes_invoiced"] == 1, cha)
+ok("a converted quote is not lost from sent",
+   cha["quotes_sent"] >= cha["quotes_invoiced"], cha)
 ok("no Books error was raised", not meta.get("errors"), meta.get("errors"))
 
 # the template must render both, and must not resurrect the merged label

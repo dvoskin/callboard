@@ -938,10 +938,14 @@ def _v5_books(date_start: str, date_end: str):
 
     by_agent, meta = {}, {"cached": False, "errors": []}
 
-    # A quote that got invoiced was signed -- a different fact from one still
-    # sitting with the customer. Merging them into a single "Quotes" number hid
-    # which of the two had actually moved, so they are counted apart and shown
-    # side by side. Adelita on 2026-08-19 is 12 sent and 4 invoiced, not 16.
+    # Quotes sent is INCLUSIVE: every quote that left the office, invoiced ones
+    # included. Invoiced is the SUBSET of those that converted, shown beside it
+    # rather than carved out of it.
+    #
+    # Carving it out was the first attempt and it was wrong in the same direction
+    # as the original bug: the headline shrank as quotes succeeded. Adelita on
+    # 2026-08-19 sent 16 and closed 4 of them; a "sent" of 12 understated her
+    # work by exactly the quotes that worked.
     _QUOTE_CLOSED = frozenset({"invoiced", "signed"})
 
     def bucket(name):
@@ -964,10 +968,9 @@ def _v5_books(date_start: str, date_end: str):
             rows = fn() or []
             for r in rows:
                 b = bucket(r.get("salesperson_name") or "Unassigned")
-                key = label
+                b[label] += 1
                 if label == "quotes_sent" and (r.get("status") or "") in _QUOTE_CLOSED:
-                    key = "quotes_invoiced"
-                b[key] += 1
+                    b["quotes_invoiced"] += 1
                 if field:
                     b["paid_amount"] += _num(r.get(field))
             meta[label + "_rows"] = len(rows)
