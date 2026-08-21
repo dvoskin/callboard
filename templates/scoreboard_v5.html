@@ -368,7 +368,11 @@
     $('go').addEventListener('click', load);
   }
   load();
-  setInterval(load, 15 * 60 * 1000);
+  // The server has new data every ~15 min (RingCX emits on that cadence and the
+  // forwarder picks it up within 5). A 15-min page timer could therefore sit a
+  // whole cycle behind what was already ingested; 5 keeps the screen level with
+  // the server instead of trailing it.
+  setInterval(load, 5 * 60 * 1000);
 })();
 </script>
 </body>
