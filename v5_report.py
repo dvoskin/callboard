@@ -153,7 +153,7 @@ def match_calls(exrows, cxuc, tz_offset_minutes=0):
     return pairs, unmatched, [u for i, u in enumerate(cxuc) if i not in used]
 
 
-def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
+def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
     """Merge both sources into one ledger and score every agent.
 
     exrows -- RingCXClient._fetch_ringex_agent_calls() output
@@ -229,8 +229,16 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
 
     NOT_PEOPLE = {"", "Unassigned", "HR Department", "IVR Main Menu 1001", "GOALS PLASTIC S"}
     agents = []
+    not_sales = []
     for name, L in led.items():
         if name in NOT_PEOPLE:
+            continue
+        # The roster is applied HERE, before floor, bands and totals are derived,
+        # so a non-sales rep never moves the median everyone else is measured
+        # against. Vera Payne had 12 attempts, which is over MIN_CALLS_TO_RANK --
+        # filtering her out downstream would have left her inside the floor.
+        if roster is not None and " ".join((name or "").split()).lower() not in roster:
+            not_sales.append(name)
             continue
         talk = sum(x["talk"] for x in L)
         camp = sum(x["talk"] for x in L if x["src"] == "campaign")
@@ -276,7 +284,8 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
         "meta": {"window": window or {}, "tz_offset_minutes": tz_offset_minutes,
                  "ringex_calls": len(exrows), "ringcx_rows": len(cxrows),
                  "ringcx_campaign": len(cxcamp), "ringcx_uc": len(cxuc),
-                 "min_calls_to_rank": MIN_CALLS_TO_RANK},
+                 "min_calls_to_rank": MIN_CALLS_TO_RANK,
+                 "not_sales": sorted(set(not_sales))},
         "floor": med,
         "ranked": ranked, "unranked": thin,
         "totals": {k: sum(a[k] for a in agents) for k in

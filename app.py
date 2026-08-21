@@ -839,6 +839,101 @@ def _redact(text) -> str:
     return _CREDENTIAL_QS.sub(r"\1<redacted>", str(text))
 
 
+_V5_ROSTER_TTL = 3600.0
+_v5_roster_cache = {"at": 0.0, "names": None, "why": {}}
+_v5_roster_lock = threading.Lock()
+
+# System accounts that carry estimates but never sell.
+_NOT_SALES_NAMES = {"zoho admin", "unassigned", ""}
+
+
+def _sales_roster():
+    """Who belongs on the sales board, decided from data rather than a name list.
+
+    Danny's rule: only sales users send quotes and dial RingCX campaigns. Neither
+    signal alone is enough --
+
+      * campaign-only drops Maisah Brandon, who has 27 estimates and barely dials
+      * quotes-only drops a rep having a pure-dialling day with nothing to quote
+
+    so it is the UNION, and each half is measured over a window wider than the
+    report's. Wellington Santiago has 19,375s of campaign over 08/17-20 and one
+    silent attempt today; a same-day test would drop him for one quiet morning.
+
+    Vera Payne is neither, on any day: no campaign interaction in any report the
+    inbox holds, and not the salesperson on a single estimate. That is what takes
+    her off the board.
+
+    Returns (names, meta). names is None when the roster cannot be trusted -- if
+    the Books half fails, a campaign-only roster would quietly drop the
+    quote-heavy reps, so the caller filters nobody rather than filtering wrongly.
+    """
+    now = time.time()
+    with _v5_roster_lock:
+        c = _v5_roster_cache
+        if c["names"] is not None and now - c["at"] < _V5_ROSTER_TTL:
+            return set(c["names"]), {"cached": True, "size": len(c["names"])}
+
+    why, meta = {}, {"cached": False}
+
+    days = _inbox_days()[:14]
+    for day in days:
+        try:
+            loaded = _load_inbox_csv(day, is_today=False)
+        except Exception:  # noqa: BLE001
+            continue
+        if not loaded:
+            continue
+        for r in (loaded[0] or []):
+            if (r.get("campaign_name") or "").strip():
+                n = _norm_name(r.get("agent_name") or "")
+                if n:
+                    why.setdefault(n, set()).add("campaign")
+    meta["campaign_days"] = len(days)
+
+    try:
+        today = datetime.now(timezone.utc).date()
+        start = (today - timedelta(days=7)).isoformat()
+        for e in _books.list_sent_estimates(start, today.isoformat(), 4000):
+            n = _norm_name(e.get("salesperson_name") or "")
+            if n:
+                why.setdefault(n, set()).add("quotes")
+        meta["books_days"] = 7
+    except Exception as e:  # noqa: BLE001
+        # Absence is not a negative: a Books failure must not narrow the roster.
+        log.warning("v5 roster: Books half unavailable, not filtering: %s", _redact(e))
+        meta["error"] = _redact(e)[:200]
+        return None, meta
+
+    names = {n for n in why if n not in _NOT_SALES_NAMES}
+    with _v5_roster_lock:
+        _v5_roster_cache.update({"at": time.time(), "names": set(names),
+                                 "why": {k: sorted(v) for k, v in why.items()}})
+    meta["size"] = len(names)
+    meta["quotes_only"] = sorted(n for n, v in why.items()
+                                 if v == {"quotes"} and n in names)[:12]
+    return names, meta
+
+
+def _zero_call_row(display, b):
+    """A roster member who quoted in this window but has no calls in it.
+
+    They were invisible before -- the board is built from RingCX, so a rep who
+    sent quotes and had not dialled yet simply was not there. Zero dials beside
+    real quotes is the honest picture, and it belongs in unranked so it cannot
+    drag the floor.
+    """
+    row = {"name": display, "talk": 0, "campaign": 0, "direct": 0, "attempts": 0,
+           "missed": 0, "connected": 0, "wrap": 0, "longest": 0,
+           "below": [], "band": "na"}
+    for m in (60, 180, 600):
+        row["over_%d" % (m // 60)] = 0
+    row["books"] = {k: b[k] for k in ("quotes_sent", "quotes_invoiced",
+                                      "retainers_sent", "retainers_paid",
+                                      "paid_amount")}
+    return row
+
+
 def _v5_books(date_start: str, date_end: str):
     """Per-agent Books figures for the range: quotes sent, retainers sent, and
     retainers PAID (by payment date). Cached briefly -- Books is slow and every
@@ -1376,8 +1471,11 @@ def api_v5_report():
             except (ValueError, TypeError):
                 pass
 
+        roster, roster_meta = _sales_roster()
         report = build_v5_report(ex_rows, cx_rows, tz_offset_minutes=offset_east,
-                                 window={"start": date_start, "end": date_end})
+                                 window={"start": date_start, "end": date_end},
+                                 roster=roster)
+        report["meta"]["roster"] = roster_meta
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
         # Books figures, joined onto whoever is already on the board.
         try:
@@ -1396,8 +1494,25 @@ def api_v5_report():
                                "retainers_paid", "paid_amount")} if b else {
                     "quotes_sent": 0, "quotes_invoiced": 0, "retainers_sent": 0,
                     "retainers_paid": 0, "paid_amount": 0.0}
-            # Anyone with Books activity who never appears on the board is worth
-            # naming rather than dropping -- it usually means a name mismatch.
+            # A roster member who quoted today but has not dialled yet was simply
+            # absent: the board is built from RingCX, so no calls meant no row.
+            # Give them a row with real quotes and zero dials, in unranked so it
+            # cannot drag the floor.
+            added = []
+            for k, v in books.items():
+                if k in seen or k in _NOT_SALES_NAMES:
+                    continue
+                if roster is not None and k not in roster:
+                    continue
+                if not (v["quotes_sent"] or v["quotes_invoiced"]):
+                    continue
+                report.setdefault("unranked", []).append(_zero_call_row(v["display"], v))
+                added.append(v["display"])
+                seen.add(k)
+            books_meta["added_without_calls"] = sorted(added)
+
+            # Anyone left with Books activity and still no row is worth naming
+            # rather than dropping -- it usually means a name mismatch.
             orphans = [v["display"] for k, v in books.items()
                        if k not in seen and k != "unassigned"
                        and (v["quotes_sent"] or v["quotes_invoiced"]
