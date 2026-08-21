@@ -1124,15 +1124,37 @@ def api_v5_diag():
                 probe["refresh"] = "failed"
                 probe["result"] = _redact(e)[:300]
             if probe.get("refresh") == "ok":
-                _r = requests.get(
-                    f"{_books.base_url}/estimates",
-                    headers=_books._headers(),
-                    params={"organization_id": _books.org_id, "per_page": 1},
-                    timeout=20,
-                )
-                probe["books_api_http"] = _r.status_code
-                probe["result"] = ("Books works."
-                                   if _r.ok else _redact(_r.text)[:300])
+                # Probe every scope the board needs, not just one. Testing only
+                # /estimates would have reported "Books works." while retainers
+                # paid stayed silently 401 -- the CRM token carries
+                # ZohoBooks.estimates.READ and .invoices.READ but not
+                # .customerpayments.READ, and that one missing scope is the
+                # entire reason the paid column reads zero.
+                _scopes, _denied = {}, []
+                for _name, _path in (("estimates", "estimates"),
+                                     ("invoices", "invoices"),
+                                     ("customerpayments", "customerpayments")):
+                    try:
+                        _r = requests.get(
+                            f"{_books.base_url}/{_path}",
+                            headers=_books._headers(),
+                            params={"organization_id": _books.org_id, "per_page": 1},
+                            timeout=20,
+                        )
+                        _scopes[_name] = _r.status_code
+                        if not _r.ok:
+                            _denied.append(_name)
+                    except Exception as e:  # noqa: BLE001
+                        _scopes[_name] = _redact(e)[:120]
+                        _denied.append(_name)
+                probe["scopes"] = _scopes
+                probe["result"] = (
+                    "Books works - all three scopes readable."
+                    if not _denied else
+                    "Token is valid but lacks scope for: %s. Regenerate the Zoho "
+                    "token with ZohoBooks.estimates.READ, ZohoBooks.invoices.READ "
+                    "and ZohoBooks.customerpayments.READ, then set it as "
+                    "ZOHO_BOOKS_REFRESH_TOKEN." % ", ".join(_denied))
         out["books_probe"] = probe
     except Exception as e:  # noqa: BLE001
         out["books_probe"] = {"result": _redact(e)[:300]}
