@@ -1041,6 +1041,10 @@ def _v5_activities_created(start_iso, end_iso, agent_names=None):
                 for who in board[sn]:
                     by_agent[who] = None      # cannot tell, so do not claim 0
             meta["ambiguous_surnames"] = sorted(set(shared))
+            # Both sides of the join, so a zero says WHICH side was empty rather
+            # than leaving it to be guessed at from the outside.
+            meta["board_surnames"] = len(board)
+            meta["owner_surnames"] = sorted(per_surname)[:12]
 
         for full in (agent_names or []):
             by_agent.setdefault(_norm_name(full), 0)
