@@ -213,12 +213,19 @@ class BooksClient:
             log.info("Books not configured — no retainer payments available")
             return []
 
+        # Resolve the token OUTSIDE the try. _headers() refreshes the OAuth token,
+        # and a refresh failure is an auth problem, not a transient network one --
+        # swallowing it here returned [] and reported "0 retainers paid" with no
+        # error at all, while the other two metrics correctly surfaced the same
+        # failure. Let it propagate.
+        headers = self._headers()
+
         raw, page, per_page = [], 1, 200
         while len(raw) < max_records:
             try:
                 resp = requests.get(
                     f"{self.base_url}/customerpayments",
-                    headers=self._headers(),
+                    headers=headers,
                     params={"organization_id": self.org_id,
                             "date_start": date_start, "date_end": date_end,
                             "sort_column": "date", "page": page, "per_page": per_page},
