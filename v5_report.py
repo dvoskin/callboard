@@ -195,10 +195,11 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
     # ---- one ledger, each call once
     led: dict[str, list] = {}
 
-    def add(agent, src, talk, connected, missed):
+    def add(agent, src, talk, connected, missed, wrap=0.0):
         name = (agent or "").strip() or "Unassigned"
         led.setdefault(name, []).append(
-            {"src": src, "talk": max(0.0, talk), "conn": connected, "missed": missed})
+            {"src": src, "talk": max(0.0, talk), "conn": connected, "missed": missed,
+             "wrap": max(0.0, wrap)})
 
     def cx_talk(r):
         t = _num(r.get("talk_time"))
@@ -206,7 +207,10 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
 
     for r in cxcamp:
         st = classify_result(r.get("result"))
-        add(r.get("agent_name"), "campaign", cx_talk(r), st == "connected", st == "missed")
+        # wrap comes from the emailed Interaction Report; the live CDR pull has no
+        # wrap column, so it is 0 there rather than wrong.
+        add(r.get("agent_name"), "campaign", cx_talk(r), st == "connected", st == "missed",
+            _num(r.get("wrap_time")))
     for e, u, _ in pairs:                      # counted ONCE, on the RingCX timing
         st = classify_result(e.get("result"))
         add(u.get("agent_name") or e.get("agent_name"), "direct",
@@ -233,6 +237,8 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None):
         a = {"name": name, "talk": round(talk), "campaign": round(camp),
              "direct": round(talk - camp), "attempts": len(L),
              "missed": sum(1 for x in L if x["missed"]),
+             "connected": sum(1 for x in L if x["conn"]),
+             "wrap": round(sum(x.get("wrap", 0.0) for x in L)),
              "longest": round(max((x["talk"] for x in L), default=0))}
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)

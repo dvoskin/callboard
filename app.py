@@ -811,6 +811,67 @@ def _load_ringex_snapshot(day_iso: str):
         return None
 
 
+_V5_BOOKS_TTL = 300.0
+_v5_books_cache: dict = {}
+_v5_books_lock = threading.Lock()
+
+
+def _norm_name(n: str) -> str:
+    """Books writes 'Charlotte Mckay'; RingCX writes 'Charlotte McKay'. An exact
+    match drops her silently, so join on a normalised key."""
+    return " ".join((n or "").split()).lower()
+
+
+def _v5_books(date_start: str, date_end: str):
+    """Per-agent Books figures for the range: quotes sent, retainers sent, and
+    retainers PAID (by payment date). Cached briefly -- Books is slow and every
+    agent on the board reads from the same fetch."""
+    key = (date_start, date_end)
+    now = time.time()
+    with _v5_books_lock:
+        hit = _v5_books_cache.get(key)
+        if hit and now - hit["at"] < _V5_BOOKS_TTL:
+            return hit["by_agent"], dict(hit["meta"], cached=True)
+
+    by_agent, meta = {}, {"cached": False, "errors": []}
+
+    def bucket(name):
+        return by_agent.setdefault(_norm_name(name), {
+            "display": (name or "").strip(), "quotes_sent": 0,
+            "retainers_sent": 0, "retainers_paid": 0, "paid_amount": 0.0})
+
+    def _num(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    for label, fn, field in (
+        ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 500), None),
+        ("retainers_sent", lambda: _books.list_sent_retainer_invoices(date_start, date_end, 500), None),
+        ("retainers_paid", lambda: _books.list_retainer_payments(date_start, date_end), "amount"),
+    ):
+        try:
+            rows = fn() or []
+            for r in rows:
+                b = bucket(r.get("salesperson_name") or "Unassigned")
+                b[label] += 1
+                if field:
+                    b["paid_amount"] += _num(r.get(field))
+            meta[label + "_rows"] = len(rows)
+        except Exception as e:  # noqa: BLE001
+            # Name the failure. A zero that means "Books errored" and a zero that
+            # means "no quotes today" must not look the same on the board.
+            log.warning("v5 books %s failed: %s", label, e)
+            meta["errors"].append({"metric": label, "detail": str(e)[:200]})
+
+    with _v5_books_lock:
+        _v5_books_cache[key] = {"at": time.time(), "by_agent": by_agent, "meta": meta}
+        for k in [k for k, v in _v5_books_cache.items() if time.time() - v["at"] > 3600]:
+            _v5_books_cache.pop(k, None)
+    return by_agent, meta
+
+
 def _inbox_days():
     """Every day the inbox holds a report for, newest first."""
     out = []
@@ -1192,6 +1253,35 @@ def api_v5_report():
         report = build_v5_report(ex_rows, cx_rows, tz_offset_minutes=offset_east,
                                  window={"start": date_start, "end": date_end})
         report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
+        # Books figures, joined onto whoever is already on the board.
+        try:
+            books, books_meta = _v5_books(date_start, date_end)
+            seen = set()
+            for a in report.get("ranked", []) + report.get("unranked", []):
+                b = books.get(_norm_name(a["name"]))
+                if b:
+                    seen.add(_norm_name(a["name"]))
+                a["books"] = {k: b[k] for k in
+                              ("quotes_sent", "retainers_sent", "retainers_paid",
+                               "paid_amount")} if b else {
+                    "quotes_sent": 0, "retainers_sent": 0,
+                    "retainers_paid": 0, "paid_amount": 0.0}
+            # Anyone with Books activity who never appears on the board is worth
+            # naming rather than dropping -- it usually means a name mismatch.
+            orphans = [v["display"] for k, v in books.items()
+                       if k not in seen and k != "unassigned"
+                       and (v["quotes_sent"] or v["retainers_sent"] or v["retainers_paid"])]
+            books_meta["not_on_board"] = sorted(orphans)[:12]
+            report["meta"]["books"] = books_meta
+            if books_meta.get("errors"):
+                report.setdefault("warnings", []).append({
+                    "kind": "books_unavailable",
+                    "detail": "Some Books figures could not be fetched, so they read zero "
+                              "rather than being absent: " +
+                              ", ".join(e["metric"] for e in books_meta["errors"])})
+        except Exception as e:  # noqa: BLE001
+            log.warning("v5 books join failed: %s", e)
+
         report["meta"]["ringcx_source"] = cx_source
         report["meta"]["ringex_source"] = dict(ex_meta, calls=len(ex_rows),
                                               clamped_to_ringcx=ex_clamped or None)

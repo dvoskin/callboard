@@ -190,6 +190,99 @@ class BooksClient:
                 return False
         return [r for r in rows if _is_paid(r)]
 
+    def list_retainer_payments(
+        self,
+        date_start: str,
+        date_end: str,
+        lookback_days: int = 180,
+        max_records: int = 500,
+    ) -> list[dict]:
+        """Payments RECEIVED in [date_start, date_end], attributed to the
+        salesperson on the invoice each one settles.
+
+        This is NOT list_paid_retainer_invoices. That filters on the INVOICE
+        date and asks "is it paid now", so a retainer raised on Monday and paid
+        today never appears on today's board. A daily scoreboard wants the
+        payment fact on the day the money arrived, which means filtering on the
+        payment date and then looking up who owns the invoice.
+
+        Payments carry no salesperson, so invoices over a wider window are
+        fetched once and used as the lookup rather than one call per payment.
+        """
+        if not (self.client_id and self.client_secret and self.refresh_token and self.org_id):
+            log.info("Books not configured — no retainer payments available")
+            return []
+
+        from datetime import date as _date, timedelta as _td
+        try:
+            back = (_date.fromisoformat(date_start) - _td(days=lookback_days)).isoformat()
+        except ValueError:
+            back = date_start
+
+        # invoice_number / invoice_id -> salesperson, over the lookback window
+        owner = {}
+        try:
+            for inv in self._list_documents("invoices", back, date_end, 2000):
+                who = (inv.get("salesperson_name") or "").strip()
+                if not who:
+                    continue
+                for k in (inv.get("invoice_number"), inv.get("invoice_id")):
+                    if k:
+                        owner[str(k)] = who
+        except Exception as e:  # noqa: BLE001
+            log.warning("Books: invoice lookup for payments failed: %s", e)
+
+        out, page, per_page = [], 1, 200
+        unmatched = 0
+        while len(out) < max_records:
+            try:
+                resp = requests.get(
+                    f"{self.base_url}/customerpayments",
+                    headers=self._headers(),
+                    params={"organization_id": self.org_id,
+                            "date_start": date_start, "date_end": date_end,
+                            "sort_column": "date", "page": page, "per_page": per_page},
+                    timeout=20,
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("Books customerpayments request failed: %s", e)
+                break
+            if resp.status_code == 204:
+                break
+            if not resp.ok:
+                # Most likely a missing ZohoBooks.customerpayments.READ scope.
+                log.warning("Books customerpayments %s: %s",
+                            resp.status_code, (resp.text or "")[:200])
+                break
+            payload = resp.json() or {}
+            rows = payload.get("customerpayments") or payload.get("customer_payments") or []
+            for r in rows:
+                # The list shape varies by Books version: sometimes an `invoices`
+                # array, sometimes a comma-joined `invoice_numbers` string. Accept
+                # both rather than betting on one.
+                keys = []
+                for inv in (r.get("invoices") or []):
+                    keys += [str(inv.get("invoice_number") or ""), str(inv.get("invoice_id") or "")]
+                for n in str(r.get("invoice_numbers") or "").split(","):
+                    if n.strip():
+                        keys.append(n.strip())
+                who = next((owner[k] for k in keys if k in owner), "")
+                if not who:
+                    unmatched += 1
+                r = dict(r)
+                r["salesperson_name"] = who or "Unassigned"
+                out.append(r)
+            if len(rows) < per_page:
+                break
+            page += 1
+        if unmatched:
+            # Say it rather than letting the total quietly land in "Unassigned".
+            log.info("Books payments: %d of %d could not be matched to an invoice "
+                     "owner (invoice older than the %d-day lookback, or no salesperson set)",
+                     unmatched, len(out), lookback_days)
+        log.info("Books: %d payments received %s..%s", len(out), date_start, date_end)
+        return out[:max_records]
+
     def _list_documents(
         self,
         doc_type: str,

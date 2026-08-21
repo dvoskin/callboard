@@ -63,7 +63,21 @@
       color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
   .r{padding:7px 0;border-bottom:1px solid var(--hair)}
   .r:last-child{border-bottom:0}
+  .r{cursor:pointer}
   .r:hover{background:var(--tint)}
+  .r[aria-expanded="true"]{background:var(--tint)}
+  .rk::after{content:"";display:inline-block;width:0;height:0;margin-left:5px;
+             border-left:3.5px solid transparent;border-right:3.5px solid transparent;
+             border-top:4px solid var(--muted);vertical-align:1px;opacity:.55}
+  .r[aria-expanded="true"] .rk::after{transform:rotate(180deg)}
+  .det{display:none;padding:9px 0 12px 22px;border-bottom:1px solid var(--hair);
+       font-size:12px;color:var(--muted);line-height:1.7}
+  .det.on{display:block}
+  .det .lab{display:inline-block;min-width:62px;font-size:10px;font-weight:700;
+            letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .det b{color:var(--ink);font-weight:650;font-variant-numeric:tabular-nums}
+  .det .sep{opacity:.4;padding:0 5px}
+  .det .none{font-style:italic;opacity:.75}
   .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
@@ -171,13 +185,35 @@
          '<span class="a-t3">&gt;3m</span><span class="a-t10">&gt;10m</span></div>';
     ranked.forEach(function (a, i) {
       var up = a.talk >= f.talk;
-      h += '<div class="r ' + a.band + '"><span class="rk">' + (i + 1) + '</span>' +
+      const bk = a.books || {};
+      const money = bk.paid_amount ? ' ($' + Math.round(bk.paid_amount).toLocaleString() + ')' : '';
+      const booksLine = (bk.quotes_sent || bk.retainers_sent || bk.retainers_paid)
+        ? '<b>' + w(bk.quotes_sent) + '</b> quote' + (bk.quotes_sent === 1 ? '' : 's') + ' sent' +
+          '<span class="sep">·</span><b>' + w(bk.retainers_sent) + '</b> retainer' +
+          (bk.retainers_sent === 1 ? '' : 's') + ' sent' +
+          '<span class="sep">·</span><b>' + w(bk.retainers_paid) + '</b> paid' + money
+        : '<span class="none">nothing in Books for this range</span>';
+      h += '<div class="r ' + a.band + '" role="button" tabindex="0" aria-expanded="false"' +
+           ' data-det="d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
            '<span class="nm">' + esc(a.name) + '</span>' +
            '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' +
              (up ? '▲' : '▼') + '</span>' + hm(a.talk) + '</span>' +
            cell(a.attempts, f.attempts, 'd', ' dials') +
            cell(a.over_3, f.over_3, 't3', ' over 3m') +
            cell(a.over_10, f.over_10, 't10', ' over 10m') +
+           '</div>';
+      h += '<div class="det" id="d' + i + '">' +
+             '<div><span class="lab">Calls</span>' +
+               '<b>' + hm(a.campaign) + '</b> campaign<span class="sep">·</span>' +
+               '<b>' + hm(a.direct) + '</b> direct line<span class="sep">·</span>' +
+               '<b>' + w(a.connected) + '</b> of <b>' + w(a.attempts) + '</b> connected' +
+             '</div>' +
+             '<div><span class="lab"></span>' +
+               'longest <b>' + hm(a.longest) + '</b><span class="sep">·</span>' +
+               'wrap <b>' + hm(a.wrap) + '</b><span class="sep">·</span>' +
+               '<b>' + w(a.missed) + '</b> missed inbound' +
+             '</div>' +
+             '<div><span class="lab">Books</span>' + booksLine + '</div>' +
            '</div>';
     });
 
@@ -222,6 +258,21 @@
     h += '<p class="note">Both phone systems combined, no call counted twice. Talk time only — ' +
          'wrap and admin excluded. Shift length isn’t in the data, so a half day sits beside a full one.</p>';
     $('out').innerHTML = h;
+
+    // Expand on click. Delegated so it survives every refresh, and keyboard
+    // reachable because the rows are the only way into this detail.
+    $('out').querySelectorAll('.r[data-det]').forEach(function (row) {
+      const open = function () {
+        const d = document.getElementById(row.getAttribute('data-det'));
+        if (!d) return;
+        const now = d.classList.toggle('on');
+        row.setAttribute('aria-expanded', now ? 'true' : 'false');
+      };
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+    });
   }
 
   function load() {
