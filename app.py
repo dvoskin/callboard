@@ -1055,6 +1055,31 @@ def api_v5_diag():
             row.update(extra)
         out["checks"].append(row)
 
+    # Books credential shape -- length and whitespace only, never the value. A
+    # refresh token and an access token are both 70 chars with two dots, so the
+    # usual failure is grabbing the wrong one, and the usual second failure is a
+    # trailing newline from the copy. Neither is visible from the outside.
+    try:
+        _bt = os.environ.get("ZOHO_BOOKS_REFRESH_TOKEN", "")
+        _ct = os.environ.get("ZOHO_REFRESH_TOKEN", "")
+        out["books_token"] = {
+            "ZOHO_BOOKS_REFRESH_TOKEN_set": bool(_bt),
+            "length": len(_bt),
+            "expected_length": 70,
+            "dots": _bt.count("."),
+            "has_surrounding_whitespace": _bt != _bt.strip(),
+            "falls_back_to_crm_token": (not _bt) and bool(_ct),
+            "note": ("Length is not 70 — likely truncated, or an extra character was copied."
+                     if _bt and len(_bt) != 70 else
+                     "Whitespace around the value — Zoho will reject it."
+                     if _bt != _bt.strip() else
+                     "Shape looks right; if Zoho still says invalid_code the value is a "
+                     "different (older or access) token." if _bt else
+                     "Not set — Books is using the CRM refresh token."),
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
     if not _ringcx.configured:
         add("credentials", False,
             "RC_CLIENT_ID / RC_CLIENT_SECRET / RC_JWT_TOKEN are not all set on this "
