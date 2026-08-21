@@ -213,28 +213,8 @@ class BooksClient:
             log.info("Books not configured — no retainer payments available")
             return []
 
-        from datetime import date as _date, timedelta as _td
-        try:
-            back = (_date.fromisoformat(date_start) - _td(days=lookback_days)).isoformat()
-        except ValueError:
-            back = date_start
-
-        # invoice_number / invoice_id -> salesperson, over the lookback window
-        owner = {}
-        try:
-            for inv in self._list_documents("invoices", back, date_end, 2000):
-                who = (inv.get("salesperson_name") or "").strip()
-                if not who:
-                    continue
-                for k in (inv.get("invoice_number"), inv.get("invoice_id")):
-                    if k:
-                        owner[str(k)] = who
-        except Exception as e:  # noqa: BLE001
-            log.warning("Books: invoice lookup for payments failed: %s", e)
-
-        out, page, per_page = [], 1, 200
-        unmatched = 0
-        while len(out) < max_records:
+        raw, page, per_page = [], 1, 200
+        while len(raw) < max_records:
             try:
                 resp = requests.get(
                     f"{self.base_url}/customerpayments",
@@ -250,31 +230,61 @@ class BooksClient:
             if resp.status_code == 204:
                 break
             if not resp.ok:
-                # Most likely a missing ZohoBooks.customerpayments.READ scope.
-                log.warning("Books customerpayments %s: %s",
-                            resp.status_code, (resp.text or "")[:200])
-                break
+                # Raise. Returning [] here made a missing scope look exactly like a
+                # day with no payments, and the board would print a confident zero.
+                detail = (resp.text or "")[:200]
+                hint = (" The Books OAuth token is missing the "
+                        "ZohoBooks.customerpayments.READ scope."
+                        if resp.status_code in (401, 403) else "")
+                log.warning("Books customerpayments %s: %s", resp.status_code, detail)
+                raise RuntimeError("Books customerpayments returned HTTP %d.%s %s"
+                                   % (resp.status_code, hint, detail))
             payload = resp.json() or {}
             rows = payload.get("customerpayments") or payload.get("customer_payments") or []
-            for r in rows:
-                # The list shape varies by Books version: sometimes an `invoices`
-                # array, sometimes a comma-joined `invoice_numbers` string. Accept
-                # both rather than betting on one.
-                keys = []
-                for inv in (r.get("invoices") or []):
-                    keys += [str(inv.get("invoice_number") or ""), str(inv.get("invoice_id") or "")]
-                for n in str(r.get("invoice_numbers") or "").split(","):
-                    if n.strip():
-                        keys.append(n.strip())
-                who = next((owner[k] for k in keys if k in owner), "")
-                if not who:
-                    unmatched += 1
-                r = dict(r)
-                r["salesperson_name"] = who or "Unassigned"
-                out.append(r)
+            raw.extend(rows)
             if len(rows) < per_page:
                 break
             page += 1
+
+        if not raw:
+            log.info("Books: no payments received %s..%s", date_start, date_end)
+            return []
+
+        # Only now is the invoice lookup worth its ~10s and 2000 rows.
+        from datetime import date as _date, timedelta as _td
+        try:
+            back = (_date.fromisoformat(date_start) - _td(days=lookback_days)).isoformat()
+        except ValueError:
+            back = date_start
+        owner = {}
+        try:
+            for inv in self._list_documents("invoices", back, date_end, 2000):
+                who = (inv.get("salesperson_name") or "").strip()
+                if not who:
+                    continue
+                for k in (inv.get("invoice_number"), inv.get("invoice_id")):
+                    if k:
+                        owner[str(k)] = who
+        except Exception as e:  # noqa: BLE001
+            log.warning("Books: invoice lookup for payments failed: %s", e)
+
+        out, unmatched = [], 0
+        for r in raw:
+            # The list shape varies by Books version: sometimes an `invoices`
+            # array, sometimes a comma-joined `invoice_numbers` string. Accept
+            # both rather than betting on one.
+            keys = []
+            for inv in (r.get("invoices") or []):
+                keys += [str(inv.get("invoice_number") or ""), str(inv.get("invoice_id") or "")]
+            for n in str(r.get("invoice_numbers") or "").split(","):
+                if n.strip():
+                    keys.append(n.strip())
+            who = next((owner[k] for k in keys if k in owner), "")
+            if not who:
+                unmatched += 1
+            r = dict(r)
+            r["salesperson_name"] = who or "Unassigned"
+            out.append(r)
         if unmatched:
             # Say it rather than letting the total quietly land in "Unassigned".
             log.info("Books payments: %d of %d could not be matched to an invoice "

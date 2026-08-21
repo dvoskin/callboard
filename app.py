@@ -1276,9 +1276,12 @@ def api_v5_report():
             if books_meta.get("errors"):
                 report.setdefault("warnings", []).append({
                     "kind": "books_unavailable",
-                    "detail": "Some Books figures could not be fetched, so they read zero "
-                              "rather than being absent: " +
-                              ", ".join(e["metric"] for e in books_meta["errors"])})
+                    # Carry the reason, not just the metric name. "retainers paid: 0"
+                    # and "retainers paid: we were refused" must not read the same.
+                    "detail": "These Books figures read zero because they could not be "
+                              "fetched, not because there were none — " +
+                              "; ".join("%s: %s" % (e["metric"].replace("_", " "), e["detail"])
+                                        for e in books_meta["errors"])})
         except Exception as e:  # noqa: BLE001
             log.warning("v5 books join failed: %s", e)
 
