@@ -24,9 +24,15 @@ from datetime import datetime, timedelta, timezone
 CONV_MARKS = (60, 180, 600)
 # Two calls are the same call if both phone numbers match and they start this close.
 MATCH_TOLERANCE_SECONDS = 180
-# Fewer logged calls than this and an agent is not ranked -- part shift or a logging
-# problem, not a slow day. Ranking on one logged call starts the wrong conversation.
-MIN_CALLS_TO_RANK = 10
+# One logged call is enough to be ranked. It was 10, on the reasoning that a part
+# shift should not be scored -- but for most of the morning that put nearly the
+# whole floor in an unranked pile, which is worse: a rep with 3 calls at 09:30 is
+# not unrankable, they are early. Only someone with NO calls stays out, and they
+# appear in the "no calls yet" group instead.
+#
+# The floor is a median, so it moves with the shift rather than being a target;
+# early in the day it is genuinely low, and that is the honest reading.
+MIN_CALLS_TO_RANK = 1
 
 # "uc call" is RingCX's result for an agent's own-line call. RingCX only writes a UC
 # record once the call connects, so the value itself means connected.

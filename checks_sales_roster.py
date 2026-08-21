@@ -87,25 +87,45 @@ ok("zero-call row has the keys the板 template reads".replace("板",""),
    all(k in row for k in ("over_3", "over_10", "longest", "below")), sorted(row))
 
 # --- 6. _sales_roster itself must fail OPEN, not closed ---------------------
-# A campaign-only roster would quietly drop every quote-heavy rep, so when the
-# Books half fails the roster must be None (filter nobody) and never an empty
-# set (filter everybody). Tested here because passing roster=None straight to
-# build_report only checks build_report's contract, not _sales_roster's.
-class _Boom:
-    def list_sent_estimates(self, *a, **k):
-        raise RuntimeError("Books customerpayments returned HTTP 401")
-
-_saved = A._books
+# The roster is now campaign-only: quoting is NOT a qualifying signal, because
+# treating it as one admitted seven people who quote but never dial and are not
+# sales. So the failure mode to guard is an inbox that yields no campaign
+# activity at all -- filtering on that would empty the board. It must return
+# None (filter nobody), never an empty set (filter everybody).
+A._v5_roster_cache.update({"at": 0.0, "names": None, "why": {}})
+_saved_days = A._inbox_days
 try:
-    A._books = _Boom()
-    A._v5_roster_cache.update({"at": 0.0, "names": None, "why": {}})
+    A._inbox_days = lambda: []                    # nothing to learn from
     names, meta = A._sales_roster()
-    ok("Books failure yields None, not an empty set", names is None, repr(names))
+    ok("empty inbox yields None, not an empty set", names is None, repr(names))
     ok("an empty set would have filtered everyone", names != set(), repr(names))
-    ok("the failure is reported, not swallowed", bool(meta.get("error")), meta)
+    ok("the reason is reported, not swallowed", bool(meta.get("error")), meta)
 finally:
-    A._books = _saved
+    A._inbox_days = _saved_days
     A._v5_roster_cache.update({"at": 0.0, "names": None, "why": {}})
+
+# Quoting alone must NOT put someone on the roster -- that is the whole point of
+# the change. Proven structurally: _sales_roster must not consult Books at all.
+import inspect
+src = inspect.getsource(A._sales_roster)
+ok("the roster does not consult Books", "list_sent_estimates" not in src,
+   "still reads Books, so quotes would re-admit the seven")
+
+# --- 7. one logged call is enough to be ranked ------------------------------
+# The threshold was 10, which for most of the morning parked nearly the whole
+# floor in an unranked pile. A rep with 3 calls at 09:30 is early, not
+# unrankable. Only someone with NO calls stays out.
+solo = build_report([], cx("Solo Rep", 1, talk=60),
+                    window={"start": "2026-08-21", "end": "2026-08-21"},
+                    roster={"solo rep"})
+ok("a single logged call is ranked",
+   [a["name"] for a in solo["ranked"]] == ["Solo Rep"],
+   {"ranked": [a["name"] for a in solo["ranked"]],
+    "unranked": [a["name"] for a in solo["unranked"]]})
+ok("nobody with a call is parked as unrankable", solo["unranked"] == [],
+   [a["name"] for a in solo["unranked"]])
+ok("the threshold is published for the page", solo["meta"]["min_calls_to_rank"] == 1,
+   solo["meta"].get("min_calls_to_rank"))
 
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)

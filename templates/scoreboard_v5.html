@@ -253,13 +253,12 @@
            'not just one. Dials are the place to start.</p>';
     }
     if (thin.length) {
-      h += '<h2>Not enough calls to rank</h2><ul>';
+      h += '<h2>No calls yet</h2><ul>';
       thin.forEach(function (a) {
         h += '<li><b>' + esc(a.name) + '</b><span>' + w(a.attempts) + ' call' +
              (a.attempts === 1 ? '' : 's') + ' · ' + hm(a.talk) + ' talk</span></li>';
       });
-      h += '</ul><p class="note">Under ' + w(d.meta.min_calls_to_rank) +
-           ' calls logged — usually a part shift, not a slow day.</p>';
+      h += '</ul><p class="note">No calls logged yet in this window.</p>';
     }
 
     (d.warnings || []).forEach(function (x) {

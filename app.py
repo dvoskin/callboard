@@ -848,25 +848,25 @@ _NOT_SALES_NAMES = {"zoho admin", "unassigned", ""}
 
 
 def _sales_roster():
-    """Who belongs on the sales board, decided from data rather than a name list.
+    """Who belongs on the sales board: whoever dials a RingCX campaign.
 
-    Danny's rule: only sales users send quotes and dial RingCX campaigns. Neither
-    signal alone is enough --
+    Sending a quote is NOT a qualifying signal. An earlier version treated it as
+    one, on the reading that only sales quote -- and it admitted seven people who
+    quote but never dial (Alyan Wasif, Angel Leomis Medina, Charlotte Reyes,
+    Genesis Ventura, Henry Marshall, Luisa Perez, Olivia Bennett), none of whom
+    are sales. Danny confirmed it: campaign dialling is the test.
 
-      * campaign-only drops Maisah Brandon, who has 27 estimates and barely dials
-      * quotes-only drops a rep having a pure-dialling day with nothing to quote
+    Dropping the quotes half costs nothing real. Maisah Brandon was the worry --
+    27 estimates and barely any dialling -- but the campaign half counts
+    campaign INTERACTIONS, not campaign talk time, so her silent dials still
+    carry her. Measured over 08/17-20, 28 of 29 agents had campaign time.
 
-    so it is the UNION, and each half is measured over a window wider than the
-    report's. Wellington Santiago has 19,375s of campaign over 08/17-20 and one
-    silent attempt today; a same-day test would drop him for one quiet morning.
+    The window is every report the inbox holds, not the report's own range:
+    Wellington Santiago has 19,375s of campaign over 08/17-20 and 3 attempts
+    today, and a same-day test would drop him for one quiet morning.
 
-    Vera Payne is neither, on any day: no campaign interaction in any report the
-    inbox holds, and not the salesperson on a single estimate. That is what takes
-    her off the board.
-
-    Returns (names, meta). names is None when the roster cannot be trusted -- if
-    the Books half fails, a campaign-only roster would quietly drop the
-    quote-heavy reps, so the caller filters nobody rather than filtering wrongly.
+    Returns (names, meta). names is None when the roster cannot be computed at
+    all -- an empty inbox must filter nobody rather than empty the board.
     """
     now = time.time()
     with _v5_roster_lock:
@@ -891,27 +891,18 @@ def _sales_roster():
                     why.setdefault(n, set()).add("campaign")
     meta["campaign_days"] = len(days)
 
-    try:
-        today = datetime.now(timezone.utc).date()
-        start = (today - timedelta(days=7)).isoformat()
-        for e in _books.list_sent_estimates(start, today.isoformat(), 4000):
-            n = _norm_name(e.get("salesperson_name") or "")
-            if n:
-                why.setdefault(n, set()).add("quotes")
-        meta["books_days"] = 7
-    except Exception as e:  # noqa: BLE001
-        # Absence is not a negative: a Books failure must not narrow the roster.
-        log.warning("v5 roster: Books half unavailable, not filtering: %s", _redact(e))
-        meta["error"] = _redact(e)[:200]
-        return None, meta
-
     names = {n for n in why if n not in _NOT_SALES_NAMES}
+    if not names:
+        # No inbox report parsed, so nothing is known about anyone. Filtering on
+        # that would empty the board; absence is not a negative.
+        log.warning("v5 roster: no campaign activity found in %d inbox day(s), "
+                    "not filtering", len(days))
+        meta["error"] = "no campaign activity in the inbox"
+        return None, meta
     with _v5_roster_lock:
         _v5_roster_cache.update({"at": time.time(), "names": set(names),
                                  "why": {k: sorted(v) for k, v in why.items()}})
     meta["size"] = len(names)
-    meta["quotes_only"] = sorted(n for n, v in why.items()
-                                 if v == {"quotes"} and n in names)[:12]
     return names, meta
 
 
