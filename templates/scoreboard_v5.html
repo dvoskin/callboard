@@ -334,10 +334,21 @@
         var dz = $('days');
         if (dz && m.available_days) {
           dz.innerHTML = '';
-          m.available_days.slice(0, 8).forEach(function (day) {
+          // available_days is the ingested-report inbox, so today earns a chip
+          // only once its first Interaction Report lands -- mid-morning at the
+          // earliest, and not at all on a quiet day. Until then tapping Aug 20
+          // stranded you: nothing led back to the day the page opens on. Today
+          // is always offered, and named, so the way home is never missing.
+          var _n = new Date(),
+              today = new Date(_n.getTime() - _n.getTimezoneOffset() * 60000)
+                        .toISOString().slice(0, 10);
+          var days = m.available_days.slice(0, 8);
+          if (days.indexOf(today) === -1) { days.unshift(today); days = days.slice(0, 8); }
+          days.forEach(function (day) {
             var b = document.createElement('button');
             b.className = 'day' + (day === $('start').value ? ' on' : '');
-            b.textContent = new Date(day + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+            b.textContent = day === today ? 'Today'
+              : new Date(day + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
             b.onclick = function () { $('start').value = day; $('end').value = day; load(); };
             dz.appendChild(b);
           });
