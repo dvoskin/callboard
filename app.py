@@ -1387,16 +1387,21 @@ def api_v5_report():
                 b = books.get(_norm_name(a["name"]))
                 if b:
                     seen.add(_norm_name(a["name"]))
+                # Every counter bucket() defines must be listed here. This
+                # projection sits between the bucketing and the template, and
+                # tests on either side of it both stayed green while it silently
+                # dropped quotes_invoiced -- the panel read undefined.
                 a["books"] = {k: b[k] for k in
-                              ("quotes_sent", "retainers_sent", "retainers_paid",
-                               "paid_amount")} if b else {
-                    "quotes_sent": 0, "retainers_sent": 0,
+                              ("quotes_sent", "quotes_invoiced", "retainers_sent",
+                               "retainers_paid", "paid_amount")} if b else {
+                    "quotes_sent": 0, "quotes_invoiced": 0, "retainers_sent": 0,
                     "retainers_paid": 0, "paid_amount": 0.0}
             # Anyone with Books activity who never appears on the board is worth
             # naming rather than dropping -- it usually means a name mismatch.
             orphans = [v["display"] for k, v in books.items()
                        if k not in seen and k != "unassigned"
-                       and (v["quotes_sent"] or v["retainers_sent"] or v["retainers_paid"])]
+                       and (v["quotes_sent"] or v["quotes_invoiced"]
+                            or v["retainers_sent"] or v["retainers_paid"])]
             books_meta["not_on_board"] = sorted(orphans)[:12]
             report["meta"]["books"] = books_meta
             if books_meta.get("errors"):

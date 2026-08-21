@@ -53,5 +53,48 @@ ok("panel shows Quotes sent", "cell2('Quotes sent', w(bk.quotes_sent)" in tpl)
 ok("panel shows Invoiced", "cell2('Invoiced', w(bk.quotes_invoiced || 0)" in tpl)
 ok("merged Quotes cell is gone", "cell2('Quotes', w(bk.quotes_sent)" not in tpl)
 
+# ---- the seam between bucketing and template -------------------------------
+# quotes_invoiced was computed correctly and rendered correctly, and still came
+# out undefined: an explicit key whitelist in the report route dropped it on the
+# way through. Tests on both SIDES of that projection were green. Structure, not
+# spelling, so this is an AST check rather than a grep.
+import ast
+tree = ast.parse(io.open("app.py", encoding="utf-8").read())
+
+bucket_keys, projected = set(), set()
+
+# Scope to _v5_books' own bucket(): app.py has other setdefault buckets (call
+# counters) whose keys are nothing to do with Books.
+v5books = next(n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "_v5_books")
+for node in ast.walk(v5books):
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "setdefault" and len(node.args) == 2
+            and isinstance(node.args[1], ast.Dict)):
+        for k in node.args[1].keys:
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                bucket_keys.add(k.value)
+
+# The projection is the dict-comp that assigns a["books"].
+for node in ast.walk(tree):
+    if (isinstance(node, ast.Assign) and isinstance(node.value, (ast.DictComp, ast.IfExp))):
+        dc = node.value.body if isinstance(node.value, ast.IfExp) else node.value
+        tgt = node.targets[0]
+        is_books = (isinstance(tgt, ast.Subscript)
+                    and isinstance(getattr(tgt, "slice", None), ast.Constant)
+                    and tgt.slice.value == "books")
+        if is_books and isinstance(dc, ast.DictComp) \
+                and isinstance(dc.generators[0].iter, ast.Tuple):
+            for el in dc.generators[0].iter.elts:
+                if isinstance(el, ast.Constant) and isinstance(el.value, str):
+                    projected.add(el.value)
+
+counters = bucket_keys - {"display"}
+missing = counters - projected
+ok("projection carries every counter bucket() defines", not missing,
+   "dropped on the way to the page: %s" % sorted(missing))
+ok("the AST check found both sides", bool(counters) and bool(projected),
+   "counters=%s projected=%s" % (sorted(counters), sorted(projected)))
+
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)
