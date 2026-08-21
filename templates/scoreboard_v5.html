@@ -319,13 +319,16 @@
     var t = LAST_OK.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     // Past two refresh intervals something is wrong -- say so rather than let a
     // frozen page pass for a quiet one.
+    // Silent when healthy: the header already carries the report time, and a
+    // second line repeating it is noise. This line exists for the case the
+    // header cannot show -- a page that has stopped reaching the server at all.
     if (STALE || mins >= 11) {
       el.className = 'age bad';
       el.textContent = 'not updating — last reached the server at ' + t +
                        ' (' + mins + ' min ago). Reload.';
     } else {
       el.className = 'age';
-      el.textContent = 'updated ' + (mins < 1 ? 'just now' : mins + ' min ago') + ' · ' + t;
+      el.textContent = '';
     }
   }
   setInterval(stampAge, 30 * 1000);
@@ -366,10 +369,13 @@
           var gotAt = new Date(Date.now() - src.age_hours * 3600 * 1000);
           got = gotAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         }
+        // One line. "through" is how far the data reaches; "updated" is when the
+        // report landed. Both are needed -- they come apart whenever someone is on
+        // a long call -- but they do not need a sentence each.
         $('stamp').innerHTML =
           (m.window && m.window.start ? esc(m.window.start) + ' · ' : '') +
-          (pretty ? '<b>calls through ' + pretty + '</b> · ' : '') +
-          (got ? 'report received ' + got + ' · ' : '') +
+          (pretty ? '<b>through ' + pretty + '</b> · ' : '') +
+          (got ? 'updated ' + got + ' · ' : '') +
           m.ringex_calls + ' RingEX · ' + m.ringcx_rows + ' RingCX' +
           (src.source === 'live_cdr_api' ? ' · live pull' : '') +
           (m.ringex_calls === 0 ? ' · <b class="down">no RingEX calls</b>' : '');
