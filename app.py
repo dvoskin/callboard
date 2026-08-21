@@ -822,6 +822,22 @@ def _norm_name(n: str) -> str:
     return " ".join((n or "").split()).lower()
 
 
+_CREDENTIAL_QS = re.compile(
+    r"((?:refresh_token|client_secret|client_id|access_token|code|authtoken)=)[^&\s\"']+",
+    re.I,
+)
+
+
+def _redact(text) -> str:
+    """Strip credentials out of text bound for a response or a log line.
+
+    Zoho takes its OAuth credentials as query parameters, so any URL-bearing
+    error string carries them verbatim. The root fix lives in the clients; this
+    is the backstop for every other path that stringifies an exception.
+    """
+    return _CREDENTIAL_QS.sub(r"\1<redacted>", str(text))
+
+
 def _v5_books(date_start: str, date_end: str):
     """Per-agent Books figures for the range: quotes sent, retainers sent, and
     retainers PAID (by payment date). Cached briefly -- Books is slow and every
@@ -862,8 +878,8 @@ def _v5_books(date_start: str, date_end: str):
         except Exception as e:  # noqa: BLE001
             # Name the failure. A zero that means "Books errored" and a zero that
             # means "no quotes today" must not look the same on the board.
-            log.warning("v5 books %s failed: %s", label, e)
-            meta["errors"].append({"metric": label, "detail": str(e)[:200]})
+            log.warning("v5 books %s failed: %s", label, _redact(e))
+            meta["errors"].append({"metric": label, "detail": _redact(e)[:200]})
 
     with _v5_books_lock:
         _v5_books_cache[key] = {"at": time.time(), "by_agent": by_agent, "meta": meta}
@@ -1079,6 +1095,47 @@ def api_v5_diag():
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # The shape check above cannot tell a correct token from a wrong one, and a
+    # wrong one is the entire failure mode here -- reporting on a credential
+    # without exercising it is how "not set" and "set but powerless" came to look
+    # identical. So exercise it: refresh, then make one real Books call. Reports
+    # Zoho's own words at whichever step fails, never a credential.
+    try:
+        _held = _books.refresh_token or ""
+        _env_books = os.environ.get("ZOHO_BOOKS_REFRESH_TOKEN", "")
+        probe = {
+            # BooksClient is built at import, so a value saved on Render without a
+            # restart is live in os.environ and absent from the client. That gap is
+            # invisible from outside and looks exactly like "never saved".
+            "client_built_with_books_token": bool(_env_books) and _held == _env_books,
+            "client_holds_a_token": bool(_held),
+            "org_id_set": bool(_books.org_id),
+        }
+        if not _held:
+            probe["result"] = "No refresh token at all - set ZOHO_BOOKS_REFRESH_TOKEN."
+        elif not _books.org_id:
+            probe["result"] = "ZOHO_BOOKS_ORG_ID is not set - Books cannot be queried."
+        else:
+            try:
+                _books._get_access_token()
+                probe["refresh"] = "ok"
+            except Exception as e:  # noqa: BLE001
+                probe["refresh"] = "failed"
+                probe["result"] = _redact(e)[:300]
+            if probe.get("refresh") == "ok":
+                _r = requests.get(
+                    f"{_books.base_url}/estimates",
+                    headers=_books._headers(),
+                    params={"organization_id": _books.org_id, "per_page": 1},
+                    timeout=20,
+                )
+                probe["books_api_http"] = _r.status_code
+                probe["result"] = ("Books works."
+                                   if _r.ok else _redact(_r.text)[:300])
+        out["books_probe"] = probe
+    except Exception as e:  # noqa: BLE001
+        out["books_probe"] = {"result": _redact(e)[:300]}
 
     if not _ringcx.configured:
         add("credentials", False,

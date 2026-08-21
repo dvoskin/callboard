@@ -299,7 +299,14 @@ class ZohoClient:
             },
             timeout=15,
         )
-        resp.raise_for_status()
+        # The credentials ride in the query string, so an HTTPError raised here
+        # carries them inside the URL -- and that string reaches meta["errors"]
+        # in /api/v5/report, which every /v5/board?k= link holder can read.
+        # Never let it escape: report the status code instead.
+        if not resp.ok:
+            raise RuntimeError(
+                "Zoho token endpoint returned HTTP %d." % resp.status_code
+            )
         data = resp.json()
         if "access_token" not in data:
             raise RuntimeError(f"Token refresh failed: {data}")
