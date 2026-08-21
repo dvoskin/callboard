@@ -66,18 +66,23 @@
   .r{cursor:pointer}
   .r:hover{background:var(--tint)}
   .r[aria-expanded="true"]{background:var(--tint)}
-  .rk::after{content:"";display:inline-block;width:0;height:0;margin-left:5px;
-             border-left:3.5px solid transparent;border-right:3.5px solid transparent;
-             border-top:4px solid var(--muted);vertical-align:1px;opacity:.55}
-  .r[aria-expanded="true"] .rk::after{transform:rotate(180deg)}
-  .det{display:none;padding:9px 0 12px 22px;border-bottom:1px solid var(--hair);
-       font-size:12px;color:var(--muted);line-height:1.7}
+  .det{display:none;padding:11px 0 13px 22px;border-bottom:1px solid var(--hair);
+       background:var(--tint)}
   .det.on{display:block}
-  .det .lab{display:inline-block;min-width:62px;font-size:10px;font-weight:700;
-            letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  .det b{color:var(--ink);font-weight:650;font-variant-numeric:tabular-nums}
-  .det .sep{opacity:.4;padding:0 5px}
-  .det .none{font-style:italic;opacity:.75}
+  /* Fixed 3 columns so the six call figures land as a clean 2x3 and the three
+     Books figures as one row. auto-fit packed five across and orphaned the
+     sixth on a line of its own. */
+  .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:9px 20px;max-width:460px}
+  @media(max-width:520px){.dg{grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}}
+  .dg > div{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;
+         text-transform:uppercase;color:var(--muted);white-space:nowrap;
+         overflow:hidden;text-overflow:ellipsis}
+  .dg b{font-size:13px;font-weight:650;color:var(--ink);
+        font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dg .zero b{color:var(--muted);font-weight:500}
+  .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
   .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
@@ -186,13 +191,14 @@
     ranked.forEach(function (a, i) {
       var up = a.talk >= f.talk;
       const bk = a.books || {};
-      const money = bk.paid_amount ? ' ($' + Math.round(bk.paid_amount).toLocaleString() + ')' : '';
-      const booksLine = (bk.quotes_sent || bk.retainers_sent || bk.retainers_paid)
-        ? '<b>' + w(bk.quotes_sent) + '</b> quote' + (bk.quotes_sent === 1 ? '' : 's') + ' sent' +
-          '<span class="sep">·</span><b>' + w(bk.retainers_sent) + '</b> retainer' +
-          (bk.retainers_sent === 1 ? '' : 's') + ' sent' +
-          '<span class="sep">·</span><b>' + w(bk.retainers_paid) + '</b> paid' + money
-        : '<span class="none">nothing in Books for this range</span>';
+      const cell2 = function (label, value, isZero) {
+        return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + label +
+               '</em><b>' + value + '</b></div>';
+      };
+      const paid = bk.retainers_paid
+        ? w(bk.retainers_paid) + (bk.paid_amount
+            ? ' · $' + Math.round(bk.paid_amount).toLocaleString() : '')
+        : '0';
       h += '<div class="r ' + a.band + '" role="button" tabindex="0" aria-expanded="false"' +
            ' data-det="d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
            '<span class="nm">' + esc(a.name) + '</span>' +
@@ -202,19 +208,18 @@
            cell(a.over_3, f.over_3, 't3', ' over 3m') +
            cell(a.over_10, f.over_10, 't10', ' over 10m') +
            '</div>';
-      h += '<div class="det" id="d' + i + '">' +
-             '<div><span class="lab">Calls</span>' +
-               '<b>' + hm(a.campaign) + '</b> campaign<span class="sep">·</span>' +
-               '<b>' + hm(a.direct) + '</b> direct line<span class="sep">·</span>' +
-               '<b>' + w(a.connected) + '</b> of <b>' + w(a.attempts) + '</b> connected' +
-             '</div>' +
-             '<div><span class="lab"></span>' +
-               'longest <b>' + hm(a.longest) + '</b><span class="sep">·</span>' +
-               'wrap <b>' + hm(a.wrap) + '</b><span class="sep">·</span>' +
-               '<b>' + w(a.missed) + '</b> missed inbound' +
-             '</div>' +
-             '<div><span class="lab">Books</span>' + booksLine + '</div>' +
-           '</div>';
+      h += '<div class="det" id="d' + i + '"><div class="dg">' +
+             cell2('Campaign', hm(a.campaign), !a.campaign) +
+             cell2('Direct line', hm(a.direct), !a.direct) +
+             cell2('Connected', w(a.connected) + ' / ' + w(a.attempts)) +
+             cell2('Longest', hm(a.longest)) +
+             cell2('Wrap', hm(a.wrap), !a.wrap) +
+             cell2('Missed in', w(a.missed), !a.missed) +
+             '<span class="rule"></span>' +
+             cell2('Quotes sent', w(bk.quotes_sent), !bk.quotes_sent) +
+             cell2('Retainers sent', w(bk.retainers_sent), !bk.retainers_sent) +
+             cell2('Retainers paid', paid, !bk.retainers_paid) +
+           '</div></div>';
     });
 
     var low = ranked.filter(function (a) { return a.band === 'low'; });
