@@ -118,5 +118,50 @@ tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read()
 ok("panel shows a dash when unknown", "a.followups == null ? '–'" in tpl)
 ok("panel has the Booked ahead cell", "cell2('Booked ahead'" in tpl)
 
+# 7. exercise the REAL list_users, including its failure paths.
+# The first version of this file stubbed _zoho entirely, so list_users never ran
+# and shipped with `log.warning` against a name that does not exist in
+# zoho_client -- the module has no global `log`, every other method makes one
+# locally. Production said: error "name 'log' is not defined", booked ahead "–".
+# A stub that replaces the unit under test proves nothing about it.
+def users_client(status, payload):
+    def _get(url, headers=None, params=None, timeout=None):
+        class R:
+            status_code = status
+            ok = 200 <= status < 300
+            text = "server error"
+            def json(self): return payload
+        return R()
+    Z.requests = types.SimpleNamespace(get=_get, post=None)
+    c = Z.ZohoClient.__new__(Z.ZohoClient)
+    c.base_url = "https://x"; c._headers = lambda: {}
+    return c
+
+c = users_client(200, {"users": [
+    {"id": "1", "full_name": "Alexander Rodriguez"},
+    {"id": "2", "first_name": "Grace", "last_name": "Rodriguez"},
+    {"id": "3"},                                   # no name at all
+]})
+u = c.list_users()
+ok("list_users reads full_name", u.get("1") == "Alexander Rodriguez", u)
+ok("list_users falls back to first+last", u.get("2") == "Grace Rodriguez", u)
+ok("a nameless user is skipped", "3" not in u, u)
+
+# the path that actually broke: a non-OK response logs and returns {}
+try:
+    c = users_client(500, {})
+    ok("a non-OK users response returns {} without raising", c.list_users() == {}, "raised")
+except Exception as e:
+    ok("a non-OK users response returns {} without raising", False, "%s: %s" % (type(e).__name__, e))
+
+# and an outright transport failure
+def _boom(*a, **k): raise RuntimeError("connection reset")
+Z.requests = types.SimpleNamespace(get=_boom, post=None)
+c = Z.ZohoClient.__new__(Z.ZohoClient); c.base_url = "https://x"; c._headers = lambda: {}
+try:
+    ok("a transport failure returns {} without raising", c.list_users() == {}, "raised")
+except Exception as e:
+    ok("a transport failure returns {} without raising", False, "%s: %s" % (type(e).__name__, e))
+
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)

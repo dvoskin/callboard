@@ -3097,6 +3097,7 @@ class ZohoClient:
         three of them -- Alexander, Grace and Francisco. Matching on surname would
         silently merge their numbers, so attribution goes through the id.
         """
+        log = logging.getLogger(__name__)   # module has no global `log`
         out = {}
         try:
             resp = requests.get(
@@ -3130,6 +3131,7 @@ class ZohoClient:
         booking, and must not be counted -- otherwise this metric just re-counts
         the dialling that talk time already measures.
         """
+        log = logging.getLogger(__name__)   # module has no global `log`
         counts, offset = {}, 0
         while offset < max_records:
             query = (
