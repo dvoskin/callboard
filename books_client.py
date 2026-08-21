@@ -116,9 +116,18 @@ class BooksClient:
     # Flowers read 6 against 10 sent, Alicia Mckenzie 2 against 5, while Adriana
     # Gentry (13, none converted) was untouched and stayed on top.
     #
-    # For a scoreboard "sent" means "it left the office", so the test is the
-    # complement: everything except the states that mean it never went out.
-    _NEVER_SENT_ESTIMATE_STATUSES = frozenset({"draft", "pending_approval"})
+    # The counted set is Danny's, given explicitly, not inferred: a quote counts
+    # when it reads sent, viewed, declined, invoiced or signed. Declined and
+    # invoiced are deliberately in -- both are outcomes of a quote that WAS sent,
+    # and dropping them is what made a rep look worse the better they did.
+    #
+    # An explicit whitelist rather than "everything except draft": Books can
+    # return accepted, expired, approved, rejected, partially_invoiced and
+    # pending_signature too, and which of those count is a business call, not a
+    # technical one. New statuses stay out until someone says otherwise.
+    _QUOTE_SENT_STATUSES = frozenset({
+        "sent", "viewed", "declined", "invoiced", "signed",
+    })
 
     def list_sent_estimates(
         self,
@@ -128,7 +137,7 @@ class BooksClient:
     ) -> list[dict]:
         return self._list_documents(
             "estimates", date_start, date_end, max_records,
-            exclude_statuses=set(self._NEVER_SENT_ESTIMATE_STATUSES))
+            include_statuses=set(self._QUOTE_SENT_STATUSES))
 
     # Retainer statuses that still owe money — these are what the Follow Up
     # Tracker needs to chase. In Goals' workflow most retainers go straight

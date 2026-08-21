@@ -11,8 +11,8 @@ dropped had been invoiced. The loss was not uniform, so the RANKING was wrong
 too -- Adelita Flowers read 6 against 10 sent, Alicia Mckenzie 2 against 5,
 while Adriana Gentry (13, none converted) was untouched and stayed top.
 
-Guards both halves: the converted states must count, and the never-sent states
-must not. Also guards the paging trap -- filtering happens client-side, so the
+Guards both halves: the counted states (sent, viewed, declined, invoiced,
+signed -- Danny's explicit set) must count, and everything else must not. Also guards the paging trap -- filtering happens client-side, so the
 loop must page on the API's has_more_page and not on the filtered batch size,
 or one page of drafts would silently end the fetch.
 """
@@ -21,9 +21,11 @@ import sys, types
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 import books_client as bc
 
-# The statuses Books actually returned for Goals, plus the ones it can return.
-CONVERTED = ["invoiced", "accepted", "declined", "expired", "viewed", "signed"]
-NEVER_SENT = ["draft", "pending_approval"]
+# The counted set, given explicitly by Danny.
+COUNTED = ["sent", "viewed", "declined", "invoiced", "signed"]
+# Everything else Books can return must stay out until someone says otherwise.
+NOT_COUNTED = ["draft", "pending_approval", "accepted", "expired",
+               "approved", "rejected", "partially_invoiced", "pending_signature"]
 
 fail = []
 def ok(name, cond, detail=""):
@@ -57,31 +59,36 @@ def client_returning(pages):
     return c, calls
 
 
-# 1. converted quotes are counted
-c, calls = client_returning([CONVERTED + ["sent"]])
+# 1. every counted state is counted
+c, calls = client_returning([COUNTED])
 rows = c.list_sent_estimates("2026-08-20", "2026-08-20")
 got = sorted(r["status"] for r in rows)
-ok("every converted state counts", got == sorted(CONVERTED + ["sent"]), got)
+ok("sent/viewed/declined/invoiced/signed all count", got == sorted(COUNTED), got)
 
-# 2. never-sent states are not counted
-c, calls = client_returning([NEVER_SENT + ["sent", "invoiced"]])
+# 2. an outcome of a sent quote still counts -- the actual defect
+c, calls = client_returning([["sent", "invoiced", "declined", "viewed"]])
+rows = c.list_sent_estimates("2026-08-20", "2026-08-20")
+ok("invoiced/declined/viewed are not dropped", len(rows) == 4, len(rows))
+
+# 3. everything outside the whitelist stays out
+c, calls = client_returning([NOT_COUNTED + ["sent"]])
 rows = c.list_sent_estimates("2026-08-20", "2026-08-20")
 got = sorted(r["status"] for r in rows)
-ok("draft and pending_approval excluded", got == ["invoiced", "sent"], got)
+ok("uncounted statuses excluded", got == ["sent"], got)
 
-# 3. the server-side status filter must be gone -- it is what caused the loss
+# 4. the server-side status filter must be gone -- it is what caused the loss
 c, calls = client_returning([["sent"]])
 c.list_sent_estimates("2026-08-20", "2026-08-20")
 ok("no server-side status=sent filter", "status" not in calls["params"][0],
    calls["params"][0])
 
-# 4. paging follows has_more_page, not the filtered batch size
-c, calls = client_returning([NEVER_SENT, ["sent", "invoiced"]])
+# 5. paging follows has_more_page, not the filtered batch size
+c, calls = client_returning([["draft", "accepted"], ["sent", "invoiced"]])
 rows = c.list_sent_estimates("2026-08-20", "2026-08-20")
 ok("a page filtered to empty does not end the fetch", len(rows) == 2, len(rows))
 ok("both pages were requested", calls["n"] == 2, calls["n"])
 
-# 5. the real 08-20 shape: 100 sent + 24 invoiced + 1 draft -> 124
+# 6. the real 08-20 shape: 100 sent + 24 invoiced + 1 draft -> 124
 c, calls = client_returning([["sent"] * 100 + ["invoiced"] * 24 + ["draft"]])
 rows = c.list_sent_estimates("2026-08-20", "2026-08-20")
 ok("2026-08-20 reproduces 124, not 100", len(rows) == 124, len(rows))
