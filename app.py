@@ -884,7 +884,35 @@ def _snapshot_ringex(day_iso: str, tz_offset_minutes=None):
         return {"stored": False, "reason": str(e)}
 
 
-def _load_ringex_snapshot(day_iso: str):
+# RingEX is a LIVE API; RingCX arrives by email on its own schedule. Taking the
+# RingEX snapshot only at ingest tied the live half of the board to the lagging
+# half -- when RingCX went quiet for 20 minutes, RingEX froze with it even though
+# the API would have answered instantly.
+#
+# So refresh it on its own clock. The floor below is what keeps us clear of the
+# 429 that made this snapshot-only in the first place: one refresh per interval
+# for the whole instance, one fetch in flight, and a failed attempt still counts
+# against the interval so a broken API cannot be retried on every page load.
+_RINGEX_REFRESH_AFTER = 300.0      # refresh a snapshot older than this
+_RINGEX_MIN_GAP = 240.0            # never attempt more often than this, per instance
+_ringex_last_attempt = {"at": 0.0}
+_ringex_refresh_lock = threading.Lock()
+
+
+def _ringex_refresh_due(age_seconds: float) -> bool:
+    """True if this instance may spend an API call refreshing now."""
+    if age_seconds < _RINGEX_REFRESH_AFTER:
+        return False
+    now = time.time()
+    with _ringex_refresh_lock:
+        if now - _ringex_last_attempt["at"] < _RINGEX_MIN_GAP:
+            return False
+        _ringex_last_attempt["at"] = now      # claimed whether or not it succeeds
+        return True
+
+
+def _load_ringex_snapshot(day_iso: str, allow_refresh: bool = False,
+                          tz_offset_minutes=None):
     p = _ringex_snap_path(day_iso)
     if not p.exists():
         return None
@@ -892,6 +920,15 @@ def _load_ringex_snapshot(day_iso: str):
         d = json.loads(p.read_text(encoding="utf-8"))
         age = (datetime.now(timezone.utc)
                - datetime.fromisoformat(d["fetched_utc"])).total_seconds()
+
+        # Only today can go stale in a way that matters; a past day is final.
+        if allow_refresh and _ringex_refresh_due(age):
+            log.info("RingEX snapshot for %s is %.1f min old — refreshing", day_iso, age / 60)
+            _snapshot_ringex(day_iso, tz_offset_minutes)
+            d = json.loads(p.read_text(encoding="utf-8"))
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(d["fetched_utc"])).total_seconds()
+
         return d.get("calls") or [], {"source": "snapshot_at_ingest",
                                       "fetched_utc": d.get("fetched_utc"),
                                       "age_minutes": round(age / 60, 1),
@@ -1510,7 +1547,12 @@ def api_v5_report():
 
         # Prefer the snapshot taken when this day's report arrived: it is already
         # the right vintage, and it costs no API budget. ?source=api forces live.
-        snap = None if request.args.get("source") == "api" else _load_ringex_snapshot(date_start)
+        # Today's snapshot may refresh itself here; a past day's is final, so it
+        # never spends an API call.
+        snap = (None if request.args.get("source") == "api"
+                else _load_ringex_snapshot(date_start,
+                                           allow_refresh=(date_start == local_today),
+                                           tz_offset_minutes=tz_offset_minutes))
         need_live = (snap is None) or (not inbox)   # nothing to fetch if both are on disk
         if need_live:
             live_ex, live_cx, live_meta = _v5_live_fetch(

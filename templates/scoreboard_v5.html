@@ -349,9 +349,20 @@
           var hh = parseInt(covers.slice(0, 2), 10), mm = covers.slice(3, 5);
           pretty = (hh % 12 || 12) + ':' + mm + (hh < 12 ? ' AM' : ' PM');
         }
+        // When the REPORT arrived, which is not the same as how far its starts
+        // reach. covers_to is the latest interaction START, so a call that began
+        // at 10:50 and ended at 11:40 joins the report without moving it -- two
+        // reports in a row read "through 11:10" while rows climbed 263 -> 271, and
+        // that looked exactly like a stalled pipeline. Show both.
+        var got = '';
+        if (typeof src.age_hours === 'number') {
+          var gotAt = new Date(Date.now() - src.age_hours * 3600 * 1000);
+          got = gotAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
         $('stamp').innerHTML =
           (m.window && m.window.start ? esc(m.window.start) + ' · ' : '') +
           (pretty ? '<b>calls through ' + pretty + '</b> · ' : '') +
+          (got ? 'report received ' + got + ' · ' : '') +
           m.ringex_calls + ' RingEX · ' + m.ringcx_rows + ' RingCX' +
           (src.source === 'live_cdr_api' ? ' · live pull' : '') +
           (m.ringex_calls === 0 ? ' · <b class="down">no RingEX calls</b>' : '');
