@@ -233,7 +233,8 @@
              cell2('Direct', hm(a.direct), !a.direct) +
              cell2('Longest', hm(a.longest)) +
              '<span class="rule"></span>' +
-             cell2('Quotes', w(bk.quotes_sent), !bk.quotes_sent) +
+             cell2('Quotes sent', w(bk.quotes_sent), !bk.quotes_sent) +
+             cell2('Invoiced', w(bk.quotes_invoiced || 0), !bk.quotes_invoiced) +
              // Retainers paid is hidden, not removed: the API still computes it,
              // so it reappears the moment the Books token is sorted. Showing a
              // confident 0 for money that may well have been collected is worse

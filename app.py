@@ -852,9 +852,15 @@ def _v5_books(date_start: str, date_end: str):
 
     by_agent, meta = {}, {"cached": False, "errors": []}
 
+    # A quote that got invoiced was signed -- a different fact from one still
+    # sitting with the customer. Merging them into a single "Quotes" number hid
+    # which of the two had actually moved, so they are counted apart and shown
+    # side by side. Adelita on 2026-08-19 is 12 sent and 4 invoiced, not 16.
+    _QUOTE_CLOSED = frozenset({"invoiced", "signed"})
+
     def bucket(name):
         return by_agent.setdefault(_norm_name(name), {
-            "display": (name or "").strip(), "quotes_sent": 0,
+            "display": (name or "").strip(), "quotes_sent": 0, "quotes_invoiced": 0,
             "retainers_sent": 0, "retainers_paid": 0, "paid_amount": 0.0})
 
     def _num(v):
@@ -872,7 +878,10 @@ def _v5_books(date_start: str, date_end: str):
             rows = fn() or []
             for r in rows:
                 b = bucket(r.get("salesperson_name") or "Unassigned")
-                b[label] += 1
+                key = label
+                if label == "quotes_sent" and (r.get("status") or "") in _QUOTE_CLOSED:
+                    key = "quotes_invoiced"
+                b[key] += 1
                 if field:
                     b["paid_amount"] += _num(r.get(field))
             meta[label + "_rows"] = len(rows)
