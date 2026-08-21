@@ -974,53 +974,93 @@ _NOT_SALES_NAMES = {"zoho admin", "unassigned", ""}
 
 
 _V5_CRM_TTL = 300.0
-_V5_CRM_HORIZON_DAYS = 90
 _v5_crm_cache: dict = {}
 _v5_crm_lock = threading.Lock()
 
 
-def _v5_future_activities():
-    """Per agent, how many CRM activities they have BOOKED AHEAD.
+def _v5_activities_created(start_iso, end_iso, agent_names=None):
+    """Per agent, CRM activities they CREATED inside the report's own window.
 
-    Counts Call records dated in the future with no disposition yet -- the same
-    "not worked yet" test get_scheduled_followup_calls uses, so this agrees with
-    the rest of the app rather than inventing a second definition of scheduled.
+    Not future-dated activities: the question is what each rep logged or booked
+    during the shift being scored, whenever the call itself is scheduled for.
 
-    Attribution is by owner ID, never surname: Owner on a Call is just
-    "Rodriguez", and Alexander, Grace and Francisco would collapse into one.
+    Attribution prefers the owner id. It falls back to the surname CRM puts in
+    Owner.name, because this org's token lacks ZohoCRM.users.READ (401
+    OAUTH_SCOPE_MISMATCH) -- but only where exactly one agent on the board has
+    that surname. Alexander, Grace and Francisco Rodriguez must not be merged,
+    and guessing between them is worse than admitting we cannot tell, so they
+    get None (a dash) rather than a number.
 
-    Returns (by_agent, meta). by_agent is None when the figure could not be
-    fetched -- a zero that means "CRM errored" must not sit next to a zero that
-    means "booked nothing", which is the whole reason retainers paid is hidden.
+    Returns (by_agent, meta); by_agent is None when nothing could be attributed
+    at all, because a board of zeros would read as "nobody did anything".
     """
+    key = (start_iso, end_iso)
     now = time.time()
     with _v5_crm_lock:
-        hit = _v5_crm_cache.get("v")
+        hit = _v5_crm_cache.get(key)
         if hit and now - hit["at"] < _V5_CRM_TTL:
             return hit["by_agent"], dict(hit["meta"], cached=True)
 
-    meta = {"cached": False, "horizon_days": _V5_CRM_HORIZON_DAYS}
+    meta = {"cached": False}
     try:
-        start = datetime.now(timezone.utc)
-        end = start + timedelta(days=_V5_CRM_HORIZON_DAYS)
-        fmt = "%Y-%m-%dT%H:%M:%S+00:00"
+        raw = _zoho.count_activities_created(start_iso, end_iso)
         users = _zoho.list_users()
-        counts = _zoho.count_future_activities(start.strftime(fmt), end.strftime(fmt))
-        by_agent, unknown = {}, 0
-        for uid, n in counts.items():
-            name = users.get(uid)
-            if not name:
-                unknown += n
-                continue
-            by_agent[_norm_name(name)] = by_agent.get(_norm_name(name), 0) + n
-        meta["agents"] = len(by_agent)
-        meta["unattributed"] = unknown
+        by_agent, unattributed = {}, 0
+
+        if users:
+            meta["attribution"] = "id"
+            for uid, slot in raw.items():
+                full = users.get(uid)
+                if full:
+                    k = _norm_name(full)
+                    by_agent[k] = (by_agent.get(k) or 0) + slot["n"]
+                else:
+                    unattributed += slot["n"]
+        else:
+            meta["attribution"] = "surname"
+            board = {}
+            for full in (agent_names or []):
+                parts = _norm_name(full).split()
+                if parts:
+                    board.setdefault(parts[-1], []).append(_norm_name(full))
+            per_surname = {}
+            for slot in raw.values():
+                sn = _norm_name(slot["name"]).split()
+                sn = sn[-1] if sn else ""
+                per_surname[sn] = per_surname.get(sn, 0) + slot["n"]
+            shared = []
+            for sn, n in per_surname.items():
+                who = board.get(sn) or []
+                if len(who) == 1:
+                    by_agent[who[0]] = (by_agent.get(who[0]) or 0) + n
+                else:
+                    unattributed += n
+                    if len(who) > 1:
+                        shared.append(sn)
+            for sn in shared:
+                for who in board[sn]:
+                    by_agent[who] = None      # cannot tell, so do not claim 0
+            meta["ambiguous_surnames"] = sorted(set(shared))
+
+        for full in (agent_names or []):
+            by_agent.setdefault(_norm_name(full), 0)
+
+        meta["attributed"] = sum(v for v in by_agent.values() if v)
+        meta["unattributed"] = unattributed
+        if not meta["attributed"]:
+            meta["error"] = ("none of %d activities could be attributed to an agent"
+                             % (unattributed or sum(s["n"] for s in raw.values())))
+            return None, meta
+
         with _v5_crm_lock:
-            _v5_crm_cache["v"] = {"at": time.time(), "by_agent": by_agent,
+            _v5_crm_cache[key] = {"at": time.time(), "by_agent": by_agent,
                                   "meta": dict(meta)}
+            for k in [k for k, v in list(_v5_crm_cache.items())
+                      if time.time() - v["at"] > 3600]:
+                _v5_crm_cache.pop(k, None)
         return by_agent, meta
     except Exception as e:  # noqa: BLE001
-        log.warning("v5 future activities unavailable: %s", _redact(e))
+        log.warning("v5 activities created unavailable: %s", _redact(e))
         meta["error"] = _redact(e)[:200]
         return None, meta
 
@@ -1698,7 +1738,10 @@ def api_v5_report():
 
             # CRM activities booked ahead. None means "could not fetch" -- the
             # template shows a dash for that rather than a confident 0.
-            crm, crm_meta = _v5_future_activities()
+            _fmt = "%Y-%m-%dT%H:%M:%S+00:00"
+            crm, crm_meta = _v5_activities_created(
+                start_dt.strftime(_fmt), end_dt.strftime(_fmt),
+                [a["name"] for a in report.get("ranked", []) + report.get("unranked", [])])
             report["meta"]["crm"] = crm_meta
             for a in report.get("ranked", []) + report.get("unranked", []):
                 a["followups"] = (None if crm is None
