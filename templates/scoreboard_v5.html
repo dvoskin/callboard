@@ -68,17 +68,18 @@
   .r[aria-expanded="true"]{background:var(--tint)}
   .det{display:none;padding:11px 0 13px 22px;border-bottom:1px solid var(--hair);
        background:var(--tint)}
+  @media(max-width:520px){.det{padding:10px 0 12px 21px}}
   .det.on{display:block}
   /* Fixed 3 columns so the six call figures land as a clean 2x3 and the three
      Books figures as one row. auto-fit packed five across and orphaned the
      sixth on a line of its own. */
   .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:9px 20px;max-width:460px}
-  @media(max-width:520px){.dg{grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}}
+      gap:9px 16px;max-width:460px}
+  @media(max-width:520px){.dg{gap:8px 10px;max-width:none}}
   .dg > div{display:flex;flex-direction:column;gap:1px;min-width:0}
   .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;
-         text-transform:uppercase;color:var(--muted);white-space:nowrap;
-         overflow:hidden;text-overflow:ellipsis}
+         text-transform:uppercase;color:var(--muted);line-height:1.25}
+  .dg{align-items:start}
   .dg b{font-size:13px;font-weight:650;color:var(--ink);
         font-variant-numeric:tabular-nums;white-space:nowrap}
   .dg .zero b{color:var(--muted);font-weight:500}
@@ -210,14 +211,10 @@
            '</div>';
       h += '<div class="det" id="d' + i + '"><div class="dg">' +
              cell2('Campaign', hm(a.campaign), !a.campaign) +
-             cell2('Direct line', hm(a.direct), !a.direct) +
-             cell2('Connected', w(a.connected) + ' / ' + w(a.attempts)) +
+             cell2('Direct', hm(a.direct), !a.direct) +
              cell2('Longest', hm(a.longest)) +
-             cell2('Wrap', hm(a.wrap), !a.wrap) +
-             cell2('Missed in', w(a.missed), !a.missed) +
              '<span class="rule"></span>' +
-             cell2('Quotes sent', w(bk.quotes_sent), !bk.quotes_sent) +
-             cell2('Retainers sent', w(bk.retainers_sent), !bk.retainers_sent) +
+             cell2('Quotes', w(bk.quotes_sent), !bk.quotes_sent) +
              cell2('Retainers paid', paid, !bk.retainers_paid) +
            '</div></div>';
     });
