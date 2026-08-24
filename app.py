@@ -12,6 +12,18 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# datetime.strptime imports _strptime LAZILY, on its first call. When two threads
+# make that first call at the same moment, one of them can observe a
+# half-initialised module and dies with:
+#   partially initialized module '_strptime' has no attribute '_strptime_datetime'
+# It reads like a circular import in our code; it is not, it is CPython's own lazy
+# import (bpo-7980), and it only shows up under threads. This app is exactly the
+# shape that triggers it -- gunicorn serves requests on 8 threads while the v6
+# snapshot warmer parses dates on its own thread from the moment the module loads.
+# Importing it HERE, at module import, on one thread, before any of those start,
+# is the documented fix. Do not remove because "nothing uses it".
+import _strptime  # noqa: F401
+
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
