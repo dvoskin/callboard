@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Billing Team KPI Board</title>
+<style>
+  :root{
+    --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
+    --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
+    --up:#0B6E67; --dn:#B03A31; --mid:#9C6712; --stretch:#1B5FA8;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
+    --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492;
+    --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542; --stretch:#6FB2F0;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
+       font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+       -webkit-text-size-adjust:100%}
+  .n{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .wrap{max-width:760px;margin:0 auto;padding:20px 14px 44px}
+  @media(min-width:640px){.wrap{padding:32px 22px 56px}}
+
+  h1{margin:0 0 2px;font-size:20px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
+  .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .sub b{color:var(--ink);font-weight:650}
+  h2{margin:22px 0 6px;font-size:12px;font-weight:700;letter-spacing:.06em;
+     text-transform:uppercase;color:var(--muted)}
+
+  .ctl{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:12px}
+  .ctl input,.ctl button{font-family:inherit;font-size:12.5px;padding:4px 8px;
+       border:1px solid var(--rule);background:var(--bg);color:var(--ink);
+       border-radius:5px;-webkit-appearance:none}
+  .ctl button{cursor:pointer;font-weight:600}
+  .ctl button:hover{border-color:var(--up);color:var(--up)}
+  .ctl button:focus-visible,.day:focus-visible,.r:focus-visible{outline:2px solid var(--up);
+       outline-offset:2px}
+  .day{cursor:pointer;font-size:12px;font-weight:600;padding:4px 9px;border-radius:5px;
+       border:1px solid var(--rule);background:var(--bg);color:var(--muted)}
+  .day:hover{border-color:var(--up);color:var(--up)}
+  .day.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .spin{font-size:12px;color:var(--muted)}
+
+  .floor{font-size:12.5px;color:var(--muted);padding:8px 0;border-top:1px solid var(--rule)}
+  .floor b{color:var(--ink);font-weight:700}
+  .floor .sep{opacity:.45;padding:0 5px}
+
+  /* KPI legend */
+  .key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11px;color:var(--muted);
+       padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
+  .key span{white-space:nowrap}
+  .key i{font-style:normal;font-weight:700}
+  .key .b-stretch{color:var(--stretch)} .key .b-target{color:var(--up)}
+  .key .b-floor{color:var(--mid)} .key .b-below{color:var(--dn)}
+
+  /* the list */
+  .hd,.r{display:grid;align-items:center;
+         grid-template-columns:22px minmax(0,1fr) 86px 62px 62px 60px;
+         grid-template-areas:"rk nm tk c cn lg"}
+  /* live day: one more column for pace-vs-expected */
+  .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 76px 82px 52px 52px 46px;
+         grid-template-areas:"rk nm tk pc c cn lg"}
+  .live .hd>*{padding-left:6px}
+  .live .hd .a-nm{padding-left:0}
+  .a-pc{grid-area:pc} .pc{grid-area:pc;font-weight:700;font-size:13px}
+  .pc .exp{display:block;font-weight:400;font-size:10.5px;color:var(--muted);
+           line-height:1.25}
+  .proj{font-size:11px;color:var(--muted);font-weight:500}
+  .asof{font-size:11.5px;color:var(--muted);padding:6px 0 0}
+  .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
+  .r{padding:7px 0;border-bottom:1px solid var(--hair);cursor:pointer}
+  .r:last-child{border-bottom:0}
+  .r:hover,.r[aria-expanded="true"]{background:var(--tint)}
+  .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
+  .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk} .a-c{grid-area:c}
+  .a-cn{grid-area:cn} .a-lg{grid-area:lg}
+  .rk{grid-area:rk;color:var(--muted);font-size:11.5px}
+  .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px}
+  .tk{grid-area:tk;font-weight:700;font-size:14.5px}
+  .c{grid-area:c} .cn{grid-area:cn} .lg{grid-area:lg}
+  .c,.cn,.lg{font-weight:600;color:var(--ink-2);font-size:13px}
+  .lbl{display:none;color:var(--muted);font-weight:400}
+  /* band colours are the whole point of the board: where each number sits
+     against the KPI, not just what it is */
+  .b-stretch{color:var(--stretch)} .b-target{color:var(--up)}
+  .b-floor{color:var(--mid)} .b-below{color:var(--dn)}
+  .r.r-below .nm{color:var(--dn)}
+  .mk{font-size:9px;padding-right:2px}
+
+  /* expand panel */
+  .det{display:none;padding:11px 0 13px 22px;border-bottom:1px solid var(--hair);
+       background:var(--tint)}
+  .det.on{display:block}
+  .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 16px;max-width:520px}
+  @media(max-width:520px){.dg{gap:8px 10px;max-width:none}.det{padding:10px 0 12px 21px}}
+  .dg > div{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;
+         text-transform:uppercase;color:var(--muted);line-height:1.25}
+  .dg b{font-size:13px;font-weight:650;color:var(--ink);
+        font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dg .zero b{color:var(--muted);font-weight:500}
+  .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
+  .dg .wide{grid-column:1/-1}
+
+  /* per-day bars inside the panel */
+  .spark{grid-column:1/-1;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)}
+  .spark .cap{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+              color:var(--muted);margin-bottom:5px}
+  .bars{display:flex;align-items:flex-end;gap:2px;height:44px}
+  .bars div{flex:1 1 0;min-width:3px;background:var(--up);border-radius:1px 1px 0 0;
+            opacity:.75}
+  .bars div.off{background:var(--muted);opacity:.3}
+  .bars div:hover{opacity:1}
+  .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
+        margin-top:3px}
+
+  .warn{font-size:12px;color:var(--ink-2);background:var(--tint);
+        border-left:3px solid var(--mid);padding:8px 11px;margin:7px 0;border-radius:0 5px 5px 0}
+  .warn.bad{border-left-color:var(--dn)}
+  .warn b{color:var(--ink)}
+  .empty{color:var(--muted);font-size:13px;padding:16px 0}
+  .err{color:var(--dn);font-size:13px;padding:14px 0;line-height:1.5}
+
+  @media(max-width:560px){
+    .hd{display:none}
+    .hd,.r{grid-template-columns:20px minmax(0,1fr) 74px;
+           grid-template-areas:"rk nm tk" ". c cn" ". lg lg"}
+    .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 74px;
+           grid-template-areas:"rk nm tk" ". pc pc" ". c cn" ". lg lg"}
+    .pc{text-align:left}
+    .r{padding:9px 0}
+    .c,.cn,.lg{text-align:left;font-size:12px}
+    .lbl{display:inline}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Billing Team KPI Board</h1>
+  <p class="sub" id="sub">Loading&hellip;</p>
+
+  <div class="ctl">
+    <input type="date" id="start" aria-label="Start date" />
+    <input type="date" id="end" aria-label="End date" />
+    <button id="go" type="button">Show</button>
+    <span id="days"></span>
+    <span class="spin" id="spin"></span>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var SHARE = {{ 'true' if share_mode else 'false' }};
+  var TOKEN = {{ (share_token or '')|tojson }};
+  var $ = function (id) { return document.getElementById(id); };
+
+  function hm(s) {
+    s = Math.round(s || 0);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    if (s >= 3600) return Math.floor(s / 3600) + ':' + p(Math.floor((s % 3600) / 60)) + ':' + p(s % 60);
+    return Math.floor(s / 60) + ':' + p(s % 60);
+  }
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  // A metric cell coloured by where it lands against the KPI.
+  function cell(area, value, band, label) {
+    return '<div class="' + area + ' b-' + esc(band) + '">' +
+           '<span class="lbl">' + esc(label) + ' </span>' + esc(value) + '</div>';
+  }
+  // Ahead/behind against what a normal day looks like at this hour -- not
+  // against the clock. See _PACE_CURVE_DEFAULT in billing_report.py for why.
+  function paceCell(pace, key, unit) {
+    if (!pace) return '<div class="pc"></div>';
+    var exp = pace.expected[key], act = pace.actual[key], r = pace.ratio[key];
+    if (r == null) {
+      return '<div class="pc b-floor">&mdash;<span class="exp">too early</span></div>';
+    }
+    var pct = Math.round((r - 1) * 100);
+    var cls = r >= 1.05 ? 'b-stretch' : (r >= 0.95 ? 'b-target'
+            : (r >= 0.8 ? 'b-floor' : 'b-below'));
+    var sign = pct > 0 ? '+' : '';
+    return '<div class="pc ' + cls + '">' + sign + pct + '%' +
+           '<span class="exp">exp ' + exp + (unit || '') + '</span></div>';
+  }
+
+  function tgt(t, k) {
+    return t[k] ? (t[k].floor + ' / ' + t[k].target + ' / ' + t[k].stretch) : '';
+  }
+
+  function render(d) {
+    var ranked = d.ranked || [], silent = d.silent || [], stalled = d.stalled || [],
+        unknown = d.unknown || [], team = d.team || {};
+    var T = d.targets || {}, LONG = d.long_call_seconds || 120;
+    var longLbl = '≥' + Math.round(LONG / 60) + 'm';
+    var multi = (d.window || {}).start !== (d.window || {}).end;
+
+    var sub = '<b>' + ranked.length + '</b> seat' + (ranked.length === 1 ? '' : 's') +
+      ' &middot; <b>' + (team.agent_days || 0) + '</b> working day' +
+      ((team.agent_days || 0) === 1 ? '' : 's') +
+      ' &middot; team <b>' + (team.per_day ? team.per_day.talk_minutes : 0) + '</b> min talk/day' +
+      ' &middot; team <b>' + (team.per_day ? team.per_day.connected : 0) + '</b> connected/day';
+    if (d.live && ranked.length && ranked[0].pace) {
+      var pc = ranked[0].pace;
+      sub += ' &middot; as of <b>' + esc(pc.as_of) + '</b> a normal day is <b>' +
+             Math.round(pc.fraction * 100) + '%</b> done, so targets below are pro-rated to now';
+    } else {
+      var today = new Date().toISOString().slice(0, 10);
+      if ((d.window || {}).end >= today) {
+        sub += ' &middot; <b>today is still in progress</b>';
+      }
+    }
+    if (d.meta && d.meta.complete === false) {
+      sub += ' &middot; <b>still fetching</b>';
+    }
+    $('sub').innerHTML = sub;
+
+    var h = '';
+    h += '<div class="key">' +
+      '<span><i class="b-stretch">Stretch</i></span>' +
+      '<span><i class="b-target">Target</i></span>' +
+      '<span><i class="b-floor">Floor</i></span>' +
+      '<span><i class="b-below">Below floor</i></span>' +
+      '<span>talk ' + esc(tgt(T, 'talk_minutes')) + ' min</span>' +
+      '<span>calls ' + esc(tgt(T, 'calls')) + '</span>' +
+      '<span>conn ' + esc(tgt(T, 'connected')) + '</span>' +
+      '<span>' + longLbl + ' ' + esc(tgt(T, 'long_calls')) + '</span>' +
+      '</div>';
+
+    if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {
+      $('out').innerHTML = h + '<div class="empty">No seats on the roster.</div>';
+      return;
+    }
+
+    var live = !!d.live;
+    h += '<div class="' + (live ? 'live' : '') + '">';
+    h += '<div class="hd">' +
+      '<div class="a-rk"></div><div class="a-nm">Agent</div>' +
+      '<div class="a-tk">' + (live ? 'So far' : 'Talk/day') + '</div>' +
+      (live ? '<div class="a-pc">vs expected</div>' : '') +
+      '<div class="a-c">Calls</div>' +
+      '<div class="a-cn">Conn</div><div class="a-lg">' + longLbl + '</div></div>';
+
+    ranked.forEach(function (a, i) {
+      // `worked` = the working-day figures every per-day average is derived from.
+      // `totals` includes idle-day stray dials; showing those here instead would
+      // make the panel disagree with the row above it.
+      var g = a.grades || {}, p = a.per_day || {}, tot = a.worked || a.totals || {};
+      var all = a.totals || {};
+      var id = 'd' + i;
+      // On a live day the numbers ARE the part-day so far, and the colour comes
+      // from where the day is HEADED -- colouring a half-finished day against a
+      // whole-day target just paints everyone red until the evening.
+      var pace = a.pace;
+      var band = pace && pace.grades ? (pace.grades.talk_minutes || a.band) : a.band;
+      var show = pace ? pace.actual : p;
+      var pg = pace && pace.grades ? pace.grades : g;
+      h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
+           '" tabindex="0" role="button" aria-expanded="false">' +
+        '<div class="rk">' + (i + 1) + '</div>' +
+        '<div class="nm">' + esc(a.name) + '</div>' +
+        cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
+             live ? 'Talk so far' : 'Talk/day') +
+        (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
+        cell('c', show.calls, pg.calls || 'below', 'Calls') +
+        cell('cn', show.connected, pg.connected || 'below', 'Conn') +
+        cell('lg', show.long_calls, pg.long_calls || 'below', longLbl) +
+        '</div>';
+
+      var days = (a.days || []);
+      var worked = days.filter(function (x) { return x.worked; });
+      var peak = Math.max.apply(null, days.map(function (x) { return x.talk_minutes; }).concat([1]));
+      h += '<div class="det" id="' + id + '">' +
+        '<div class="dg">' +
+          '<div><em>Total talk</em><b>' + hm(tot.talk_seconds) + '</b></div>' +
+          '<div><em>Working days</em><b>' + a.worked_days + '</b></div>' +
+          '<div' + (a.idle_days ? '' : ' class="zero"') + '><em>Idle days</em><b>' +
+            a.idle_days + '</b></div>' +
+          '<div><em>Calls handled</em><b>' + tot.handled_calls + '</b></div>' +
+          '<div><em>Outbound</em><b>' + tot.dials + '</b></div>' +
+          '<div><em>Inbound handled</em><b>' + tot.inbound_answered + '</b></div>' +
+          '<div><em>Connected</em><b>' + tot.connected + '</b></div>' +
+          '<div class="rule"></div>' +
+          '<div><em>Avg call</em><b>' + a.avg_call_seconds + 's</b></div>' +
+          '<div><em>Longest</em><b>' + hm(tot.longest_seconds) + '</b></div>' +
+          '<div><em>' + longLbl + ' share</em><b>' + a.long_call_share_pct + '%</b></div>' +
+          '<div class="wide"><em>Extension</em><b>' + esc(a.ext || a.ext_id) +
+            ' &middot; median day ' + a.median_talk_minutes + ' min talk' +
+            (all.calls > tot.calls
+              ? ' &middot; ' + (all.calls - tot.calls) + ' more call(s) on idle days, not averaged'
+              : '') + '</b></div>' +
+          (pace ? '<div class="spark"><div class="cap">Against a normal day at ' +
+              esc(pace.as_of) + ' &middot; ' + Math.round(pace.fraction * 100) +
+              '% elapsed &middot; ' + (pace.curve === 'own' ? 'their own pattern'
+                                                            : 'team pattern') + '</div>' +
+            '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+            '<tr style="color:var(--muted);font-size:10px;text-transform:uppercase;' +
+              'letter-spacing:.06em"><th style="text-align:left;font-weight:700">Metric</th>' +
+              '<th style="text-align:right;font-weight:700">Now</th>' +
+              '<th style="text-align:right;font-weight:700">Expected</th>' +
+              '<th style="text-align:right;font-weight:700">On track for</th>' +
+              '<th style="text-align:right;font-weight:700">Target</th></tr>' +
+            [['talk_minutes', 'Talk (min)'], ['calls', 'Calls'],
+             ['connected', 'Connected'], ['long_calls', longLbl]].map(function (m) {
+              var k = m[0], pj = pace.projected[k];
+              return '<tr><td style="padding:3px 0">' + m[1] + '</td>' +
+                '<td class="n" style="text-align:right;font-weight:650">' + pace.actual[k] + '</td>' +
+                '<td class="n" style="text-align:right;color:var(--muted)">' + pace.expected[k] + '</td>' +
+                '<td class="n b-' + (pace.grades[k] || 'below') +
+                  '" style="text-align:right;font-weight:650">' +
+                  (pj == null ? '&mdash;' : pj) + '</td>' +
+                '<td class="n" style="text-align:right;color:var(--muted)">' +
+                  ((T[k] || {}).target != null ? T[k].target : '') + '</td></tr>';
+            }).join('') + '</table>' +
+            (pace.projectable ? '' :
+              '<div class="asof">Too early to project &mdash; under 15% of the day has run.</div>') +
+            '</div>' : '') +
+          (multi && days.length ?
+            '<div class="spark"><div class="cap">Talk minutes per day &middot; ' +
+              worked.length + ' worked, ' + (days.length - worked.length) + ' idle</div>' +
+            '<div class="bars">' + days.map(function (x) {
+              return '<div class="' + (x.worked ? '' : 'off') + '" title="' + esc(x.date) +
+                     ': ' + x.talk_minutes + ' min, ' + x.connected + ' connected" style="height:' +
+                     Math.max(2, Math.round(100 * x.talk_minutes / peak)) + '%"></div>';
+            }).join('') + '</div>' +
+            '<div class="axis"><span>' + esc(days[0].date) + '</span><span>' +
+              esc(days[days.length - 1].date) + '</span></div></div>' : '') +
+        '</div></div>';
+    });
+
+    h += '</div>';   // close .live / plain list wrapper
+
+    if (stalled.length) {
+      h += '<h2>Dialling but not connecting</h2>';
+      stalled.forEach(function (a) {
+        var t = a.totals || {};
+        h += '<div class="warn bad"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
+             ') logged <b>' + t.calls + '</b> call(s) here &mdash; ' + t.dials + ' outbound, ' +
+             t.inbound + ' inbound &mdash; and connected <b>none</b> of them. A line that logs ' +
+             'calls but never connects is out, reassigned or broken &mdash; that is not last ' +
+             'place, so this seat is held out of the ranking.</div>';
+      });
+    }
+
+    if (unknown.length) {
+      h += '<h2>Not known yet</h2>';
+      unknown.forEach(function (a) {
+        h += '<div class="warn"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
+             ') returned no calls, but their window was <b>not fully read</b> &mdash; so this is ' +
+             '&ldquo;not known&rdquo;, not &ldquo;no calls&rdquo;. Reload in a minute; long ' +
+             'ranges fill in a few days at a time.</div>';
+      });
+    }
+
+    if (silent.length) {
+      h += '<h2>No calls logged</h2>';
+      silent.forEach(function (a) {
+        h += '<div class="warn bad"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
+             ') logged no calls at all in this window. That is an empty seat, a wrong ' +
+             'extension, or someone who does not dial from RingEX &mdash; not a zero score.</div>';
+      });
+    }
+
+    var warns = (d.warnings || []).filter(function (x) {
+      return x.kind !== 'no_activity' && x.kind !== 'no_connections' &&
+             x.kind !== 'unknown_seat';
+    });
+    if (warns.length) {
+      h += '<h2>Data notes</h2>';
+      warns.forEach(function (x) {
+        h += '<div class="warn' + (x.kind === 'incomplete_fetch' ? ' bad' : '') + '">' +
+             esc(x.message) +
+             (x.values ? ' (' + x.values.map(function (v) {
+               return esc(v[0]) + ' ×' + v[1];
+             }).join(', ') + ')' : '') + '</div>';
+      });
+    }
+
+    var m = d.meta || {};
+    h += '<div class="floor">Source: RingEX per-extension call log' +
+         '<span class="sep">&middot;</span>Roster: ' + esc((m.roster || {}).source || '?') +
+         '<span class="sep">&middot;</span>' +
+         (m.cached ? 'cached ' + (m.age_seconds || 0) + 's ago' : 'fetched live') +
+         '<span class="sep">&middot;</span>Talk time counts connected calls only' +
+         '</div>';
+
+    $('out').innerHTML = h;
+
+    $('out').querySelectorAll('.r[data-det]').forEach(function (row) {
+      var toggle = function () {
+        var panel = document.getElementById(row.getAttribute('data-det'));
+        if (!panel) return;
+        var wasOpen = panel.classList.contains('on');
+        $('out').querySelectorAll('.det.on').forEach(function (o) { o.classList.remove('on'); });
+        $('out').querySelectorAll('.r[aria-expanded="true"]').forEach(function (r) {
+          r.setAttribute('aria-expanded', 'false');
+        });
+        if (!wasOpen) {
+          panel.classList.add('on');
+          row.setAttribute('aria-expanded', 'true');
+        }
+      };
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+      });
+    });
+  }
+
+  function load() {
+    $('spin').textContent = 'loading…';
+    var q = new URLSearchParams();
+    if ($('start').value) q.set('start', $('start').value);
+    if ($('end').value) q.set('end', $('end').value || $('start').value);
+    q.set('tz', String(new Date().getTimezoneOffset()));
+    if (SHARE && TOKEN) q.set('k', TOKEN);
+
+    fetch('/api/v6/report?' + q.toString(), { credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        $('spin').textContent = '';
+        if (!res.ok) {
+          var j = res.j || {};
+          $('out').innerHTML = '<div class="err"><b>' + esc(j.error || 'Request failed') +
+            '</b><br>' + esc(j.detail || '') + '</div>';
+          $('sub').textContent = '';
+          return;
+        }
+        render(res.j);
+        var w = res.j.window || {};
+        if (w.start && !$('start').value) { $('start').value = w.start; $('end').value = w.end; }
+        buildDayButtons();
+      })
+      .catch(function (err) {
+        $('spin').textContent = '';
+        $('out').innerHTML = '<div class="err">Could not reach the server: ' +
+          esc(err && err.message ? err.message : err) + '</div>';
+      });
+  }
+
+  function buildDayButtons() {
+    var box = $('days');
+    if (box.dataset.built) return;
+    box.dataset.built = '1';
+    var mk = function (label, days) {
+      var b = document.createElement('button');
+      b.className = 'day'; b.type = 'button'; b.textContent = label;
+      b.onclick = function () {
+        var end = new Date();
+        var start = new Date(); start.setDate(start.getDate() - (days - 1));
+        var iso = function (d) { return d.toISOString().slice(0, 10); };
+        $('start').value = iso(start); $('end').value = iso(end);
+        box.querySelectorAll('.day').forEach(function (x) { x.classList.remove('on'); });
+        b.classList.add('on');
+        load();
+      };
+      box.appendChild(b);
+    };
+    mk('Today', 1); mk('7d', 7); mk('30d', 30); mk('90d', 90);
+    var first = box.querySelector('.day');
+    if (first) first.classList.add('on');    // the board opens on Today
+  }
+
+  // Open on today, explicitly. The API defaults to today anyway, but leaving the
+  // pickers blank meant the board's own controls did not say what it was showing.
+  (function initToday() {
+    var t = new Date();
+    var iso = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    $('start').value = iso;
+    $('end').value = iso;
+  })();
+
+  $('go').onclick = load;
+  ['start', 'end'].forEach(function (id) {
+    $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+  });
+  load();
+  // Today's numbers move; a board left open on a wall should not go stale.
+  setInterval(function () {
+    var today = new Date().toISOString().slice(0, 10);
+    if (!$('end').value || $('end').value >= today) load();
+  }, 120000);
+})();
+</script>
+</body>
+</html>

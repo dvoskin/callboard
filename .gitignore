@@ -16,3 +16,6 @@ saved_reports/
 
 # Delivered RingCX Interaction Reports (runtime data, lives on the Render disk)
 ringcx_inbox/
+
+# Billing board day snapshots (runtime data, lives on the Render disk)
+v6_days/

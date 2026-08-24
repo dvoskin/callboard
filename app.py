@@ -21,6 +21,8 @@ from flask import Flask, jsonify, render_template, request, redirect, session, u
 from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
+from billing_report import (build_report as build_billing_report,
+                            build_pace_curve, is_connected as _billing_connected)
 from v5_report import (build_report as build_v5_report,
                        parse_interaction_csv, CsvShapeError, EmptyReportError,
                        parse_ts as _v5_parse_ts)
@@ -777,6 +779,453 @@ def scoreboard_v5_board():
     if not _v5_token_ok():
         return ("Not Found", 404)
     return render_template("scoreboard_v5.html", current_user={},
+                           share_mode=True, share_token=request.args.get("k", ""))
+
+
+# ══════════════════════════════════════════════════════════════
+# v6 — billing team KPI board (RingEX only)
+# ══════════════════════════════════════════════════════════════
+# Billing does not dial a RingCX campaign -- Danny confirmed they are RingEX
+# only, and the RingCX CDR is 403 on this account anyway. So unlike /v5 there is
+# nothing to reconcile: every row comes from one seat's own call log.
+#
+# The roster is CONFIGURABLE on purpose. Two of the six people Danny named could
+# not be resolved to an extension (Naomi Dubon, Jasmine Osborne -- checked all
+# 181 extensions across every type and status), so the board has to be able to
+# take a seat it did not ship with, without a code change.
+#
+# Precedence: /data/billing_roster.json (editable live on Render's disk)
+#             -> BILLING_ROSTER env var (JSON list)
+#             -> the four seats confirmed on 2026-08-24.
+BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
+# Confirmed by Danny 2026-08-24. Ana Salazar (ext 271) is NOT on this list: her
+# line logged its last connected call on 2026-08-11 and he did not name her when
+# restating the roster. Restore her with one line here if that was a leave rather
+# than a departure.
+_BILLING_ROSTER_DEFAULT = [
+    {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
+    {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
+    {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
+    {"name": "Andrea Pleasant",    "ext_id": 388372049,  "ext": "148"},
+]
+BILLING_TOKEN = os.environ.get("BILLING_TOKEN", "")
+if not BILLING_TOKEN:
+    print("[v6] BILLING_TOKEN is not set — /v6/board returns 404 for every request. "
+          "/v6 still works behind the normal login.", flush=True)
+
+_v6_cache: dict = {}
+_v6_lock = threading.Lock()
+_V6_TTL_TODAY = 120.0        # today moves; refresh often but not per-keystroke
+_V6_TTL_PAST = 3600.0        # a finished day is final
+
+
+def _billing_roster():
+    """(roster, meta). Never raises: a broken override falls back to the default
+    rather than emptying the board, and says so in meta."""
+    meta = {"source": "default"}
+    raw = None
+    try:
+        if BILLING_ROSTER_FILE.exists():
+            raw = json.loads(BILLING_ROSTER_FILE.read_text())
+            meta["source"] = str(BILLING_ROSTER_FILE)
+    except Exception as e:  # noqa: BLE001
+        meta["error"] = f"{BILLING_ROSTER_FILE} is unreadable ({e}); using the built-in roster."
+        raw = None
+    if raw is None and os.environ.get("BILLING_ROSTER"):
+        try:
+            raw = json.loads(os.environ["BILLING_ROSTER"])
+            meta["source"] = "BILLING_ROSTER env"
+        except Exception as e:  # noqa: BLE001
+            meta["error"] = f"BILLING_ROSTER is not valid JSON ({e}); using the built-in roster."
+            raw = None
+    roster = raw if isinstance(raw, list) and raw else _BILLING_ROSTER_DEFAULT
+    clean = []
+    for r in roster:
+        if not isinstance(r, dict) or not r.get("ext_id"):
+            meta.setdefault("skipped", []).append(str(r)[:80])
+            continue
+        clean.append({"name": (r.get("name") or f"ext {r.get('ext') or r['ext_id']}").strip(),
+                      "ext_id": r["ext_id"], "ext": str(r.get("ext") or "")})
+    if not clean:
+        clean = _BILLING_ROSTER_DEFAULT
+        meta["error"] = (meta.get("error", "") + " No usable seats in the override; "
+                         "using the built-in roster.").strip()
+    meta["size"] = len(clean)
+    return clean, meta
+
+
+# ── v6 day snapshots ───────────────────────────────────────────
+# A 90-day window fetched as one call-log query does not work: RingEX rate limits
+# it, and the first version of this returned an empty list for three of four
+# seats -- which the board then rendered as "logged no calls at all". A 429 read
+# as an accusation. It also took 106 seconds, and gunicorn kills a worker stuck
+# past 90 (-t 90 in render.yaml), so the 30d and 90d buttons would have taken the
+# service down with them.
+#
+# So the unit of fetching is ONE SEAT, ONE DAY, cached on disk. A finished day
+# never changes, so it is fetched once and reused forever; today gets a short
+# memory TTL. A long window is then assembled from files, and only the days that
+# are genuinely missing cost an API call -- capped per request, with the rest
+# reported as missing rather than silently rendered as zero.
+V6_SNAP_DIR = _data_dir / "v6_days"
+_V6_FETCH_BUDGET = 24        # seat-days fetched per request, ~15s at current pacing
+_V6_DEADLINE = 25.0          # seconds; gunicorn kills a worker at 90 (render.yaml -t 90)
+_V6_MAX_WAIT = 3.0           # never sit on a long Retry-After inside a web request
+_V6_MAX_FAILS = 2            # consecutive refusals before a SEAT gives up this request
+_v6_today_cache: dict = {}   # (ext_id, day) -> {"at": ts, "rows": [...]}
+
+
+def _v6_snap_path(ext_id, day_iso):
+    return V6_SNAP_DIR / str(ext_id) / f"{day_iso}.json"
+
+
+def _v6_load_day(ext_id, day_iso):
+    p = _v6_snap_path(ext_id, day_iso)
+    try:
+        if p.exists():
+            return json.loads(p.read_text())
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 snapshot unreadable %s: %s", p, e)
+    return None
+
+
+def _v6_save_day(ext_id, day_iso, rows):
+    p = _v6_snap_path(ext_id, day_iso)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rows))
+        tmp.replace(p)          # atomic: a half-written day must never be read as complete
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 snapshot unwritable %s: %s", p, e)
+
+
+def _v6_fetch_day(ext_id, day_iso, tz_offset_minutes):
+    """One seat, one local day. Returns (rows, ok). ok=False means the day could
+    not be read -- which is NOT the same as the day being empty."""
+    start_dt = _parse_local_date_to_utc(day_iso, 0, 0, 0, tz_offset_minutes)
+    end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
+    rows, meta = _ringcx.fetch_extension_calls(ext_id, start_dt, end_dt, max_pages=6,
+                                               max_wait=_V6_MAX_WAIT)
+    ok = not meta.get("note") and not meta.get("truncated")
+    return rows, ok
+
+
+def _v6_seat_curve(ext_id, tz_offset_minutes, days_back=45):
+    """A seat's own intraday pace curve, from the day snapshots already on disk.
+
+    Reads local files only -- no API calls -- so this costs nothing against the
+    10-per-minute RingEX budget. Returns None until the seat has enough history,
+    and the caller then falls back to the team curve.
+    """
+    tz_off = tz_offset_minutes if tz_offset_minutes is not None else \
+        -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+    per_day = []
+    for i in range(1, days_back + 1):
+        day = (today - timedelta(days=i)).isoformat()
+        rows = _v6_load_day(ext_id, day)
+        if not rows:
+            continue
+        hours = {}
+        for r in rows:
+            if not _billing_connected(r):
+                continue
+            t = r.get("start_time") or ""
+            try:
+                dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            local = dt.astimezone(timezone.utc) - timedelta(minutes=tz_off)
+            hours[local.hour] = hours.get(local.hour, 0) + (r.get("duration") or 0)
+        if hours:
+            per_day.append(hours)
+    return build_pace_curve(per_day)
+
+
+def _v6_build(date_start, date_end, tz_offset_minutes, local_today):
+    """Assemble the window from day snapshots, fetching only what is missing."""
+    roster, roster_meta = _billing_roster()
+    d0 = datetime.strptime(date_start, "%Y-%m-%d").date()
+    d1 = datetime.strptime(date_end, "%Y-%m-%d").date()
+    days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
+
+    deadline = time.time() + _V6_DEADLINE
+    budget = _V6_FETCH_BUDGET
+    rows_by_agent, stats = {}, {"cached": 0, "fetched": 0, "missing": 0}
+
+    for seat in roster:
+        eid = seat["ext_id"]
+        rows, missing = [], []
+        # Per SEAT, not per request. A shared counter meant that when RingEX was
+        # busy the first two seats used up the allowance and the last two were
+        # never asked at all -- so they came back "unknown" without a single
+        # request having been made for them. Every seat gets its own attempts.
+        fails = 0
+        for day in days:
+            is_today = day >= local_today
+            if is_today:
+                c = _v6_today_cache.get((eid, day))
+                if c and time.time() - c["at"] < _V6_TTL_TODAY:
+                    rows.extend(c["rows"]); stats["cached"] += 1
+                    continue
+            else:
+                got = _v6_load_day(eid, day)
+                if got is not None:
+                    rows.extend(got); stats["cached"] += 1
+                    continue
+            # Once RingEX has refused twice for THIS seat there is no point
+            # asking again this request -- the limit is per minute, and each
+            # refusal costs a round-trip plus a wait we cannot afford here.
+            if budget <= 0 or fails >= _V6_MAX_FAILS or time.time() > deadline:
+                missing.append(day); stats["missing"] += 1
+                continue
+            budget -= 1
+            got, ok = _v6_fetch_day(eid, day, tz_offset_minutes)
+            if not ok:
+                fails += 1
+                missing.append(day); stats["missing"] += 1
+                continue
+            stats["fetched"] += 1
+            rows.extend(got)
+            if is_today:
+                _v6_today_cache[(eid, day)] = {"at": time.time(), "rows": got}
+            else:
+                _v6_save_day(eid, day, got)   # a finished day never changes
+        rows_by_agent[seat["name"]] = {
+            "rows": rows, "ext": seat["ext"], "ext_id": eid,
+            "complete": not missing, "missing_days": missing,
+        }
+
+    offset_east = -(tz_offset_minutes if tz_offset_minutes is not None
+                    else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
+
+    # Pace, only when the view is the single day that is still running.
+    now_local, curves = None, {}
+    if date_start == date_end == local_today:
+        now_local = datetime.now(timezone.utc) + timedelta(minutes=offset_east)
+        for seat in roster:
+            c = _v6_seat_curve(seat["ext_id"], tz_offset_minutes)
+            if c:
+                curves[seat["name"]] = c
+
+    report = build_billing_report(
+        rows_by_agent, tz_offset_minutes=offset_east,
+        window={"start": date_start, "end": date_end},
+        roster_meta=roster_meta, now_local=now_local, curves=curves,
+    )
+    if stats["missing"]:
+        report["warnings"].append({
+            "kind": "incomplete_fetch",
+            "message": (f"{stats['missing']} seat-day(s) in this window have not been fetched "
+                        f"yet — RingEX only allows so many requests a minute, so long ranges "
+                        f"fill in over a few reloads. Every figure below is a floor until they "
+                        f"do. Reload in a minute."),
+        })
+    report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
+    report["meta"]["days"] = stats
+    report["meta"]["complete"] = stats["missing"] == 0
+    return report
+
+
+# ── v6 background warmer ───────────────────────────────────────
+# A web request cannot wait out RingEX's per-minute limit -- gunicorn kills the
+# worker at 90s -- so _v6_build gives up fast and reports the gap. That leaves
+# the cache to be filled by whoever happens to reload, which on a rate-limited
+# account means it may never fill at all.
+#
+# This thread has the one thing a request does not: time. It walks the roster
+# over the trailing window, fetches the days that are missing one at a time, and
+# sleeps generously between them. Nothing waits on it; it only ever makes the
+# next page load faster.
+# 35 days, not 90. The RingEX call log is a per-ACCOUNT budget and this app's own
+# dashboard refresh already spends it every 60 seconds (fetch_todays_outbound_calls,
+# same Heavy endpoint) -- so the warmer is not alone on the account and loses the
+# race often. 4 seats x 35 days is 140 fetches, which converges in hours instead
+# of days and covers every range the board offers except 90d. Raise V6_WARM_DAYS
+# once the backfill has settled.
+_V6_WARM_DAYS = int(os.environ.get("V6_WARM_DAYS", "35"))
+# RingEX's "heavy" group allows 10 requests per 60 SECONDS for the WHOLE account
+# (X-Rate-Limit-Group: heavy, Limit 10, Window 60) -- and this app's own dashboard
+# refresh spends from the same bucket every minute. A 6s pause is 10/min, i.e. the
+# entire account budget, which starves both the dashboard and the live board. 15s
+# is 4/min, leaving room for everyone.
+_V6_WARM_PAUSE = float(os.environ.get("V6_WARM_PAUSE", "15"))  # seconds between fetches
+_v6_warm_state = {"running": False, "filled": 0, "missing": None, "last": None}
+
+
+def _v6_warm_loop():
+    """Fill day snapshots in the background, slowly, forever."""
+    _v6_warm_state["running"] = True
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    while True:
+        try:
+            if not _ringcx.configured:
+                time.sleep(300)
+                continue
+            roster, _ = _billing_roster()
+            today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+            gaps = []
+            for seat in roster:
+                for i in range(1, _V6_WARM_DAYS + 1):      # yesterday backwards; today is live
+                    day = (today - timedelta(days=i)).isoformat()
+                    if _v6_load_day(seat["ext_id"], day) is None:
+                        gaps.append((seat["ext_id"], day))
+            _v6_warm_state["missing"] = len(gaps)
+            if not gaps:
+                time.sleep(900)                            # nothing to do; check again later
+                continue
+            # Newest first: the ranges people actually look at fill in first.
+            gaps.sort(key=lambda g: g[1], reverse=True)
+            for eid, day in gaps[:40]:
+                rows, ok = _v6_fetch_day(eid, day, tz_off)
+                if ok:
+                    _v6_save_day(eid, day, rows)
+                    _v6_warm_state["filled"] += 1
+                    _v6_warm_state["last"] = f"{eid} {day}"
+                    time.sleep(_V6_WARM_PAUSE)
+                else:
+                    # Refused. Back off rather than burning the budget the live
+                    # board -- and the main dashboard refresh -- also need.
+                    # Escalating, so a long outage does not mean a tight retry
+                    # loop, but a one-off 429 costs only a few seconds.
+                    # RingEX says Retry-After: 60 and means it -- the window is
+                    # a flat 60s, so anything shorter just burns a request to be
+                    # told the same thing.
+                    backoff = min(65 * (1 + _v6_warm_state.get("fails", 0)), 300)
+                    _v6_warm_state["fails"] = _v6_warm_state.get("fails", 0) + 1
+                    time.sleep(backoff)
+                    continue
+                _v6_warm_state["fails"] = 0
+        except Exception as e:  # noqa: BLE001
+            log.warning("v6 warmer error: %s", e)
+            time.sleep(120)
+
+
+@app.route("/api/v6/warm")
+def api_v6_warm():
+    """What the background warmer has done. Diagnostic — an empty board should
+    always be explainable."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(dict(_v6_warm_state, warm_days=_V6_WARM_DAYS,
+                        pause_seconds=_V6_WARM_PAUSE))
+
+
+@app.route("/api/v6/report")
+def api_v6_report():
+    """Billing KPI board for a window. Serves /v6 and /v6/board."""
+    if not (_v6_allowed()):
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        # An empty board and a quiet phone look identical. Say which this is.
+        return jsonify({
+            "error": "ringcentral_not_configured",
+            "detail": "RC_CLIENT_ID / RC_CLIENT_SECRET / RC_JWT_TOKEN are not set on this "
+                      "instance, so no calls can be fetched. This is a configuration "
+                      "problem, not a quiet day.",
+        }), 503
+    try:
+        tz_param = request.args.get("tz")
+        tz_offset_minutes = int(tz_param) if tz_param is not None else None
+        _off = tz_offset_minutes if tz_offset_minutes is not None else \
+            -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
+
+        date_start = request.args.get("start") or local_today
+        date_end = request.args.get("end") or date_start
+        if date_end < date_start:
+            return jsonify({"error": "bad_range",
+                            "detail": "The end date is before the start date."}), 400
+
+        key = (date_start, date_end, _off)
+        ttl = _V6_TTL_TODAY if date_end >= local_today else _V6_TTL_PAST
+        now = time.time()
+        with _v6_lock:
+            hit = _v6_cache.get(key)
+            if hit and now - hit["at"] < ttl:
+                out = dict(hit["report"])
+                out["meta"] = dict(out["meta"], cached=True,
+                                   age_seconds=round(now - hit["at"]))
+                return jsonify(out)
+
+        # Outside the lock would let N concurrent viewers each start their own
+        # fetch and collide with RingEX's rate limit. One fetch, everyone waits.
+        with _v6_lock:
+            hit = _v6_cache.get(key)
+            if hit and time.time() - hit["at"] < ttl:
+                out = dict(hit["report"])
+                out["meta"] = dict(out["meta"], cached=True,
+                                   age_seconds=round(time.time() - hit["at"]))
+                return jsonify(out)
+            report = _v6_build(date_start, date_end, tz_offset_minutes, local_today)
+            # An incomplete report must not be cached for an hour -- the whole
+            # point is that a reload fills the gap.
+            if report["meta"].get("complete"):
+                _v6_cache[key] = {"at": time.time(), "report": report}
+            for k in [k for k, v in list(_v6_cache.items())
+                      if time.time() - v["at"] > _V6_TTL_PAST * 4]:
+                _v6_cache.pop(k, None)
+        report["meta"]["cached"] = False
+        return jsonify(report)
+    except Exception as e:  # noqa: BLE001
+        log.exception("v6 report failed")
+        return jsonify({"error": "report_failed", "detail": str(e)}), 500
+
+
+def _v6_token_ok() -> bool:
+    if not BILLING_TOKEN:
+        return False  # fail closed
+    supplied = request.args.get("k", "") or request.headers.get("X-Billing-Token", "")
+    return hmac.compare_digest(supplied, BILLING_TOKEN)
+
+
+def _v6_allowed() -> bool:
+    """A signed-in user, the v5 word-password session (same staff gate), or the
+    billing share token. The billing board names different people than the sales
+    board, so it does NOT accept SCOREBOARD_TOKEN."""
+    if not GOOGLE_CLIENT_ID:
+        return True
+    return (bool(session.get("user")) or bool(session.get("v5_pw"))
+            or _v6_token_ok())
+
+
+@app.route("/v6", methods=["GET", "POST"])
+def scoreboard_v6():
+    """Billing team KPI board — daily performance against floor/target/stretch.
+
+    Same two ways in as /v5: the normal Google session, or a shared word password.
+    """
+    ip = (request.headers.get("CF-Connecting-IP")
+          or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+          or request.remote_addr or "?")
+    error = ""
+    if request.method == "POST":
+        if _v5_pw_throttled(ip):
+            error = "Too many tries. Wait five minutes."
+        elif _v5_password_matches(request.form.get("password", "").strip()):
+            session["v5_pw"] = True
+            return redirect(url_for("scoreboard_v6"))
+        else:
+            _v5_pw_record_failure(ip)
+            error = "That is not the password."
+
+    if session.get("user") or session.get("v5_pw") or not GOOGLE_CLIENT_ID:
+        return render_template("scoreboard_v6.html",
+                               current_user=session.get("user") or {},
+                               share_mode=False, share_token="")
+    if not V5_PASSWORDS:
+        return redirect("/login")
+    return render_template("v5_password.html", error=error), (401 if error else 200)
+
+
+@app.route("/v6/board")
+def scoreboard_v6_board():
+    """Read-only billing board on a share link. 404 rather than 403 on a bad
+    token: this URL gets forwarded around."""
+    if not _v6_token_ok():
+        return ("Not Found", 404)
+    return render_template("scoreboard_v6.html", current_user={},
                            share_mode=True, share_token=request.args.get("k", ""))
 
 
@@ -4845,6 +5294,11 @@ def _ensure_background_thread():
 # Load persisted cache from disk so first request is instant, then start background loop.
 _load_persisted_cache()
 _ensure_background_thread()
+
+# The billing board's day-snapshot warmer. Same once-only guard, same reason:
+# gunicorn imports this module in the worker, `python app.py` runs it directly.
+if not _v6_warm_state["running"]:
+    threading.Thread(target=_v6_warm_loop, daemon=True, name="v6-warm").start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

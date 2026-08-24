@@ -58,5 +58,32 @@ services:
       # the "Distributed by Bot" card renders an explanation instead of data.
       - key: BACKOFFICE_URL
         sync: false
+      # ── RingCentral (RingEX) — required by the /v6 billing KPI board ──
+      # Without all three of these /api/v6/report returns 503 and says so; it does
+      # NOT render an empty board, because an empty board and a quiet phone look
+      # identical. These live in ringcentral-sync/.env locally and have never been
+      # set on this service, so they must be added in Render's dashboard before
+      # /v6 shows anything.
+      - key: RC_CLIENT_ID
+        sync: false
+      - key: RC_CLIENT_SECRET
+        sync: false
+      - key: RC_JWT_TOKEN
+        sync: false
+      - key: RC_SERVER_URL
+        value: https://platform.ringcentral.com
+      # Read-only share link for /v6/board. Unset = /v6/board 404s for everyone
+      # (fail closed); /v6 itself still works behind the normal login. Must NOT be
+      # the same value as SCOREBOARD_TOKEN — that one opens the sales board.
+      - key: BILLING_TOKEN
+        sync: false
+      # How many days back the billing board's snapshot warmer backfills, and how
+      # long it waits between fetches. RingEX allows 10 heavy requests per 60s for
+      # the WHOLE account and this app's own dashboard refresh already spends from
+      # that bucket, so 15s (4/min) leaves room. Lower the pause at your peril.
+      - key: V6_WARM_DAYS
+        value: "35"
+      - key: V6_WARM_PAUSE
+        value: "15"
       - key: PYTHON_VERSION
         value: "3.11.9"

@@ -1285,6 +1285,104 @@ class RingCXClient:
                 "unattributed": unattributed}
 
     # ══════════════════════════════════════════════════════════════
+    # Per-EXTENSION call log — the billing board's only source
+    # ══════════════════════════════════════════════════════════════
+
+    def fetch_extension_calls(self, ext_id, start_dt: datetime, end_dt: datetime,
+                              max_pages: int = 12, max_wait: float = 30.0
+                              ) -> tuple[list[dict], dict]:
+        """Every call leg on ONE extension in [start_dt, end_dt].
+
+        Why per-extension and not the account-wide log: the account endpoint is
+        RingCentral's "Heavy" class, caps out around 2,500 records, and truncates
+        without saying so -- a scan of it is not evidence of absence. This one is
+        cheap (~0.4s/page), reaches at least 180 days back, and every row arrives
+        pre-attributed to the seat that made it, so there is no name matching.
+
+        Returns (rows, meta). meta carries `truncated` and `note`; a partial fetch
+        that looks complete is worse than one that admits it, and this feeds a
+        board that names individuals.
+        """
+        rows: dict[str, dict] = {}
+        meta = {"pages": 0, "truncated": False, "note": None, "http_error": None}
+        try:
+            self._ensure_rc_token()
+            page = 1
+            while page <= max_pages:
+                params = {
+                    "dateFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "dateTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "view": "Simple", "perPage": 250, "page": page,
+                }
+                url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
+                       f"/extension/{ext_id}/call-log")
+                r = requests.get(url, headers=self._rc_headers(), params=params, timeout=30)
+                if r.status_code == 429:
+                    # max_wait lets a caller that is serving a web request refuse
+                    # to sit on a 60s Retry-After. Waiting it out here once cost
+                    # 81 seconds of a request that gunicorn kills at 90.
+                    if max_wait <= 0:
+                        meta["http_error"] = 429
+                        meta["note"] = ("RingEX is rate limiting us (HTTP 429) and this fetch "
+                                        "will not wait it out; the day was left unfetched.")
+                        break
+                    wait = 5.0
+                    try:
+                        wait = float(r.headers.get("Retry-After") or 5)
+                    except (TypeError, ValueError):
+                        pass
+                    wait = min(max(wait, 1.0), max_wait)
+                    log.warning("ext %s call-log 429 on page %d; waiting %.0fs",
+                                ext_id, page, wait)
+                    time.sleep(wait)
+                    r = requests.get(url, headers=self._rc_headers(), params=params, timeout=30)
+                if r.status_code == 204:
+                    break
+                if not r.ok:
+                    meta["http_error"] = r.status_code
+                    meta["note"] = (
+                        "RingEX is rate limiting us (HTTP 429); this seat's figures are "
+                        "incomplete." if r.status_code == 429 else
+                        f"RingEX call-log returned HTTP {r.status_code} for extension "
+                        f"{ext_id}; this seat's figures cover only what was fetched first.")
+                    log.warning("ext %s call-log page %d failed: %s", ext_id, page, r.status_code)
+                    break
+                recs = r.json().get("records", [])
+                meta["pages"] = page
+                for rec in recs:
+                    frm, to = rec.get("from") or {}, rec.get("to") or {}
+                    rows[rec.get("id") or f"{page}:{len(rows)}"] = {
+                        "id": rec.get("id", ""),
+                        "session_id": rec.get("sessionId", ""),
+                        "duration": rec.get("duration", 0) or 0,
+                        "direction": rec.get("direction", "") or "",
+                        "result": rec.get("result", "") or "",
+                        "start_time": rec.get("startTime", "") or "",
+                        "from_number": frm.get("phoneNumber", "") or "",
+                        "to_number": to.get("phoneNumber", "") or "",
+                        "from_name": frm.get("name", "") or "",
+                        "to_name": to.get("name", "") or "",
+                        "action": rec.get("action", "") or "",
+                        "source": "ringex",
+                    }
+                if len(recs) < 250:
+                    break
+                page += 1
+                time.sleep(0.35)
+            else:
+                meta["truncated"] = True
+                meta["note"] = (f"Hit the {max_pages}-page cap for extension {ext_id}; there are "
+                                f"more calls in this window than were fetched.")
+                log.warning("ext %s call-log truncated at %d pages", ext_id, max_pages)
+        except Exception as e:  # noqa: BLE001
+            # Never return [] silently. A failed fetch and a quiet phone are the
+            # same shape, and this one feeds a per-person scoreboard.
+            meta["note"] = (f"RingEX call-log request failed for extension {ext_id}: {e}. "
+                            f"No calls could be read, which is not the same as there being none.")
+            log.error("ext %s call-log error: %s", ext_id, e)
+        return list(rows.values()), meta
+
+    # ══════════════════════════════════════════════════════════════
     # SMS — send via RingCentral Platform API
     # ══════════════════════════════════════════════════════════════
 
