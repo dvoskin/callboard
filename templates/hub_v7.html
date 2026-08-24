@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Goals Dashboards</title>
+<style>
+  :root{
+    --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
+    --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
+    --up:#0B6E67; --dn:#B03A31; --mid:#9C6712;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
+    --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492;
+    --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
+       font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+       -webkit-text-size-adjust:100%}
+  .wrap{max-width:760px;margin:0 auto;padding:26px 16px 56px}
+  @media(min-width:640px){.wrap{padding:40px 22px 72px}}
+
+  header{margin-bottom:22px}
+  h1{margin:0 0 3px;font-size:22px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
+  @media(min-width:640px){h1{font-size:26px}}
+  .sub{margin:0;font-size:13px;color:var(--muted)}
+  .who{margin-top:9px;font-size:12px;color:var(--muted)}
+  .who b{color:var(--ink-2);font-weight:600}
+
+  h2{margin:26px 0 9px;font-size:11px;font-weight:700;letter-spacing:.08em;
+     text-transform:uppercase;color:var(--muted)}
+
+  .grid{display:grid;gap:10px;grid-template-columns:1fr}
+  @media(min-width:600px){.grid{grid-template-columns:1fr 1fr;gap:12px}}
+
+  /* Whole card is the tap target -- on a phone a small text link is a miss
+     waiting to happen. */
+  a.card{
+    display:flex;align-items:flex-start;gap:13px;
+    padding:16px 15px;min-height:76px;
+    border:1px solid var(--rule);border-radius:10px;background:var(--bg);
+    text-decoration:none;color:inherit;
+    transition:border-color .12s, background .12s, transform .06s;
+  }
+  a.card:hover{border-color:var(--up);background:var(--tint)}
+  a.card:active{transform:scale(.995)}
+  a.card:focus-visible{outline:2px solid var(--up);outline-offset:2px}
+
+  .ic{flex:0 0 34px;height:34px;border-radius:8px;background:var(--tint);
+      display:flex;align-items:center;justify-content:center;font-size:17px;
+      border:1px solid var(--hair)}
+  a.card:hover .ic{background:var(--bg)}
+  .body{min-width:0;flex:1}
+  .t{font-weight:650;font-size:15px;letter-spacing:-.01em;display:flex;
+     align-items:center;gap:6px;flex-wrap:wrap}
+  .d{font-size:12.5px;color:var(--muted);line-height:1.4;margin-top:2px}
+  .ext{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+       color:var(--muted);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
+
+  footer{margin-top:30px;padding-top:14px;border-top:1px solid var(--rule);
+         font-size:11.5px;color:var(--muted);line-height:1.6}
+  footer a{color:var(--up)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Goals Dashboards</h1>
+    <p class="sub">Everything the floor and the back office run on, in one place.</p>
+    {% if current_user and current_user.get('email') %}
+      <p class="who">Signed in as <b>{{ current_user.get('email') }}</b></p>
+    {% endif %}
+  </header>
+
+  <h2>Sales</h2>
+  <div class="grid">
+    <a class="card" href="/v3">
+      <div class="ic">📞</div>
+      <div class="body">
+        <div class="t">Sales Call Monitor</div>
+        <div class="d">Live dashboard &mdash; scheduled calls, overdue follow-ups, dispositions
+          and who is on a call right now.</div>
+      </div>
+    </a>
+
+    <a class="card" href="/v5">
+      <div class="ic">🏆</div>
+      <div class="body">
+        <div class="t">Sales Floor Scoreboard</div>
+        <div class="d">Talk time and call performance per rep, reconciled live across RingEX
+          and RingCX.</div>
+      </div>
+    </a>
+
+    <a class="card" href="/v4">
+      <div class="ic">🧭</div>
+      <div class="body">
+        <div class="t">Quote Follow-Ups</div>
+        <div class="d">One row per quote, with the six-step follow-up cadence synced from the
+          CRM's tasks.</div>
+      </div>
+    </a>
+  </div>
+
+  <h2>Billing</h2>
+  <div class="grid">
+    <a class="card" href="/v6">
+      <div class="ic">🧾</div>
+      <div class="body">
+        <div class="t">Billing KPI Board</div>
+        <div class="d">Talk time, calls and calls over two minutes per working day, measured
+          against floor / target / stretch.</div>
+      </div>
+    </a>
+  </div>
+
+  <h2>Surgery</h2>
+  <div class="grid">
+    <a class="card" href="https://zoho-quote-analyzer.onrender.com/board"
+       target="_blank" rel="noopener noreferrer">
+      <div class="ic">🩺</div>
+      <div class="body">
+        <div class="t">Surgery Readiness <span class="ext">External</span></div>
+        <div class="d">Pre-op readiness per patient &mdash; clearances, payments and paperwork
+          outstanding before a surgery date.</div>
+      </div>
+    </a>
+  </div>
+
+  <footer>
+    Surgery Readiness runs on a separate service and opens in a new tab; it has its own sign-in.
+    Everything else here shares this login.
+  </footer>
+</div>
+</body>
+</html>

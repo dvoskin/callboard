@@ -141,17 +141,67 @@
   .empty{color:var(--muted);font-size:13px;padding:16px 0}
   .err{color:var(--dn);font-size:13px;padding:14px 0;line-height:1.5}
 
+  /* ── phones ────────────────────────────────────────────────
+     The desktop layout is a table and a table does not survive 375px: the
+     headline talk figure was being clipped off the right edge. So each agent
+     becomes a small card instead -- name, then the number that matters at
+     size, then the supporting counts on one line. */
   @media(max-width:560px){
+    .wrap{padding:16px 13px 40px}
+    h1{font-size:19px}
+    .sub{font-size:12px}
+
     .hd{display:none}
-    .hd,.r{grid-template-columns:20px minmax(0,1fr) 74px;
-           grid-template-areas:"rk nm tk" ". c cn" ". lg lg"}
-    .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 74px;
-           grid-template-areas:"rk nm tk" ". pc pc" ". c cn" ". lg lg"}
-    .pc{text-align:left}
-    .r{padding:9px 0}
-    .c,.cn,.lg{text-align:left;font-size:12px}
-    .lbl{display:inline}
+    .r,.live .r{
+      grid-template-columns:22px 1fr 1fr 1fr;
+      grid-template-areas:
+        "rk nm nm nm"
+        "tk tk pc pc"
+        "sp c  cn lg";
+      row-gap:5px; padding:12px 0 13px;
+    }
+    .r .rk{align-self:start;padding-top:2px}
+    .nm{font-size:16px;padding-right:0;white-space:normal}
+    /* the headline: big, left, unclipped. Its label becomes a small caption
+       above rather than inheriting 26px and shouting louder than the number. */
+    .tk{font-size:26px;letter-spacing:-.02em;text-align:left;line-height:1.1}
+    .tk .lbl{display:block;font-size:10px;font-weight:700;letter-spacing:.07em;
+             text-transform:uppercase;color:var(--muted);line-height:1.4}
+    .pc{text-align:right;font-size:15px;align-self:center}
+    .pc .exp{font-size:10.5px}
+    /* supporting counts read as label+value pairs, not bare digits */
+    .c,.cn,.lg{text-align:left;font-size:12.5px;font-weight:500;color:var(--muted)}
+    .c b,.cn b,.lg b{color:var(--ink)}
+    .lbl{display:inline;color:var(--muted);font-weight:500}
+
+    /* expand panel: the 22px desktop indent costs a column's worth of width on
+       a 375px screen, so it shrinks and the 5-column live table may scroll. */
+    .det{padding:11px 2px 13px 8px}
+    .dtab{font-size:12px}
+    .dtab th{font-size:9px}
+    .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .foot{font-size:11px}
+
+    /* controls: two dates on one line, chips on the next, all thumb-sized */
+    .ctl{gap:6px}
+    .ctl input{flex:1 1 44%;min-width:0;font-size:16px;padding:7px 8px}
+    .ctl button{padding:7px 12px;font-size:13px}
+    .day{padding:7px 13px;font-size:13px}
+    .key{font-size:10.5px;gap:2px 10px}
+    .warn{font-size:12px;padding:9px 11px}
   }
+  /* very narrow phones: drop the pace column under the headline */
+  @media(max-width:360px){
+    .r,.live .r{
+      grid-template-areas:
+        "rk nm nm nm"
+        "tk tk tk tk"
+        "pc pc pc pc"
+        "sp c  cn lg";
+    }
+    .pc{text-align:left}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -190,8 +240,10 @@
   }
   // A metric cell coloured by where it lands against the KPI.
   function cell(area, value, band, label) {
+    // The label only shows on phones (see .lbl), where a bare number in a
+    // three-across row is unreadable without it.
     return '<div class="' + area + ' b-' + esc(band) + '">' +
-           '<span class="lbl">' + esc(label) + ' </span>' + esc(value) + '</div>';
+           '<span class="lbl">' + esc(label) + ' </span><b>' + esc(value) + '</b></div>';
   }
   // Ahead/behind against what a normal day looks like at this hour -- not
   // against the clock. See _PACE_CURVE_DEFAULT in billing_report.py for why.
@@ -304,7 +356,7 @@
       // and in total". Everything else is one quiet footnote.
       var body;
       if (pace) {
-        body =
+        body = '<div class="tscroll">' +
           '<table class="dtab"><tr><th>Metric</th><th>Now</th><th>Expected</th>' +
           '<th>On track for</th><th>Target</th></tr>' +
           METRICS.map(function (m) {
@@ -315,7 +367,7 @@
               '<td class="big b-' + (pace.grades[k] || 'below') + '">' +
                 (pj == null ? '&mdash;' : pj + u) + '</td>' +
               '<td class="q">' + ((T[k] || {}).target != null ? T[k].target + u : '') + '</td></tr>';
-          }).join('') + '</table>';
+          }).join('') + '</table></div>';
       } else {
         body =
           '<table class="dtab"><tr><th>Metric</th><th>Per working day</th><th>Total</th></tr>' +

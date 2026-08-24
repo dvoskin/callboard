@@ -1253,6 +1253,24 @@ def scoreboard_v6():
     return render_template("v5_password.html", error=error), (401 if error else 200)
 
 
+@app.route("/v7")
+def hub_v7():
+    """One page listing every dashboard, so nobody has to remember which number
+    is which. Same gate as /v5 and /v6 -- a Google session or the shared word
+    password -- because it links straight into them and a hub behind a weaker
+    door than its destinations is just a directory of what to guess at.
+
+    Surgery Readiness lives on a different service and opens in a new tab; it
+    carries its own sign-in, which the footer says rather than leaving someone
+    to discover it.
+    """
+    if session.get("user") or session.get("v5_pw") or not GOOGLE_CLIENT_ID:
+        return render_template("hub_v7.html", current_user=session.get("user") or {})
+    if not V5_PASSWORDS:
+        return redirect("/login")
+    return render_template("v5_password.html", error=""), 200
+
+
 @app.route("/v6/board")
 def scoreboard_v6_board():
     """Read-only billing board on a share link. 404 rather than 403 on a bad
