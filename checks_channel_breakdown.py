@@ -157,6 +157,9 @@ ok("the merge still accounts for all the talk",
    (sum(c["talk"] for c in am["channels"]), am["talk"]))
 
 ok("the panel renders the dial count", "<i>' + w(c.calls) + '</i>" in tpl)
+# Spacing alone let "1:44:21" and "8" read as a single number on a phone.
+ok("the dial count is separated from the time", ".chan i::before{content:'\u00b7 '" in tpl
+   or ".chan i::before{content:'· '" in tpl)
 
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)
