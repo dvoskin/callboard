@@ -108,13 +108,27 @@
   .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
   .dg .wide{grid-column:1/-1}
 
+  /* expand panel: one table, one footnote */
+  .dtab{width:100%;border-collapse:collapse;font-size:12.5px;max-width:520px}
+  .dtab th{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+           color:var(--muted);text-align:right;padding:0 0 6px;white-space:nowrap}
+  .dtab th:first-child{text-align:left}
+  .dtab td{padding:4px 0;text-align:right;font-variant-numeric:tabular-nums;
+           border-top:1px solid var(--rule)}
+  .dtab td:first-child{text-align:left;color:var(--ink-2)}
+  .dtab .big{font-weight:700;font-size:13.5px;color:var(--ink)}
+  .dtab .q{color:var(--muted)}
+  .foot{font-size:11.5px;color:var(--muted);padding-top:8px;margin-top:9px;
+        border-top:1px solid var(--rule);line-height:1.6;max-width:520px}
+
   /* per-day bars inside the panel */
   .spark{grid-column:1/-1;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)}
   .spark .cap{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
               color:var(--muted);margin-bottom:5px}
   .bars{display:flex;align-items:flex-end;gap:2px;height:44px}
-  .bars div{flex:1 1 0;min-width:3px;background:var(--up);border-radius:1px 1px 0 0;
-            opacity:.75}
+  .bars{justify-content:flex-start}
+  .bars div{flex:1 1 0;min-width:3px;max-width:22px;background:var(--up);
+            border-radius:1px 1px 0 0;opacity:.75}
   .bars div.off{background:var(--muted);opacity:.3}
   .bars div:hover{opacity:1}
   .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
@@ -204,6 +218,7 @@
         unknown = d.unknown || [], team = d.team || {};
     var T = d.targets || {}, LONG = d.long_call_seconds || 120;
     var longLbl = '≥' + Math.round(LONG / 60) + 'm';
+    var longKey = 'over_' + LONG + 's';
     var multi = (d.window || {}).start !== (d.window || {}).end;
 
     var sub = '<b>' + ranked.length + '</b> seat' + (ranked.length === 1 ? '' : 's') +
@@ -281,62 +296,65 @@
       var days = (a.days || []);
       var worked = days.filter(function (x) { return x.worked; });
       var peak = Math.max.apply(null, days.map(function (x) { return x.talk_minutes; }).concat([1]));
-      h += '<div class="det" id="' + id + '">' +
-        '<div class="dg">' +
-          '<div><em>Total talk</em><b>' + hm(tot.talk_seconds) + '</b></div>' +
-          '<div><em>Working days</em><b>' + a.worked_days + '</b></div>' +
-          '<div' + (a.idle_days ? '' : ' class="zero"') + '><em>Idle days</em><b>' +
-            a.idle_days + '</b></div>' +
-          '<div><em>Calls handled</em><b>' + tot.handled_calls + '</b></div>' +
-          '<div><em>Outbound</em><b>' + tot.dials + '</b></div>' +
-          '<div><em>Inbound handled</em><b>' + tot.inbound_answered + '</b></div>' +
-          '<div><em>Connected</em><b>' + tot.connected + '</b></div>' +
-          '<div class="rule"></div>' +
-          '<div><em>Avg call</em><b>' + a.avg_call_seconds + 's</b></div>' +
-          '<div><em>Longest</em><b>' + hm(tot.longest_seconds) + '</b></div>' +
-          '<div><em>' + longLbl + ' share</em><b>' + a.long_call_share_pct + '%</b></div>' +
-          '<div class="wide"><em>Extension</em><b>' + esc(a.ext || a.ext_id) +
-            ' &middot; median day ' + a.median_talk_minutes + ' min talk' +
-            (all.calls > tot.calls
-              ? ' &middot; ' + (all.calls - tot.calls) + ' more call(s) on idle days, not averaged'
-              : '') + '</b></div>' +
-          (pace ? '<div class="spark"><div class="cap">Against a normal day at ' +
-              esc(pace.as_of) + ' &middot; ' + Math.round(pace.fraction * 100) +
-              '% elapsed &middot; ' + (pace.curve === 'own' ? 'their own pattern'
-                                                            : 'team pattern') + '</div>' +
-            '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
-            '<tr style="color:var(--muted);font-size:10px;text-transform:uppercase;' +
-              'letter-spacing:.06em"><th style="text-align:left;font-weight:700">Metric</th>' +
-              '<th style="text-align:right;font-weight:700">Now</th>' +
-              '<th style="text-align:right;font-weight:700">Expected</th>' +
-              '<th style="text-align:right;font-weight:700">On track for</th>' +
-              '<th style="text-align:right;font-weight:700">Target</th></tr>' +
-            [['talk_minutes', 'Talk (min)'], ['calls', 'Calls'],
-             ['connected', 'Connected'], ['long_calls', longLbl]].map(function (m) {
-              var k = m[0], pj = pace.projected[k];
-              return '<tr><td style="padding:3px 0">' + m[1] + '</td>' +
-                '<td class="n" style="text-align:right;font-weight:650">' + pace.actual[k] + '</td>' +
-                '<td class="n" style="text-align:right;color:var(--muted)">' + pace.expected[k] + '</td>' +
-                '<td class="n b-' + (pace.grades[k] || 'below') +
-                  '" style="text-align:right;font-weight:650">' +
-                  (pj == null ? '&mdash;' : pj) + '</td>' +
-                '<td class="n" style="text-align:right;color:var(--muted)">' +
-                  ((T[k] || {}).target != null ? T[k].target : '') + '</td></tr>';
-            }).join('') + '</table>' +
-            (pace.projectable ? '' :
-              '<div class="asof">Too early to project &mdash; under 15% of the day has run.</div>') +
-            '</div>' : '') +
-          (multi && days.length ?
-            '<div class="spark"><div class="cap">Talk minutes per day &middot; ' +
-              worked.length + ' worked, ' + (days.length - worked.length) + ' idle</div>' +
-            '<div class="bars">' + days.map(function (x) {
-              return '<div class="' + (x.worked ? '' : 'off') + '" title="' + esc(x.date) +
-                     ': ' + x.talk_minutes + ' min, ' + x.connected + ' connected" style="height:' +
-                     Math.max(2, Math.round(100 * x.talk_minutes / peak)) + '%"></div>';
-            }).join('') + '</div>' +
-            '<div class="axis"><span>' + esc(days[0].date) + '</span><span>' +
-              esc(days[days.length - 1].date) + '</span></div></div>' : '') +
-        '</div></div>';
+      var METRICS = [['talk_minutes', 'Talk', 'm'], ['calls', 'Calls', ''],
+                     ['connected', 'Connected', ''], ['long_calls', longLbl, '']];
+
+      // One table, not a wall of tiles. A live day answers "where are they, where
+      // should they be, where will they land"; a finished range answers "per day
+      // and in total". Everything else is one quiet footnote.
+      var body;
+      if (pace) {
+        body =
+          '<table class="dtab"><tr><th>Metric</th><th>Now</th><th>Expected</th>' +
+          '<th>On track for</th><th>Target</th></tr>' +
+          METRICS.map(function (m) {
+            var k = m[0], u = m[2], pj = pace.projected[k];
+            return '<tr><td>' + m[1] + '</td>' +
+              '<td class="big">' + pace.actual[k] + u + '</td>' +
+              '<td class="q">' + pace.expected[k] + u + '</td>' +
+              '<td class="big b-' + (pace.grades[k] || 'below') + '">' +
+                (pj == null ? '&mdash;' : pj + u) + '</td>' +
+              '<td class="q">' + ((T[k] || {}).target != null ? T[k].target + u : '') + '</td></tr>';
+          }).join('') + '</table>';
+      } else {
+        body =
+          '<table class="dtab"><tr><th>Metric</th><th>Per working day</th><th>Total</th></tr>' +
+          METRICS.map(function (m) {
+            var k = m[0], u = m[2];
+            var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
+                          connected: tot.connected, long_calls: tot[longKey]};
+            return '<tr><td>' + m[1] + '</td>' +
+              '<td class="big b-' + (g[k] || 'below') + '">' + p[k] + u + '</td>' +
+              '<td class="q">' + totals[k] + '</td></tr>';
+          }).join('') + '</table>';
+      }
+
+      var foot = 'Ext ' + esc(a.ext || a.ext_id) +
+        ' &middot; avg call ' + a.avg_call_seconds + 's' +
+        ' &middot; longest ' + hm(tot.longest_seconds) +
+        ' &middot; ' + a.long_call_share_pct + '% of connected calls run ' + longLbl;
+      if (pace) {
+        foot += '<br>' + Math.round(pace.fraction * 100) + '% of a normal day has run at ' +
+                esc(pace.as_of) + ', measured on ' +
+                (pace.curve === 'own' ? 'their own pattern' : 'the team pattern') + '.' +
+                (pace.projectable ? '' : ' Too early to project.');
+      } else {
+        foot += '<br>' + a.worked_days + ' working day' + (a.worked_days === 1 ? '' : 's') +
+                (a.idle_days ? ', ' + a.idle_days + ' idle (not averaged)' : '') +
+                ' &middot; median day ' + a.median_talk_minutes + 'm talk';
+      }
+
+      h += '<div class="det" id="' + id + '">' + body +
+        (multi && days.length ?
+          '<div class="spark"><div class="cap">Talk minutes per day</div>' +
+          '<div class="bars">' + days.map(function (x) {
+            return '<div class="' + (x.worked ? '' : 'off') + '" title="' + esc(x.date) +
+                   ': ' + x.talk_minutes + ' min, ' + x.connected + ' connected" style="height:' +
+                   Math.max(2, Math.round(100 * x.talk_minutes / peak)) + '%"></div>';
+          }).join('') + '</div>' +
+          '<div class="axis"><span>' + esc(days[0].date) + '</span><span>' +
+            esc(days[days.length - 1].date) + '</span></div></div>' : '') +
+        '<div class="foot">' + foot + '</div></div>';
     });
 
     h += '</div>';   // close .live / plain list wrapper
@@ -481,9 +499,16 @@
     $('end').value = iso;
   })();
 
-  $('go').onclick = load;
+  function clearDayChips() {
+    var box = $('days');
+    if (box) box.querySelectorAll('.day').forEach(function (x) { x.classList.remove('on'); });
+  }
+
+  $('go').onclick = function () { clearDayChips(); load(); };
   ['start', 'end'].forEach(function (id) {
-    $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+    $(id).addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { clearDayChips(); load(); }
+    });
   });
   load();
   // Today's numbers move; a board left open on a wall should not go stale.
