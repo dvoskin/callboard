@@ -51,10 +51,10 @@ ch = {c["name"]: c["talk"] for c in a["channels"]}
 ok("channels are present on the row", bool(a.get("channels")), a.keys())
 ok("a campaign channel is kept by name", ch.get("ENG - Manual Upload") == 300, ch)
 ok("the busiest channel is listed first",
-   a["channels"][0]["name"] == "v2 ENG - New Lead - Scheduled", a["channels"])
+   a["channels"][0]["name"] == "Scheduled Calls", a["channels"])
 ok("the agent's own queue is relabelled", ch.get("Personal queue") == 100, ch)
 ok("her name is not shown as a campaign", "Charlotte McKay" not in ch, ch)
-ok("the UC row survives -- campaign_name is blank there", ch.get("UC") == 30, ch)
+ok("the UC row survives -- campaign_name is blank there", ch.get("RingEX") == 30, ch)
 ok("the breakdown accounts for all the talk",
    sum(c["talk"] for c in a["channels"]) == a["talk"],
    (sum(c["talk"] for c in a["channels"]), a["talk"]))
@@ -98,7 +98,7 @@ chans = [r.get("channel") for r in parsed]
 ok("the parser keeps Channel on a campaign row", "ENG - Manual Upload" in chans, chans)
 ok("the parser keeps Channel on the agent's own queue", "Charlotte McKay" in chans, chans)
 ok("the parser keeps Channel on a UC row -- where campaign_name is blank",
-   "UC" in chans, chans)
+   "UC" in chans, chans)   # raw at the parser; labelled later
 uc_row = [r for r in parsed if r.get("call_type") == "UC Call"][0]
 ok("that UC row really does have a blank campaign_name",
    uc_row.get("campaign_name") == "" and uc_row.get("channel") == "UC", uc_row)
@@ -107,8 +107,56 @@ r3 = build_report([], parsed, window=W, roster={"charlotte mckay"})
 a3 = (r3["ranked"] + r3["unranked"])[0]
 names3 = [c["name"] for c in a3["channels"]]
 ok("end to end, all three channels reach the row",
-   "ENG - Manual Upload" in names3 and "Personal queue" in names3 and "UC" in names3,
-   names3)
+   "ENG - Manual Upload" in names3 and "Personal queue" in names3
+   and "RingEX" in names3, names3)
+
+# ---- Danny's label mapping, and the MERGING it implies ---------------------
+# The raw names are operational. The mapping is applied BEFORE grouping, so the
+# variants collapse into one line each instead of sitting next to each other --
+# that merge is the whole point, not a side effect.
+from v5_report import channel_label as CL
+
+ok("the agent's own queue", CL("Charlotte McKay", "Charlotte McKay") == "Personal queue")
+ok("UC is RingEX", CL("UC") == "RingEX")
+ok("RingEX direct is RingEX too", CL("RingEX direct") == "RingEX")
+ok("ENG scheduled", CL("v2 ENG - New Lead - Scheduled") == "Scheduled Calls")
+ok("ESP scheduled maps the same", CL("v2 ESP - New Lead - Scheduled") == "Scheduled Calls")
+ok("ENG call now", CL("v2 ENG - New Lead - Call Now") == "Call Now")
+ok("ESP call now maps the same", CL("v2 ESP - New Lead - Call Now") == "Call Now")
+ok("bilingual IB is Inbound", CL("New_Bilingual_IB") == "Inbound")
+ok("spanish IB is Inbound too", CL("New_Spanish_IB") == "Inbound")
+# left alone on purpose -- renaming a queue nobody asked about invents a category
+ok("Manual Upload is untouched", CL("ENG - Manual Upload") == "ENG - Manual Upload")
+ok("Retry is untouched", CL("ESP - Retry") == "ESP - Retry")
+ok("DDR New Patient is Inbound", CL("DDR - New Patient ENG") == "Inbound")
+ok("the Spanish DDR queue too", CL("DDR - New Patient SPA") == "Inbound")
+ok("an empty channel is named, not blank", CL("") == "Unknown")
+
+# the merge, end to end: two scheduled variants and both own-line sources become
+# ONE row each, with the dials added up.
+merged = (
+    [cx("Reidy Rosello", "v2 ENG - New Lead - Scheduled", 100, i) for i in range(2)]
+    + [cx("Reidy Rosello", "v2 ESP - New Lead - Scheduled", 50, 5 + i) for i in range(2)]
+    + [cx("Reidy Rosello", "UC", 40, 10, uc=True)]
+    + [cx("Reidy Rosello", "New_Bilingual_IB", 25, 12)]
+)
+rm = build_report([], merged, window=W, roster={"reidy rosello"})
+am = (rm["ranked"] + rm["unranked"])[0]
+byname = {c["name"]: c for c in am["channels"]}
+ok("ENG and ESP scheduled merged into one row",
+   byname.get("Scheduled Calls", {}).get("talk") == 300, am["channels"])
+ok("and their dials added up",
+   byname.get("Scheduled Calls", {}).get("calls") == 4, am["channels"])
+ok("only one Scheduled Calls row exists",
+   sum(1 for c in am["channels"] if c["name"] == "Scheduled Calls") == 1, am["channels"])
+ok("Inbound is labelled", "Inbound" in byname, am["channels"])
+ok("dials are carried for every channel",
+   all(c.get("calls", 0) > 0 for c in am["channels"]), am["channels"])
+ok("the merge still accounts for all the talk",
+   sum(c["talk"] for c in am["channels"]) == am["talk"],
+   (sum(c["talk"] for c in am["channels"]), am["talk"]))
+
+ok("the panel renders the dial count", "<i>' + w(c.calls) + '</i>" in tpl)
 
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)

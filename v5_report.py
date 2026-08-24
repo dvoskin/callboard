@@ -41,6 +41,44 @@ CHANNELS_SHOWN = 5
 def _norm(n):
     return " ".join((n or "").split()).lower()
 
+
+def channel_label(raw, agent_name=""):
+    """RingCX's Channel value as a person would say it.
+
+    The raw names are operational -- "v2 ENG - New Lead - Scheduled",
+    "New_Bilingual_IB", "UC" -- and reading five of those in a panel is work.
+    Danny's mapping, applied BEFORE grouping so the variants merge into one line
+    instead of sitting next to each other:
+
+      the agent's own name  -> Personal queue   (RingCX names it after them)
+      UC, RingEX direct     -> RingEX           (both are the rep's own line)
+      ... New Lead ... Scheduled -> Scheduled Calls   (ENG and ESP alike)
+      ... New Lead ... Call Now  -> Call Now
+      ..._IB, DDR ... New Patient -> Inbound
+
+    Anything else is left exactly as RingCX wrote it. Manual Upload, Retry and
+    Follow Up are untouched on purpose: renaming a queue nobody asked about would
+    be inventing a category, and a wrong label is worse than a long one.
+    """
+    raw = (raw or "").strip()
+    low = _norm(raw)
+    if not raw:
+        return "Unknown"
+    if agent_name and low == _norm(agent_name):
+        return "Personal queue"
+    if low in ("uc", "ringex direct"):
+        return "RingEX"
+    if "new lead" in low:
+        if "scheduled" in low:
+            return "Scheduled Calls"
+        if "call now" in low:
+            return "Call Now"
+    if low.endswith("_ib") or low.endswith(" ib"):
+        return "Inbound"
+    if low.startswith("ddr") and "new patient" in low:
+        return "Inbound"
+    return raw
+
 # "uc call" is RingCX's result for an agent's own-line call. RingCX only writes a UC
 # record once the call connects, so the value itself means connected.
 _CONNECTED = ("connect", "accept", "answered", "completed", "call connected", "uc call")
@@ -271,9 +309,7 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         # it is relabelled rather than shown as if it were one.
         by_chan = {}
         for x in L:
-            key = x.get("chan") or "Unknown"
-            if _norm(key) == _norm(name):
-                key = "Personal queue"
+            key = channel_label(x.get("chan"), name)
             slot = by_chan.setdefault(key, {"name": key, "talk": 0.0, "calls": 0})
             slot["talk"] += x["talk"]
             slot["calls"] += 1

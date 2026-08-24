@@ -96,6 +96,9 @@
   .chan span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chan b{color:var(--ink);font-weight:600;white-space:nowrap;
           font-variant-numeric:tabular-nums}
+  /* Dials sit after the talk time, quieter: the time is the answer, the count is
+     the context for it. */
+  .chan i{font-style:normal;color:var(--muted);font-weight:500;padding-left:7px}
   .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
@@ -297,7 +300,7 @@
              ((a.channels && a.channels.length) ? '<div class="chan">' +
                 a.channels.map(function (c) {
                   return '<div><span>' + esc(c.name) + '</span><b>' +
-                         hm(c.talk) + '</b></div>';
+                         hm(c.talk) + '<i>' + w(c.calls) + '</i></b></div>';
                 }).join('') + '</div>' : '') +
            '</div></div>';
     });
