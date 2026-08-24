@@ -815,7 +815,7 @@ if not BILLING_TOKEN:
 
 _v6_cache: dict = {}
 _v6_lock = threading.Lock()
-_V6_TTL_TODAY = 120.0        # today moves; refresh often but not per-keystroke
+_V6_TTL_TODAY = 150.0        # today moves; matches the warmer's refresh cadence
 _V6_TTL_PAST = 3600.0        # a finished day is final
 
 
@@ -869,9 +869,16 @@ def _billing_roster():
 # reported as missing rather than silently rendered as zero.
 V6_SNAP_DIR = _data_dir / "v6_days"
 _V6_FETCH_BUDGET = 24        # seat-days fetched per request, ~15s at current pacing
-_V6_DEADLINE = 25.0          # seconds; gunicorn kills a worker at 90 (render.yaml -t 90)
-_V6_MAX_WAIT = 3.0           # never sit on a long Retry-After inside a web request
-_V6_MAX_FAILS = 2            # consecutive refusals before a SEAT gives up this request
+# The deadline is checked BETWEEN fetches, so the real worst case is
+# deadline + (one fetch). With a 30s HTTP timeout and a retry that was
+# 25 + 63 = 88s, right on gunicorn's 90s kill (render.yaml -t 90) -- and a
+# killed worker with -w 1 drops the connection, which is what "the page just
+# sits on Loading" looked like. So the per-request HTTP timeout is short, the
+# deadline is small, and the two together cannot reach 90s.
+_V6_DEADLINE = 8.0           # seconds spent fetching inside a web request
+_V6_HTTP_TIMEOUT = 10.0      # per HTTP call on the request path
+_V6_MAX_WAIT = 2.0           # never sit on a long Retry-After inside a web request
+_V6_MAX_FAILS = 1            # one refusal and this seat waits for the warmer
 _v6_today_cache: dict = {}   # (ext_id, day) -> {"at": ts, "rows": [...]}
 
 
@@ -906,7 +913,8 @@ def _v6_fetch_day(ext_id, day_iso, tz_offset_minutes):
     start_dt = _parse_local_date_to_utc(day_iso, 0, 0, 0, tz_offset_minutes)
     end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
     rows, meta = _ringcx.fetch_extension_calls(ext_id, start_dt, end_dt, max_pages=6,
-                                               max_wait=_V6_MAX_WAIT)
+                                               max_wait=_V6_MAX_WAIT,
+                                               timeout=_V6_HTTP_TIMEOUT)
     ok = not meta.get("note") and not meta.get("truncated")
     return rows, ok
 
@@ -1051,6 +1059,10 @@ _V6_WARM_DAYS = int(os.environ.get("V6_WARM_DAYS", "35"))
 # entire account budget, which starves both the dashboard and the live board. 15s
 # is 4/min, leaving room for everyone.
 _V6_WARM_PAUSE = float(os.environ.get("V6_WARM_PAUSE", "15"))  # seconds between fetches
+# How stale today's cached numbers may get before the warmer refreshes them.
+# 4 seats every 150s is under 2 requests a minute, which sits alongside the
+# backfill and the dashboard inside the account's 10-per-minute ceiling.
+_V6_TODAY_WARM_TTL = float(os.environ.get("V6_TODAY_TTL", "150"))
 _v6_warm_state = {"running": False, "filled": 0, "missing": None, "last": None}
 
 
@@ -1065,6 +1077,28 @@ def _v6_warm_loop():
                 continue
             roster, _ = _billing_roster()
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+
+            # TODAY FIRST. The board's default view is today, and if the request
+            # path has to fetch it live it races the account's 10-per-minute
+            # budget against the sales dashboard -- which is how the first live
+            # load came back empty. Keeping today warm here means the common case
+            # is served from cache and never fetches at all.
+            tstr = today.isoformat()
+            for seat in roster:
+                c = _v6_today_cache.get((seat["ext_id"], tstr))
+                if c and time.time() - c["at"] < _V6_TODAY_WARM_TTL:
+                    continue
+                rows, ok = _v6_fetch_day(seat["ext_id"], tstr, tz_off)
+                if ok:
+                    _v6_today_cache[(seat["ext_id"], tstr)] = {"at": time.time(), "rows": rows}
+                    _v6_warm_state["today_at"] = time.time()
+                    time.sleep(_V6_WARM_PAUSE)
+                else:
+                    time.sleep(65)
+            # Drop yesterday's live entries so the dict cannot grow forever.
+            for k in [k for k in list(_v6_today_cache) if k[1] != tstr]:
+                _v6_today_cache.pop(k, None)
+
             gaps = []
             for seat in roster:
                 for i in range(1, _V6_WARM_DAYS + 1):      # yesterday backwards; today is live

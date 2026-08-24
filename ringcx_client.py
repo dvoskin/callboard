@@ -1289,8 +1289,8 @@ class RingCXClient:
     # ══════════════════════════════════════════════════════════════
 
     def fetch_extension_calls(self, ext_id, start_dt: datetime, end_dt: datetime,
-                              max_pages: int = 12, max_wait: float = 30.0
-                              ) -> tuple[list[dict], dict]:
+                              max_pages: int = 12, max_wait: float = 30.0,
+                              timeout: float = 30.0) -> tuple[list[dict], dict]:
         """Every call leg on ONE extension in [start_dt, end_dt].
 
         Why per-extension and not the account-wide log: the account endpoint is
@@ -1316,7 +1316,7 @@ class RingCXClient:
                 }
                 url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
                        f"/extension/{ext_id}/call-log")
-                r = requests.get(url, headers=self._rc_headers(), params=params, timeout=30)
+                r = requests.get(url, headers=self._rc_headers(), params=params, timeout=timeout)
                 if r.status_code == 429:
                     # max_wait lets a caller that is serving a web request refuse
                     # to sit on a 60s Retry-After. Waiting it out here once cost
@@ -1335,7 +1335,8 @@ class RingCXClient:
                     log.warning("ext %s call-log 429 on page %d; waiting %.0fs",
                                 ext_id, page, wait)
                     time.sleep(wait)
-                    r = requests.get(url, headers=self._rc_headers(), params=params, timeout=30)
+                    r = requests.get(url, headers=self._rc_headers(), params=params,
+                                     timeout=timeout)
                 if r.status_code == 204:
                     break
                 if not r.ok:

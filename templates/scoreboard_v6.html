@@ -438,15 +438,46 @@
 
   function load() {
     $('spin').textContent = 'loading…';
+    // A page that sits on "Loading…" forever tells the viewer nothing. If the
+    // server drops the connection -- a killed gunicorn worker does exactly that
+    // -- fetch() never settles, so the page needs its own deadline.
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var bailed = false;
+    var bail = setTimeout(function () {
+      bailed = true;
+      if (ctl) { try { ctl.abort(); } catch (e) {} }
+      $('spin').textContent = '';
+      $('sub').textContent = '';
+      $('out').innerHTML = '<div class="err"><b>The server did not answer in 45 seconds.</b>' +
+        '<br>RingCentral only allows 10 call-log requests a minute for the whole account, ' +
+        'and this board shares that budget with the sales dashboard. Days already fetched ' +
+        'are cached, so reloading usually works. If it keeps timing out, check the service logs.' +
+        '</div>';
+    }, 45000);
     var q = new URLSearchParams();
     if ($('start').value) q.set('start', $('start').value);
     if ($('end').value) q.set('end', $('end').value || $('start').value);
     q.set('tz', String(new Date().getTimezoneOffset()));
     if (SHARE && TOKEN) q.set('k', TOKEN);
 
-    fetch('/api/v6/report?' + q.toString(), { credentials: 'same-origin' })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    fetch('/api/v6/report?' + q.toString(),
+          ctl ? { credentials: 'same-origin', signal: ctl.signal }
+              : { credentials: 'same-origin' })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          // A dropped worker or a proxy error returns HTML, not JSON. Parsing it
+          // blind threw inside the success path and left the spinner running.
+          var j; try { j = JSON.parse(t); } catch (e) {
+            j = { error: 'bad_response',
+                  detail: 'HTTP ' + r.status + ' — the server returned ' +
+                          (t.slice(0, 120) || 'an empty body') };
+          }
+          return { ok: r.ok, j: j };
+        });
+      })
       .then(function (res) {
+        if (bailed) return;
+        clearTimeout(bail);
         $('spin').textContent = '';
         if (!res.ok) {
           var j = res.j || {};
@@ -461,6 +492,8 @@
         buildDayButtons();
       })
       .catch(function (err) {
+        if (bailed) return;
+        clearTimeout(bail);
         $('spin').textContent = '';
         $('out').innerHTML = '<div class="err">Could not reach the server: ' +
           esc(err && err.message ? err.message : err) + '</div>';
