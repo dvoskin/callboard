@@ -86,6 +86,16 @@
         font-variant-numeric:tabular-nums;white-space:nowrap}
   .dg .zero b{color:var(--muted);font-weight:500}
   .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
+  /* Channel breakdown: one line each, name left, talk right. Full width inside
+     the panel grid so long queue names ("v2 ENG - New Lead - Scheduled") are not
+     squeezed into a third of it. */
+  .chan{grid-column:1/-1;margin-top:5px;padding-top:6px;
+        border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:2px}
+  .chan div{display:flex;justify-content:space-between;gap:12px;
+            font-size:11.5px;color:var(--muted);line-height:1.4}
+  .chan span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chan b{color:var(--ink);font-weight:600;white-space:nowrap;
+          font-variant-numeric:tabular-nums}
   .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
@@ -281,6 +291,14 @@
              // so it reappears the moment the Books token is sorted. Showing a
              // confident 0 for money that may well have been collected is worse
              // than showing nothing.
+             // Where the talk time actually went. Name and time only -- the point
+             // is which queues a rep is living in, and a call count beside each
+             // one turns a glance into a reading exercise.
+             ((a.channels && a.channels.length) ? '<div class="chan">' +
+                a.channels.map(function (c) {
+                  return '<div><span>' + esc(c.name) + '</span><b>' +
+                         hm(c.talk) + '</b></div>';
+                }).join('') + '</div>' : '') +
            '</div></div>';
     });
 

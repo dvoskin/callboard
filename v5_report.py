@@ -34,6 +34,13 @@ MATCH_TOLERANCE_SECONDS = 180
 # early in the day it is genuinely low, and that is the honest reading.
 MIN_CALLS_TO_RANK = 1
 
+# How many channels the expand panel lists before the tail is rolled into one line.
+CHANNELS_SHOWN = 5
+
+
+def _norm(n):
+    return " ".join((n or "").split()).lower()
+
 # "uc call" is RingCX's result for an agent's own-line call. RingCX only writes a UC
 # record once the call connects, so the value itself means connected.
 _CONNECTED = ("connect", "accept", "answered", "completed", "call connected", "uc call")
@@ -201,11 +208,11 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
     # ---- one ledger, each call once
     led: dict[str, list] = {}
 
-    def add(agent, src, talk, connected, missed, wrap=0.0):
+    def add(agent, src, talk, connected, missed, wrap=0.0, channel=""):
         name = (agent or "").strip() or "Unassigned"
         led.setdefault(name, []).append(
             {"src": src, "talk": max(0.0, talk), "conn": connected, "missed": missed,
-             "wrap": max(0.0, wrap)})
+             "wrap": max(0.0, wrap), "chan": (channel or "").strip()})
 
     def cx_talk(r):
         t = _num(r.get("talk_time"))
@@ -216,22 +223,24 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         # wrap comes from the emailed Interaction Report; the live CDR pull has no
         # wrap column, so it is 0 there rather than wrong.
         add(r.get("agent_name"), "campaign", cx_talk(r), st == "connected", st == "missed",
-            _num(r.get("wrap_time")))
+            _num(r.get("wrap_time")), channel=r.get("channel") or r.get("campaign_name"))
     for e, u, _ in pairs:                      # counted ONCE, on the RingCX timing
         st = classify_result(e.get("result"))
         add(u.get("agent_name") or e.get("agent_name"), "direct",
-            cx_talk(u), st == "connected", st == "missed")
+            cx_talk(u), st == "connected", st == "missed",
+            channel=u.get("channel") or "UC")
     for u in uc_unmatched:
         st = classify_result(u.get("result"))
         add(u.get("agent_name"), "direct_cx_only", cx_talk(u),
-            st == "connected" or cx_talk(u) > 0, st == "missed")
+            st == "connected" or cx_talk(u) > 0, st == "missed",
+            channel=u.get("channel") or "UC")
     for e in exrows:
         if id(e) in matched_ex:
             continue
         st = classify_result(e.get("result"))
         add(e.get("agent_name"), "direct_ex_only",
             _num(e.get("duration")) if st == "connected" else 0.0,
-            st == "connected", st == "missed")
+            st == "connected", st == "missed", channel="RingEX direct")
 
     NOT_PEOPLE = {"", "Unassigned", "HR Department", "IVR Main Menu 1001", "GOALS PLASTIC S"}
     agents = []
@@ -256,6 +265,30 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
              "longest": round(max((x["talk"] for x in L), default=0))}
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)
+
+        # Talk time per channel. RingCX names an agent's own queue after the agent,
+        # so "Charlotte McKay" as a Channel is her personal queue, not a campaign --
+        # it is relabelled rather than shown as if it were one.
+        by_chan = {}
+        for x in L:
+            key = x.get("chan") or "Unknown"
+            if _norm(key) == _norm(name):
+                key = "Personal queue"
+            slot = by_chan.setdefault(key, {"name": key, "talk": 0.0, "calls": 0})
+            slot["talk"] += x["talk"]
+            slot["calls"] += 1
+        chans = sorted(by_chan.values(), key=lambda c: -c["talk"])
+        chans = [c for c in chans if c["talk"] > 0 or c["calls"] > 0]
+        # Keep the panel short: the long tail becomes one line rather than twenty,
+        # and it is labelled with its own count so nothing looks dropped.
+        if len(chans) > CHANNELS_SHOWN:
+            rest = chans[CHANNELS_SHOWN:]
+            chans = chans[:CHANNELS_SHOWN] + [{
+                "name": "%d more" % len(rest),
+                "talk": sum(c["talk"] for c in rest),
+                "calls": sum(c["calls"] for c in rest)}]
+        a["channels"] = [{"name": c["name"], "talk": round(c["talk"]),
+                          "calls": c["calls"]} for c in chans]
         agents.append(a)
     agents.sort(key=lambda a: -a["talk"])
 
@@ -383,6 +416,10 @@ def parse_interaction_csv(text: str):
             "ani": (r.get("Lead Phone") or "").strip().strip("'"),     # originating party
             "dnis": (r.get("Caller ID") or "").strip().strip("'"),     # destination
             "campaign_name": "" if uc else ch,
+            # The raw Channel, kept for every row. campaign_name is blanked on UC
+            # rows by design, so reusing it for the breakdown would silently drop
+            # the agent's own line out of their own totals.
+            "channel": ch,
             "queue_name": "UC" if uc else "",
             "call_type": "UC Call" if uc else "Voice",
             "agent_disposition": (r.get("Agent Disposition") or "").strip(),
