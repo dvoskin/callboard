@@ -12,6 +12,15 @@
        data uses, and it means one thing: under the floor. */
     --up:#0B6E67; --dn:#B03A31;
     --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    /* Spacing scales with the viewport instead of stepping at one breakpoint.
+       The board is read on a 375px phone and a 1400px monitor and everything in
+       between; fixed paddings meant a 559px window used phone spacing and a
+       561px window jumped to desktop spacing mid-drag. */
+    --pad-x:clamp(11px, 3.4vw, 24px);      /* page gutter */
+    --pad-y:clamp(14px, 2.4vw, 32px);      /* space above the title */
+    --row-y:clamp(7px, 1.1vw, 10px);       /* row breathing room */
+    --gap-x:clamp(8px, 2.4vw, 16px);       /* between columns */
+    --gap-s:clamp(5px, 1.4vw, 9px);        /* between small controls */
   }
   @media (prefers-color-scheme:dark){:root{
     --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
@@ -22,9 +31,8 @@
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
        font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
        -webkit-text-size-adjust:100%}
-  .n{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-  .wrap{max-width:760px;margin:0 auto;padding:20px 14px 44px}
-  @media(min-width:640px){.wrap{padding:32px 22px 56px}}
+  .wrap{max-width:820px;margin:0 auto;
+        padding:var(--pad-y) var(--pad-x) calc(var(--pad-y) + 24px)}
 
   h1{margin:0 0 2px;font-size:19px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
   .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
@@ -32,7 +40,8 @@
   h2{margin:22px 0 6px;font-size:12.5px;font-weight:700;letter-spacing:.06em;
      text-transform:uppercase;color:var(--muted)}
 
-  .ctl{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:12px}
+  .ctl{display:flex;flex-wrap:wrap;gap:var(--gap-s);align-items:center;
+       margin-bottom:var(--gap-x)}
   .ctl input,.ctl button{font-family:inherit;font-size:12.5px;padding:4px 8px;
        border:1px solid var(--rule);background:var(--bg);color:var(--ink);
        border-radius:5px;-webkit-appearance:none}
@@ -51,8 +60,9 @@
   .floor .sep{opacity:.45;padding:0 5px}
 
   /* KPI legend */
-  .key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11px;color:var(--muted);
-       padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
+  .key{display:flex;flex-wrap:wrap;gap:2px var(--gap-x);font-size:11px;
+       color:var(--muted);padding:0 0 7px;border-bottom:1px solid var(--rule);
+       line-height:1.5}
   .key span{white-space:nowrap}
   .key i{font-style:normal;font-weight:700}
   .key .b-below{color:var(--dn)}
@@ -80,12 +90,13 @@
   .a-pc{grid-area:pc} .pc{grid-area:pc;font-weight:700;font-size:12.5px}
   .pc .exp{display:block;font-weight:400;font-size:10px;color:var(--muted);
            line-height:1.25}
-  .proj{font-size:11px;color:var(--muted);font-weight:400}
   .pc.early{color:var(--muted);font-weight:400}
   .asof{font-size:11px;color:var(--muted);padding:6px 0 0}
   .hd{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-      color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
-  .r{padding:7px 0;border-bottom:1px solid var(--hair);cursor:pointer}
+      color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule);
+      column-gap:var(--gap-x)}
+  .r{padding:var(--row-y) 0;border-bottom:1px solid var(--hair);cursor:pointer;
+     column-gap:var(--gap-x)}
   .r:last-child{border-bottom:0}
   .r:hover,.r[aria-expanded="true"]{background:var(--tint)}
   .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -106,48 +117,39 @@
   .b-stretch,.b-target,.b-floor{color:inherit}
   .b-below{color:var(--dn)}
   .r.r-below .nm{color:var(--dn)}
-  .mk{font-size:10px;padding-right:2px}
 
   /* expand panel */
-  .det{display:none;padding:11px 0 13px 22px;border-bottom:1px solid var(--hair);
-       background:var(--tint)}
+  /* No tinted block. The panel is one row's detail, not a different kind of
+     thing, and a filled panel under a list of hairlines reads as heavier than
+     everything it explains. */
+  .det{display:none;border-bottom:1px solid var(--hair);
+       border-left:2px solid var(--rule);margin-left:2px;
+       padding:var(--row-y) 0 calc(var(--row-y) + 4px) var(--gap-x)}
   .det.on{display:block}
-  .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 16px;max-width:520px}
-  @media(max-width:520px){.dg{gap:8px 10px;max-width:none}.det{padding:10px 0 12px 21px}}
-  .dg > div{display:flex;flex-direction:column;gap:1px;min-width:0}
-  .dg em{font-style:normal;font-size:10px;font-weight:700;letter-spacing:.06em;
-         text-transform:uppercase;color:var(--muted);line-height:1.25}
-  .dg b{font-size:12.5px;font-weight:600;color:var(--ink);
-        font-variant-numeric:tabular-nums;white-space:nowrap}
-  .dg .zero b{color:var(--muted);font-weight:400}
-  .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
-  .dg .wide{grid-column:1/-1}
-
-  /* expand panel: one table, one footnote */
-  .dtab{width:100%;border-collapse:collapse;font-size:12.5px;max-width:520px}
-  .dtab th{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-           color:var(--muted);text-align:right;padding:0 0 6px;white-space:nowrap}
-  .dtab th:first-child{text-align:left}
-  .dtab td{padding:4px 0;text-align:right;font-variant-numeric:tabular-nums;
-           border-top:1px solid var(--rule)}
-  .dtab td:first-child{text-align:left;color:var(--ink-2)}
-  .dtab .big{font-weight:700;font-size:12.5px;color:var(--ink)}
-  .dtab .q{color:var(--muted)}
-  .foot{font-size:11px;color:var(--muted);padding-top:8px;margin-top:9px;
-        border-top:1px solid var(--rule);line-height:1.6;max-width:520px}
+  /* expand panel: a line per metric, no table and so nothing to scroll */
+  .lns{display:flex;flex-direction:column;gap:3px;max-width:560px}
+  .ln{display:flex;align-items:baseline;gap:var(--gap-x);font-size:12.5px;
+      font-variant-numeric:tabular-nums}
+  .ln .lb{flex:0 0 74px;color:var(--muted)}
+  .ln .vl{flex:0 0 auto;min-width:52px;font-weight:700}
+  .ln .tl{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;
+          white-space:nowrap}
+  .ln .tl b{color:var(--ink);font-weight:600}
+  .foot{font-size:11px;color:var(--muted);padding-top:7px;margin-top:8px;
+        line-height:1.5;max-width:520px}
 
   /* per-day bars inside the panel */
-  .spark{grid-column:1/-1;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)}
+  /* grid-column was for the tile grid this panel used to be; it is a plain
+     block now, and a stray grid property is a thing someone later has to prove
+     inert. */
+  .spark{margin-top:9px;padding-top:8px;border-top:1px solid var(--hair);max-width:560px}
   .spark .cap{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
               color:var(--muted);margin-bottom:5px}
-  .bars{display:flex;align-items:flex-end;gap:2px;height:44px}
-  .bars{justify-content:flex-start}
+  .bars{display:flex;align-items:flex-end;justify-content:flex-start;gap:2px;height:38px}
   .bars div{flex:1 1 0;min-width:3px;max-width:22px;background:var(--ink-2);
             border-radius:1px 1px 0 0;opacity:.5}
   .bars div.off{background:var(--muted);opacity:.3}
   .bars div:hover{opacity:1}
-  .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
-        margin-top:3px}
 
   /* a team whose calls are not on this platform at all */
   .blocked{background:var(--tint);border:1px solid var(--rule);
@@ -178,7 +180,6 @@
      which fitted four agents on a screen -- fine for billing, useless for a
      six-person team you want to scan at a glance. */
   @media(max-width:560px){
-    .wrap{padding:14px 11px 36px}
     h1{font-size:17px}
     .sub{font-size:11px;line-height:1.45}
 
@@ -198,7 +199,7 @@
        indent it was only there to clear. */
     .r,.live .r,.hascoll .r,.live.hascoll .r{
       grid-template-columns:minmax(0,1fr) 60px 56px;
-      row-gap:1px; column-gap:8px; padding:7px 0 8px;
+      row-gap:1px;
     }
     .r{grid-template-areas:"nm tk tk" "c  cn lg"}
     .live .r{grid-template-areas:"nm tk pc" "c  cn lg"}
@@ -225,11 +226,9 @@
     .c b,.cn b,.lg b,.co b{color:var(--ink);font-weight:600}
     .lbl{display:inline;color:var(--muted);font-weight:400}
 
-    .det{padding:9px 2px 11px 26px}
-    .dtab{font-size:11px}
-    .dtab th{font-size:10px;padding-bottom:4px}
-    .dtab td{padding:3px 0}
-    .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .ln{font-size:11px}
+    .ln .lb{flex-basis:58px}
+    .ln .vl{min-width:44px}
     .foot{font-size:10px;line-height:1.5}
 
     .ctl{gap:5px;margin-bottom:9px}
@@ -450,64 +449,62 @@
       // should they be, where will they land"; a finished range answers "per day
       // and in total". Everything else is one quiet footnote.
       var body;
+      // A line per metric, not a table. The table was sixteen numbers of which
+      // eight were already on the row above (Now) or in the legend (Target),
+      // laid out in four columns that did not fit a phone -- Target, the number
+      // the others are read against, fell off the right edge. One sentence each
+      // says the same thing in the order it is asked: where they are, where that
+      // lands, what the bar is.
+      var line = function (label, value, tail, band) {
+        return '<div class="ln"><span class="lb">' + label + '</span>' +
+               '<span class="vl' + (band ? ' b-' + band : '') + '">' + value + '</span>' +
+               (tail ? '<span class="tl">' + tail + '</span>' : '') + '</div>';
+      };
+      var body;
       if (pace) {
-        body = '<div class="tscroll">' +
-          '<table class="dtab"><tr><th>Metric</th><th>Now</th><th>Expected</th>' +
-          '<th>On track for</th><th>Target</th></tr>' +
-          METRICS.map(function (m) {
-            var k = m[0], u = m[2], pj = pace.projected[k];
-            return '<tr><td>' + m[1] + '</td>' +
-              '<td class="big">' + pace.actual[k] + u + '</td>' +
-              '<td class="q">' + pace.expected[k] + u + '</td>' +
-              '<td class="big b-' + (pace.grades[k] || 'below') + '">' +
-                (pj == null ? '&mdash;' : pj + u) + '</td>' +
-              '<td class="q">' + ((T[k] || {}).target != null ? T[k].target + u : '') + '</td></tr>';
-          }).join('') + '</table></div>';
+        body = '<div class="lns">' + METRICS.map(function (m) {
+          var k = m[0], u = m[2], pj = pace.projected[k];
+          var t = (T[k] || {}).target;
+          return line(m[1], pace.actual[k] + u,
+                      (pj == null ? 'too early to project'
+                                  : 'on track for <b>' + pj + u + '</b>') +
+                      (t != null ? ' &middot; target ' + t + u : ''),
+                      pace.grades[k] || 'below');
+        }).join('') + '</div>';
       } else {
-        body =
-          '<table class="dtab"><tr><th>Metric</th><th>Per working day</th><th>Total</th></tr>' +
-          METRICS.map(function (m) {
-            var k = m[0], u = m[2];
-            var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
-                          connected: tot.connected, long_calls: tot[longKey]};
-            return '<tr><td>' + m[1] + '</td>' +
-              '<td class="big b-' + (g[k] || 'below') + '">' + p[k] + u + '</td>' +
-              '<td class="q">' + totals[k] + '</td></tr>';
-          }).join('') + '</table>';
+        var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
+                      connected: tot.connected, long_calls: tot[longKey]};
+        body = '<div class="lns">' + METRICS.map(function (m) {
+          var k = m[0], u = m[2], t = (T[k] || {}).target;
+          return line(m[1], p[k] + u + '/day',
+                      totals[k] + ' total' + (t != null ? ' &middot; target ' + t + u : ''),
+                      g[k] || 'below');
+        }).join('') + '</div>';
       }
 
-      if (a.collected_total != null) {
-        body += '<div class="foot" style="border-top:0;margin-top:6px;padding-top:6px">' +
-          'Collected <b>' + money(a.collected_total) + '</b> over ' + a.collected_days +
-          ' day(s) logged in the shared sheet' +
-          (a.collected_per_day != null ? ' &middot; ' + money(a.collected_per_day) + '/day' : '') +
-          '</div>';
+      // One line, and only facts that are not already on the row or in the
+      // table above it. The share of connected calls running over two minutes
+      // was the count beside it expressed as a percentage; the pace sentence
+      // restated the page header; the working-day count is in the header too.
+      var bits = ['Ext ' + esc(a.ext || a.ext_id),
+                  'avg call ' + a.avg_call_seconds + 's',
+                  'longest ' + hm(tot.longest_seconds)];
+      if (!pace) bits.push('median day ' + a.median_talk_minutes + 'm');
+      if (!pace && a.idle_days) bits.push(a.idle_days + ' idle days not averaged');
+      if (a.collected_total != null && a.collected_per_day != null) {
+        bits.push(money(a.collected_per_day) + '/day collected');
       }
-      var foot = 'Ext ' + esc(a.ext || a.ext_id) +
-        ' &middot; avg call ' + a.avg_call_seconds + 's' +
-        ' &middot; longest ' + hm(tot.longest_seconds) +
-        ' &middot; ' + a.long_call_share_pct + '% of connected calls run ' + longLbl;
-      if (pace) {
-        foot += '<br>' + Math.round(pace.fraction * 100) + '% of a normal day has run at ' +
-                esc(pace.as_of) + ', measured on ' +
-                (pace.curve === 'own' ? 'their own pattern' : 'the team pattern') + '.' +
-                (pace.projectable ? '' : ' Too early to project.');
-      } else {
-        foot += '<br>' + a.worked_days + ' working day' + (a.worked_days === 1 ? '' : 's') +
-                (a.idle_days ? ', ' + a.idle_days + ' idle (not averaged)' : '') +
-                ' &middot; median day ' + a.median_talk_minutes + 'm talk';
-      }
+      if (pace && !pace.projectable) bits.push('too early to project');
+      var foot = bits.join(' &middot; ');
 
       h += '<div class="det" id="' + id + '">' + body +
         (multi && days.length ?
-          '<div class="spark"><div class="cap">Talk minutes per day</div>' +
+          '<div class="spark"><div class="cap">Talk per day</div>' +
           '<div class="bars">' + days.map(function (x) {
             return '<div class="' + (x.worked ? '' : 'off') + '" title="' + esc(x.date) +
                    ': ' + x.talk_minutes + ' min, ' + x.connected + ' connected" style="height:' +
                    Math.max(2, Math.round(100 * x.talk_minutes / peak)) + '%"></div>';
-          }).join('') + '</div>' +
-          '<div class="axis"><span>' + esc(days[0].date) + '</span><span>' +
-            esc(days[days.length - 1].date) + '</span></div></div>' : '') +
+          }).join('') + '</div></div>' : '') +
         '<div class="foot">' + foot + '</div></div>';
     });
 
@@ -517,21 +514,17 @@
       h += '<h2>Dialling but not connecting</h2>';
       stalled.forEach(function (a) {
         var t = a.totals || {};
-        h += '<div class="warn bad"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
-             ') logged <b>' + t.calls + '</b> call(s) here &mdash; ' + t.dials + ' outbound, ' +
-             t.inbound + ' inbound &mdash; and connected <b>none</b> of them. A line that logs ' +
-             'calls but never connects is out, reassigned or broken &mdash; that is not last ' +
-             'place, so this seat is held out of the ranking.</div>';
+        h += '<div class="warn bad"><b>' + esc(a.name) + '</b> &mdash; <b>' + t.calls +
+             '</b> call(s), <b>none</b> connected. Held out of the ranking: a line that ' +
+             'never connects is broken, not last.</div>';
       });
     }
 
     if (unknown.length) {
       h += '<h2>Not known yet</h2>';
       unknown.forEach(function (a) {
-        h += '<div class="warn"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
-             ') returned no calls, but their window was <b>not fully read</b> &mdash; so this is ' +
-             '&ldquo;not known&rdquo;, not &ldquo;no calls&rdquo;. Reload in a minute; long ' +
-             'ranges fill in a few days at a time.</div>';
+        h += '<div class="warn"><b>' + esc(a.name) + '</b> &mdash; window <b>not fully ' +
+             'read</b>, so this is not known rather than no calls. Reload shortly.</div>';
       });
     }
 
@@ -539,8 +532,8 @@
       h += '<h2>No calls logged</h2>';
       silent.forEach(function (a) {
         h += '<div class="warn bad"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
-             ') logged no calls at all in this window. That is an empty seat, a wrong ' +
-             'extension, or someone who does not dial from RingEX &mdash; not a zero score.</div>';
+             ') &mdash; no calls at all. An empty seat, a wrong extension, or the wrong ' +
+             'platform &mdash; not a zero score.</div>';
       });
     }
 
