@@ -58,6 +58,8 @@ class RingCXClient:
         # Agent status cache (avoid 62 API calls every 15s)
         self._agents_cache: list[dict] = []
         self._agents_cache_expiry: float = 0
+        self._ext_names: dict = {}
+        self._ext_names_expiry: float = 0.0
         self._AGENTS_CACHE_TTL = 60  # refresh agents every 60s, not every poll
 
 
@@ -379,11 +381,18 @@ class RingCXClient:
     # RingEX — Agent Presence (standard RC Platform API)
     # ══════════════════════════════════════════════════════════════
 
+    _EXT_NAMES_TTL = 900.0          # the roster changes monthly, not per request
+
     def _fetch_extension_names(self) -> dict:
         """Fetch {ext_id: {name, extensionNumber}} for all enabled User extensions.
-        Cached alongside the agents cache (same TTL).
+
+        Cached on its OWN clock. It used to ride `_agents_cache_expiry`, which is
+        only ever set by get_agent_statuses() -- the RingCX presence path. Nothing
+        on the call-log path sets it, so it stayed 0 and the cache never once hit:
+        every snapshot re-fetched all 140 extensions before its first page. The
+        comment said "cached"; the request log said otherwise.
         """
-        if hasattr(self, "_ext_names") and self._ext_names and time.time() < self._agents_cache_expiry:
+        if self._ext_names and time.time() < self._ext_names_expiry:
             return self._ext_names
 
         names = {}
@@ -410,6 +419,7 @@ class RingCXClient:
                 break
         log.info("RingEX: fetched names for %d extensions", len(names))
         self._ext_names = names
+        self._ext_names_expiry = time.time() + self._EXT_NAMES_TTL
         return names
 
     def get_agent_statuses(self) -> list[dict]:
@@ -952,6 +962,15 @@ class RingCXClient:
         with no internal extension (pure external/queue legs) get no agent and
         are dropped by the caller.
         """
+        # Stand down BEFORE the extension roster, not after. The cooldown used to
+        # sit inside the page fetch, so a cooled-down call still spent a request on
+        # the 140-extension roster first -- and those were half of the requests
+        # keeping the budget exhausted. A refusal has to cost nothing.
+        if self.rate_limited():
+            self.last_ringex_note = (
+                "RingEX is in a shared cooldown for another %d s after a 429; "
+                "no request was made." % round(self.cooldown_remaining()))
+            return []
         try:
             self._ensure_rc_token()
             ext_names = self._fetch_extension_names()  # {ext_id: {name, extensionNumber}}

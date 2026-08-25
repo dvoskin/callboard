@@ -34,7 +34,8 @@ from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
 from billing_report import (build_report as build_billing_report,
-                            build_pace_curve, is_connected as _billing_connected)
+                            build_pace_curve, is_connected as _billing_connected,
+                            DEFAULT_TARGETS as _BILLING_DEFAULT_TARGETS)
 from v5_report import (build_report as build_v5_report,
                        parse_interaction_csv, CsvShapeError, EmptyReportError,
                        parse_ts as _v5_parse_ts)
@@ -1762,18 +1763,51 @@ def scoreboard_v6():
     return render_template("v5_password.html", error=error), (401 if error else 200)
 
 
+# What each KPI tile says on the hub. The numbers come from the same tables the
+# boards read, never from a copy: a hub quoting its own targets drifts from the
+# board it links to, and nothing would show the drift until someone chased a
+# figure that no page actually displays.
+_HUB_TEAM_BLURB = {
+    "billing": "Talk time, calls, and collected amounts per agent.",
+    "scheduling": "Talk time and calls per scheduler.",
+    "inbound": "Talk time and answered calls per agent.",
+}
+
+
+def _hub_team_tiles():
+    out = []
+    for team in ("billing", "scheduling", "inbound"):
+        tg = TEAM_TARGETS.get(team) or _BILLING_DEFAULT_TARGETS
+        try:
+            seats = len(_billing_roster(team)[0])
+        except Exception:  # noqa: BLE001
+            seats = 0
+        out.append({
+            "path": "/" + _TEAM_PATHS[team],
+            "label": TEAM_LABELS.get(team, team.title()),
+            "blurb": _HUB_TEAM_BLURB.get(team, ""),
+            "seats": seats,
+            "talk": tg["talk_minutes"]["target"],
+            "calls": tg["calls"]["target"],
+        })
+    return out
+
+
 @app.route("/v7", methods=["GET", "POST"])
 def hub_v7():
     """One page listing every dashboard, so nobody has to remember which number
     is which.
 
-    Three ways in, and they are NOT equivalent:
-      * a Google session, or the /v5 word password -> everything
-      * the hub's own V7_PASSWORDS word           -> this page only
-    The hub is a list of links; /v5 and /v6 name individual employees and rank
-    their performance, so a hub password does not open them. Someone who came in
-    that way still meets the board's own door on the way through, and the page
-    tells them so rather than letting them find a dead end.
+    Danny asked for the hub to carry people through, so the split is no longer
+    hub-vs-boards. It is READ vs WRITE: either word opens every dashboard, and
+    neither can text a patient, resolve a call or edit a note -- those share the
+    same decorator and are refused for a word session regardless of method. See
+    checks_v7_password.py, which asserts both directions.
+
+    The three KPI tiles read their targets from the same tables the boards do.
+    A hub that quoted its own numbers would drift from the boards it links to,
+    and the drift would be invisible until someone chased a figure that no page
+    actually shows.
 
     Surgery Readiness lives on a different service and opens in a new tab; it
     carries its own sign-in, which the footer says.
@@ -1801,7 +1835,7 @@ def hub_v7():
         # hub links to, so there is no second door to warn about.
         return render_template("hub_v7.html",
                                current_user=session.get("user") or {},
-                               limited=False)
+                               teams=_hub_team_tiles())
     if not V5_PASSWORDS and not V7_PASSWORDS:
         return redirect("/login")
     return render_template("v5_password.html", error=error), (401 if error else 200)
@@ -2000,16 +2034,30 @@ _ringex_last_attempt = {"at": 0.0}
 _ringex_refresh_lock = threading.Lock()
 
 
-def _ringex_refresh_due(age_seconds: float) -> bool:
-    """True if this instance may spend an API call refreshing now."""
-    if age_seconds < _RINGEX_REFRESH_AFTER:
-        return False
+def _ringex_may_spend() -> bool:
+    """Claim this instance's next RingEX fetch slot, or refuse.
+
+    ONE budget, for every reason we might fetch. The board's refresh went through
+    a gate; the ingest path did not, so the number of RingEX call-log requests
+    tracked the number of REPORTS ARRIVING. That was survivable at one report a
+    day. Scoping the Inbound & Scheduling report gave each subject its own file,
+    so four reports now write four days, and a resetAndResend replays the whole
+    window at once: nine call-log fetches in twelve seconds, against a ceiling of
+    ten a minute. RingEX volume rose because ingest volume rose.
+    """
     now = time.time()
     with _ringex_refresh_lock:
         if now - _ringex_last_attempt["at"] < _RINGEX_MIN_GAP:
             return False
         _ringex_last_attempt["at"] = now      # claimed whether or not it succeeds
         return True
+
+
+def _ringex_refresh_due(age_seconds: float) -> bool:
+    """True if this instance may spend an API call refreshing now."""
+    if age_seconds < _RINGEX_REFRESH_AFTER:
+        return False
+    return _ringex_may_spend()
 
 
 def _load_ringex_snapshot(day_iso: str, allow_refresh: bool = False,
@@ -2072,6 +2120,35 @@ _v5_roster_lock = threading.Lock()
 
 # System accounts that carry estimates but never sell.
 _NOT_SALES_NAMES = {"zoho admin", "unassigned", ""}
+
+
+def _other_team_names() -> set:
+    """Everyone this app already ranks on a NON-sales board, normalised.
+
+    The sales roster is derived from behaviour -- whoever dials a RingCX
+    campaign. That test was never as narrow as it looked: the only report in the
+    inbox was the sales export, so "dials a campaign" quietly meant "dials a
+    campaign AND appears in the sales report". Adding the Inbound & Scheduling
+    export widened the input, and the predicate widened with it, without a line
+    of code changing. Ariel Ramirez, Johana Duron and Antonio Hernandez turned up
+    on the Sales Talk Time board because they do dial RingCX campaigns -- they
+    are contact-centre agents; that is the job.
+
+    Team membership is not a heuristic. These rosters are declared in this file
+    and drive their own KPI boards, so a person on one of them is not a sales rep
+    by definition, whatever their campaign traffic looks like.
+    """
+    out = set()
+    for team in _TEAM_ROSTERS:
+        try:
+            seats = _billing_roster(team)[0]
+        except Exception:  # noqa: BLE001
+            continue
+        for seat in seats:
+            n = _norm_name(seat.get("name") or "")
+            if n:
+                out.add(n)
+    return out
 
 
 _V5_CRM_TTL = 300.0
@@ -2214,7 +2291,15 @@ def _sales_roster():
                     why.setdefault(n, set()).add("campaign")
     meta["campaign_days"] = len(days)
 
-    names = {n for n in why if n not in _NOT_SALES_NAMES}
+    other = _other_team_names()
+    excluded = sorted(n for n in why if n in other)
+    names = {n for n in why if n not in _NOT_SALES_NAMES and n not in other}
+    # Say who was removed. A board that silently drops people is how a real rep
+    # disappears from their own scoreboard and nobody notices for a week.
+    if excluded:
+        meta["excluded_other_teams"] = excluded
+        log.info("v5 roster: %d campaign dialler(s) excluded as another team's "
+                 "board members: %s", len(excluded), ", ".join(excluded))
     if not names:
         # No inbox report parsed, so nothing is known about anyone. Filtering on
         # that would empty the board; absence is not a negative.
@@ -2533,11 +2618,26 @@ def api_v5_ingest():
 
     # Only for days that actually moved, and only the newest of them: replaying a
     # backlog should not fire one rate-limited RingEX fetch per report.
+    #
+    # "Moved" is not rare enough on its own. A re-sent report with the same reach
+    # and the same row count is not skipped -- equal is not "already reaches at
+    # least this far" for the row count -- so it rewrites, and used to re-fetch.
+    # Six identical replays of 08-23 did exactly that in eight seconds.
+    #
+    # A day with no snapshot AT ALL still takes one unconditionally: nothing else
+    # creates these files, and the warmer fills per-seat days, not these. Losing a
+    # day's only snapshot to a budget gate would be a hole, not a saving. Every
+    # RE-snapshot goes through the shared budget.
     snaps = {}
     if written:
         newest = max(w["day"] for w in written)
-        snaps[newest] = _snapshot_ringex(newest, request.args.get("tz") and
-                                         int(request.args["tz"]) or None)
+        if not _ringex_snap_path(newest).exists() or _ringex_may_spend():
+            snaps[newest] = _snapshot_ringex(newest, request.args.get("tz") and
+                                             int(request.args["tz"]) or None)
+        else:
+            snaps[newest] = {"stored": False, "reason":
+                             "a RingEX fetch was made recently; this day already has "
+                             "a snapshot and the board refreshes it on its own clock"}
 
     log.info("v5 ingest: %d rows (%s) -> %s written, %s skipped",
              len(rows), unit, [w["day"] for w in written], [k["day"] for k in skipped])
