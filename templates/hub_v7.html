@@ -36,14 +36,12 @@
            font-size:12px;color:var(--ink-2);line-height:1.5}
   .limited b{color:var(--ink)}
 
-  /* One grid, not three sections. Three headings over five cards meant two
-     sections of ONE, each leaving a half-empty row -- the structure was
-     describing itself rather than the content. The category now rides on the
-     card, and the tool people open every morning leads at full width. */
+  /* One grid, no section headings. Headings over these six would give sections
+     of one and two, each leaving a half-empty row -- structure describing itself
+     rather than the content. The category rides on the card instead, and six
+     cards divide evenly into two columns. */
   .grid{display:grid;gap:10px;grid-template-columns:1fr;margin-bottom:10px}
   @media(min-width:600px){.grid{grid-template-columns:1fr 1fr;gap:12px}}
-  .grid.lead{margin-bottom:12px}
-  @media(min-width:600px){.grid.lead{grid-template-columns:1fr}}
 
   /* Whole card is the tap target -- on a phone a small text link is a miss
      waiting to happen. */
@@ -70,9 +68,6 @@
   .d{font-size:12.5px;color:var(--muted);line-height:1.4;margin-top:3px}
   .ext{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
        color:var(--muted);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
-  /* the lead card gets a little more presence without a different shape */
-  .grid.lead a.card{min-height:84px}
-  .grid.lead .t{font-size:16.5px}
 
   footer{margin-top:30px;padding-top:14px;border-top:1px solid var(--rule);
          font-size:11.5px;color:var(--muted);line-height:1.6}
@@ -94,66 +89,50 @@
     {% endif %}
   </header>
 
-  <div class="grid lead">
+  <div class="grid">
     <a class="card" href="/v3">
       <div class="ic">📞</div>
       <div class="body">
-        <div class="cat">Sales</div>
-        <div class="t">Sales Call Monitor</div>
-        <div class="d">Live dashboard &mdash; scheduled calls, overdue follow-ups, dispositions
-          and who is on a call right now.</div>
+        <div class="cat">Calls</div>
+        <div class="t">Sales Calls</div>
+        <div class="d">Who is on a call right now, what is scheduled today, and which follow-ups are
+          overdue.</div>
       </div>
     </a>
-  </div>
 
-  <div class="grid">
     <a class="card" href="/v5">
       <div class="ic">🏆</div>
       <div class="body">
-        <div class="cat">Sales</div>
-        <div class="t">Sales Floor Scoreboard</div>
-        <div class="d">Talk time and call performance per rep, reconciled live across RingEX
-          and RingCX.</div>
+        <div class="cat">Calls</div>
+        <div class="t">Sales Scoreboard</div>
+        <div class="d">Talk time and call performance per rep, live.</div>
       </div>
     </a>
 
     <a class="card" href="/v6?team=billing">
       <div class="ic">🧾</div>
       <div class="body">
-        <div class="cat">Billing</div>
-        <div class="t">Billing KPI Board</div>
-        <div class="d">Talk time, calls and calls over two minutes per working day, against
-          floor / target / stretch.</div>
+        <div class="cat">Team performance</div>
+        <div class="t">Billing Team</div>
+        <div class="d">Talk time, calls and calls over two minutes per working day, against target.</div>
       </div>
     </a>
 
     <a class="card" href="/v6?team=scheduling">
       <div class="ic">🗓️</div>
       <div class="body">
-        <div class="cat">Scheduling</div>
-        <div class="t">Scheduling KPI Board</div>
-        <div class="d">New deals, priority rescheduling callbacks and doctor-unavailability
-          rebooks &mdash; same measures, this team's own targets.</div>
+        <div class="cat">Team performance</div>
+        <div class="t">Scheduling Team</div>
+        <div class="d">New deals, priority callbacks and rescheduling. Waiting on RingCX data.</div>
       </div>
     </a>
 
     <a class="card" href="/v6?team=inbound">
       <div class="ic">📥</div>
       <div class="body">
-        <div class="cat">Inbound CS</div>
-        <div class="t">Inbound CS KPI Board</div>
-        <div class="d">Inbound, callbacks, touchpoints and pre-op paperwork &mdash; same
-          measures, this team's own targets.</div>
-      </div>
-    </a>
-
-    <a class="card" href="/v4">
-      <div class="ic">🧭</div>
-      <div class="body">
-        <div class="cat">Sales</div>
-        <div class="t">Quote Follow-Ups</div>
-        <div class="d">One row per quote, with the six-step follow-up cadence synced from the
-          CRM's tasks.</div>
+        <div class="cat">Team performance</div>
+        <div class="t">Inbound Customer Service</div>
+        <div class="d">Inbound, callbacks, touchpoints and pre-op paperwork. Waiting on RingCX data.</div>
       </div>
     </a>
 
@@ -161,10 +140,10 @@
        target="_blank" rel="noopener noreferrer">
       <div class="ic">🩺</div>
       <div class="body">
-        <div class="cat">Surgery</div>
+        <div class="cat">Patients</div>
         <div class="t">Surgery Readiness <span class="ext">External</span></div>
-        <div class="d">Pre-op readiness per patient &mdash; clearances, payments and paperwork
-          outstanding before a surgery date.</div>
+        <div class="d">What each patient still owes before their surgery date &mdash; clearances,
+          payments and paperwork.</div>
       </div>
     </a>
   </div>
