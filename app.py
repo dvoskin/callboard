@@ -1396,8 +1396,17 @@ def _reconcile_report_clock(now_local, data_as_of):
     """
     if not data_as_of:
         return now_local, None
+    # The producer hands over the row's OWN timestamp, and RingCX writes it as
+    # "07/29/2026 22:17:49" -- date first. Reading the first two characters as an
+    # hour turned the 29th into 7:29am, with a 271-minute "lag" to match, and it
+    # would have applied silently every mid-morning. Take the time component,
+    # whichever shape arrives.
+    part = str(data_as_of).strip().split()[-1] if str(data_as_of).strip() else ""
+    bits = part.split(":")
+    if len(bits) < 2:
+        return now_local, None
     try:
-        hh, mm = int(str(data_as_of)[:2]), int(str(data_as_of)[3:5])
+        hh, mm = int(bits[0]), int(bits[1])
         reach = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
     except (ValueError, TypeError):
         return now_local, None

@@ -109,6 +109,32 @@ def run():
         r = _finish(bad)
         cases.append(("junk %r is ignored" % (bad,), r.get("data_as_of"), None))
 
+    # END TO END, producer into consumer. Both halves were tested and the SEAM
+    # was not: _v6_cx_rows_for_team hands over the row's own timestamp, which
+    # RingCX writes date-first as "07/29/2026 22:17:49", and the consumer read
+    # the first two characters as an hour. The 29th became 7:29am with a
+    # 271-minute "lag" to match, and it would have applied silently every
+    # mid-morning. Feed a REAL watermark, never a hand-written one.
+    roster, _rm = appmod._billing_roster("inbound")
+    day = "2026-07-29"
+    _by, _days, covers = appmod._v6_cx_rows_for_team("inbound", [day], roster)
+    wm = covers.get(day)
+    if wm:
+        hh = int(str(wm).split()[-1].split(":")[0])
+        mm = int(str(wm).split()[-1].split(":")[1])
+        after = datetime(2026, 7, 29, 23, 59)
+        clock, note = appmod._reconcile_report_clock(after, wm)
+        cases += [
+            ("real watermark has a date", " " in str(wm), True),
+            ("...hour read from the TIME", clock.hour, hh),
+            ("...minute too", clock.minute, mm),
+            ("...and a believable lag",
+             0 < (note or {}).get("lag_minutes", 0) <= 360, True),
+        ]
+    else:
+        raise SystemExit("no watermark produced -- the check cannot run, which "
+                         "is a failure, not a pass")
+
     for label, got, want in cases:
         ok = got == want
         print("  %-34s want %-8s got %-8s %s" % (label, want, got, "OK" if ok else "<<< FAIL"))
