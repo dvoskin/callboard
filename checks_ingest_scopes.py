@@ -148,6 +148,25 @@ def run():
               % (label, want_, got, "OK" if ok else "<<< FAIL"))
         fails += 0 if ok else 1
 
+    # REGRESSION: scoped filenames must not leak into the day list. /v5 builds
+    # its date buttons from _inbox_days(), and a scope glued to the date rendered
+    # every one of them as "Invalid Date" on the live Sales board.
+    for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        p.unlink()
+    _post(c, _csv([("Gregory Beltran", "10:00:00")]), "Daily Interaction Report (Sales)")
+    _post(c, _csv([("Ariel Ramirez", "17:00:00")]), "Interaction Report (Inbound & Scheduling)")
+    days = appmod._inbox_days()
+    malformed = [d for d in days if len(d) != 10 or d[4] != "-" or d[7] != "-"]
+    for label, got, want_ in [
+        ("day list has the day", DAY_ISO in days, True),
+        ("no scoped junk in days", malformed, []),
+        ("one entry per day", days.count(DAY_ISO), 1),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
     for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
         p.unlink()
     print("\n%d mismatched" % fails)

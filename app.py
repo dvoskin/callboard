@@ -2265,12 +2265,27 @@ def _v5_books(date_start: str, date_end: str):
     return by_agent, meta
 
 
+def _inbox_day_of(path) -> str:
+    """The DAY a delivered report is for, from its filename.
+
+    Scoped reports are named interactions_<day>__<scope>.csv. Stripping only the
+    prefix left the scope glued to the date, so /v5 rendered its day buttons as
+    "Invalid Date" and _sales_roster() looked up days that could not exist. One
+    place to split it now, rather than three that each have to remember.
+    """
+    stem = path.stem if hasattr(path, "stem") else str(path)
+    return stem.replace("interactions_", "", 1).split("__", 1)[0]
+
+
 def _inbox_days():
-    """Every day the inbox holds a report for, newest first."""
-    out = []
+    """Every day the inbox holds a report for, newest first, deduped across
+    scopes -- four reports for one day is still one day."""
+    out = set()
     try:
         for p in RINGCX_INBOX_DIR.glob("interactions_*.csv"):
-            out.append(p.stem.replace("interactions_", ""))
+            day = _inbox_day_of(p)
+            if len(day) == 10 and day[4] == "-" and day[7] == "-":
+                out.add(day)
     except Exception:  # noqa: BLE001
         pass
     return sorted(out, reverse=True)
