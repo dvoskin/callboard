@@ -1585,7 +1585,16 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
 # race often. 4 seats x 35 days is 140 fetches, which converges in hours instead
 # of days and covers every range the board offers except 90d. Raise V6_WARM_DAYS
 # once the backfill has settled.
-_V6_WARM_DAYS = int(os.environ.get("V6_WARM_DAYS", "35"))
+# 90 days, so opening the 90d range on a board reads from disk instead of
+# backfilling 360 per-seat days inside the request -- which is what spent the
+# account's budget and 429'd everything else at 19:22.
+#
+# The cost is bounded and one-off: 4 RingEX seats x 90 days is 360 fetches, at
+# 40 per cycle and 15s apart that is ~4 requests a minute for about 90 minutes,
+# inside the account's ten. A finished day never changes, so once filled the
+# gap list empties and the loop idles at 15-minute checks. Newest first, so the
+# ranges people actually open are usable long before the tail arrives.
+_V6_WARM_DAYS = int(os.environ.get("V6_WARM_DAYS", "90"))
 # RingEX's "heavy" group allows 10 requests per 60 SECONDS for the WHOLE account
 # (X-Rate-Limit-Group: heavy, Limit 10, Window 60) -- and this app's own dashboard
 # refresh spends from the same bucket every minute. A 6s pause is 10/min, i.e. the
@@ -1642,6 +1651,13 @@ def _v6_warm_loop():
                         gaps.append((seat["ext_id"], day))
             _v6_warm_state["missing"] = len(gaps)
             _v6_warm_state["seats"] = len(roster)
+            _v6_warm_state["window_days"] = _V6_WARM_DAYS
+            # How far back is actually usable right now. "missing: 212" alone
+            # cannot tell you whether the recent weeks are ready or whether
+            # nothing is; this can, and the warmer fills newest first.
+            _v6_warm_state["filled_back_to"] = (
+                min((g[1] for g in gaps), default=None) if gaps
+                else (today - timedelta(days=_V6_WARM_DAYS)).isoformat())
 
             tstr = today.isoformat()
             # Back off ONCE per cycle, not once per seat. Sleeping 65s after each
@@ -2507,6 +2523,22 @@ def _inbox_days():
     return sorted(out, reverse=True)
 
 
+def _interaction_key(r):
+    """What makes two rows the same interaction, across two reports.
+
+    Phone numbers are normalised to their last ten digits: the same call can be
+    written "+13258648227" in one export and "3258648227" in another, and a key
+    that splits on formatting counts one call twice -- which on a board that
+    ranks people reads as someone doing double the work.
+    """
+    def digits(v):
+        d = "".join(c for c in (v or "") if c.isdigit())
+        return d[-10:] if len(d) >= 10 else d
+    return ((r.get("agent_name") or "").strip().lower(),
+            (r.get("start_time") or "").strip(),
+            digits(r.get("ani")), digits(r.get("dnis")))
+
+
 def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: float = 3.0):
     """Delivered Interaction Report for a day, or None.
 
@@ -2515,16 +2547,38 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
     refusing it there would silently fall back to the live CDR API for every
     historical day, which is a different report with different calls in it.
 
+    EVERY delivered report for the day is merged, not just the default slot.
+    /v5 read only the unscoped file, which was right when RingCX mailed one
+    report. It now mails more than one under different subjects, each filed in
+    its own slot so they stop overwriting each other -- and the day the sales
+    report happens to land in a scoped slot, /v5 reads whatever else is in the
+    default one, or nothing at all, and today's talk time is wrong or missing.
+    Which slot a report lands in is decided by an email SUBJECT; a board's
+    figures must not be.
+
+    Merging is safe because /v5 has a roster: anyone in another team's report is
+    filtered before ranking. See _sales_roster.
+
     Returns (rows, meta) so the report can always say which source it used.
     """
-    p = _inbox_path_for(date_start)
-    if not p.exists():
+    paths = [q for q in _inbox_paths_all_scopes(date_start) if q.exists()]
+    if not paths:
         return None
     try:
-        age_h = (time.time() - p.stat().st_mtime) / 3600.0
-        rows, unit = parse_interaction_csv(p.read_text(encoding="utf-8-sig", errors="replace"))
+        age_h = min((time.time() - q.stat().st_mtime) / 3600.0 for q in paths)
+        rows, unit, seen = [], None, set()
+        for q in paths:
+            got, u = parse_interaction_csv(q.read_text(encoding="utf-8-sig", errors="replace"))
+            unit = unit or u
+            for r in got:
+                if _interaction_key(r) in seen:
+                    continue
+                seen.add(_interaction_key(r))
+                rows.append(r)
         covers_to = max(((r.get("start_time") or "").split(" ")[-1] for r in rows), default="")
-        meta = {"source": "emailed_interaction_report", "file": p.name,
+        meta = {"source": "emailed_interaction_report",
+                "file": ", ".join(q.name for q in paths),
+                "reports": len(paths),
                 "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2),
                 "covers_to": covers_to or None}
         if is_today and age_h > stale_after_hours:
@@ -2536,7 +2590,7 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
                 "below are correct up to that point, not up to now." % age_h)
         return rows, meta
     except Exception as e:  # noqa: BLE001
-        log.warning("ringcx inbox %s unusable: %s", p.name, e)
+        log.warning("ringcx inbox for %s unusable: %s", date_start, e)
         return None
 
 

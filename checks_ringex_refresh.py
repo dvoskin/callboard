@@ -66,5 +66,20 @@ src = inspect.getsource(A.api_v5_report)
 ok("only today may refresh", "allow_refresh=(date_start == local_today)" in src,
    "a past day would spend API budget on a snapshot that cannot change")
 
+# 7. the warmer must cover every range the board offers.
+#
+# The board has a 90d button and the warmer filled 35, so opening 90d
+# backfilled the other 55 days per seat INSIDE the request, against an account
+# budget of ten a minute. That is what 429'd the sales dashboard, the live
+# board and the warmer itself at 19:22 on 2026-08-25.
+LONGEST_RANGE_DAYS = 90
+ok("warm window covers the longest range", A._V6_WARM_DAYS >= LONGEST_RANGE_DAYS,
+   "warms %d days, board offers %d" % (A._V6_WARM_DAYS, LONGEST_RANGE_DAYS))
+ok("warm pace stays under the account ceiling", 60.0 / A._V6_WARM_PAUSE <= 6,
+   "%.1f requests/min at a %.0fs pause" % (60.0 / A._V6_WARM_PAUSE, A._V6_WARM_PAUSE))
+ok("warmer reports how far back it has filled",
+   "filled_back_to" in inspect.getsource(A._v6_warm_loop),
+   "'missing: 212' cannot say whether the recent weeks are ready or nothing is")
+
 print("\n%d failed" % len(fail))
 sys.exit(1 if fail else 0)

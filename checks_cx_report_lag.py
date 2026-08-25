@@ -27,13 +27,21 @@ os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 
 import app as appmod  # noqa: E402
 
+TZ_WEST = 240          # minutes WEST of UTC, as a browser reports it
+
 
 def _finish(as_of, team="inbound"):
     """Run the real tail with one seat and a known report reach."""
     roster, roster_meta = appmod._billing_roster(team)
     roster = roster[:1]
-    tz = -240
-    now = datetime.now(timezone.utc) + timedelta(minutes=240)
+    # WEST of UTC, the way a browser's getTimezoneOffset() reports it and the
+    # way the live requests send it (tz=240 for Eastern DST). _v6_finish negates
+    # it internally; build_report takes the opposite convention, signed EAST.
+    # Passing -240 here built a UTC+4 world eight hours off, which put "an hour
+    # ago" on the far side of midnight and failed the check for a reason that
+    # had nothing to do with the clock logic it tests.
+    tz = TZ_WEST
+    now = datetime.now(timezone.utc) - timedelta(minutes=tz)
     today = now.date().isoformat()
     rows = {roster[0]["name"]: {
         "rows": [{"direction": "Inbound", "result": "Accepted", "duration": 600,
@@ -47,10 +55,23 @@ def _finish(as_of, team="inbound"):
 
 def run():
     fails = 0
-    now = datetime.now(timezone.utc) + timedelta(minutes=240)
+    # Same clock as _finish uses. There were two definitions of "now" in this
+    # file disagreeing by eight hours, and the one here decided what the check
+    # asked for while the other decided what the code was given.
+    now = datetime.now(timezone.utc) - timedelta(minutes=TZ_WEST)
 
-    # A report reaching to an hour ago must pull the pace clock back to it.
-    behind = (now - timedelta(hours=1)).strftime("%H:%M:%S")
+    # A report reaching to earlier TODAY must pull the pace clock back to it.
+    #
+    # An hour ago is not safe to assume: run at 00:06 local, "an hour ago" is
+    # yesterday, and stamping 23:0x onto today puts it 23 hours in the FUTURE,
+    # which the guard correctly rejects -- so the check failed for a reason that
+    # had nothing to do with what it tests. Stay inside today, and derive the
+    # expected lag from the time actually chosen rather than assuming 60.
+    behind_dt = now - timedelta(hours=1)
+    if behind_dt.date() != now.date():
+        behind_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    want_lag = round((now - behind_dt).total_seconds() / 60)
+    behind = behind_dt.strftime("%H:%M:%S")
     r_lag = _finish(behind)
     r_now = _finish(None)
 
@@ -64,7 +85,7 @@ def run():
     cases = [
         ("lagged report is reported", bool(r_lag.get("data_as_of")), True),
         ("...with the minutes behind",
-         55 <= (r_lag.get("data_as_of") or {}).get("lag_minutes", 0) <= 65, True),
+         abs((r_lag.get("data_as_of") or {}).get("lag_minutes", -999) - want_lag) <= 1, True),
         ("live source says nothing", r_now.get("data_as_of"), None),
         ("both produce a pace", f_lag is not None and f_now is not None, True),
         ("lagged pace is not ahead of live", (f_lag or 0) <= (f_now or 0), True),

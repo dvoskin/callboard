@@ -167,6 +167,48 @@ def run():
               % (label, want_, got, "OK" if ok else "<<< FAIL"))
         fails += 0 if ok else 1
 
+    # /v5 must read EVERY slot, not just the default one. It read only the
+    # unscoped file, which was right when RingCX mailed one report. It now mails
+    # more than one under different subjects, each filed separately so they stop
+    # overwriting each other -- so the day the sales report lands in a scoped
+    # slot, /v5 showed whatever else was in the default one. Which slot a report
+    # lands in is decided by an email SUBJECT; a board's figures must not be.
+    for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        p.unlink()
+    _post(c, _csv([("Gregory Beltran", "10:00:00")]), "Daily Interaction Report (Sales)")
+    _post(c, _csv([("Ariel Ramirez", "17:00:00")]), "Interaction Report (Inbound & Scheduling)")
+    loaded = appmod._load_inbox_csv(DAY_ISO, is_today=False)
+    names = {(r.get("agent_name") or "").strip() for r in (loaded[0] if loaded else [])}
+    meta = loaded[1] if loaded else {}
+    for label, got, want_ in [
+        ("v5 sees both reports", names, {"Gregory Beltran", "Ariel Ramirez"}),
+        ("...and counts both files", meta.get("reports"), 2),
+        ("...covers_to is the later", meta.get("covers_to"), "17:00:00"),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
+    # And the SAME interaction in both reports is counted once, even when the
+    # two exports format the phone numbers differently -- which is the shape of
+    # double counting that reads as somebody doing twice the work.
+    for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        p.unlink()
+    plain = HDR + "\n" + _row("Gregory Beltran", "10:00:00") + "\n"
+    unformatted = plain.replace("+15551234567", "15551234567").replace(
+        "+15557654321", "(555) 765-4321")
+    _post(c, plain, "Daily Interaction Report (Sales)")
+    _post(c, unformatted, "Interaction Report (Inbound & Scheduling)")
+    loaded2 = appmod._load_inbox_csv(DAY_ISO, is_today=False)
+    for label, got, want_ in [
+        ("same call counted once", len(loaded2[0] if loaded2 else []), 1),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
     for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
         p.unlink()
     print("\n%d mismatched" % fails)
