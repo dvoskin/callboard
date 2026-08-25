@@ -280,7 +280,12 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
             _num(e.get("duration")) if st == "connected" else 0.0,
             st == "connected", st == "missed", channel="RingEX direct")
 
-    NOT_PEOPLE = {"", "Unassigned", "HR Department", "IVR Main Menu 1001", "GOALS PLASTIC S"}
+    # "N/A" is what RingCX writes when a leg has no agent -- a queue leg nobody
+    # picked up. It is not a person, and it is not a small row: 249 of them in a
+    # single day's export. Ranked, it would sit on the sales board as an agent
+    # with more calls than anyone real.
+    NOT_PEOPLE = {"", "Unassigned", "HR Department", "IVR Main Menu 1001",
+                  "GOALS PLASTIC S", "N/A", "n/a", "N/a"}
     agents = []
     not_sales = []
     for name, L in led.items():

@@ -60,6 +60,9 @@ class RingCXClient:
         self._agents_cache_expiry: float = 0
         self._ext_names: dict = {}
         self._ext_names_expiry: float = 0.0
+        # Why presence is empty. An empty list must never be readable as "nobody
+        # is on a call" when the truth is "we were refused".
+        self.last_presence_note = None
         self._AGENTS_CACHE_TTL = 60  # refresh agents every 60s, not every poll
 
 
@@ -437,6 +440,20 @@ class RingCXClient:
         if self._agents_cache and time.time() < self._agents_cache_expiry:
             return self._agents_cache
 
+        # Presence with detailedTelephonyState is a HEAVY call -- the same budget
+        # the account call-log spends. It was outside the shared cooldown in both
+        # directions, which is why the budget never recovered: the call-log
+        # callers stood down for 60s while this one kept spending, on EVERY /v3
+        # page load, because the 60s cache expiry is only set on success. A truce
+        # one participant does not observe is not a truce.
+        if self.rate_limited():
+            self.last_presence_note = (
+                "RingEX is in a shared cooldown for another %d s; agent presence "
+                "was not fetched." % round(self.cooldown_remaining()))
+            log.warning("RingEX presence skipped: %s", self.last_presence_note)
+            return self._agents_cache or []
+
+        self.last_presence_note = None
         try:
             # Step 1: get extension names
             ext_names = self._fetch_extension_names()
@@ -455,6 +472,17 @@ class RingCXClient:
                     },
                     timeout=20,
                 )
+                if resp.status_code == 429:
+                    # Tell every other caller, not just this one. Presence used
+                    # to swallow its 429 into the generic handler below, so a
+                    # refusal here was invisible to the call-log fetchers still
+                    # spending against the same exhausted budget.
+                    self.note_rate_limited(resp.headers.get("Retry-After"))
+                    self.last_presence_note = (
+                        "RingEX rate limited the presence call (HTTP 429). Agent "
+                        "status is stale; it is not a quiet floor.")
+                    log.warning("RingEX presence 429; entering shared cooldown")
+                    return self._agents_cache or []
                 resp.raise_for_status()
                 data = resp.json()
                 records = data.get("records", [])
@@ -512,6 +540,7 @@ class RingCXClient:
 
         except Exception as e:
             log.error("RingEX agent statuses error: %s", e)
+            self.last_presence_note = "agent presence could not be fetched: %s" % e
             return self._agents_cache if self._agents_cache else []
 
     # ══════════════════════════════════════════════════════════════

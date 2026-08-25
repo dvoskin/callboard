@@ -66,6 +66,11 @@ def run():
     # different route: it should still exclude them and say so, not fall back to
     # "filter nobody" and put the whole contact centre back on the board.
     names2, meta2 = _roster_from([INBOUND, SCHED])
+    # "N/A" is RingCX's no-agent marker on a queue leg. It out-dials every real
+    # person in the export, so ranking it puts a phantom at the top of the board.
+    names3, _m3 = _roster_from([SALES, "N/A"])
+    cases.append(("N/A is not a person", appmod._norm_name("N/A") in (names3 or set()), False))
+
     cases += [
         ("all-excluded -> no roster", names2, None),
         ("...and it says why", bool(meta2.get("error")), True),

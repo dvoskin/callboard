@@ -2100,7 +2100,8 @@ _v5_roster_cache = {"at": 0.0, "names": None, "why": {}}
 _v5_roster_lock = threading.Lock()
 
 # System accounts that carry estimates but never sell.
-_NOT_SALES_NAMES = {"zoho admin", "unassigned", ""}
+# Normalised. "n/a" is RingCX's marker for a leg with no agent, not a person.
+_NOT_SALES_NAMES = {"zoho admin", "unassigned", "n/a", ""}
 
 
 def _other_team_names() -> set:
