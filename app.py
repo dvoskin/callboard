@@ -1212,7 +1212,7 @@ def _v6_cx_rows_for_team(team, days, roster):
     came out at 1.34 rather than 60.
     """
     want = {r["name"].strip().lower(): r["name"] for r in roster}
-    by_agent, found_days = {}, 0
+    by_agent, found_days, covers_to = {}, 0, {}
     for day in days:
         # Every scope for the day, not just the default slot: the team's agents
         # may arrive in the Inbound & Scheduling report, the sales one, or both.
@@ -1253,6 +1253,14 @@ def _v6_cx_rows_for_team(team, days, roster):
         if not any((r.get("agent_name") or "").strip().lower() in want for r in rows):
             continue
         found_days += 1
+        # How far into THIS day the delivered reports reach. Taken across every
+        # agent in the file, not just this team's: with the whole floor in one
+        # export the latest interaction anywhere is a good proxy for when the
+        # report was cut, where one quiet team would look hours stale.
+        for r in rows:
+            t = (r.get("start_time") or "").strip()
+            if len(t) >= 8 and t[-3] == ":" and t > (covers_to.get(day) or ""):
+                covers_to[day] = t
         for r in rows:
             nm = (r.get("agent_name") or "").strip().lower()
             if nm not in want:
@@ -1270,7 +1278,7 @@ def _v6_cx_rows_for_team(team, days, roster):
                 "start_time": _cx_iso(r.get("start_time"), day),
                 "source": "ringcx",
             })
-    return by_agent, found_days
+    return by_agent, found_days, covers_to
 
 
 def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT_TEAM):
@@ -1284,7 +1292,7 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
     # delivered RingCX Interaction Report is not a supplement -- it is the only
     # source. Take it instead of spending RingEX budget on empty seats.
     if _TEAM_SOURCES.get(team) == "ringcx":
-        cx_by_agent, cx_days = _v6_cx_rows_for_team(team, days, roster)
+        cx_by_agent, cx_days, cx_covers = _v6_cx_rows_for_team(team, days, roster)
         missing_days = [] if cx_days >= len(days) else ["%d day(s)" % (len(days) - cx_days)]
         rows_by_agent = {
             seat["name"]: {
@@ -1298,11 +1306,14 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
             for seat in roster
         }
         stats = {"cached": cx_days, "fetched": 0, "missing": max(0, len(days) - cx_days)}
+        data_as_of = cx_covers.get(local_today)
     else:
         rows_by_agent, stats = _v6_fetch_ringex(roster, days, local_today,
                                                 tz_offset_minutes)
+        data_as_of = None          # RingEX is queried live; it reaches to now
     return _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
-                      date_start, date_end, tz_offset_minutes, local_today, days)
+                      date_start, date_end, tz_offset_minutes, local_today, days,
+                      data_as_of=data_as_of)
 
 
 def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
@@ -1357,16 +1368,69 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
     return rows_by_agent, stats
 
 
+# A delivered report can reasonably sit a little behind the clock; the RingCX
+# schedule is every fifteen minutes. Six hours is not a lagging report, it is a
+# broken timestamp, and it gets ignored rather than believed.
+_MAX_REPORT_LAG_SECONDS = 6 * 3600
+
+
+def _reconcile_report_clock(now_local, data_as_of):
+    """Move the pace clock back to where the delivered data actually reaches.
+
+    Returns (clock, note). Pure, and separate from _v6_finish precisely so it
+    can be tested at any hour: driven through _v6_finish it borrows the real
+    wall clock, and the case that matters -- a timestamp in the future, SAME
+    day -- simply cannot be constructed in the last 90 minutes of a local day.
+    A check that can only run for part of the day is a check you will one day
+    read as passing when it never ran.
+
+    Both bounds are load-bearing:
+
+      lower  a timestamp ahead of now would credit a team for a future they
+             have not worked yet
+      upper  `reach` is built by stamping an hour onto TODAY, so a timestamp
+             from another day, or plain nonsense, lands somewhere arbitrary on
+             today's clock. A time two hours ahead wrapped past midnight and
+             came back as a twenty-two hour LAG, which would have pinned the
+             board's pace to the start of the day.
+    """
+    if not data_as_of:
+        return now_local, None
+    try:
+        hh, mm = int(str(data_as_of)[:2]), int(str(data_as_of)[3:5])
+        reach = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    except (ValueError, TypeError):
+        return now_local, None
+    lag_s = (now_local - reach).total_seconds()
+    if not (0 < lag_s <= _MAX_REPORT_LAG_SECONDS):
+        return now_local, None
+    return reach, {"as_of": reach.strftime("%-I:%M %p"),
+                   "lag_minutes": round(lag_s / 60)}
+
+
 def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
-               date_start, date_end, tz_offset_minutes, local_today, days=()):
-    """Shared tail: pace curves, report build, and the notes about what is missing."""
+               date_start, date_end, tz_offset_minutes, local_today, days=(),
+               data_as_of=None):
+    """Shared tail: pace curves, report build, and the notes about what is missing.
+
+    data_as_of -- "HH:MM:SS" the delivered data actually reaches, or None when
+    the source is queried live. Scheduling and Inbound are RingCX-only, and
+    RingCX arrives by email every fifteen minutes, so at 2:14pm their board is
+    typically holding work up to about 2:00. Pacing that against 2:14's
+    expectation divides one clock's numerator by another clock's denominator and
+    reads the whole team a little behind, all day, for no reason of theirs. It
+    is the same defect as the 200% -- numerator and denominator disagreeing --
+    just pointing the other way, so it never looked wrong enough to chase.
+    """
     offset_east = -(tz_offset_minutes if tz_offset_minutes is not None
                     else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
 
     # Pace, only when the view is the single day that is still running.
     now_local, curves = None, {}
+    as_of_note = None
     if date_start == date_end == local_today:
         now_local = datetime.now(timezone.utc) + timedelta(minutes=offset_east)
+        now_local, as_of_note = _reconcile_report_clock(now_local, data_as_of)
         for seat in roster:
             c = _v6_seat_curve(seat["ext_id"], tz_offset_minutes)
             if c:
@@ -1436,6 +1500,13 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # while the rows underneath showed real figures.
     report["team_key"] = team
     report["team_label"] = TEAM_LABELS[team]
+    if as_of_note:
+        report["data_as_of"] = as_of_note
+    # The board used to print "Source: RingEX per-extension call log" on every
+    # team. Scheduling and Inbound do not touch RingEX; the footer was naming
+    # the wrong system on two of the three boards.
+    report["source_label"] = ("RingEX call log" if _TEAM_SOURCES.get(team) == "ringex"
+                              else "RingCX interaction report")
     report["source_platform"] = _TEAM_SOURCES.get(team, "ringex")
     # Only claim the platform gap while nothing has actually been delivered.
     # Once reports start arriving this board is real, and leaving the banner up

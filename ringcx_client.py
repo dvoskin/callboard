@@ -27,6 +27,20 @@ log = logging.getLogger(__name__)
 
 
 class RingCXClient:
+
+    # Class-level defaults, not only instance ones. Tests build a client with
+    # `cls.__new__(cls)` to skip credential setup, and any state read on a path
+    # they exercise has to exist without __init__ having run. The shared
+    # cooldown moved to the TOP of the call-log fetch, which put it on exactly
+    # such a path and crashed checks_ringex_paging with AttributeError.
+    _cool_until: float = 0.0
+    _ext_names: dict = {}
+    _ext_names_expiry: float = 0.0
+    _agents_cache_expiry: float = 0.0
+    _agents_cache = None
+    last_presence_note = None
+    last_ringex_note = None
+
     def __init__(self):
         self.client_id = os.getenv("RC_CLIENT_ID", "")
         self.client_secret = os.getenv("RC_CLIENT_SECRET", "")

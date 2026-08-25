@@ -100,7 +100,7 @@ def run():
     # And /v6 must see the CX agents even though they are not in the default slot.
     roster = [{"name": "Ariel Ramirez", "ext": "145", "ext_id": 1},
               {"name": "Sarahi Rivera", "ext": "153", "ext_id": 2}]
-    by_agent, days = appmod._v6_cx_rows_for_team("inbound", [DAY_ISO], roster)
+    by_agent, days, _cov = appmod._v6_cx_rows_for_team("inbound", [DAY_ISO], roster)
     for label, got, want in [
         ("v6 reads the cx scope", days, 1),
         ("v6 found both agents", set(by_agent), {"Ariel Ramirez", "Sarahi Rivera"}),
@@ -138,7 +138,7 @@ def run():
     for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
         p.unlink()
     _post(c, _csv([("Gregory Beltran", "10:00:00")]), "Daily Interaction Report (Sales)")
-    by_agent2, days2 = appmod._v6_cx_rows_for_team("inbound", [DAY_ISO], roster)
+    by_agent2, days2, _c2 = appmod._v6_cx_rows_for_team("inbound", [DAY_ISO], roster)
     for label, got, want_ in [
         ("sales-only day not read", days2, 0),
         ("no agents invented", set(by_agent2), set()),

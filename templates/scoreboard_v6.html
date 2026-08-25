@@ -8,13 +8,15 @@
   :root{
     --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
     --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
-    --up:#0B6E67; --dn:#B03A31; --mid:#9C6712; --stretch:#1B5FA8;
+    /* --up is interaction only (focus, hover). --dn is the ONLY colour the
+       data uses, and it means one thing: under the floor. */
+    --up:#0B6E67; --dn:#B03A31;
     --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
   @media (prefers-color-scheme:dark){:root{
     --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
     --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492;
-    --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542; --stretch:#6FB2F0;
+    --up:#4FCCBF; --dn:#EE8177;
   }}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
@@ -24,20 +26,11 @@
   .wrap{max-width:760px;margin:0 auto;padding:20px 14px 44px}
   @media(min-width:640px){.wrap{padding:32px 22px 56px}}
 
-  h1{margin:0 0 2px;font-size:20px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
+  h1{margin:0 0 2px;font-size:19px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
   .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
-  .sub b{color:var(--ink);font-weight:650}
-  h2{margin:22px 0 6px;font-size:12px;font-weight:700;letter-spacing:.06em;
+  .sub b{color:var(--ink);font-weight:600}
+  h2{margin:22px 0 6px;font-size:12.5px;font-weight:700;letter-spacing:.06em;
      text-transform:uppercase;color:var(--muted)}
-
-  /* team switcher: the same board, three rosters */
-  .teams{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:11px}
-  .teams a{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:6px;
-           border:1px solid var(--rule);color:var(--muted);text-decoration:none}
-  .teams a:hover{border-color:var(--up);color:var(--up)}
-  .teams a.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-  .teams a:focus-visible{outline:2px solid var(--up);outline-offset:2px}
-  @media(max-width:560px){.teams a{padding:7px 12px;font-size:13px}}
 
   .ctl{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:12px}
   .ctl input,.ctl button{font-family:inherit;font-size:12.5px;padding:4px 8px;
@@ -47,11 +40,11 @@
   .ctl button:hover{border-color:var(--up);color:var(--up)}
   .ctl button:focus-visible,.day:focus-visible,.r:focus-visible{outline:2px solid var(--up);
        outline-offset:2px}
-  .day{cursor:pointer;font-size:12px;font-weight:600;padding:4px 9px;border-radius:5px;
+  .day{cursor:pointer;font-size:12.5px;font-weight:600;padding:4px 9px;border-radius:5px;
        border:1px solid var(--rule);background:var(--bg);color:var(--muted)}
   .day:hover{border-color:var(--up);color:var(--up)}
   .day.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-  .spin{font-size:12px;color:var(--muted)}
+  .spin{font-size:12.5px;color:var(--muted)}
 
   .floor{font-size:12.5px;color:var(--muted);padding:8px 0;border-top:1px solid var(--rule)}
   .floor b{color:var(--ink);font-weight:700}
@@ -62,32 +55,35 @@
        padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
   .key span{white-space:nowrap}
   .key i{font-style:normal;font-weight:700}
-  .key .b-stretch{color:var(--stretch)} .key .b-target{color:var(--up)}
-  .key .b-floor{color:var(--mid)} .key .b-below{color:var(--dn)}
+  .key .b-below{color:var(--dn)}
 
-  /* the list */
+  /* the list
+     Four layouts, because two independent flags each add a column: a LIVE day
+     adds pace, and billing adds collected. Every combination needs its own
+     areas -- `.live .r` used to be declared after `.hascoll .r` and win, which
+     left `co` with no area at all, so it auto-placed into the ">2m" cell and
+     the two numbers printed on top of each other. That was true on the desktop
+     grid as well as the phone one. Most specific last, always. */
   .hd,.r{display:grid;align-items:center;
          grid-template-columns:22px minmax(0,1fr) 86px 62px 62px 60px;
          grid-template-areas:"rk nm tk c cn lg"}
-  .hascoll .hd,.hascoll .r{grid-template-columns:22px minmax(0,1fr) 80px 54px 54px 50px 84px;
-         grid-template-areas:"rk nm tk c cn lg co"}
-  .a-co{grid-area:co} .co{grid-area:co;font-weight:600;font-size:13px;color:var(--up)}
-  @media(max-width:560px){
-    .hascoll .r{grid-template-areas:
-        "rk nm nm nm" "tk tk pc pc" "sp c cn lg" "sp co co co"}
-    .co{text-align:left}
-  }
-  /* live day: one more column for pace-vs-expected */
   .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 76px 82px 52px 52px 46px;
          grid-template-areas:"rk nm tk pc c cn lg"}
+  .hascoll .hd,.hascoll .r{grid-template-columns:22px minmax(0,1fr) 80px 54px 54px 50px 84px;
+         grid-template-areas:"rk nm tk c cn lg co"}
+  .live.hascoll .hd,.live.hascoll .r{
+         grid-template-columns:20px minmax(0,1fr) 68px 74px 44px 44px 40px 76px;
+         grid-template-areas:"rk nm tk pc c cn lg co"}
+  .a-co{grid-area:co} .co{grid-area:co}
   .live .hd>*{padding-left:6px}
   .live .hd .a-nm{padding-left:0}
-  .a-pc{grid-area:pc} .pc{grid-area:pc;font-weight:700;font-size:13px}
-  .pc .exp{display:block;font-weight:400;font-size:10.5px;color:var(--muted);
+  .a-pc{grid-area:pc} .pc{grid-area:pc;font-weight:700;font-size:12.5px}
+  .pc .exp{display:block;font-weight:400;font-size:10px;color:var(--muted);
            line-height:1.25}
-  .proj{font-size:11px;color:var(--muted);font-weight:500}
-  .asof{font-size:11.5px;color:var(--muted);padding:6px 0 0}
-  .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  .proj{font-size:11px;color:var(--muted);font-weight:400}
+  .pc.early{color:var(--muted);font-weight:400}
+  .asof{font-size:11px;color:var(--muted);padding:6px 0 0}
+  .hd{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
       color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
   .r{padding:7px 0;border-bottom:1px solid var(--hair);cursor:pointer}
   .r:last-child{border-bottom:0}
@@ -96,19 +92,21 @@
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk} .a-c{grid-area:c}
   .a-cn{grid-area:cn} .a-lg{grid-area:lg}
-  .rk{grid-area:rk;color:var(--muted);font-size:11.5px}
-  .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;
+  .rk{grid-area:rk;color:var(--muted);font-size:11px}
+  .nm{grid-area:nm;font-weight:600;font-size:14px;letter-spacing:-.01em;
       overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px}
-  .tk{grid-area:tk;font-weight:700;font-size:14.5px}
+  .tk{grid-area:tk;font-weight:700;font-size:14px}
   .c{grid-area:c} .cn{grid-area:cn} .lg{grid-area:lg}
-  .c,.cn,.lg{font-weight:600;color:var(--ink-2);font-size:13px}
+  .c,.cn,.lg,.co{font-weight:600;color:var(--ink-2);font-size:12.5px}
   .lbl{display:none;color:var(--muted);font-weight:400}
-  /* band colours are the whole point of the board: where each number sits
-     against the KPI, not just what it is */
-  .b-stretch{color:var(--stretch)} .b-target{color:var(--up)}
-  .b-floor{color:var(--mid)} .b-below{color:var(--dn)}
+  /* Four band colours meant four things to hold in your head while reading a
+     column of numbers. Only one of them is a call to action, so only one is a
+     colour: at floor or above reads as ordinary text, and under the floor is
+     the single thing that stands out. */
+  .b-stretch,.b-target,.b-floor{color:inherit}
+  .b-below{color:var(--dn)}
   .r.r-below .nm{color:var(--dn)}
-  .mk{font-size:9px;padding-right:2px}
+  .mk{font-size:10px;padding-right:2px}
 
   /* expand panel */
   .det{display:none;padding:11px 0 13px 22px;border-bottom:1px solid var(--hair);
@@ -117,35 +115,35 @@
   .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 16px;max-width:520px}
   @media(max-width:520px){.dg{gap:8px 10px;max-width:none}.det{padding:10px 0 12px 21px}}
   .dg > div{display:flex;flex-direction:column;gap:1px;min-width:0}
-  .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;
+  .dg em{font-style:normal;font-size:10px;font-weight:700;letter-spacing:.06em;
          text-transform:uppercase;color:var(--muted);line-height:1.25}
-  .dg b{font-size:13px;font-weight:650;color:var(--ink);
+  .dg b{font-size:12.5px;font-weight:600;color:var(--ink);
         font-variant-numeric:tabular-nums;white-space:nowrap}
-  .dg .zero b{color:var(--muted);font-weight:500}
+  .dg .zero b{color:var(--muted);font-weight:400}
   .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
   .dg .wide{grid-column:1/-1}
 
   /* expand panel: one table, one footnote */
   .dtab{width:100%;border-collapse:collapse;font-size:12.5px;max-width:520px}
-  .dtab th{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  .dtab th{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
            color:var(--muted);text-align:right;padding:0 0 6px;white-space:nowrap}
   .dtab th:first-child{text-align:left}
   .dtab td{padding:4px 0;text-align:right;font-variant-numeric:tabular-nums;
            border-top:1px solid var(--rule)}
   .dtab td:first-child{text-align:left;color:var(--ink-2)}
-  .dtab .big{font-weight:700;font-size:13.5px;color:var(--ink)}
+  .dtab .big{font-weight:700;font-size:12.5px;color:var(--ink)}
   .dtab .q{color:var(--muted)}
-  .foot{font-size:11.5px;color:var(--muted);padding-top:8px;margin-top:9px;
+  .foot{font-size:11px;color:var(--muted);padding-top:8px;margin-top:9px;
         border-top:1px solid var(--rule);line-height:1.6;max-width:520px}
 
   /* per-day bars inside the panel */
   .spark{grid-column:1/-1;margin-top:7px;padding-top:7px;border-top:1px solid var(--rule)}
-  .spark .cap{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  .spark .cap{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
               color:var(--muted);margin-bottom:5px}
   .bars{display:flex;align-items:flex-end;gap:2px;height:44px}
   .bars{justify-content:flex-start}
-  .bars div{flex:1 1 0;min-width:3px;max-width:22px;background:var(--up);
-            border-radius:1px 1px 0 0;opacity:.75}
+  .bars div{flex:1 1 0;min-width:3px;max-width:22px;background:var(--ink-2);
+            border-radius:1px 1px 0 0;opacity:.5}
   .bars div.off{background:var(--muted);opacity:.3}
   .bars div:hover{opacity:1}
   .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
@@ -153,8 +151,8 @@
 
   /* a team whose calls are not on this platform at all */
   .blocked{background:var(--tint);border:1px solid var(--rule);
-           border-left:3px solid var(--dn);border-radius:0 8px 8px 0;
-           padding:10px 13px;margin:0 0 12px;font-size:13px;line-height:1.55;
+           border-left:2px solid var(--dn);
+           padding:10px 13px;margin:0 0 12px;font-size:12.5px;line-height:1.55;
            color:var(--ink-2)}
   .blocked summary{cursor:pointer;font-size:12.5px;color:var(--ink-2);
                    list-style:none}
@@ -166,12 +164,12 @@
   .blocked ul{margin:8px 0 0;padding-left:18px}
   .blocked li{margin-bottom:3px}
 
-  .warn{font-size:12px;color:var(--ink-2);background:var(--tint);
-        border-left:3px solid var(--mid);padding:8px 11px;margin:7px 0;border-radius:0 5px 5px 0}
+  .warn{font-size:12.5px;color:var(--ink-2);background:var(--tint);
+        border-left:2px solid var(--rule);padding:8px 11px;margin:7px 0}
   .warn.bad{border-left-color:var(--dn)}
   .warn b{color:var(--ink)}
-  .empty{color:var(--muted);font-size:13px;padding:16px 0}
-  .err{color:var(--dn);font-size:13px;padding:14px 0;line-height:1.5}
+  .empty{color:var(--muted);font-size:12.5px;padding:16px 0}
+  .err{color:var(--dn);font-size:12.5px;padding:14px 0;line-height:1.5}
 
   /* ── phones ────────────────────────────────────────────────
      Compact, not "mobile-styled". Two lines an agent: identity and the headline
@@ -181,55 +179,76 @@
      six-person team you want to scan at a glance. */
   @media(max-width:560px){
     .wrap{padding:14px 11px 36px}
-    h1{font-size:18px}
-    .sub{font-size:11.5px;line-height:1.45}
+    h1{font-size:17px}
+    .sub{font-size:11px;line-height:1.45}
 
     .hd{display:none}
-    .r,.live .r{
-      grid-template-columns:18px minmax(0,1fr) 62px 58px;
-      grid-template-areas:
-        "rk nm tk pc"
-        "sp c  cn lg";
-      row-gap:2px; column-gap:8px; padding:9px 0 10px;
+    /* Same four combinations as the desktop grid, in the same order, for the
+       same reason. Collected gets its own line rather than a fifth cell on a
+       375px screen: a dollar figure squeezed between two call counts is how it
+       ended up printed over the ">2m" column in the first place. */
+    /* The COLUMNS have to be restated on every selector, not just `.r`.
+       A media query adds no specificity, so the desktop `.live .r` (0,2,0)
+       outranks a phone `.r` (0,1,0) and the live board kept its seven-column
+       desktop track list underneath four-column areas -- which collapsed the
+       name to zero width and stacked the counts. Same trap as the missing `co`
+       area, one level up: specificity, not source order, decides. */
+    /* No rank column on a phone: the order down the screen already says it, and
+       dropping it gives the second line the full width instead of an 18px
+       indent it was only there to clear. */
+    .r,.live .r,.hascoll .r,.live.hascoll .r{
+      grid-template-columns:minmax(0,1fr) 60px 56px;
+      row-gap:1px; column-gap:8px; padding:7px 0 8px;
     }
+    .r{grid-template-areas:"nm tk tk" "c  cn lg"}
+    .live .r{grid-template-areas:"nm tk pc" "c  cn lg"}
+    .hascoll .r{grid-template-areas:"nm tk tk" "c  cn lg" "co co co"}
+    .live.hascoll .r{grid-template-areas:"nm tk pc" "c  cn lg" "co co co"}
+    .r .rk{display:none}
+    .co{text-align:left}
+    /* "exp 104m" on every row is the same number the expand panel spells out in
+       full. The percentage already carries the comparison. */
+    .pc .exp{display:none}
     .r .rk{align-self:center;font-size:11px}
-    .nm{font-size:14.5px;padding-right:0;white-space:nowrap;
+    .nm{font-size:14px;padding-right:0;white-space:nowrap;
         overflow:hidden;text-overflow:ellipsis;align-self:center}
-    .tk{font-size:17px;letter-spacing:-.015em;text-align:right;align-self:center;
-        line-height:1.2}
+    .tk{font-size:14px;text-align:right;align-self:center;line-height:1.25}
     .tk .lbl{display:none}                 /* the column is obvious in context */
-    .pc{text-align:right;font-size:12px;align-self:center;min-width:52px}
-    .pc .exp{font-size:9.5px;line-height:1.2}
+    .pc{text-align:right;font-size:12.5px;align-self:center;min-width:52px}
+    .pc .exp{font-size:10px;line-height:1.2}
     /* counts on one quiet line, indented under the name. NO grid-column:auto --
        it overrides the named areas and auto-places all three into one cell, which
        renders as "CallsC79.463.4" stacked on top of each other. */
-    .c,.cn,.lg{text-align:left;font-size:11.5px;font-weight:500;
+    .c,.cn,.lg,.co{text-align:left;font-size:11px;font-weight:400;
                color:var(--muted);white-space:nowrap;overflow:hidden;
                text-overflow:ellipsis}
-    .c b,.cn b,.lg b{color:var(--ink);font-weight:650}
-    .lbl{display:inline;color:var(--muted);font-weight:500}
+    .c b,.cn b,.lg b,.co b{color:var(--ink);font-weight:600}
+    .lbl{display:inline;color:var(--muted);font-weight:400}
 
     .det{padding:9px 2px 11px 26px}
-    .dtab{font-size:11.5px}
-    .dtab th{font-size:9px;padding-bottom:4px}
+    .dtab{font-size:11px}
+    .dtab th{font-size:10px;padding-bottom:4px}
     .dtab td{padding:3px 0}
     .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-    .foot{font-size:10.5px;line-height:1.5}
+    .foot{font-size:10px;line-height:1.5}
 
-    .teams{gap:4px;margin-bottom:9px}
-    .teams a{padding:5px 10px;font-size:12px}
     .ctl{gap:5px;margin-bottom:9px}
+    /* 16px exactly: iOS zooms the page when a focused input is smaller. */
     .ctl input{flex:1 1 40%;min-width:0;font-size:16px;padding:6px 7px}
     .ctl button{padding:6px 10px;font-size:12.5px}
     .day{padding:6px 11px;font-size:12.5px}
     .key{font-size:10px;gap:1px 9px;padding-bottom:6px}
-    .warn{font-size:11.5px;padding:8px 10px;margin:5px 0}
-    .blocked{font-size:12px;padding:11px 12px}
+    .warn{font-size:11px;padding:8px 10px;margin:5px 0}
+    .blocked{font-size:12.5px;padding:11px 12px}
     h2{margin:16px 0 5px;font-size:11px}
   }
-  /* very narrow: the pace column drops, the rest stays two lines */
+  /* very narrow: the pace column drops, the rest keeps its shape */
   @media(max-width:340px){
-    .r,.live .r{grid-template-areas:"rk nm tk tk" "sp c cn lg"}
+    .r,.live .r{grid-template-areas:"nm tk tk" "c cn lg"}
+    .hascoll .r,.live.hascoll .r{
+      grid-template-areas:"nm tk tk" "c cn lg" "co co co"}
+    .r,.live .r,.hascoll .r,.live.hascoll .r{
+      grid-template-columns:minmax(0,1fr) 54px 50px}
     .pc{display:none}
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -239,8 +258,6 @@
 <div class="wrap">
   <h1 id="title">Team KPI Board</h1>
   <p class="sub" id="sub">Loading&hellip;</p>
-
-  <div class="teams" id="teams"></div>
 
   <div class="ctl">
     <input type="date" id="start" aria-label="Start date" />
@@ -287,11 +304,12 @@
     if (!pace) return '<div class="pc"></div>';
     var exp = pace.expected[key], act = pace.actual[key], r = pace.ratio[key];
     if (r == null) {
-      return '<div class="pc b-floor">&mdash;<span class="exp">too early</span></div>';
+      return '<div class="pc early">&mdash;<span class="exp">too early</span></div>';
     }
     var pct = Math.round((r - 1) * 100);
-    var cls = r >= 1.05 ? 'b-stretch' : (r >= 0.95 ? 'b-target'
-            : (r >= 0.8 ? 'b-floor' : 'b-below'));
+    // The sign already says which way it is going; colour is spent only on the
+    // one case that needs a decision.
+    var cls = r >= 0.8 ? '' : 'b-below';
     var sign = pct > 0 ? '+' : '';
     return '<div class="pc ' + cls + '">' + sign + pct + '%' +
            '<span class="exp">exp ' + exp + (unit || '') + '</span></div>';
@@ -318,27 +336,27 @@
       $('title').textContent = d.team_label + ' KPI Board';
       document.title = d.team_label + ' KPI Board';
     }
-    if (d.teams && d.teams.length) {
-      $('teams').innerHTML = d.teams.map(function (t) {
-        // Link to the sibling PAGE, carrying the share token when there is one,
-        // so a wall display can move between boards without a login.
-        var href = t.path || ('/v6?team=' + t.key);
-        if (SHARE && TOKEN) href += (href.indexOf('?') < 0 ? '?' : '&') + 'k=' +
-                                    encodeURIComponent(TOKEN);
-        return '<a class="' + (t.key === d.team_key ? 'on' : '') + '" href="' + href +
-               '">' + esc(t.label) + '</a>';
-      }).join('');
-    }
 
+    // Two facts and, on a live day, the one that changes how every number below
+    // is read. The team's own averages used to sit here too; they are the list
+    // itself, restated, and they pushed the sentence onto three lines on a
+    // phone before it said anything a reader could act on.
     var sub = '<b>' + ranked.length + '</b> seat' + (ranked.length === 1 ? '' : 's') +
       ' &middot; <b>' + (team.agent_days || 0) + '</b> working day' +
-      ((team.agent_days || 0) === 1 ? '' : 's') +
-      ' &middot; team <b>' + (team.per_day ? team.per_day.talk_minutes : 0) + '</b> min talk/day' +
-      ' &middot; team <b>' + (team.per_day ? team.per_day.connected : 0) + '</b> connected/day';
+      ((team.agent_days || 0) === 1 ? '' : 's');
     if (d.live && ranked.length && ranked[0].pace) {
       var pc = ranked[0].pace;
-      sub += ' &middot; as of <b>' + esc(pc.as_of) + '</b> a normal day is <b>' +
-             Math.round(pc.fraction * 100) + '%</b> done, so targets below are pro-rated to now';
+      // For a RingCX team these are the SAME instant -- the pace clock is pulled
+      // back to where the delivered report reaches -- so the time is stated
+      // once, and only its provenance changes. RingCX arrives by email, and
+      // saying how far behind stops "they are quiet this hour" being read off a
+      // report that simply has not landed yet.
+      sub += d.data_as_of
+        ? ' &middot; report to <b>' + esc(d.data_as_of.as_of) + '</b> (' +
+          d.data_as_of.lag_minutes + ' min behind)'
+        : ' &middot; <b>' + esc(pc.as_of) + '</b>';
+      sub += ', day <b>' + Math.round(pc.fraction * 100) +
+             '%</b> through &mdash; targets pro-rated';
     } else {
       var today = new Date().toISOString().slice(0, 10);
       if ((d.window || {}).end >= today) {
@@ -351,15 +369,18 @@
     $('sub').innerHTML = sub;
 
     var h = '';
+    // The TARGET only. Floor and stretch were on this line too -- twelve numbers
+    // to read before the first agent, to explain a scale that is now one colour.
+    // Both still sit in the expand panel, next to the figure they qualify.
+    var one = function (k) { return T[k] ? T[k].target : ''; };
     h += '<div class="key">' +
-      '<span><i class="b-stretch">Stretch</i></span>' +
-      '<span><i class="b-target">Target</i></span>' +
-      '<span><i class="b-floor">Floor</i></span>' +
-      '<span><i class="b-below">Below floor</i></span>' +
-      '<span>talk ' + esc(tgt(T, 'talk_minutes')) + ' min</span>' +
-      '<span>calls ' + esc(tgt(T, 'calls')) + '</span>' +
-      '<span>conn ' + esc(tgt(T, 'connected')) + '</span>' +
-      '<span>' + longLbl + ' ' + esc(tgt(T, 'long_calls')) + '</span>' +
+      '<span>Daily target</span>' +
+      '<span>' + esc(one('talk_minutes')) + 'm talk</span>' +
+      '<span>' + esc(one('calls')) + ' calls</span>' +
+      '<span>' + esc(one('connected')) + ' conn</span>' +
+      '<span>' + esc(one('long_calls')) + ' ' + longLbl + '</span>' +
+      '<span><i class="b-below">red is under ' + esc(
+         (T.talk_minutes || {}).floor || '') + 'm</i></span>' +
       '</div>';
 
     if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {
@@ -539,11 +560,10 @@
     }
 
     var m = d.meta || {};
-    h += '<div class="floor">Source: RingEX per-extension call log' +
-         '<span class="sep">&middot;</span>Roster: ' + esc((m.roster || {}).source || '?') +
+    h += '<div class="floor">' + esc(d.source_label || 'Call log') +
          '<span class="sep">&middot;</span>' +
-         (m.cached ? 'cached ' + (m.age_seconds || 0) + 's ago' : 'fetched live') +
-         '<span class="sep">&middot;</span>Talk time counts connected calls only' +
+         (m.cached ? (m.age_seconds || 0) + 's old' : 'live') +
+         '<span class="sep">&middot;</span>connected calls only' +
          '</div>';
 
     $('out').innerHTML = h;
