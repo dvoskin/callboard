@@ -7,9 +7,14 @@ whichever report reaches further into it -- so the second arrival would win the
 watermark test and replace the first wholesale, emptying whichever board lost.
 Every fifteen minutes.
 
-This posts both reports for the same day and asserts both survive. The negative
-half matters more than the positive: a check that only proved "the new report
-stored" would pass just as happily while the sales report was being destroyed.
+Every distinct subject now gets its own slot, so a third report added later
+cannot collide with either of the first two -- it would, silently, because both
+files parse fine and the boards would simply show fewer people.
+
+This posts three reports for the same day and asserts all three survive. The
+negative half matters more than the positive: a check that only proved "the new
+report stored" would pass just as happily while the sales report was being
+destroyed.
 """
 import io
 import os
@@ -70,9 +75,11 @@ def run():
     r1 = _post(c, _csv([("Gregory Beltran", "10:00:00")]), "Daily Interaction Report (Sales)")
     r2 = _post(c, _csv([("Ariel Ramirez", "17:00:00"), ("Sarahi Rivera", "17:05:00")]),
                "Interaction Report (Inbound & Scheduling)")
+    # A THIRD report must get its own slot too, not collide with either.
+    r3 = _post(c, _csv([("Someone Else", "18:00:00")]), "Interaction Report (Retention)")
 
     sales = _agents_in(appmod._inbox_path_for(DAY_ISO))
-    cx = _agents_in(appmod._inbox_path_for(DAY_ISO, "inbound_scheduling"))
+    cx = _agents_in(appmod._inbox_path_for(DAY_ISO, "interaction_report_inbound_scheduling"))
 
     for label, got, want in [
         ("sales accepted", r1.status_code, 200),
@@ -80,6 +87,10 @@ def run():
         ("sales SURVIVED", "Gregory Beltran" in sales, True),
         ("cx stored separately", cx, {"Ariel Ramirez", "Sarahi Rivera"}),
         ("no cross-contamination", sales & cx, set()),
+        ("third report accepted", r3.status_code, 200),
+        ("third report own slot",
+         _agents_in(appmod._inbox_path_for(DAY_ISO, "interaction_report_retention")),
+         {"Someone Else"}),
     ]:
         ok = got == want
         print("  %-24s want %-28s got %-28s %s"

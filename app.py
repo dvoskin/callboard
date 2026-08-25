@@ -2193,19 +2193,24 @@ def api_v5_ingest():
         return jsonify({"error": "unauthorized"}), 401
 
     f = request.files.get("file")
-    # Which report is this? The forwarder passes the email subject; failing that
-    # the attachment name usually carries it. Unrecognised means the original
-    # sales slot, so nothing that already works has to change.
+    # Which report is this? Danny confirmed the reports differ by email subject,
+    # so the subject IS the discriminator and the forwarder passes it along.
+    #
+    # Every distinct subject gets its own slot, rather than a hard-coded pair --
+    # a third report added later must not collide with either of the first two,
+    # and it would, silently, because both files parse fine and the boards would
+    # just show fewer people.
+    #
+    # The one exception is the sales report, which keeps the original unscoped
+    # filename so the pipeline that already works is not migrated underneath it.
+    # An absent or unrecognisable subject also lands there, which is the
+    # backwards-compatible default.
     scope_raw = (request.headers.get("X-Report-Scope", "")
                  or request.args.get("scope", "")
                  or (f.filename if (f is not None and f.filename) else ""))
-    low = scope_raw.lower()
-    if "inbound" in low or "scheduling" in low:
-        scope = "inbound_scheduling"
-    elif request.args.get("scope"):
-        scope = _scope_slug(request.args["scope"])
-    else:
-        scope = ""
+    slug = _scope_slug(scope_raw)
+    default_match = os.environ.get("INGEST_DEFAULT_SCOPE_MATCH", "sales")
+    scope = "" if (not slug or default_match in slug) else slug
     raw = f.read() if (f is not None and f.filename) else request.get_data()
     if not raw:
         return jsonify({"error": "empty_body",
