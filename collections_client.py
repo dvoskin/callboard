@@ -183,20 +183,47 @@ class CollectionsClient:
         self._lock = threading.Lock()
         self._cache = {"at": 0.0, "data": None, "meta": None}
 
-    def daily_by_agent(self, force=False):
-        """({agent: {date: amount}}, meta)."""
+    def cached(self):
+        """Whatever is in the cache, WITHOUT fetching. Never blocks.
+
+        The tabs are megabytes each and live on Google's servers. Fetching them
+        inside a web request put the billing board past gunicorn's 90s worker
+        kill, and a killed worker drops the connection, so the page sat on
+        "Loading" forever. Requests read this; only the background refresher
+        calls refresh().
+        """
+        with self._lock:
+            c = self._cache
+            if c["data"] is None:
+                return {}, {"loading": True, "tabs": {}, "errors": [],
+                            "detail": "Collected amounts have not been read yet. "
+                                      "They load in the background and appear on "
+                                      "the next refresh."}
+            return c["data"], dict(c["meta"], cached=True,
+                                   age_seconds=round(time.time() - c["at"]))
+
+    def stale(self):
+        """True when the cache is old enough to be worth refreshing."""
+        with self._lock:
+            return self._cache["data"] is None or \
+                time.time() - self._cache["at"] >= _TTL
+
+    def refresh(self, force=False):
+        """Do the actual fetch. Background thread only -- this is slow."""
         now = time.time()
         with self._lock:
             c = self._cache
             if not force and c["data"] is not None and now - c["at"] < _TTL:
                 return c["data"], dict(c["meta"], cached=True)
+        if True:
             data, meta = {}, {"cached": False, "tabs": {}, "errors": []}
             try:
                 tabs = list_tabs(self.sheet_id)
             except Exception as e:  # noqa: BLE001
                 meta["errors"].append("could not list tabs: %s" % e)
                 log.warning("collections: tab list failed: %s", e)
-                return (c["data"] or {}), meta
+                with self._lock:
+                    return (self._cache["data"] or {}), meta
             for name, gid in tabs:
                 agent = TAB_TO_AGENT.get(name.strip().lower())
                 if not agent:
@@ -216,5 +243,10 @@ class CollectionsClient:
                 for d, v in per.items():
                     tgt[d] = tgt.get(d, 0.0) + v
             meta["agents"] = sorted(data)
-            self._cache = {"at": now, "data": data, "meta": meta}
+            with self._lock:
+                self._cache = {"at": time.time(), "data": data, "meta": meta}
             return data, meta
+
+    # Backwards-compatible alias; the diagnostic endpoint still uses it.
+    def daily_by_agent(self, force=False):
+        return self.refresh(force=force) if force else self.cached()

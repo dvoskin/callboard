@@ -1298,7 +1298,7 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # the dashboard.
     if team == "billing":
         try:
-            coll, cmeta = _collections.daily_by_agent()
+            coll, cmeta = _collections.cached()   # never fetches; see collections_client
             wanted = {d for d in days}
             for a in report.get("ranked", []) + report.get("silent", []) + \
                      report.get("stalled", []) + report.get("unknown", []):
@@ -1312,8 +1312,16 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                 a["collected_by_day"] = hit
             report["collections_meta"] = {
                 "tabs": cmeta.get("tabs", {}), "errors": cmeta.get("errors", []),
-                "cached": cmeta.get("cached"),
+                "cached": cmeta.get("cached"), "loading": cmeta.get("loading", False),
+                "age_seconds": cmeta.get("age_seconds"),
             }
+            if cmeta.get("loading"):
+                report["warnings"].append({
+                    "kind": "collections_loading",
+                    "message": ("Collected amounts have not been read yet -- the sheet loads in "
+                                "the background because it is large enough to time a page out. "
+                                "They appear on the next refresh."),
+                })
             # A tab where most rows had to inherit their date, or where many
             # dates would not parse, is not a number to set a target from.
             shaky = [t for t, st in (cmeta.get("tabs") or {}).items()
@@ -5798,6 +5806,30 @@ _ensure_background_thread()
 # gunicorn imports this module in the worker, `python app.py` runs it directly.
 if not _v6_warm_state["running"]:
     threading.Thread(target=_v6_warm_loop, daemon=True, name="v6-warm").start()
+
+
+def _collections_loop():
+    """Keep the collections cache warm off the request path.
+
+    The sheet's tabs are megabytes each. Reading them inside a request put the
+    billing board past gunicorn's 90s worker kill, which drops the connection and
+    leaves the page on "Loading" forever -- the same mistake as fetching RingEX
+    inline, made twice. Nothing waits on this thread; it only ever makes the next
+    page load correct.
+    """
+    time.sleep(5)          # let the worker finish booting first
+    while True:
+        try:
+            if _collections.stale():
+                _collections.refresh()
+        except Exception as e:  # noqa: BLE001
+            log.warning("collections refresh failed: %s", e)
+        time.sleep(120)
+
+
+if not globals().get("_collections_started"):
+    _collections_started = True
+    threading.Thread(target=_collections_loop, daemon=True, name="collections").start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
