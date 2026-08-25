@@ -2565,7 +2565,13 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
     if not paths:
         return None
     try:
-        age_h = min((time.time() - q.stat().st_mtime) / 3600.0 for q in paths)
+        # The OLDEST contributing report, not the freshest. The staleness
+        # warning exists to catch a forwarder that has stopped; taking the
+        # newest file would let a healthy Inbound & Scheduling report every
+        # fifteen minutes mask a sales report that died hours ago, and the board
+        # would quietly rank people on stale numbers with no warning at all.
+        ages = {q.name: round((time.time() - q.stat().st_mtime) / 3600.0, 2) for q in paths}
+        age_h = max(ages.values())
         rows, unit, seen = [], None, set()
         for q in paths:
             got, u = parse_interaction_csv(q.read_text(encoding="utf-8-sig", errors="replace"))
@@ -2579,15 +2585,18 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
         meta = {"source": "emailed_interaction_report",
                 "file": ", ".join(q.name for q in paths),
                 "reports": len(paths),
+                "report_ages_hours": ages,
                 "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2),
                 "covers_to": covers_to or None}
         if is_today and age_h > stale_after_hours:
             # Still use it -- a stale report beats a different report -- but say so.
             meta["stale"] = True
+            oldest = max(ages, key=ages.get)
             meta["stale_detail"] = (
-                "The newest delivered report for today is %.1f hours old. The report "
-                "is emailed hourly, so the forwarder has probably stopped. Figures "
-                "below are correct up to that point, not up to now." % age_h)
+                "%s has not been delivered for %.1f hours. The reports are emailed "
+                "through the day, so the forwarder has probably stopped. Figures "
+                "below are correct up to that point, not up to now."
+                % (oldest, age_h))
         return rows, meta
     except Exception as e:  # noqa: BLE001
         log.warning("ringcx inbox for %s unusable: %s", date_start, e)

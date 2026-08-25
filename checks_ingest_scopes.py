@@ -19,6 +19,7 @@ destroyed.
 import io
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -203,6 +204,31 @@ def run():
     loaded2 = appmod._load_inbox_csv(DAY_ISO, is_today=False)
     for label, got, want_ in [
         ("same call counted once", len(loaded2[0] if loaded2 else []), 1),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
+    # A stopped forwarder must still be visible once several reports feed one
+    # board. Taking the FRESHEST file's age would let an Inbound & Scheduling
+    # report arriving every fifteen minutes mask a sales report that died hours
+    # ago -- the board would rank people on stale numbers and say nothing.
+    import os as _os
+    for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        p.unlink()
+    _post(c, _csv([("Gregory Beltran", "10:00:00")]), "Daily Interaction Report (Sales)")
+    _post(c, _csv([("Ariel Ramirez", "17:00:00")]), "Interaction Report (Inbound & Scheduling)")
+    old_p = appmod._inbox_path_for(DAY_ISO)          # the sales slot
+    long_ago = time.time() - 6 * 3600
+    _os.utime(old_p, (long_ago, long_ago))
+    loaded3 = appmod._load_inbox_csv(DAY_ISO, is_today=True, stale_after_hours=3.0)
+    m3 = loaded3[1] if loaded3 else {}
+    for label, got, want_ in [
+        ("stale report is flagged", m3.get("stale"), True),
+        ("...and named", old_p.name in (m3.get("stale_detail") or ""), True),
+        ("...age is the oldest", round(m3.get("age_hours") or 0) >= 6, True),
+        ("...rows still returned", len(loaded3[0]) if loaded3 else 0, 2),
     ]:
         ok = got == want_
         print("  %-24s want %-28s got %-28s %s"
