@@ -948,6 +948,29 @@ TEAM_TARGETS = {
     },
 }
 
+# Each team's own intraday shape, measured the same way the targets were: from
+# the RingCX Interaction Report over 2026-05-28..07-29. Billing's curve lives in
+# billing_report as the fallback and is a POOR fit for these two -- they take
+# queue calls from log-on, while billing dials out and is barely started before
+# 10. At 9am billing's curve says 0.5% of the day is done; inbound is really at
+# 4.7%. Judged against billing, an inbound agent read as ~8x expected all
+# morning, and around 10am as ~2x. That is the "200% of expected" on the board.
+#
+# A seat with 10+ working days still uses its OWN curve; this is the fallback
+# for everyone else, and for a new starter.
+TEAM_PACE_CURVES = {
+    "scheduling": [  # 160 working agent-days
+        0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000,   # 00-07
+        0.000, 0.014, 0.076, 0.145, 0.261, 0.375, 0.469, 0.556,   # 08-15
+        0.681, 0.816, 0.932, 0.962, 0.999, 1.000, 1.000, 1.000,   # 16-23
+    ],
+    "inbound": [  # 174 working agent-days
+        0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000,   # 00-07
+        0.000, 0.047, 0.131, 0.199, 0.319, 0.409, 0.528, 0.628,   # 08-15
+        0.714, 0.829, 0.911, 0.961, 1.000, 1.000, 1.000, 1.000,   # 16-23
+    ],
+}
+
 BILLING_TOKEN = os.environ.get("BILLING_TOKEN", "")
 if not BILLING_TOKEN:
     print("[v6] BILLING_TOKEN is not set — /v6/board returns 404 for every request. "
@@ -1354,6 +1377,7 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
         window={"start": date_start, "end": date_end},
         roster_meta=roster_meta, now_local=now_local, curves=curves,
         targets=TEAM_TARGETS.get(team),
+        default_curve=TEAM_PACE_CURVES.get(team),
     )
     # Collected amounts, billing only. Joined by agent+day so it lines up with
     # the same working days the call figures use. Read-only and aggregate: the

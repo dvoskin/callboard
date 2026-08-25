@@ -99,6 +99,14 @@ _PACE_CURVE_DEFAULT = [
 # the pooled default is the better estimate.
 MIN_DAYS_FOR_OWN_CURVE = 10
 
+# How much of the day must have elapsed before "ahead of / behind pace" means
+# anything. Below this the denominator is a sliver of a target and the ratio is
+# arithmetic noise: at 9am the curve says half a percent of the day is gone, so
+# one answered call reads as several hundred percent of expected. That is what
+# put agents on the board at 200%. Projection already stopped here; the RATIO
+# did not, and the ratio is the number on the board.
+MIN_FRAC_TO_JUDGE = 0.15
+
 
 def build_pace_curve(day_hour_totals):
     """A seat's own intraday curve from its history.
@@ -221,7 +229,7 @@ def grade(value, spec):
     return "below"
 
 
-def build_report(rows_by_agent, *, tz_offset_minutes=0, window=None,
+def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, window=None,
                  targets=None, long_call_seconds=LONG_CALL_SECONDS,
                  roster_meta=None, now_local=None, curves=None):
     """Build the billing scoreboard.
@@ -312,7 +320,13 @@ def build_report(rows_by_agent, *, tz_offset_minutes=0, window=None,
         pace = None
         if live:
             own = curves.get(name)
-            frac = pace_fraction(own, now_local.hour, now_local.minute)
+            # A seat with too little history of its own falls back to its TEAM's
+            # curve, not to billing's. Scheduling and Inbound take queue calls
+            # from the moment they log on; billing dials out and is barely
+            # started before 10. Measured over 160 and 174 working agent-days,
+            # inbound is 4.7% done by 9am where billing's curve says 0.5% -- so
+            # judging them against billing's morning read as ~8x expected.
+            frac = pace_fraction(own or default_curve, now_local.hour, now_local.minute)
             today_b = by_day.get(now_local.date().isoformat()) or _blank_bucket()
             actual = {
                 "talk_minutes": round(today_b["talk_seconds"] / 60.0, 1),
@@ -332,13 +346,14 @@ def build_report(rows_by_agent, *, tz_offset_minutes=0, window=None,
                 # Projecting from a sliver of the day is arithmetic, not insight:
                 # at 9:05am one connected call extrapolates to a heroic day. Below
                 # 15% elapsed there is no projection, and the board says so.
-                proj = round(v / frac, 1) if frac >= 0.15 else None
+                judge = frac >= MIN_FRAC_TO_JUDGE
+                proj = round(v / frac, 1) if judge else None
                 pace["projected"][k] = proj
-                pace["ratio"][k] = round(v / exp, 2) if exp > 0 else None
+                pace["ratio"][k] = round(v / exp, 2) if (judge and exp > 0) else None
                 # Colour the live day by where it is HEADED, not by the fraction
                 # of a target a half-finished day has reached.
                 pace["grades"][k] = grade(proj, targets[k]) if proj is not None else None
-            pace["projectable"] = frac >= 0.15
+            pace["projectable"] = frac >= MIN_FRAC_TO_JUDGE
 
         daily_talk = sorted(b["talk_seconds"] / 60.0 for b in worked.values())
         agents.append({
