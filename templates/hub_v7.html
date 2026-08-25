@@ -29,6 +29,12 @@
   .sub{margin:0;font-size:13px;color:var(--muted)}
   .who{margin-top:9px;font-size:12px;color:var(--muted)}
   .who b{color:var(--ink-2);font-weight:600}
+  /* Someone who came in on the hub-only password will meet another door on the
+     way through. Saying so here beats letting them find a dead end. */
+  .limited{margin-top:11px;padding:9px 12px;border-radius:8px;
+           background:var(--tint);border:1px solid var(--rule);
+           font-size:12px;color:var(--ink-2);line-height:1.5}
+  .limited b{color:var(--ink)}
 
   /* One grid, not three sections. Three headings over five cards meant two
      sections of ONE, each leaving a half-empty row -- the structure was
@@ -80,6 +86,11 @@
     <p class="sub">Everything the floor and the back office run on, in one place.</p>
     {% if current_user and current_user.get('email') %}
       <p class="who">Signed in as <b>{{ current_user.get('email') }}</b></p>
+    {% endif %}
+    {% if limited %}
+      <div class="limited">You are in with the <b>hub password</b>, which opens this page only.
+        The Sales Floor Scoreboard and the Billing KPI Board name individual people, so they
+        ask for their own password or a Goals sign-in.</div>
     {% endif %}
   </header>
 

@@ -683,6 +683,36 @@ if not V5_PASSWORDS:
     print("[v5] V5_PASSWORDS is not set — /v5 is Google login only. Set it to a "
           "comma-separated list to hand out word passwords instead.", flush=True)
 
+# A SEPARATE, weaker password for the /v7 hub only.
+#
+# The hub is a list of links; /v5 and /v6 name individual employees and rank
+# their performance. Those deserve different doors, so a v7 password opens the
+# hub and nothing else -- clicking through to a board still asks for the v5 word
+# or a Google login. A v5 password typed at the hub grants full access, because
+# the stronger credential implies the weaker one.
+#
+# The same per-IP throttle covers both. That matters here: this exists so the
+# hub password can be something short and memorable, and a short password is
+# only as safe as the guess rate.
+V7_PASSWORDS = tuple(
+    p.strip() for p in os.environ.get("V7_PASSWORDS", "").split(",") if p.strip()
+)
+if not V7_PASSWORDS:
+    print("[v7] V7_PASSWORDS is not set — /v7 uses the same gate as /v5. Set it to "
+          "give the hub its own, hub-only password.", flush=True)
+
+
+def _v7_password_matches(supplied: str) -> bool:
+    """Constant-time against every configured hub password, for the same reason
+    _v5_password_matches is: response time otherwise says which one matched."""
+    if not supplied or not V7_PASSWORDS:
+        return False
+    ok = False
+    for p in V7_PASSWORDS:
+        if hmac.compare_digest(supplied, p):
+            ok = True
+    return ok
+
 _V5_PW_MAX_TRIES = 8          # per IP, per window
 _V5_PW_WINDOW = 300.0         # 5 minutes
 _v5_pw_tries: dict = {}
@@ -1265,22 +1295,55 @@ def scoreboard_v6():
     return render_template("v5_password.html", error=error), (401 if error else 200)
 
 
-@app.route("/v7")
+@app.route("/v7", methods=["GET", "POST"])
 def hub_v7():
     """One page listing every dashboard, so nobody has to remember which number
-    is which. Same gate as /v5 and /v6 -- a Google session or the shared word
-    password -- because it links straight into them and a hub behind a weaker
-    door than its destinations is just a directory of what to guess at.
+    is which.
+
+    Three ways in, and they are NOT equivalent:
+      * a Google session, or the /v5 word password -> everything
+      * the hub's own V7_PASSWORDS word           -> this page only
+    The hub is a list of links; /v5 and /v6 name individual employees and rank
+    their performance, so a hub password does not open them. Someone who came in
+    that way still meets the board's own door on the way through, and the page
+    tells them so rather than letting them find a dead end.
 
     Surgery Readiness lives on a different service and opens in a new tab; it
-    carries its own sign-in, which the footer says rather than leaving someone
-    to discover it.
+    carries its own sign-in, which the footer says.
     """
-    if session.get("user") or session.get("v5_pw") or not GOOGLE_CLIENT_ID:
-        return render_template("hub_v7.html", current_user=session.get("user") or {})
-    if not V5_PASSWORDS:
+    ip = (request.headers.get("CF-Connecting-IP")
+          or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+          or request.remote_addr or "?")
+    error = ""
+    if request.method == "POST":
+        supplied = request.form.get("password", "").strip()
+        if _v5_pw_throttled(ip):
+            error = "Too many tries. Wait five minutes."
+        elif _v5_password_matches(supplied):
+            session["v5_pw"] = True          # the stronger word implies the weaker
+            return redirect(url_for("hub_v7"))
+        elif _v7_password_matches(supplied):
+            session["v7_pw"] = True          # hub only
+            return redirect(url_for("hub_v7"))
+        else:
+            _v5_pw_record_failure(ip)
+            error = "That is not the password."
+
+    full = bool(session.get("user")) or bool(session.get("v5_pw")) or not GOOGLE_CLIENT_ID
+    if full or session.get("v7_pw"):
+        return render_template("hub_v7.html",
+                               current_user=session.get("user") or {},
+                               limited=not full)
+    if not V5_PASSWORDS and not V7_PASSWORDS:
         return redirect("/login")
-    return render_template("v5_password.html", error=""), 200
+    return render_template("v5_password.html", error=error), (401 if error else 200)
+
+
+@app.route("/v7/logout")
+def hub_v7_logout():
+    session.pop("v7_pw", None)
+    session.pop("v5_pw", None)
+    return redirect(url_for("hub_v7"))
 
 
 @app.route("/v6/board")
