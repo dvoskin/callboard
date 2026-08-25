@@ -97,13 +97,34 @@ if GOOGLE_REDIRECT_URI:
 oauth.register(**_google_reg)
 
 
+def _word_authed() -> bool:
+    """True if this session came in on one of the shared word passwords.
+
+    One flag for both words: the /v5 word and the /v7 hub word are the same tier
+    once you are through the door. Danny asked for the hub to cross-authenticate
+    the dashboards, so somebody who typed either word at /v7 walks straight into
+    the Scheduled Call Tracker, Sales Talk Time and the KPI boards without being
+    asked again.
+    """
+    return bool(session.get("v5_pw")) or bool(session.get("v7_pw"))
+
+
 def login_required(f):
-    """Decorator: redirect to /login if not authenticated."""
+    """Redirect to /login if not authenticated.
+
+    A shared word password now satisfies this for READS. It deliberately does
+    NOT satisfy it for writes: the same decorator guards endpoints that text
+    patients, resolve calls and edit notes, and a word that gets handed round the
+    floor should not be able to send an SMS to a patient. Those still want a real
+    account, so anything other than GET/HEAD falls through to the Google check.
+    """
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         if not GOOGLE_CLIENT_ID:
             return f(*args, **kwargs)  # SSO disabled if no credentials
         if not session.get("user"):
+            if _word_authed() and request.method in ("GET", "HEAD"):
+                return f(*args, **kwargs)
             if request.path.startswith("/api/"):
                 return jsonify({"error": "unauthorized"}), 401
             return redirect("/login")
@@ -765,8 +786,7 @@ def _v5_allowed() -> bool:
     SSO-disabled fallback so local dev behaves the same."""
     if not GOOGLE_CLIENT_ID:
         return True
-    return (bool(session.get("user")) or bool(session.get("v5_pw"))
-            or _v5_token_ok())
+    return bool(session.get("user")) or _word_authed() or _v5_token_ok()
 
 
 @app.route("/v5", methods=["GET", "POST"])
@@ -793,7 +813,7 @@ def scoreboard_v5():
             _v5_pw_record_failure(ip)
             error = "That is not the password."
 
-    if session.get("user") or session.get("v5_pw") or not GOOGLE_CLIENT_ID:
+    if session.get("user") or _word_authed() or not GOOGLE_CLIENT_ID:
         return render_template("scoreboard_v5.html",
                                current_user=session.get("user") or {},
                                share_mode=False, share_token="")
@@ -901,7 +921,27 @@ _BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
 # p75. A team with no entry here falls back to billing_report's defaults, which
 # ARE billing's numbers -- fine as a placeholder, wrong as a permanent answer,
 # because a scheduling seat and a billing seat do not have the same day.
-TEAM_TARGETS = {}
+TEAM_TARGETS = {
+    # Scheduling and Inbound measured from the RingCX Interaction Report export
+    # covering 2026-05-28..07-29 (63 consecutive days, no gaps): 177 and 191
+    # working agent-days respectively. Same rule as billing -- floor = p25 of
+    # observed days, target = median, stretch = p75 -- so the three teams are
+    # set the same way even though their numbers differ a lot. Both talk more
+    # than billing does, which is why inheriting billing's targets would have
+    # been wrong: 85 minutes is billing's median and Inbound's FLOOR is 80.
+    "scheduling": {
+        "talk_minutes": {"floor": 70, "target": 94, "stretch": 132},
+        "calls":        {"floor": 43, "target": 53, "stretch": 67},
+        "connected":    {"floor": 33, "target": 40, "stretch": 49},
+        "long_calls":   {"floor": 6, "target": 8, "stretch": 10},
+    },
+    "inbound": {
+        "talk_minutes": {"floor": 80, "target": 133, "stretch": 180},
+        "calls":        {"floor": 54, "target": 73, "stretch": 114},
+        "connected":    {"floor": 43, "target": 58, "stretch": 80},
+        "long_calls":   {"floor": 7, "target": 12, "stretch": 18},
+    },
+}
 
 BILLING_TOKEN = os.environ.get("BILLING_TOKEN", "")
 if not BILLING_TOKEN:
@@ -1055,6 +1095,79 @@ def _v6_seat_curve(ext_id, tz_offset_minutes, days_back=45):
     return build_pace_curve(per_day)
 
 
+_CX_TZ = os.environ.get("RINGCX_TZ_OFFSET", "-04:00")   # report times are US/Eastern
+
+
+def _cx_iso(raw, day_iso):
+    """RingCX "MM/DD/YYYY HH:MM:SS" -> ISO with an offset.
+
+    Two traps in one line. The report is not ISO, so fromisoformat rejects it and
+    every row lands in no day at all -- which surfaces as a whole team reading
+    "dialled but never connected". And the times are LOCAL (US/Eastern), so
+    emitting them naive would have them read as UTC and shift every evening call
+    back a day.
+    """
+    t = (raw or "").strip()
+    if not t:
+        return ""
+    for fmt in ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M"):
+        try:
+            return datetime.strptime(t, fmt).strftime("%Y-%m-%dT%H:%M:%S") + _CX_TZ
+        except ValueError:
+            pass
+    if "T" in t:                      # already ISO
+        return t
+    # Time-only ("17:38:58 US/Eastern") -- pin it to the day the file is for.
+    head = t.split(" ")[0]
+    try:
+        datetime.strptime(head, "%H:%M:%S")
+        return f"{day_iso}T{head}{_CX_TZ}"
+    except ValueError:
+        return ""
+
+
+def _v6_cx_rows_for_team(team, days, roster):
+    """RingCX interaction rows for this team, from the delivered Interaction
+    Reports, as {agent_name: [row, ...]}.
+
+    Same emailed-report pipeline /v5 already runs on: RingCX mails the report,
+    the forwarder POSTs it to /api/v5/ingest, it lands in the inbox keyed by day.
+    Rows are translated into the RingEX direction+result shape so build_report
+    does not need to know which platform a team came from.
+
+    RingCX says "Outbound Answered" / "Inbound Accepted"; both mean two people
+    spoke. Talk time is already SECONDS -- the export's "(min)" header is wrong,
+    verified on the 2026-05-28..07-29 extract where SUM(interaction)/SUM(talk)
+    came out at 1.34 rather than 60.
+    """
+    want = {r["name"].strip().lower(): r["name"] for r in roster}
+    by_agent, found_days = {}, 0
+    for day in days:
+        loaded = _load_inbox_csv(day, is_today=False)
+        if not loaded:
+            continue
+        found_days += 1
+        rows, _meta = loaded
+        for r in rows:
+            nm = (r.get("agent_name") or "").strip().lower()
+            if nm not in want:
+                continue
+            res = r.get("result") or ""
+            answered = ("Answered" in res) or ("Accepted" in res)
+            raw_dir = (r.get("direction") or r.get("call_type") or "")
+            outbound = "out" in raw_dir.lower()
+            by_agent.setdefault(want[nm], []).append({
+                "direction": "Outbound" if outbound else "Inbound",
+                "result": ("Call connected" if (answered and outbound)
+                           else "Accepted" if answered
+                           else "No Answer" if outbound else "Missed"),
+                "duration": r.get("talk_time", r.get("duration", 0)) or 0,
+                "start_time": _cx_iso(r.get("start_time"), day),
+                "source": "ringcx",
+            })
+    return by_agent, found_days
+
+
 def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT_TEAM):
     """Assemble the window from day snapshots, fetching only what is missing."""
     roster, roster_meta = _billing_roster(team)
@@ -1062,6 +1175,33 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
     d1 = datetime.strptime(date_end, "%Y-%m-%d").date()
     days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
 
+    # Scheduling and Inbound have no usable RingEX activity, so for them the
+    # delivered RingCX Interaction Report is not a supplement -- it is the only
+    # source. Take it instead of spending RingEX budget on empty seats.
+    if _TEAM_SOURCES.get(team) == "ringcx":
+        cx_by_agent, cx_days = _v6_cx_rows_for_team(team, days, roster)
+        missing_days = [] if cx_days >= len(days) else ["%d day(s)" % (len(days) - cx_days)]
+        rows_by_agent = {
+            seat["name"]: {
+                "rows": cx_by_agent.get(seat["name"], []),
+                "ext": seat["ext"], "ext_id": seat["ext_id"],
+                # No delivered report for a day is NOT "they made no calls" --
+                # it is a day nobody has sent us yet.
+                "complete": cx_days >= len(days),
+                "missing_days": missing_days,
+            }
+            for seat in roster
+        }
+        stats = {"cached": cx_days, "fetched": 0, "missing": max(0, len(days) - cx_days)}
+    else:
+        rows_by_agent, stats = _v6_fetch_ringex(roster, days, local_today,
+                                                tz_offset_minutes)
+    return _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
+                      date_start, date_end, tz_offset_minutes, local_today)
+
+
+def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
+    """Day snapshots for a RingEX team, fetching only what is missing."""
     deadline = time.time() + _V6_DEADLINE
     budget = _V6_FETCH_BUDGET
     rows_by_agent, stats = {}, {"cached": 0, "fetched": 0, "missing": 0}
@@ -1109,6 +1249,12 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
             "complete": not missing, "missing_days": missing,
         }
 
+    return rows_by_agent, stats
+
+
+def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
+               date_start, date_end, tz_offset_minutes, local_today):
+    """Shared tail: pace curves, report build, and the notes about what is missing."""
     offset_east = -(tz_offset_minutes if tz_offset_minutes is not None
                     else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
 
@@ -1130,7 +1276,10 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
     report["team"] = team
     report["team_label"] = TEAM_LABELS[team]
     report["source_platform"] = _TEAM_SOURCES.get(team, "ringex")
-    if _TEAM_SOURCES.get(team) == "ringcx":
+    # Only claim the platform gap while nothing has actually been delivered.
+    # Once reports start arriving this board is real, and leaving the banner up
+    # would tell people to ignore correct numbers.
+    if _TEAM_SOURCES.get(team) == "ringcx" and not stats.get("cached"):
         # Everything below came from RingEX, which for this team only ever sees
         # the calls they did NOT take. Say so at the top rather than letting the
         # numbers speak for a platform they do not describe.
@@ -1142,8 +1291,9 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
                 f"that was 100% inbound, almost all missed or voicemail, because they are "
                 f"logged into the contact centre instead. Their real call activity is in "
                 f"RingCX, whose reporting API returns 403 for this account (WEM / Data "
-                f"Management is not enabled). The figures below are overflow, not "
-                f"performance -- do not set a KPI from them."),
+                f"Management is not enabled), and no Interaction Report has been "
+                f"delivered for this window yet. Nothing below is this team's "
+                f"performance -- do not set a KPI from it."),
             "unblock": [
                 "Enable RingCX Data Management / WEM API access for the app, which makes "
                 "this board fill in on its own.",
@@ -1360,8 +1510,7 @@ def _v6_allowed() -> bool:
     board, so it does NOT accept SCOREBOARD_TOKEN."""
     if not GOOGLE_CLIENT_ID:
         return True
-    return (bool(session.get("user")) or bool(session.get("v5_pw"))
-            or _v6_token_ok())
+    return bool(session.get("user")) or _word_authed() or _v6_token_ok()
 
 
 @app.route("/v6", methods=["GET", "POST"])
@@ -1384,7 +1533,7 @@ def scoreboard_v6():
             _v5_pw_record_failure(ip)
             error = "That is not the password."
 
-    if session.get("user") or session.get("v5_pw") or not GOOGLE_CLIENT_ID:
+    if session.get("user") or _word_authed() or not GOOGLE_CLIENT_ID:
         return render_template("scoreboard_v6.html",
                                current_user=session.get("user") or {},
                                share_mode=False, share_token="")
@@ -1427,11 +1576,12 @@ def hub_v7():
             _v5_pw_record_failure(ip)
             error = "That is not the password."
 
-    full = bool(session.get("user")) or bool(session.get("v5_pw")) or not GOOGLE_CLIENT_ID
-    if full or session.get("v7_pw"):
+    if session.get("user") or _word_authed() or not GOOGLE_CLIENT_ID:
+        # No "limited" banner any more: the word now opens every dashboard the
+        # hub links to, so there is no second door to warn about.
         return render_template("hub_v7.html",
                                current_user=session.get("user") or {},
-                               limited=not full)
+                               limited=False)
     if not V5_PASSWORDS and not V7_PASSWORDS:
         return redirect("/login")
     return render_template("v5_password.html", error=error), (401 if error else 200)
