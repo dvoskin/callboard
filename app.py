@@ -2221,9 +2221,14 @@ def api_v5_ingest():
     # filename so the pipeline that already works is not migrated underneath it.
     # An absent or unrecognisable subject also lands there, which is the
     # backwards-compatible default.
+    # Subject only. The attachment FILENAME looked like a reasonable fallback and
+    # is not one: RingCX names both reports similarly, and a forwarder that posts
+    # every attachment as "report.csv" would give two different reports the SAME
+    # scope -- which is the collision this whole mechanism exists to prevent,
+    # reintroduced one layer down. No subject means the default slot, and the
+    # agent-overlap net below protects that case instead.
     scope_raw = (request.headers.get("X-Report-Scope", "")
-                 or request.args.get("scope", "")
-                 or (f.filename if (f is not None and f.filename) else ""))
+                 or request.args.get("scope", ""))
     slug = _scope_slug(scope_raw)
     default_match = os.environ.get("INGEST_DEFAULT_SCOPE_MATCH", "sales")
     scope = "" if (not slug or default_match in slug) else slug
@@ -2278,6 +2283,28 @@ def api_v5_ingest():
         except ValueError:
             day_iso = day_us
         path = _inbox_path_for(day_iso, scope)
+
+        # Safety net for an un-updated forwarder. If this report carries NO
+        # subject and the day's default slot already holds a report about a
+        # DIFFERENT set of agents, replacing it would destroy the other team's
+        # data. Two reports that share no agents are not two versions of one
+        # report -- they are two reports. File this one aside instead.
+        if not scope and path.exists():
+            try:
+                prev_agents = {(r.get("Agent Full Name") or "").strip()
+                               for r in _csv.DictReader(_io.StringIO(
+                                   path.read_text(encoding="utf-8-sig", errors="replace")))
+                               if (r.get("Agent Full Name") or "").strip()}
+                new_agents = {(r.get("Agent Full Name") or "").strip()
+                              for r in day_rows
+                              if (r.get("Agent Full Name") or "").strip()}
+                if prev_agents and new_agents and not (prev_agents & new_agents):
+                    scope = "unnamed_%d" % (abs(hash(frozenset(new_agents))) % 10000)
+                    path = _inbox_path_for(day_iso, scope)
+                    log.warning("ingest: report shares no agents with the stored day; "
+                                "filing under scope %s instead of replacing it", scope)
+            except Exception as e:  # noqa: BLE001
+                log.warning("ingest: agent-overlap check failed: %s", e)
 
         # A rolling report can arrive out of order (the 1PM one after the 3PM one),
         # so a day is only replaced by a report that reaches FURTHER INTO it.

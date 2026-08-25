@@ -110,6 +110,28 @@ def run():
               % (label, want, got, "OK" if ok else "<<< FAIL"))
         fails += 0 if ok else 1
 
+    # SAFETY NET: an un-updated forwarder sends no subject at all. Two reports
+    # that share no agents must still not destroy each other.
+    for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        p.unlink()
+    c.post("/api/v5/ingest", headers={"X-API-Key": "test-ingest-key"},
+           data={"file": (io.BytesIO(_csv([("Gregory Beltran", "10:00:00")]).encode()), "r.csv")},
+           content_type="multipart/form-data")
+    c.post("/api/v5/ingest", headers={"X-API-Key": "test-ingest-key"},
+           data={"file": (io.BytesIO(_csv([("Ariel Ramirez", "17:00:00")]).encode()), "r.csv")},
+           content_type="multipart/form-data")
+    survived = _agents_in(appmod._inbox_path_for(DAY_ISO))
+    all_agents = set().union(*[_agents_in(p) for p in
+                               appmod._inbox_paths_all_scopes(DAY_ISO)] or [set()])
+    for label, got, want_ in [
+        ("no-subject: first kept", "Gregory Beltran" in survived, True),
+        ("no-subject: second kept", "Ariel Ramirez" in all_agents, True),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
     # A day where ONLY the sales report arrived must not mark a CX team's window
     # read. Otherwise every one of them renders as "logged no calls at all" --
     # an accusation assembled from another team's report.
