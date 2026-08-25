@@ -91,7 +91,7 @@ function forwardRingCXReports() {
 
       let allOk = true;
       csvs.forEach(function (att) {
-        const res = post_(att);
+        const res = post_(att, msg.getSubject());
         const code = res.getResponseCode();
         if (code === 200) {
           console.log('ingested ' + att.getName() + ' -> ' + res.getContentText());
@@ -122,10 +122,18 @@ function forwardRingCXReports() {
   }
 }
 
-function post_(attachment) {
+function post_(attachment, subject) {
+  // RingCX mails more than one report from the same address -- the sales
+  // Interaction Report and one scoped to Inbound & Scheduling. They cover
+  // different agents. Without the subject the server files both under the same
+  // day and the second one REPLACES the first, quietly emptying whichever board
+  // lost the race. Sending the subject lets each land in its own slot.
   return UrlFetchApp.fetch(HOST + '/api/v5/ingest', {
     method: 'post',
-    headers: { 'X-API-Key': INGEST_KEY },
+    headers: {
+      'X-API-Key': INGEST_KEY,
+      'X-Report-Scope': String(subject || ''),
+    },
     payload: { file: attachment.copyBlob().setName(attachment.getName()) },
     muteHttpExceptions: true,
     followRedirects: true,

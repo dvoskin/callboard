@@ -1145,11 +1145,20 @@ def _v6_cx_rows_for_team(team, days, roster):
     want = {r["name"].strip().lower(): r["name"] for r in roster}
     by_agent, found_days = {}, 0
     for day in days:
-        loaded = _load_inbox_csv(day, is_today=False)
-        if not loaded:
+        # Every scope for the day, not just the default slot: the team's agents
+        # may arrive in the Inbound & Scheduling report, the sales one, or both.
+        # Filtering by roster afterwards makes merging them safe.
+        rows = []
+        for path in _inbox_paths_all_scopes(day):
+            try:
+                parsed, _u = parse_interaction_csv(
+                    path.read_text(encoding="utf-8-sig", errors="replace"))
+                rows.extend(parsed)
+            except Exception as e:  # noqa: BLE001
+                log.warning("v6: inbox file %s unusable: %s", path.name, e)
+        if not rows:
             continue
         found_days += 1
-        rows, _meta = loaded
         for r in rows:
             nm = (r.get("agent_name") or "").strip().lower()
             if nm not in want:
@@ -1691,8 +1700,31 @@ if not INGEST_API_KEY:
     )
 
 
-def _inbox_path_for(day: str):
+# RingCX mails MORE THAN ONE report from the same address: the sales Interaction
+# Report and, since 2026-08-25, one scoped to Inbound & Scheduling. They cover
+# different agents, and the inbox was keyed by DAY alone -- so whichever arrived
+# second reached further into the day, won the watermark test, and replaced the
+# other one wholesale. That would have quietly emptied /v5 every fifteen minutes.
+#
+# A report now files under its own scope. No scope keeps the original filename,
+# so everything already delivered, and the sales forwarder, carry on untouched.
+_SCOPE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _scope_slug(raw: str) -> str:
+    s = _SCOPE_RE.sub("_", (raw or "").strip().lower()).strip("_")
+    return s[:40]
+
+
+def _inbox_path_for(day: str, scope: str = ""):
+    if scope:
+        return RINGCX_INBOX_DIR / ("interactions_%s__%s.csv" % (day, scope))
     return RINGCX_INBOX_DIR / ("interactions_%s.csv" % day)
+
+
+def _inbox_paths_all_scopes(day: str):
+    """Every delivered report for a day, whatever its scope."""
+    return sorted(RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % day))
 
 
 # The account call-log is rate limited to roughly 10 requests a minute, and each
@@ -2161,6 +2193,19 @@ def api_v5_ingest():
         return jsonify({"error": "unauthorized"}), 401
 
     f = request.files.get("file")
+    # Which report is this? The forwarder passes the email subject; failing that
+    # the attachment name usually carries it. Unrecognised means the original
+    # sales slot, so nothing that already works has to change.
+    scope_raw = (request.headers.get("X-Report-Scope", "")
+                 or request.args.get("scope", "")
+                 or (f.filename if (f is not None and f.filename) else ""))
+    low = scope_raw.lower()
+    if "inbound" in low or "scheduling" in low:
+        scope = "inbound_scheduling"
+    elif request.args.get("scope"):
+        scope = _scope_slug(request.args["scope"])
+    else:
+        scope = ""
     raw = f.read() if (f is not None and f.filename) else request.get_data()
     if not raw:
         return jsonify({"error": "empty_body",
@@ -2211,7 +2256,7 @@ def api_v5_ingest():
             day_iso = datetime.strptime(day_us, "%m/%d/%Y").date().isoformat()
         except ValueError:
             day_iso = day_us
-        path = _inbox_path_for(day_iso)
+        path = _inbox_path_for(day_iso, scope)
 
         # A rolling report can arrive out of order (the 1PM one after the 3PM one),
         # so a day is only replaced by a report that reaches FURTHER INTO it.
