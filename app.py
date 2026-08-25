@@ -1158,6 +1158,14 @@ def _v6_cx_rows_for_team(team, days, roster):
                 log.warning("v6: inbox file %s unusable: %s", path.name, e)
         if not rows:
             continue
+        # A day counts as DELIVERED for this team only if the team's own agents
+        # appear in it. The inbox holds every report, so a day where only the
+        # SALES report arrived would otherwise mark this team's window "fully
+        # read" -- and every one of them would render as "logged no calls at
+        # all", which is an accusation built out of somebody else's report.
+        # If none of them appear, we do not know whether they worked.
+        if not any((r.get("agent_name") or "").strip().lower() in want for r in rows):
+            continue
         found_days += 1
         for r in rows:
             nm = (r.get("agent_name") or "").strip().lower()

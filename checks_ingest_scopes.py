@@ -110,6 +110,22 @@ def run():
               % (label, want, got, "OK" if ok else "<<< FAIL"))
         fails += 0 if ok else 1
 
+    # A day where ONLY the sales report arrived must not mark a CX team's window
+    # read. Otherwise every one of them renders as "logged no calls at all" --
+    # an accusation assembled from another team's report.
+    for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        p.unlink()
+    _post(c, _csv([("Gregory Beltran", "10:00:00")]), "Daily Interaction Report (Sales)")
+    by_agent2, days2 = appmod._v6_cx_rows_for_team("inbound", [DAY_ISO], roster)
+    for label, got, want_ in [
+        ("sales-only day not read", days2, 0),
+        ("no agents invented", set(by_agent2), set()),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
     for p in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
         p.unlink()
     print("\n%d mismatched" % fails)
