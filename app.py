@@ -40,6 +40,7 @@ from v5_report import (build_report as build_v5_report,
                        parse_ts as _v5_parse_ts)
 from telegram_client import TelegramClient
 from books_client import BooksClient
+from collections_client import CollectionsClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -152,6 +153,7 @@ _zoho = ZohoClient()
 _ringcx = RingCXClient()
 _telegram = TelegramClient()
 _books = BooksClient()
+_collections = CollectionsClient()
 
 # In-memory cache + lock for api_quotes — prevents concurrent OOM-spiking fetches.
 import threading as _threading
@@ -1197,7 +1199,7 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
         rows_by_agent, stats = _v6_fetch_ringex(roster, days, local_today,
                                                 tz_offset_minutes)
     return _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
-                      date_start, date_end, tz_offset_minutes, local_today)
+                      date_start, date_end, tz_offset_minutes, local_today, days)
 
 
 def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
@@ -1253,7 +1255,7 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
 
 
 def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
-               date_start, date_end, tz_offset_minutes, local_today):
+               date_start, date_end, tz_offset_minutes, local_today, days=()):
     """Shared tail: pace curves, report build, and the notes about what is missing."""
     offset_east = -(tz_offset_minutes if tz_offset_minutes is not None
                     else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
@@ -1273,6 +1275,49 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
         roster_meta=roster_meta, now_local=now_local, curves=curves,
         targets=TEAM_TARGETS.get(team),
     )
+    # Collected amounts, billing only. Joined by agent+day so it lines up with
+    # the same working days the call figures use. Read-only and aggregate: the
+    # sheet carries patient names, DOBs and clearances, none of which come near
+    # the dashboard.
+    if team == "billing":
+        try:
+            coll, cmeta = _collections.daily_by_agent()
+            wanted = {d for d in days}
+            for a in report.get("ranked", []) + report.get("silent", []) + \
+                     report.get("stalled", []) + report.get("unknown", []):
+                per = coll.get(a["name"]) or {}
+                hit = {k.isoformat(): v for k, v in per.items()
+                       if k.isoformat() in wanted}
+                a["collected_total"] = round(sum(hit.values()), 2)
+                a["collected_days"] = len(hit)
+                a["collected_per_day"] = (round(sum(hit.values()) / len(hit), 2)
+                                          if hit else None)
+                a["collected_by_day"] = hit
+            report["collections_meta"] = {
+                "tabs": cmeta.get("tabs", {}), "errors": cmeta.get("errors", []),
+                "cached": cmeta.get("cached"),
+            }
+            # A tab where most rows had to inherit their date, or where many
+            # dates would not parse, is not a number to set a target from.
+            shaky = [t for t, st in (cmeta.get("tabs") or {}).items()
+                     if st.get("rows") and
+                     (st.get("filled", 0) + st.get("bad_date", 0)) > st["rows"] * 0.4]
+            if shaky:
+                report["warnings"].append({
+                    "kind": "collections_quality",
+                    "message": ("Collected totals for %s lean heavily on rows with no date of "
+                                "their own (they inherit the date above) or on dates that "
+                                "would not parse. Treat those as indicative, not exact, until "
+                                "the sheet is tidied." % ", ".join(sorted(shaky))),
+                })
+        except Exception as e:  # noqa: BLE001
+            log.warning("collections join failed: %s", e)
+            report["warnings"].append({
+                "kind": "collections_unavailable",
+                "message": "Collected amounts could not be read from the sheet: %s. "
+                           "That is not the same as nobody collecting anything." % e,
+            })
+
     report["team"] = team
     report["team_label"] = TEAM_LABELS[team]
     report["source_platform"] = _TEAM_SOURCES.get(team, "ringex")
@@ -1433,6 +1478,27 @@ def api_v6_warm():
         return jsonify({"error": "unauthorized"}), 401
     return jsonify(dict(_v6_warm_state, warm_days=_V6_WARM_DAYS,
                         pause_seconds=_V6_WARM_PAUSE))
+
+
+@app.route("/api/v6/collections")
+def api_v6_collections():
+    """What the collections reader actually found, per tab. The sheet is
+    hand-maintained and every tab is laid out differently, so an unexplainable
+    number is worse than no number -- this makes it explainable."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        data, meta = _collections.daily_by_agent(force=request.args.get("force") == "1")
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": "collections_failed", "detail": str(e)}), 500
+    return jsonify({
+        "meta": meta,
+        "agents": {a: {"days": len(p),
+                       "first": min(p).isoformat() if p else None,
+                       "last": max(p).isoformat() if p else None,
+                       "total": round(sum(p.values()), 2)}
+                   for a, p in data.items()},
+    })
 
 
 @app.route("/api/v6/report")

@@ -69,6 +69,14 @@
   .hd,.r{display:grid;align-items:center;
          grid-template-columns:22px minmax(0,1fr) 86px 62px 62px 60px;
          grid-template-areas:"rk nm tk c cn lg"}
+  .hascoll .hd,.hascoll .r{grid-template-columns:22px minmax(0,1fr) 80px 54px 54px 50px 84px;
+         grid-template-areas:"rk nm tk c cn lg co"}
+  .a-co{grid-area:co} .co{grid-area:co;font-weight:600;font-size:13px;color:var(--up)}
+  @media(max-width:560px){
+    .hascoll .r{grid-template-areas:
+        "rk nm nm nm" "tk tk pc pc" "sp c cn lg" "sp co co co"}
+    .co{text-align:left}
+  }
   /* live day: one more column for pace-vs-expected */
   .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 76px 82px 52px 52px 46px;
          grid-template-areas:"rk nm tk pc c cn lg"}
@@ -284,6 +292,11 @@
            '<span class="exp">exp ' + exp + (unit || '') + '</span></div>';
   }
 
+  function money(v) {
+    if (v == null) return '\u2014';
+    return '$' + Math.round(v).toLocaleString();
+  }
+
   function tgt(t, k) {
     return t[k] ? (t[k].floor + ' / ' + t[k].target + ' / ' + t[k].stretch) : '';
   }
@@ -356,13 +369,16 @@
     }
 
     var live = !!d.live;
-    h += '<div class="' + (live ? 'live' : '') + '">';
+    // Only billing has a collections sheet behind it.
+    var hasColl = ranked.some(function (a) { return a.collected_total != null; });
+    h += '<div class="' + (live ? 'live' : '') + (hasColl ? ' hascoll' : '') + '">';
     h += '<div class="hd">' +
       '<div class="a-rk"></div><div class="a-nm">Agent</div>' +
       '<div class="a-tk">' + (live ? 'So far' : 'Talk/day') + '</div>' +
       (live ? '<div class="a-pc">vs expected</div>' : '') +
       '<div class="a-c">Calls</div>' +
-      '<div class="a-cn">Conn</div><div class="a-lg">' + longLbl + '</div></div>';
+      '<div class="a-cn">Conn</div><div class="a-lg">' + longLbl + '</div>' +
+      (hasColl ? '<div class="a-co">Collected</div>' : '') + '</div>';
 
     ranked.forEach(function (a, i) {
       // `worked` = the working-day figures every per-day average is derived from.
@@ -388,6 +404,8 @@
         cell('c', show.calls, pg.calls || 'below', 'Calls') +
         cell('cn', show.connected, pg.connected || 'below', 'Conn') +
         cell('lg', show.long_calls, pg.long_calls || 'below', longLbl) +
+        (hasColl ? '<div class="co"><span class="lbl">Collected </span><b>' +
+                   money(a.collected_total) + '</b></div>' : '') +
         '</div>';
 
       var days = (a.days || []);
@@ -426,6 +444,13 @@
           }).join('') + '</table>';
       }
 
+      if (a.collected_total != null) {
+        body += '<div class="foot" style="border-top:0;margin-top:6px;padding-top:6px">' +
+          'Collected <b>' + money(a.collected_total) + '</b> over ' + a.collected_days +
+          ' day(s) logged in the shared sheet' +
+          (a.collected_per_day != null ? ' &middot; ' + money(a.collected_per_day) + '/day' : '') +
+          '</div>';
+      }
       var foot = 'Ext ' + esc(a.ext || a.ext_id) +
         ' &middot; avg call ' + a.avg_call_seconds + 's' +
         ' &middot; longest ' + hm(tot.longest_seconds) +
