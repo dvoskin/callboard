@@ -317,7 +317,7 @@
       $('teams').innerHTML = d.teams.map(function (t) {
         var qs = new URLSearchParams(location.search);
         qs.set('team', t.key);
-        return '<a class="' + (t.key === d.team ? 'on' : '') + '" href="?' + qs.toString() +
+        return '<a class="' + (t.key === d.team_key ? 'on' : '') + '" href="?' + qs.toString() +
                '">' + esc(t.label) + '</a>';
       }).join('');
     }

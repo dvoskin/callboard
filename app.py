@@ -1143,6 +1143,37 @@ def _cx_iso(raw, day_iso):
         return ""
 
 
+# Parsing an Interaction Report is the expensive part of a long window: a 60-day
+# range touches up to four files a day, each around a thousand rows, and it was
+# re-parsing every one of them on every request. A delivered day is immutable
+# once written, so keying on (path, mtime, size) is safe -- a replaced file has a
+# new mtime and re-parses.
+_inbox_parse_cache: dict = {}
+_INBOX_PARSE_MAX = 400
+
+
+def _parse_inbox_cached(path):
+    """Parsed rows for one inbox file, or None if it cannot be read."""
+    try:
+        st = path.stat()
+        key = (str(path), st.st_mtime, st.st_size)
+    except OSError:
+        return None
+    hit = _inbox_parse_cache.get(key)
+    if hit is not None:
+        return hit
+    try:
+        rows, _unit = parse_interaction_csv(
+            path.read_text(encoding="utf-8-sig", errors="replace"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6: inbox file %s unusable: %s", path.name, e)
+        return None
+    if len(_inbox_parse_cache) > _INBOX_PARSE_MAX:
+        _inbox_parse_cache.clear()      # cheap bound; these are whole-day files
+    _inbox_parse_cache[key] = rows
+    return rows
+
+
 def _v6_cx_rows_for_team(team, days, roster):
     """RingCX interaction rows for this team, from the delivered Interaction
     Reports, as {agent_name: [row, ...]}.
@@ -1163,14 +1194,31 @@ def _v6_cx_rows_for_team(team, days, roster):
         # Every scope for the day, not just the default slot: the team's agents
         # may arrive in the Inbound & Scheduling report, the sales one, or both.
         # Filtering by roster afterwards makes merging them safe.
-        rows = []
+        # Merge every scope for the day, DEDUPED. Several RingCX reports cover
+        # the same agents under different subjects -- on 2026-08-25 there were
+        # four files for one day ("Interaction Report (Inbound & Scheduling)",
+        # "Daily Interaction Report (Inbound & Scheduling)", "Call Performance
+        # Report every 15 min", and the sales slot). Merging them raw counted the
+        # same interaction up to four times and put 346 minutes of talk against
+        # someone by lunchtime.
+        #
+        # An interaction is identified by who took it, when it started, and the
+        # two numbers on it. That is stable across reports because they are all
+        # describing the same call.
+        rows, seen_keys = [], set()
         for path in _inbox_paths_all_scopes(day):
-            try:
-                parsed, _u = parse_interaction_csv(
-                    path.read_text(encoding="utf-8-sig", errors="replace"))
-                rows.extend(parsed)
-            except Exception as e:  # noqa: BLE001
-                log.warning("v6: inbox file %s unusable: %s", path.name, e)
+            parsed = _parse_inbox_cached(path)
+            if parsed is None:
+                continue
+            for r in parsed:
+                key = ((r.get("agent_name") or "").strip().lower(),
+                       (r.get("start_time") or "").strip(),
+                       (r.get("ani") or "").strip(),
+                       (r.get("dnis") or "").strip())
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                rows.append(r)
         if not rows:
             continue
         # A day counts as DELIVERED for this team only if the team's own agents
@@ -1358,7 +1406,11 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                            "That is not the same as nobody collecting anything." % e,
             })
 
-    report["team"] = team
+    # NOT report["team"] -- build_report already returns the team SUMMARY under
+    # that key, and overwriting it with the team's name made the header read
+    # agent_days off a string: "0 seats, 0 working days, team 0 min talk/day"
+    # while the rows underneath showed real figures.
+    report["team_key"] = team
     report["team_label"] = TEAM_LABELS[team]
     report["source_platform"] = _TEAM_SOURCES.get(team, "ringex")
     # Only claim the platform gap while nothing has actually been delivered.
@@ -1621,7 +1673,7 @@ def api_v6_report():
         now = time.time()
         with _v6_lock:
             hit = _v6_cache.get(key)
-            if hit and now - hit["at"] < ttl:
+            if hit and now - hit["at"] < hit.get("ttl", ttl):
                 out = dict(hit["report"])
                 out["meta"] = dict(out["meta"], cached=True,
                                    age_seconds=round(now - hit["at"]))
@@ -1631,16 +1683,19 @@ def api_v6_report():
         # fetch and collide with RingEX's rate limit. One fetch, everyone waits.
         with _v6_lock:
             hit = _v6_cache.get(key)
-            if hit and time.time() - hit["at"] < ttl:
+            if hit and time.time() - hit["at"] < hit.get("ttl", ttl):
                 out = dict(hit["report"])
                 out["meta"] = dict(out["meta"], cached=True,
                                    age_seconds=round(time.time() - hit["at"]))
                 return jsonify(out)
             report = _v6_build(date_start, date_end, tz_offset_minutes, local_today, team)
-            # An incomplete report must not be cached for an hour -- the whole
-            # point is that a reload fills the gap.
-            if report["meta"].get("complete"):
-                _v6_cache[key] = {"at": time.time(), "report": report}
+            # Cache it either way, but briefly when incomplete so a reload still
+            # fills the gap. Refusing to cache incomplete reports at all meant a
+            # RingCX team was NEVER cached -- any window containing a weekend has
+            # a day with no delivered report, so `complete` is nearly always
+            # false, and every reload re-parsed every file for every day.
+            _v6_cache[key] = {"at": time.time(), "report": report,
+                              "ttl": ttl if report["meta"].get("complete") else 120.0}
             for k in [k for k, v in list(_v6_cache.items())
                       if time.time() - v["at"] > _V6_TTL_PAST * 4]:
                 _v6_cache.pop(k, None)
