@@ -154,13 +154,17 @@
   /* a team whose calls are not on this platform at all */
   .blocked{background:var(--tint);border:1px solid var(--rule);
            border-left:3px solid var(--dn);border-radius:0 8px 8px 0;
-           padding:13px 15px;margin:0 0 14px;font-size:13px;line-height:1.55;
+           padding:10px 13px;margin:0 0 12px;font-size:13px;line-height:1.55;
            color:var(--ink-2)}
-  .blocked .bt{font-weight:700;color:var(--ink);font-size:13.5px;margin-bottom:5px}
+  .blocked summary{cursor:pointer;font-size:12.5px;color:var(--ink-2);
+                   list-style:none}
+  .blocked summary::-webkit-details-marker{display:none}
+  .blocked summary::before{content:'\25B8  ';color:var(--dn);font-weight:700}
+  .blocked[open] summary::before{content:'\25BE  '}
+  .blocked summary b{color:var(--ink)}
+  .blocked .bd{margin-top:8px}
   .blocked ul{margin:8px 0 0;padding-left:18px}
   .blocked li{margin-bottom:3px}
-  .blocked .cap{font-size:10px;font-weight:700;letter-spacing:.08em;
-                text-transform:uppercase;color:var(--dn);margin-bottom:4px}
 
   .warn{font-size:12px;color:var(--ink-2);background:var(--tint);
         border-left:3px solid var(--mid);padding:8px 11px;margin:7px 0;border-radius:0 5px 5px 0}
@@ -170,64 +174,63 @@
   .err{color:var(--dn);font-size:13px;padding:14px 0;line-height:1.5}
 
   /* ── phones ────────────────────────────────────────────────
-     The desktop layout is a table and a table does not survive 375px: the
-     headline talk figure was being clipped off the right edge. So each agent
-     becomes a small card instead -- name, then the number that matters at
-     size, then the supporting counts on one line. */
+     Compact, not "mobile-styled". Two lines an agent: identity and the headline
+     figure on the first, the supporting counts on the second. The earlier
+     version gave the talk figure its own 26px line and cost three lines each,
+     which fitted four agents on a screen -- fine for billing, useless for a
+     six-person team you want to scan at a glance. */
   @media(max-width:560px){
-    .wrap{padding:16px 13px 40px}
-    h1{font-size:19px}
-    .sub{font-size:12px}
+    .wrap{padding:14px 11px 36px}
+    h1{font-size:18px}
+    .sub{font-size:11.5px;line-height:1.45}
 
     .hd{display:none}
     .r,.live .r{
-      grid-template-columns:22px 1fr 1fr 1fr;
+      grid-template-columns:18px minmax(0,1fr) 62px 58px;
       grid-template-areas:
-        "rk nm nm nm"
-        "tk tk pc pc"
+        "rk nm tk pc"
         "sp c  cn lg";
-      row-gap:5px; padding:12px 0 13px;
+      row-gap:2px; column-gap:8px; padding:9px 0 10px;
     }
-    .r .rk{align-self:start;padding-top:2px}
-    .nm{font-size:16px;padding-right:0;white-space:normal}
-    /* the headline: big, left, unclipped. Its label becomes a small caption
-       above rather than inheriting 26px and shouting louder than the number. */
-    .tk{font-size:26px;letter-spacing:-.02em;text-align:left;line-height:1.1}
-    .tk .lbl{display:block;font-size:10px;font-weight:700;letter-spacing:.07em;
-             text-transform:uppercase;color:var(--muted);line-height:1.4}
-    .pc{text-align:right;font-size:15px;align-self:center}
-    .pc .exp{font-size:10.5px}
-    /* supporting counts read as label+value pairs, not bare digits */
-    .c,.cn,.lg{text-align:left;font-size:12.5px;font-weight:500;color:var(--muted)}
-    .c b,.cn b,.lg b{color:var(--ink)}
+    .r .rk{align-self:center;font-size:11px}
+    .nm{font-size:14.5px;padding-right:0;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis;align-self:center}
+    .tk{font-size:17px;letter-spacing:-.015em;text-align:right;align-self:center;
+        line-height:1.2}
+    .tk .lbl{display:none}                 /* the column is obvious in context */
+    .pc{text-align:right;font-size:12px;align-self:center;min-width:52px}
+    .pc .exp{font-size:9.5px;line-height:1.2}
+    /* counts on one quiet line, indented under the name. NO grid-column:auto --
+       it overrides the named areas and auto-places all three into one cell, which
+       renders as "CallsC79.463.4" stacked on top of each other. */
+    .c,.cn,.lg{text-align:left;font-size:11.5px;font-weight:500;
+               color:var(--muted);white-space:nowrap;overflow:hidden;
+               text-overflow:ellipsis}
+    .c b,.cn b,.lg b{color:var(--ink);font-weight:650}
     .lbl{display:inline;color:var(--muted);font-weight:500}
 
-    /* expand panel: the 22px desktop indent costs a column's worth of width on
-       a 375px screen, so it shrinks and the 5-column live table may scroll. */
-    .det{padding:11px 2px 13px 8px}
-    .dtab{font-size:12px}
-    .dtab th{font-size:9px}
+    .det{padding:9px 2px 11px 26px}
+    .dtab{font-size:11.5px}
+    .dtab th{font-size:9px;padding-bottom:4px}
+    .dtab td{padding:3px 0}
     .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-    .foot{font-size:11px}
+    .foot{font-size:10.5px;line-height:1.5}
 
-    /* controls: two dates on one line, chips on the next, all thumb-sized */
-    .ctl{gap:6px}
-    .ctl input{flex:1 1 44%;min-width:0;font-size:16px;padding:7px 8px}
-    .ctl button{padding:7px 12px;font-size:13px}
-    .day{padding:7px 13px;font-size:13px}
-    .key{font-size:10.5px;gap:2px 10px}
-    .warn{font-size:12px;padding:9px 11px}
+    .teams{gap:4px;margin-bottom:9px}
+    .teams a{padding:5px 10px;font-size:12px}
+    .ctl{gap:5px;margin-bottom:9px}
+    .ctl input{flex:1 1 40%;min-width:0;font-size:16px;padding:6px 7px}
+    .ctl button{padding:6px 10px;font-size:12.5px}
+    .day{padding:6px 11px;font-size:12.5px}
+    .key{font-size:10px;gap:1px 9px;padding-bottom:6px}
+    .warn{font-size:11.5px;padding:8px 10px;margin:5px 0}
+    .blocked{font-size:12px;padding:11px 12px}
+    h2{margin:16px 0 5px;font-size:11px}
   }
-  /* very narrow phones: drop the pace column under the headline */
-  @media(max-width:360px){
-    .r,.live .r{
-      grid-template-areas:
-        "rk nm nm nm"
-        "tk tk tk tk"
-        "pc pc pc pc"
-        "sp c  cn lg";
-    }
-    .pc{text-align:left}
+  /* very narrow: the pace column drops, the rest stays two lines */
+  @media(max-width:340px){
+    .r,.live .r{grid-template-areas:"rk nm tk tk" "sp c cn lg"}
+    .pc{display:none}
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -365,12 +368,15 @@
     }
 
     if (d.blocked) {
-      h += '<div class="blocked"><div class="cap">Wrong platform</div>' +
-           '<div class="bt">These numbers are not this team\'s performance</div>' +
-           esc(d.blocked.message) +
+      // One line by default. The full explanation is three paragraphs and three
+      // bullets -- worth having, but not worth burying the board under on a
+      // phone every time someone opens it.
+      h += '<details class="blocked"><summary><b>These numbers are not this ' +
+           'team\'s performance</b> &mdash; no RingCX report for this window yet' +
+           '</summary><div class="bd">' + esc(d.blocked.message) +
            '<ul>' + (d.blocked.unblock || []).map(function (u) {
              return '<li>' + esc(u) + '</li>';
-           }).join('') + '</ul></div>';
+           }).join('') + '</ul></div></details>';
     }
 
     var live = !!d.live;

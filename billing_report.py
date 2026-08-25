@@ -441,14 +441,22 @@ def build_report(rows_by_agent, *, tz_offset_minutes=0, window=None,
             "message": (f"{a['name']} (ext {a['ext']}) returned no calls, but this seat's window "
                         f"was NOT fully read -- so this is 'not known', not 'no calls'."),
         })
-    for a in ranked + stalled + silent:
-        if not a["complete"]:
-            warnings.append({
-                "kind": "partial_seat",
-                "message": (f"{a['name']} (ext {a['ext']}) is missing "
-                            f"{len(a['missing_days'])} day(s) of call data, so every figure "
-                            f"shown for them is a floor, not a total."),
-            })
+    # One line for the whole team, not one per person. Five near-identical
+    # sentences saying "missing 1 day" is noise that buries the notes that
+    # actually differ.
+    partial = [a for a in ranked + stalled + silent if not a["complete"]]
+    if partial:
+        worst = max(len(a["missing_days"]) for a in partial)
+        who = ", ".join(a["name"] for a in partial[:4])
+        if len(partial) > 4:
+            who += " and %d more" % (len(partial) - 4)
+        warnings.append({
+            "kind": "partial_seat",
+            "message": (f"{who} {'is' if len(partial) == 1 else 'are'} missing up to "
+                        f"{worst} day(s) of call data, so every figure shown for "
+                        f"{'them' if len(partial) == 1 else 'those seats'} is a floor, "
+                        f"not a total."),
+        })
 
     return {
         "live": live,
