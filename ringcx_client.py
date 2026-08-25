@@ -46,6 +46,15 @@ class RingCXClient:
         self._cx_token_expiry: float = 0
         self._cx_account_id: Optional[str] = None
 
+        # When RingEX 429s, EVERY caller backs off, not just the one that got
+        # refused. The logs showed the board, the warmer, the dashboard refresh
+        # and the ingest-triggered snapshot all retrying into an exhausted
+        # budget independently -- each one's own backoff is useless when four
+        # others are still asking. One shared cooldown lets the window actually
+        # recover instead of being re-consumed the instant it opens.
+        self._cool_until: float = 0.0
+        self._cool_reason: str = ""
+
         # Agent status cache (avoid 62 API calls every 15s)
         self._agents_cache: list[dict] = []
         self._agents_cache_expiry: float = 0
@@ -55,6 +64,22 @@ class RingCXClient:
     @property
     def configured(self) -> bool:
         return bool(self.client_id and self.client_secret and self.jwt_token)
+
+    # ── shared rate-limit cooldown ────────────────────────────────
+    def rate_limited(self) -> bool:
+        """True while RingEX has told us to stop. Check before spending a call."""
+        return time.time() < self._cool_until
+
+    def cooldown_remaining(self) -> float:
+        return max(0.0, self._cool_until - time.time())
+
+    def note_rate_limited(self, retry_after: float = 60.0) -> None:
+        """One 429 anywhere pauses everyone for the window RingEX named."""
+        wait = min(max(float(retry_after or 60), 5.0), 120.0)
+        self._cool_until = max(self._cool_until, time.time() + wait)
+        self._cool_reason = ("RingEX returned 429; all callers paused for %.0fs so the "
+                             "per-minute window can recover." % wait)
+        log.warning("RingEX cooldown: pausing all callers for %.0fs", wait)
 
     # ══════════════════════════════════════════════════════════════
     # Auth — RingEX (standard RingCentral)
@@ -945,6 +970,13 @@ class RingCXClient:
 
             def _get(page_no):
                 """One page, with a single Retry-After-honouring retry on 429."""
+                if self.rate_limited():
+                    class _Skipped:            # duck-typed, so callers need no change
+                        status_code = 429
+                        headers = {"Retry-After": "0"}
+                        ok = False
+                        text = "skipped: shared RingEX cooldown"
+                    return _Skipped()
                 params = {
                     "dateFrom": date_from, "dateTo": date_to,
                     # Simple view — carries name/duration/result/direction (all the
@@ -955,15 +987,12 @@ class RingCXClient:
                 url = f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log"
                 r = requests.get(url, headers=self._rc_headers(), params=params, timeout=25)
                 if r.status_code == 429:
-                    wait = 5.0
-                    try:
-                        wait = float(r.headers.get("Retry-After") or 5)
-                    except (TypeError, ValueError):
-                        pass
-                    wait = min(max(wait, 1.0), 30.0)
-                    log.warning("RingEX call-log 429 on page %d; waiting %.0fs", page_no, wait)
-                    time.sleep(wait)
-                    r = requests.get(url, headers=self._rc_headers(), params=params, timeout=25)
+                    self.note_rate_limited(r.headers.get("Retry-After"))
+                    # Do not sit on the wait here. The cooldown is shared now, so
+                    # sleeping 30s inside a request only holds a worker hostage
+                    # while every other caller is already standing down.
+                    log.warning("RingEX call-log 429 on page %d; entering shared cooldown",
+                                page_no)
                 return r
 
             while page <= max_pages:
@@ -1311,6 +1340,15 @@ class RingCXClient:
         """
         rows: dict[str, dict] = {}
         meta = {"pages": 0, "truncated": False, "note": None, "http_error": None}
+        # Check the shared cooldown BEFORE anything else -- including minting a
+        # token. There is no point spending a round trip to prepare a request we
+        # already know will be refused.
+        if self.rate_limited():
+            meta["http_error"] = 429
+            meta["note"] = ("RingEX is in a shared cooldown for another %.0fs after a 429; "
+                            "this fetch was skipped rather than spending a request that "
+                            "would be refused." % self.cooldown_remaining())
+            return [], meta
         try:
             self._ensure_rc_token()
             page = 1
@@ -1322,8 +1360,16 @@ class RingCXClient:
                 }
                 url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
                        f"/extension/{ext_id}/call-log")
+                if self.rate_limited():
+                    meta["http_error"] = 429
+                    meta["note"] = ("RingEX is in a shared cooldown for another %.0fs "
+                                    "after a 429; this fetch was skipped rather than "
+                                    "spending a request that would be refused."
+                                    % self.cooldown_remaining())
+                    break
                 r = requests.get(url, headers=self._rc_headers(), params=params, timeout=timeout)
                 if r.status_code == 429:
+                    self.note_rate_limited(r.headers.get("Retry-After"))
                     # max_wait lets a caller that is serving a web request refuse
                     # to sit on a 60s Retry-After. Waiting it out here once cost
                     # 81 seconds of a request that gunicorn kills at 90.
