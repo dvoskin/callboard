@@ -439,8 +439,7 @@ def build_report(rows_by_agent, *, tz_offset_minutes=0, window=None,
         warnings.append({
             "kind": "unknown_seat",
             "message": (f"{a['name']} (ext {a['ext']}) returned no calls, but this seat's window "
-                        f"was NOT fully read -- so this is 'not known', not 'no calls'. "
-                        f"Reload once the missing days have been fetched."),
+                        f"was NOT fully read -- so this is 'not known', not 'no calls'."),
         })
     for a in ranked + stalled + silent:
         if not a["complete"]:

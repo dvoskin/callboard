@@ -256,7 +256,9 @@
   var SHARE = {{ 'true' if share_mode else 'false' }};
   var TOKEN = {{ (share_token or '')|tojson }};
   var $ = function (id) { return document.getElementById(id); };
-  var TEAM = (new URLSearchParams(location.search).get('team') || '').toLowerCase();
+  // A team page knows which team it is; only /v6 falls back to the query string.
+  var FIXED = {{ (fixed_team or '')|tojson }};
+  var TEAM = FIXED || (new URLSearchParams(location.search).get('team') || '').toLowerCase();
 
   function hm(s) {
     s = Math.round(s || 0);
@@ -315,9 +317,12 @@
     }
     if (d.teams && d.teams.length) {
       $('teams').innerHTML = d.teams.map(function (t) {
-        var qs = new URLSearchParams(location.search);
-        qs.set('team', t.key);
-        return '<a class="' + (t.key === d.team_key ? 'on' : '') + '" href="?' + qs.toString() +
+        // Link to the sibling PAGE, carrying the share token when there is one,
+        // so a wall display can move between boards without a login.
+        var href = t.path || ('/v6?team=' + t.key);
+        if (SHARE && TOKEN) href += (href.indexOf('?') < 0 ? '?' : '&') + 'k=' +
+                                    encodeURIComponent(TOKEN);
+        return '<a class="' + (t.key === d.team_key ? 'on' : '') + '" href="' + href +
                '">' + esc(t.label) + '</a>';
       }).join('');
     }

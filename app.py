@@ -1440,15 +1440,25 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                 "measured the same way billing was.",
             ],
         }
-    report["teams"] = [{"key": k, "label": TEAM_LABELS[k]} for k in _TEAM_ROSTERS]
+    report["teams"] = [{"key": k, "label": TEAM_LABELS[k],
+                        "path": "/" + _TEAM_PATHS[k]} for k in _TEAM_ROSTERS]
     if stats["missing"]:
-        report["warnings"].append({
-            "kind": "incomplete_fetch",
-            "message": (f"{stats['missing']} seat-day(s) in this window have not been fetched "
-                        f"yet — RingEX only allows so many requests a minute, so long ranges "
-                        f"fill in over a few reloads. Every figure below is a floor until they "
-                        f"do. Reload in a minute."),
-        })
+        # The reason differs by platform, and giving a RingCX team RingEX's
+        # rate-limit story sends them chasing the wrong thing. Danny confirmed
+        # Scheduling and Customer Service are RingCX-exclusive; they are waiting
+        # on a delivered report, not on a request budget.
+        if _TEAM_SOURCES.get(team) == "ringcx":
+            msg = (f"{stats['missing']} day(s) in this window have no delivered RingCX "
+                   f"Interaction Report yet. The report is emailed on a schedule and "
+                   f"forwarded in, so recent days appear within the hour and older ones "
+                   f"only if a report covering them was delivered. Every figure below is "
+                   f"a floor until they arrive.")
+        else:
+            msg = (f"{stats['missing']} seat-day(s) in this window have not been fetched "
+                   f"yet — RingEX only allows so many requests a minute, so long ranges "
+                   f"fill in over a few reloads. Every figure below is a floor until they "
+                   f"do. Reload in a minute.")
+        report["warnings"].append({"kind": "incomplete_fetch", "message": msg})
     report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
     report["meta"]["days"] = stats
     report["meta"]["complete"] = stats["missing"] == 0
@@ -1745,7 +1755,8 @@ def scoreboard_v6():
     if session.get("user") or _word_authed() or not GOOGLE_CLIENT_ID:
         return render_template("scoreboard_v6.html",
                                current_user=session.get("user") or {},
-                               share_mode=False, share_token="")
+                               share_mode=False, share_token="",
+                               fixed_team=None)
     if not V5_PASSWORDS:
         return redirect("/login")
     return render_template("v5_password.html", error=error), (401 if error else 200)
@@ -1803,6 +1814,39 @@ def hub_v7_logout():
     return redirect(url_for("hub_v7"))
 
 
+# One page per team, rather than one page that switches. Each board is a thing
+# people bookmark, put on a wall, and send a link to; a query string is none of
+# those. /v6?team= still works so existing links do not break.
+_TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
+               "inbound": "customer-service"}
+
+
+def _render_team_board(team):
+    if not _v6_allowed():
+        if not V5_PASSWORDS and not V7_PASSWORDS:
+            return redirect("/login")
+        return render_template("v5_password.html", error=""), 200
+    return render_template("scoreboard_v6.html",
+                           current_user=session.get("user") or {},
+                           share_mode=False, share_token="",
+                           fixed_team=team)
+
+
+@app.route("/billing")
+def board_billing():
+    return _render_team_board("billing")
+
+
+@app.route("/scheduling")
+def board_scheduling():
+    return _render_team_board("scheduling")
+
+
+@app.route("/customer-service")
+def board_customer_service():
+    return _render_team_board("inbound")
+
+
 @app.route("/v6/board")
 def scoreboard_v6_board():
     """Read-only billing board on a share link. 404 rather than 403 on a bad
@@ -1810,7 +1854,8 @@ def scoreboard_v6_board():
     if not _v6_token_ok():
         return ("Not Found", 404)
     return render_template("scoreboard_v6.html", current_user={},
-                           share_mode=True, share_token=request.args.get("k", ""))
+                           share_mode=True, share_token=request.args.get("k", ""),
+                           fixed_team=_team_key(request.args.get("team")))
 
 
 # ── RingCX Interaction Report inbox ────────────────────────────
