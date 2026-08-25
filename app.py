@@ -1521,8 +1521,16 @@ def _v6_warm_loop():
                     continue
                 _v6_warm_state["fails"] = 0
         except Exception as e:  # noqa: BLE001
-            log.warning("v6 warmer error: %s", e)
+            # Into the STATE, not just the log. A background thread that dies
+            # quietly is indistinguishable from one that has nothing to do, and
+            # the log is not readable from where the question gets asked.
+            _v6_warm_state["loop_error"] = "%s: %s" % (type(e).__name__, e)
+            _v6_warm_state["loop_error_at"] = time.time()
+            _v6_warm_state["cycles_failed"] = _v6_warm_state.get("cycles_failed", 0) + 1
+            log.exception("v6 warmer error")
             time.sleep(120)
+        else:
+            _v6_warm_state["cycles_ok"] = _v6_warm_state.get("cycles_ok", 0) + 1
 
 
 @app.route("/api/v6/warm")
@@ -1538,10 +1546,11 @@ def api_v6_warm():
     # Collections shares this page: two background loaders, one place to look.
     try:
         _c, cm = _collections.cached()
-        st["collections"] = {"loading": cm.get("loading", False),
-                             "age_seconds": cm.get("age_seconds"),
-                             "errors": cm.get("errors", []),
-                             "tabs": sorted((cm.get("tabs") or {}).keys())}
+        st["collections"] = dict(_collections_state,
+                                 loading=cm.get("loading", False),
+                                 age_seconds=cm.get("age_seconds"),
+                                 errors=cm.get("errors", []),
+                                 tabs=sorted((cm.get("tabs") or {}).keys()))
     except Exception as e:  # noqa: BLE001
         st["collections"] = {"error": str(e)}
     return jsonify(st)
@@ -5877,6 +5886,9 @@ if not _v6_warm_state["running"]:
     threading.Thread(target=_v6_warm_loop, daemon=True, name="v6-warm").start()
 
 
+_collections_state: dict = {}
+
+
 def _collections_loop():
     """Keep the collections cache warm off the request path.
 
@@ -5892,7 +5904,11 @@ def _collections_loop():
             if _collections.stale():
                 _collections.refresh()
         except Exception as e:  # noqa: BLE001
-            log.warning("collections refresh failed: %s", e)
+            _collections_state["error"] = "%s: %s" % (type(e).__name__, e)
+            _collections_state["error_at"] = time.time()
+            log.exception("collections refresh failed")
+        else:
+            _collections_state["last_ok_at"] = time.time()
         time.sleep(120)
 
 
