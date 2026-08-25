@@ -46,8 +46,8 @@
   /* Whole card is the tap target -- on a phone a small text link is a miss
      waiting to happen. */
   a.card{
-    display:flex;align-items:flex-start;gap:13px;
-    padding:15px 15px 16px;min-height:76px;
+    display:block;
+    padding:14px 15px 15px;min-height:0;
     border:1px solid var(--rule);border-radius:10px;background:var(--bg);
     text-decoration:none;color:inherit;
     transition:border-color .12s, background .12s, transform .06s;
@@ -56,16 +56,9 @@
   a.card:active{transform:scale(.995)}
   a.card:focus-visible{outline:2px solid var(--up);outline-offset:2px}
 
-  .ic{flex:0 0 34px;height:34px;border-radius:8px;background:var(--tint);
-      display:flex;align-items:center;justify-content:center;font-size:17px;
-      border:1px solid var(--hair)}
-  a.card:hover .ic{background:var(--bg)}
-  .body{min-width:0;flex:1}
-  .cat{font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-       color:var(--muted);line-height:1;margin-bottom:4px}
-  .t{font-weight:650;font-size:15px;letter-spacing:-.01em;display:flex;
-     align-items:center;gap:6px;flex-wrap:wrap}
-  .d{font-size:12.5px;color:var(--muted);line-height:1.4;margin-top:3px}
+  .t{font-weight:650;font-size:15.5px;letter-spacing:-.01em;display:flex;
+     align-items:center;gap:7px;flex-wrap:wrap}
+  .d{font-size:12.5px;color:var(--muted);line-height:1.4;margin-top:2px}
   .ext{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
        color:var(--muted);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
 
@@ -91,61 +84,35 @@
 
   <div class="grid">
     <a class="card" href="/v3">
-      <div class="ic">📞</div>
-      <div class="body">
-        <div class="cat">Calls</div>
-        <div class="t">Sales Calls</div>
-        <div class="d">Who is on a call right now, what is scheduled today, and which follow-ups are
-          overdue.</div>
-      </div>
+      <div class="t">Scheduled Call Tracker</div>
+      <div class="d">Scheduled calls, overdue follow-ups, and who is on a call now.</div>
     </a>
 
     <a class="card" href="/v5">
-      <div class="ic">🏆</div>
-      <div class="body">
-        <div class="cat">Calls</div>
-        <div class="t">Sales Scoreboard</div>
-        <div class="d">Talk time and call performance per rep, live.</div>
-      </div>
+      <div class="t">Sales Talk Time</div>
+      <div class="d">Talk time and calls per sales rep.</div>
     </a>
 
     <a class="card" href="/v6?team=billing">
-      <div class="ic">🧾</div>
-      <div class="body">
-        <div class="cat">Team performance</div>
-        <div class="t">Billing Team</div>
-        <div class="d">Talk time, calls and calls over two minutes per working day, against target.</div>
-      </div>
+      <div class="t">Billing</div>
+      <div class="d">Talk time, calls and calls over 2 minutes per day, against target.</div>
     </a>
 
     <a class="card" href="/v6?team=scheduling">
-      <div class="ic">🗓️</div>
-      <div class="body">
-        <div class="cat">Team performance</div>
-        <div class="t">Scheduling Team</div>
-        <div class="d">New deals, priority callbacks and rescheduling. Waiting on RingCX data.</div>
-      </div>
+      <div class="t">Scheduling</div>
+      <div class="d">Waiting on RingCX data.</div>
     </a>
 
     <a class="card" href="/v6?team=inbound">
-      <div class="ic">📥</div>
-      <div class="body">
-        <div class="cat">Team performance</div>
-        <div class="t">Inbound Customer Service</div>
-        <div class="d">Inbound, callbacks, touchpoints and pre-op paperwork. Waiting on RingCX data.</div>
-      </div>
+      <div class="t">Inbound</div>
+      <div class="d">Waiting on RingCX data.</div>
     </a>
 
-    <a class="card" href="https://zoho-quote-analyzer.onrender.com/board"
-       target="_blank" rel="noopener noreferrer">
-      <div class="ic">🩺</div>
-      <div class="body">
-        <div class="cat">Patients</div>
-        <div class="t">Surgery Readiness <span class="ext">External</span></div>
-        <div class="d">What each patient still owes before their surgery date &mdash; clearances,
-          payments and paperwork.</div>
-      </div>
+    <a class="card" href="https://zoho-quote-analyzer.onrender.com/board" target="_blank" rel="noopener noreferrer">
+      <div class="t">Surgery Readiness <span class="ext">External</span></div>
+      <div class="d">What each patient still owes before their surgery date.</div>
     </a>
+
   </div>
 
   <footer>
