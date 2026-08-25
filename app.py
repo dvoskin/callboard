@@ -948,6 +948,11 @@ TEAM_TARGETS = {
     },
 }
 
+# The billing roster, so a sheet tab named after one of them matches whatever it
+# is called this month. Set here rather than at construction because the client
+# is built before the rosters are declared. See collections_client.build_tab_map.
+_collections.agents = [seat["name"] for seat in _TEAM_ROSTERS["billing"]]
+
 # Each team's own intraday shape, measured the same way the targets were: from
 # the RingCX Interaction Report over 2026-05-28..07-29. Billing's curve lives in
 # billing_report as the fallback and is a POOR fit for these two -- they take
@@ -1470,11 +1475,43 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                 a["collected_per_day"] = (round(sum(hit.values()) / len(hit), 2)
                                           if hit else None)
                 a["collected_by_day"] = hit
+            # The last day each seat has ANY collected amount for, whatever the
+            # window is. A seat showing $0 for today is either a quiet day or a
+            # tab that stopped being readable weeks ago, and those must not look
+            # the same -- Andrea's tab was renamed to "PLEASANT" and dropped out
+            # in complete silence, including on days she had logged $8,000.
+            latest = {}
+            for seat in roster:
+                per = coll.get(seat["name"]) or {}
+                latest[seat["name"]] = max(per).isoformat() if per else None
             report["collections_meta"] = {
                 "tabs": cmeta.get("tabs", {}), "errors": cmeta.get("errors", []),
                 "cached": cmeta.get("cached"), "loading": cmeta.get("loading", False),
                 "age_seconds": cmeta.get("age_seconds"),
+                "unmapped_tabs": cmeta.get("unmapped_tabs", []),
+                "latest_by_agent": latest,
             }
+            if not cmeta.get("loading"):
+                never = [n for n, d in latest.items() if d is None]
+                stale = [(n, d) for n, d in latest.items()
+                         if d and d < min(days) and len(days) > 0]
+                if never:
+                    report["warnings"].append({
+                        "kind": "collections_missing_tab",
+                        "message": ("No collected amounts found at all for %s. Either they do "
+                                    "not log to the shared sheet, or their tab is named "
+                                    "something this board does not recognise%s."
+                                    % (", ".join(sorted(never)),
+                                       (" (unread tabs: %s)" % ", ".join(cmeta["unmapped_tabs"]))
+                                       if cmeta.get("unmapped_tabs") else "")),
+                    })
+                if stale:
+                    report["warnings"].append({
+                        "kind": "collections_stale_tab",
+                        "message": ("The last collected amount on record is %s. Zeroes for this "
+                                    "window are the sheet running dry, not a quiet week."
+                                    % "; ".join("%s: %s" % (n, d) for n, d in sorted(stale))),
+                    })
             if cmeta.get("loading"):
                 report["warnings"].append({
                     "kind": "collections_loading",

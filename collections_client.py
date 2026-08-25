@@ -55,7 +55,34 @@ TAB_TO_AGENT = {
     "gabriela": "Gabriela Maldonado",
     "andrea": "Andrea Pleasant",
     "a.pleasant": "Andrea Pleasant",
+    "pleasant": "Andrea Pleasant",
 }
+
+
+def _norm_tab(name):
+    return "".join(c for c in (name or "").lower() if c.isalpha())
+
+
+def build_tab_map(agents=()):
+    """{normalised tab name: agent} from the explicit map plus each roster
+    agent's own first and last name.
+
+    The explicit map alone is a list somebody has to remember to update, and
+    when they do not the tab is dropped in silence. The sheet's tab was renamed
+    to "PLEASANT" -- not "Andrea", not "A.PLEASANT" -- and Andrea's collections
+    stopped appearing with no error anywhere, including the day she had logged
+    $8,006. Deriving from the roster means a tab named after the person matches
+    whatever else it is called, and anything still unmatched is REPORTED rather
+    than ignored.
+    """
+    out = {_norm_tab(k): v for k, v in TAB_TO_AGENT.items()}
+    for full in agents or ():
+        parts = [p for p in str(full).split() if p]
+        for part in parts:
+            key = _norm_tab(part)
+            if len(key) >= 4:          # "de", "la" and initials match too much
+                out.setdefault(key, full)
+    return out
 
 YEAR_LO, YEAR_HI = 2023, 2027          # anything outside this is a typo
 _TTL = float(60 * 30)                   # the sheet is megabytes; half an hour
@@ -178,8 +205,9 @@ class CollectionsClient:
     returns nothing plus a reason, because a dashboard showing $0 and a
     dashboard that could not read the sheet must not look the same."""
 
-    def __init__(self, sheet_id=SHEET_ID):
+    def __init__(self, sheet_id=SHEET_ID, agents=()):
         self.sheet_id = sheet_id
+        self.agents = list(agents or ())
         self._lock = threading.Lock()
         self._cache = {"at": 0.0, "data": None, "meta": None}
 
@@ -224,9 +252,15 @@ class CollectionsClient:
                 log.warning("collections: tab list failed: %s", e)
                 with self._lock:
                     return (self._cache["data"] or {}), meta
+            tab_map = build_tab_map(self.agents)
+            meta["unmapped_tabs"] = []
             for name, gid in tabs:
-                agent = TAB_TO_AGENT.get(name.strip().lower())
+                agent = tab_map.get(_norm_tab(name))
                 if not agent:
+                    # Not silent. A tab nobody is reading is either deliberate
+                    # (CASH, Late fee, a template) or an agent quietly missing
+                    # from the board, and only a human can tell which.
+                    meta["unmapped_tabs"].append(name)
                     continue
                 try:
                     per, st = read_tab(self.sheet_id, gid)
