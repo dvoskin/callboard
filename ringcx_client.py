@@ -1435,10 +1435,21 @@ class RingCXClient:
                     # max_wait lets a caller that is serving a web request refuse
                     # to sit on a 60s Retry-After. Waiting it out here once cost
                     # 81 seconds of a request that gunicorn kills at 90.
-                    if max_wait <= 0:
+                    # Do not retry into a cooldown we have just opened. The
+                    # line above told every other caller to stand down for the
+                    # window RingEX named -- usually 60s -- so sleeping the 2s a
+                    # web request can spare and asking again is a round-trip
+                    # whose answer is already known, and it holds the worker
+                    # while it happens. Seen in the live logs as
+                    #   cooldown: pausing all callers for 60s
+                    #   ext ... 429 on page 1; waiting 2s
+                    #   ext ... page 1 failed: 429
+                    # -- two seconds and one more Heavy request, for nothing.
+                    if max_wait <= 0 or self.cooldown_remaining() > max_wait:
                         meta["http_error"] = 429
-                        meta["note"] = ("RingEX is rate limiting us (HTTP 429) and this fetch "
-                                        "will not wait it out; the day was left unfetched.")
+                        meta["note"] = ("RingEX is rate limiting us (HTTP 429) and the shared "
+                                        "cooldown outlasts what this request can wait; the day "
+                                        "was left unfetched rather than retried into a refusal.")
                         break
                     wait = 5.0
                     try:

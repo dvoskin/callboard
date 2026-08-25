@@ -132,6 +132,43 @@ def run():
         _rcmod.requests.get = real_get
     cases.append(("refusal keeps the last good list", len(kept), 1))
 
+    # A 429 must not be retried into the cooldown it just opened. RingEX names a
+    # 60s window; a web request can spare 2s. Sleeping 2s and asking again spends
+    # another Heavy request on an answer already known, and holds the worker
+    # while it does it.
+    c7 = RingCXClient()
+    c7._ensure_rc_token = lambda: None
+    c7._rc_headers = lambda: {}
+    tries = {"n": 0}
+
+    class _R429b:
+        status_code = 429
+        headers = {"Retry-After": "60"}
+        text = "Request rate exceeded"
+        ok = False
+
+    def _get429b(url, **kw):
+        tries["n"] += 1
+        return _R429b()
+
+    real_get2 = _rcmod.requests.get
+    _rcmod.requests.get = _get429b
+    t0 = time.time()
+    try:
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        end = _dt.now(_tz.utc)
+        rows7, meta7 = c7.fetch_extension_calls(1, end - _td(days=1), end, max_wait=2.0)
+    finally:
+        _rcmod.requests.get = real_get2
+    elapsed = time.time() - t0
+    cases += [
+        ("one request, not a retry", tries["n"], 1),
+        ("...and no 2s sleep", elapsed < 1.0, True),
+        ("...reported as 429", meta7.get("http_error"), 429),
+        ("...with no rows invented", rows7, []),
+        ("...cooldown left open", c7.rate_limited(), True),
+    ]
+
     for label, got, want in cases:
         ok = got == want
         print("  %-32s want %-8s got %-8s %s" % (label, want, got, "OK" if ok else "<<< FAIL"))
