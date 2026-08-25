@@ -30,6 +30,15 @@
   h2{margin:22px 0 6px;font-size:12px;font-weight:700;letter-spacing:.06em;
      text-transform:uppercase;color:var(--muted)}
 
+  /* team switcher: the same board, three rosters */
+  .teams{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:11px}
+  .teams a{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:6px;
+           border:1px solid var(--rule);color:var(--muted);text-decoration:none}
+  .teams a:hover{border-color:var(--up);color:var(--up)}
+  .teams a.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .teams a:focus-visible{outline:2px solid var(--up);outline-offset:2px}
+  @media(max-width:560px){.teams a{padding:7px 12px;font-size:13px}}
+
   .ctl{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:12px}
   .ctl input,.ctl button{font-family:inherit;font-size:12.5px;padding:4px 8px;
        border:1px solid var(--rule);background:var(--bg);color:var(--ink);
@@ -134,6 +143,17 @@
   .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
         margin-top:3px}
 
+  /* a team whose calls are not on this platform at all */
+  .blocked{background:var(--tint);border:1px solid var(--rule);
+           border-left:3px solid var(--dn);border-radius:0 8px 8px 0;
+           padding:13px 15px;margin:0 0 14px;font-size:13px;line-height:1.55;
+           color:var(--ink-2)}
+  .blocked .bt{font-weight:700;color:var(--ink);font-size:13.5px;margin-bottom:5px}
+  .blocked ul{margin:8px 0 0;padding-left:18px}
+  .blocked li{margin-bottom:3px}
+  .blocked .cap{font-size:10px;font-weight:700;letter-spacing:.08em;
+                text-transform:uppercase;color:var(--dn);margin-bottom:4px}
+
   .warn{font-size:12px;color:var(--ink-2);background:var(--tint);
         border-left:3px solid var(--mid);padding:8px 11px;margin:7px 0;border-radius:0 5px 5px 0}
   .warn.bad{border-left-color:var(--dn)}
@@ -206,8 +226,10 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Billing Team KPI Board</h1>
+  <h1 id="title">Team KPI Board</h1>
   <p class="sub" id="sub">Loading&hellip;</p>
+
+  <div class="teams" id="teams"></div>
 
   <div class="ctl">
     <input type="date" id="start" aria-label="Start date" />
@@ -226,6 +248,7 @@
   var SHARE = {{ 'true' if share_mode else 'false' }};
   var TOKEN = {{ (share_token or '')|tojson }};
   var $ = function (id) { return document.getElementById(id); };
+  var TEAM = (new URLSearchParams(location.search).get('team') || '').toLowerCase();
 
   function hm(s) {
     s = Math.round(s || 0);
@@ -273,6 +296,19 @@
     var longKey = 'over_' + LONG + 's';
     var multi = (d.window || {}).start !== (d.window || {}).end;
 
+    if (d.team_label) {
+      $('title').textContent = d.team_label + ' KPI Board';
+      document.title = d.team_label + ' KPI Board';
+    }
+    if (d.teams && d.teams.length) {
+      $('teams').innerHTML = d.teams.map(function (t) {
+        var qs = new URLSearchParams(location.search);
+        qs.set('team', t.key);
+        return '<a class="' + (t.key === d.team ? 'on' : '') + '" href="?' + qs.toString() +
+               '">' + esc(t.label) + '</a>';
+      }).join('');
+    }
+
     var sub = '<b>' + ranked.length + '</b> seat' + (ranked.length === 1 ? '' : 's') +
       ' &middot; <b>' + (team.agent_days || 0) + '</b> working day' +
       ((team.agent_days || 0) === 1 ? '' : 's') +
@@ -308,6 +344,15 @@
     if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {
       $('out').innerHTML = h + '<div class="empty">No seats on the roster.</div>';
       return;
+    }
+
+    if (d.blocked) {
+      h += '<div class="blocked"><div class="cap">Wrong platform</div>' +
+           '<div class="bt">These numbers are not this team\'s performance</div>' +
+           esc(d.blocked.message) +
+           '<ul>' + (d.blocked.unblock || []).map(function (u) {
+             return '<li>' + esc(u) + '</li>';
+           }).join('') + '</ul></div>';
     }
 
     var live = !!d.live;
@@ -510,6 +555,7 @@
     if ($('start').value) q.set('start', $('start').value);
     if ($('end').value) q.set('end', $('end').value || $('start').value);
     q.set('tz', String(new Date().getTimezoneOffset()));
+    if (TEAM) q.set('team', TEAM);
     if (SHARE && TOKEN) q.set('k', TOKEN);
 
     fetch('/api/v6/report?' + q.toString(),

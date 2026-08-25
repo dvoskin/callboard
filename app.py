@@ -840,16 +840,69 @@ def scoreboard_v5_board():
 #             -> BILLING_ROSTER env var (JSON list)
 #             -> the four seats confirmed on 2026-08-24.
 BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
-# Confirmed by Danny 2026-08-24. Ana Salazar (ext 271) is NOT on this list: her
-# line logged its last connected call on 2026-08-11 and he did not name her when
-# restating the roster. Restore her with one line here if that was a leave rather
-# than a departure.
-_BILLING_ROSTER_DEFAULT = [
-    {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
-    {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
-    {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
-    {"name": "Andrea Pleasant",    "ext_id": 388372049,  "ext": "148"},
-]
+# Three teams, one board. Confirmed by Danny 2026-08-24/25 from the roster sheet.
+#
+# Ana Salazar sits under INBOUND, not billing: her billing line went quiet after
+# 2026-08-11, which read like a departure until the roster showed she had moved
+# to Preop WFP. A seat going silent on one team is worth checking against the
+# org chart before it is read as a person stopping work.
+_TEAM_ROSTERS = {
+    "billing": [
+        {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
+        {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
+        {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
+        {"name": "Andrea Pleasant",    "ext_id": 388372049,  "ext": "148"},
+    ],
+    "scheduling": [
+        {"name": "Alanis Castillo",    "ext_id": 1154698035, "ext": "225"},
+        {"name": "Jorge Mier",         "ext_id": 436843034,  "ext": "221"},
+        {"name": "Sarahi Rivera",      "ext_id": 1204292035, "ext": "153"},
+        {"name": "Oscar Caballero",    "ext_id": 1140753035, "ext": "167"},
+    ],
+    "inbound": [
+        {"name": "Johana Duron",       "ext_id": 486295034,  "ext": "207"},
+        {"name": "Ariel Ramirez",      "ext_id": 1140748035, "ext": "145"},
+        {"name": "Antonio Hernandez",  "ext_id": 1140749035, "ext": "149"},
+        {"name": "Kevin Altamirano",   "ext_id": 431144034,  "ext": "213"},
+        {"name": "Angi Fuentes",       "ext_id": 1209615035, "ext": "159"},
+        {"name": "Ana Salazar",        "ext_id": 436846034,  "ext": "271"},
+    ],
+}
+TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
+               "inbound": "Inbound Customer Service"}
+
+# Which phone platform a team actually WORKS on. This is not cosmetic: measured
+# over 2026-05-26..08-23, billing dials from RingEX (Vivian: 5,881 outbound,
+# 84% connected) while scheduling and inbound are 100% INBOUND on RingEX with
+# almost nothing answered -- Sarahi Rivera had 292 missed and 87 voicemails and
+# zero answered calls in ninety days. Those are not quiet agents; they are logged
+# into RingCX, and their RingEX direct line is unanswered overflow rolling to
+# voicemail. Ranking them on it would put a number on the wrong platform and read
+# as "this person does nothing".
+#
+# RingCX's CDR is 403 on this account (WEM / Data Management not enabled), so
+# those two boards say what is missing instead of showing a leaderboard of
+# voicemail. They light up on their own once either the CDR is enabled or a
+# RingCX Interaction Report is delivered to /api/v5/ingest.
+_TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx"}
+DEFAULT_TEAM = "billing"
+
+
+def _team_key(raw):
+    """Unknown team names fall back to billing rather than serving an empty
+    board -- an empty board and a wrong URL should not look the same."""
+    k = (raw or "").strip().lower()
+    return k if k in _TEAM_ROSTERS else DEFAULT_TEAM
+
+
+_BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
+# Per-team KPI targets. Billing's were measured over 257 working agent-days
+# (2026-05-26..08-23): floor = p25 of observed days, target = median, stretch =
+# p75. A team with no entry here falls back to billing_report's defaults, which
+# ARE billing's numbers -- fine as a placeholder, wrong as a permanent answer,
+# because a scheduling seat and a billing seat do not have the same day.
+TEAM_TARGETS = {}
+
 BILLING_TOKEN = os.environ.get("BILLING_TOKEN", "")
 if not BILLING_TOKEN:
     print("[v6] BILLING_TOKEN is not set — /v6/board returns 404 for every request. "
@@ -861,10 +914,15 @@ _V6_TTL_TODAY = 150.0        # today moves; matches the warmer's refresh cadence
 _V6_TTL_PAST = 3600.0        # a finished day is final
 
 
-def _billing_roster():
-    """(roster, meta). Never raises: a broken override falls back to the default
-    rather than emptying the board, and says so in meta."""
-    meta = {"source": "default"}
+def _billing_roster(team=DEFAULT_TEAM):
+    """(roster, meta) for one team. Never raises: a broken override falls back to
+    the built-in roster rather than emptying the board, and says so in meta.
+
+    The /data override file may be either a bare list (the old single-team shape,
+    which still means billing) or {team: [...]}, so an existing file keeps
+    working after this became multi-team."""
+    team = _team_key(team)
+    meta = {"source": "default", "team": team}
     raw = None
     try:
         if BILLING_ROSTER_FILE.exists():
@@ -880,7 +938,11 @@ def _billing_roster():
         except Exception as e:  # noqa: BLE001
             meta["error"] = f"BILLING_ROSTER is not valid JSON ({e}); using the built-in roster."
             raw = None
-    roster = raw if isinstance(raw, list) and raw else _BILLING_ROSTER_DEFAULT
+    if isinstance(raw, dict):
+        raw = raw.get(team)
+    elif isinstance(raw, list) and team != DEFAULT_TEAM:
+        raw = None          # a bare list only ever described billing
+    roster = raw if isinstance(raw, list) and raw else _TEAM_ROSTERS[team]
     clean = []
     for r in roster:
         if not isinstance(r, dict) or not r.get("ext_id"):
@@ -889,7 +951,7 @@ def _billing_roster():
         clean.append({"name": (r.get("name") or f"ext {r.get('ext') or r['ext_id']}").strip(),
                       "ext_id": r["ext_id"], "ext": str(r.get("ext") or "")})
     if not clean:
-        clean = _BILLING_ROSTER_DEFAULT
+        clean = _TEAM_ROSTERS[team]
         meta["error"] = (meta.get("error", "") + " No usable seats in the override; "
                          "using the built-in roster.").strip()
     meta["size"] = len(clean)
@@ -993,9 +1055,9 @@ def _v6_seat_curve(ext_id, tz_offset_minutes, days_back=45):
     return build_pace_curve(per_day)
 
 
-def _v6_build(date_start, date_end, tz_offset_minutes, local_today):
+def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT_TEAM):
     """Assemble the window from day snapshots, fetching only what is missing."""
-    roster, roster_meta = _billing_roster()
+    roster, roster_meta = _billing_roster(team)
     d0 = datetime.strptime(date_start, "%Y-%m-%d").date()
     d1 = datetime.strptime(date_end, "%Y-%m-%d").date()
     days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
@@ -1063,7 +1125,35 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today):
         rows_by_agent, tz_offset_minutes=offset_east,
         window={"start": date_start, "end": date_end},
         roster_meta=roster_meta, now_local=now_local, curves=curves,
+        targets=TEAM_TARGETS.get(team),
     )
+    report["team"] = team
+    report["team_label"] = TEAM_LABELS[team]
+    report["source_platform"] = _TEAM_SOURCES.get(team, "ringex")
+    if _TEAM_SOURCES.get(team) == "ringcx":
+        # Everything below came from RingEX, which for this team only ever sees
+        # the calls they did NOT take. Say so at the top rather than letting the
+        # numbers speak for a platform they do not describe.
+        report["blocked"] = {
+            "why": "ringcx_unavailable",
+            "message": (
+                f"{TEAM_LABELS[team]} works in RingCX, not RingEX. RingEX only sees calls "
+                f"to their direct line that they did NOT answer -- over the last ninety days "
+                f"that was 100% inbound, almost all missed or voicemail, because they are "
+                f"logged into the contact centre instead. Their real call activity is in "
+                f"RingCX, whose reporting API returns 403 for this account (WEM / Data "
+                f"Management is not enabled). The figures below are overflow, not "
+                f"performance -- do not set a KPI from them."),
+            "unblock": [
+                "Enable RingCX Data Management / WEM API access for the app, which makes "
+                "this board fill in on its own.",
+                "Or have the RingCX Interaction Report for this team emailed to the "
+                "existing forwarder, which posts it to /api/v5/ingest.",
+                "Or export the RingCX Interactions CSV for these agents and it can be "
+                "measured the same way billing was.",
+            ],
+        }
+    report["teams"] = [{"key": k, "label": TEAM_LABELS[k]} for k in _TEAM_ROSTERS]
     if stats["missing"]:
         report["warnings"].append({
             "kind": "incomplete_fetch",
@@ -1117,7 +1207,14 @@ def _v6_warm_loop():
             if not _ringcx.configured:
                 time.sleep(300)
                 continue
-            roster, _ = _billing_roster()
+            roster = []
+            seen_ids = set()
+            for _tk in _TEAM_ROSTERS:
+                for _seat in _billing_roster(_tk)[0]:
+                    if _seat["ext_id"] in seen_ids:
+                        continue        # Ana Salazar would otherwise be fetched twice
+                    seen_ids.add(_seat["ext_id"])
+                    roster.append(_seat)
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
 
             # TODAY FIRST. The board's default view is today, and if the request
@@ -1214,7 +1311,8 @@ def api_v6_report():
             return jsonify({"error": "bad_range",
                             "detail": "The end date is before the start date."}), 400
 
-        key = (date_start, date_end, _off)
+        team = _team_key(request.args.get("team"))
+        key = (date_start, date_end, _off, team)
         ttl = _V6_TTL_TODAY if date_end >= local_today else _V6_TTL_PAST
         now = time.time()
         with _v6_lock:
@@ -1234,7 +1332,7 @@ def api_v6_report():
                 out["meta"] = dict(out["meta"], cached=True,
                                    age_seconds=round(time.time() - hit["at"]))
                 return jsonify(out)
-            report = _v6_build(date_start, date_end, tz_offset_minutes, local_today)
+            report = _v6_build(date_start, date_end, tz_offset_minutes, local_today, team)
             # An incomplete report must not be cached for an hour -- the whole
             # point is that a reload fills the gap.
             if report["meta"].get("complete"):
