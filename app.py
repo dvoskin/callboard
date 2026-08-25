@@ -1053,6 +1053,18 @@ def _v6_save_day(ext_id, day_iso, rows):
         log.warning("v6 snapshot unwritable %s: %s", p, e)
 
 
+def _v6_fetch_day_diag(ext_id, day_iso, tz_offset_minutes):
+    """As _v6_fetch_day, but also returns WHY it failed."""
+    start_dt = _parse_local_date_to_utc(day_iso, 0, 0, 0, tz_offset_minutes)
+    end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
+    rows, meta = _ringcx.fetch_extension_calls(ext_id, start_dt, end_dt, max_pages=6,
+                                               max_wait=_V6_MAX_WAIT,
+                                               timeout=_V6_HTTP_TIMEOUT)
+    ok = not meta.get("note") and not meta.get("truncated")
+    return rows, ok, (meta.get("note") or ("HTTP %s" % meta["http_error"]
+                                           if meta.get("http_error") else None))
+
+
 def _v6_fetch_day(ext_id, day_iso, tz_offset_minutes):
     """One seat, one local day. Returns (rows, ok). ok=False means the day could
     not be read -- which is NOT the same as the day being empty."""
@@ -1442,22 +1454,8 @@ def _v6_warm_loop():
             # budget against the sales dashboard -- which is how the first live
             # load came back empty. Keeping today warm here means the common case
             # is served from cache and never fetches at all.
-            tstr = today.isoformat()
-            for seat in roster:
-                c = _v6_today_cache.get((seat["ext_id"], tstr))
-                if c and time.time() - c["at"] < _V6_TODAY_WARM_TTL:
-                    continue
-                rows, ok = _v6_fetch_day(seat["ext_id"], tstr, tz_off)
-                if ok:
-                    _v6_today_cache[(seat["ext_id"], tstr)] = {"at": time.time(), "rows": rows}
-                    _v6_warm_state["today_at"] = time.time()
-                    time.sleep(_V6_WARM_PAUSE)
-                else:
-                    time.sleep(65)
-            # Drop yesterday's live entries so the dict cannot grow forever.
-            for k in [k for k in list(_v6_today_cache) if k[1] != tstr]:
-                _v6_today_cache.pop(k, None)
-
+            # Disk-only, so it costs nothing and always runs -- the diagnostic
+            # must not depend on the fetch loop having got that far.
             gaps = []
             for seat in roster:
                 for i in range(1, _V6_WARM_DAYS + 1):      # yesterday backwards; today is live
@@ -1465,6 +1463,38 @@ def _v6_warm_loop():
                     if _v6_load_day(seat["ext_id"], day) is None:
                         gaps.append((seat["ext_id"], day))
             _v6_warm_state["missing"] = len(gaps)
+            _v6_warm_state["seats"] = len(roster)
+
+            tstr = today.isoformat()
+            # Back off ONCE per cycle, not once per seat. Sleeping 65s after each
+            # failure meant 14 seats spent fifteen minutes failing before the loop
+            # ever reached the backfill scan -- which is why `missing` stayed null
+            # and nothing was ever filled. One refusal means the account's budget
+            # is gone for this minute; asking thirteen more times proves nothing.
+            for seat in roster:
+                c = _v6_today_cache.get((seat["ext_id"], tstr))
+                if c and time.time() - c["at"] < _V6_TODAY_WARM_TTL:
+                    continue
+                rows, ok, why = _v6_fetch_day_diag(seat["ext_id"], tstr, tz_off)
+                if ok:
+                    _v6_today_cache[(seat["ext_id"], tstr)] = {"at": time.time(), "rows": rows}
+                    _v6_warm_state["today_at"] = time.time()
+                    _v6_warm_state["filled_today"] = _v6_warm_state.get("filled_today", 0) + 1
+                    _v6_warm_state["last_error"] = None
+                    time.sleep(_V6_WARM_PAUSE)
+                else:
+                    # Record WHY. Without this the warmer's silence and RingEX
+                    # refusing are indistinguishable from outside, which is
+                    # exactly the ambiguity this codebase keeps getting bitten by.
+                    _v6_warm_state["last_error"] = why
+                    _v6_warm_state["last_error_at"] = time.time()
+                    log.warning("v6 warmer: today fetch failed for %s: %s",
+                                seat["ext_id"], why)
+                    break
+            # Drop yesterday's live entries so the dict cannot grow forever.
+            for k in [k for k in list(_v6_today_cache) if k[1] != tstr]:
+                _v6_today_cache.pop(k, None)
+
             if not gaps:
                 time.sleep(900)                            # nothing to do; check again later
                 continue
@@ -1501,8 +1531,20 @@ def api_v6_warm():
     always be explainable."""
     if not _v6_allowed():
         return jsonify({"error": "unauthorized"}), 401
-    return jsonify(dict(_v6_warm_state, warm_days=_V6_WARM_DAYS,
-                        pause_seconds=_V6_WARM_PAUSE))
+    st = dict(_v6_warm_state, warm_days=_V6_WARM_DAYS, pause_seconds=_V6_WARM_PAUSE)
+    for k in ("last_error_at", "today_at"):
+        if st.get(k):
+            st[k + "_ago_s"] = round(time.time() - st[k])
+    # Collections shares this page: two background loaders, one place to look.
+    try:
+        _c, cm = _collections.cached()
+        st["collections"] = {"loading": cm.get("loading", False),
+                             "age_seconds": cm.get("age_seconds"),
+                             "errors": cm.get("errors", []),
+                             "tabs": sorted((cm.get("tabs") or {}).keys())}
+    except Exception as e:  # noqa: BLE001
+        st["collections"] = {"error": str(e)}
+    return jsonify(st)
 
 
 @app.route("/api/v6/collections")
