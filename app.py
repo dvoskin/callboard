@@ -34,8 +34,7 @@ from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
 from billing_report import (build_report as build_billing_report,
-                            build_pace_curve, is_connected as _billing_connected,
-                            DEFAULT_TARGETS as _BILLING_DEFAULT_TARGETS)
+                            build_pace_curve, is_connected as _billing_connected)
 from v5_report import (build_report as build_v5_report,
                        parse_interaction_csv, CsvShapeError, EmptyReportError,
                        parse_ts as _v5_parse_ts)
@@ -1763,10 +1762,9 @@ def scoreboard_v6():
     return render_template("v5_password.html", error=error), (401 if error else 200)
 
 
-# What each KPI tile says on the hub. The numbers come from the same tables the
-# boards read, never from a copy: a hub quoting its own targets drifts from the
-# board it links to, and nothing would show the drift until someone chased a
-# figure that no page actually displays.
+# What each KPI tile says on the hub. Names and links only -- the hub does not
+# quote targets or headcounts. It is a way in, not a small second copy of the
+# board, and a copy is a thing that can disagree.
 _HUB_TEAM_BLURB = {
     "billing": "Talk time, calls, and collected amounts per agent.",
     "scheduling": "Talk time and calls per scheduler.",
@@ -1775,22 +1773,10 @@ _HUB_TEAM_BLURB = {
 
 
 def _hub_team_tiles():
-    out = []
-    for team in ("billing", "scheduling", "inbound"):
-        tg = TEAM_TARGETS.get(team) or _BILLING_DEFAULT_TARGETS
-        try:
-            seats = len(_billing_roster(team)[0])
-        except Exception:  # noqa: BLE001
-            seats = 0
-        out.append({
-            "path": "/" + _TEAM_PATHS[team],
-            "label": TEAM_LABELS.get(team, team.title()),
-            "blurb": _HUB_TEAM_BLURB.get(team, ""),
-            "seats": seats,
-            "talk": tg["talk_minutes"]["target"],
-            "calls": tg["calls"]["target"],
-        })
-    return out
+    return [{"path": "/" + _TEAM_PATHS[team],
+             "label": TEAM_LABELS.get(team, team.title()),
+             "blurb": _HUB_TEAM_BLURB.get(team, "")}
+            for team in ("billing", "scheduling", "inbound")]
 
 
 @app.route("/v7", methods=["GET", "POST"])
@@ -1803,11 +1789,6 @@ def hub_v7():
     neither can text a patient, resolve a call or edit a note -- those share the
     same decorator and are refused for a word session regardless of method. See
     checks_v7_password.py, which asserts both directions.
-
-    The three KPI tiles read their targets from the same tables the boards do.
-    A hub that quoted its own numbers would drift from the boards it links to,
-    and the drift would be invisible until someone chased a figure that no page
-    actually shows.
 
     Surgery Readiness lives on a different service and opens in a new tab; it
     carries its own sign-in, which the footer says.

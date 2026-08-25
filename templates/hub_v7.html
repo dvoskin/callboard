@@ -53,13 +53,7 @@
   .t{font-weight:650;font-size:15.5px;letter-spacing:-.01em;display:flex;
      align-items:center;gap:7px;flex-wrap:wrap}
   .d{font-size:12.5px;color:var(--muted);line-height:1.4;margin-top:2px}
-  /* Only the three KPI boards carry this. It is the tile's reason to exist:
-     these pages are read to answer "are we at target", so the target belongs
-     on the way in. Tabular figures so the three line up down the column. */
-  .k{margin-top:7px;font-size:11.5px;color:var(--ink-2);
-     font-variant-numeric:tabular-nums}
-  .k b{font-weight:650;color:var(--ink)}
-  .k span{color:var(--muted)}
+
   .ext{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
        color:var(--muted);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
 
@@ -93,8 +87,6 @@
     <a class="card" href="{{ tm.path }}">
       <div class="t">{{ tm.label }}</div>
       <div class="d">{{ tm.blurb }}</div>
-      <div class="k">{{ tm.seats }} agents <span>·</span> target <b>{{ tm.talk }} min</b>
-        <span>and</span> <b>{{ tm.calls }} calls</b> <span>a day</span></div>
     </a>
     {% endfor %}
 
