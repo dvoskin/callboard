@@ -143,7 +143,10 @@ def login_or_api_key(f):
         return login_required(f)(*args, **kwargs)
     return wrapper
 
-REFRESH_INTERVAL_SECONDS = 60
+# 60 was spending the whole RingEX minute-budget on one pass. 90 plus the
+# smaller page cap brings total demand under the account ceiling; the floor's
+# "on a call now" is at most 90s old instead of 60s. REFRESH_SECONDS overrides.
+REFRESH_INTERVAL_SECONDS = int(os.environ.get("REFRESH_SECONDS", "90"))
 
 _cache: dict = {"data": None, "last_updated": None, "error": None}
 _lock = threading.Lock()
@@ -1439,12 +1442,21 @@ def _v6_warm_loop():
             if not _ringcx.configured:
                 time.sleep(300)
                 continue
+            # ONLY the RingEX teams. Scheduling and Inbound work in RingCX and
+            # their RingEX line is unanswered overflow -- fetching it produced
+            # nothing usable and cost ten of the fourteen requests per cycle,
+            # against an account budget of ten per MINUTE shared with the sales
+            # dashboard. Everything was 429ing, including the dashboard's own
+            # fetch. Ten of every fourteen of those requests were for data this
+            # board already knows it cannot use.
             roster = []
             seen_ids = set()
             for _tk in _TEAM_ROSTERS:
+                if _TEAM_SOURCES.get(_tk) != "ringex":
+                    continue
                 for _seat in _billing_roster(_tk)[0]:
                     if _seat["ext_id"] in seen_ids:
-                        continue        # Ana Salazar would otherwise be fetched twice
+                        continue
                     seen_ids.add(_seat["ext_id"])
                     roster.append(_seat)
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()

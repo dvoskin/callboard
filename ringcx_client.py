@@ -752,7 +752,13 @@ class RingCXClient:
 
             phone_map: dict[str, list[dict]] = {}
             page = 1
-            max_pages = 10  # 2500 records — the Heavy call-log rate cap is ~10 req/min
+            # Was 10. One pass could therefore spend the account's ENTIRE
+            # per-minute budget, and with this running every 60s nothing else
+            # ever got a request in -- the logs showed every caller 429ing,
+            # including this one. 4 pages is 1000 of today's calls, which covers
+            # a normal day here, and leaves room for the rest of the app.
+            # V5_BULK_MAX_PAGES raises it if a day ever genuinely needs more.
+            max_pages = int(os.environ.get("V5_BULK_MAX_PAGES", "4"))
 
             while page <= max_pages:
                 resp = requests.get(
