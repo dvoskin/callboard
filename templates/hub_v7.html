@@ -30,10 +30,9 @@
   .who{margin-top:9px;font-size:12px;color:var(--muted)}
   .who b{color:var(--ink-2);font-weight:600}
 
-  /* One grid, no section headings. Headings over these six would give sections
-     of one and two, each leaving a half-empty row -- structure describing itself
-     rather than the content. The category rides on the card instead, and six
-     cards divide evenly into two columns. */
+  /* One grid, no section headings. Headings over these would give sections of
+     one and two, each leaving a half-empty row -- structure describing itself
+     rather than the content. The category rides on the card instead. */
   .grid{display:grid;gap:10px;grid-template-columns:1fr;margin-bottom:10px}
   @media(min-width:600px){.grid{grid-template-columns:1fr 1fr;gap:12px}}
 
@@ -93,6 +92,11 @@
     <a class="card" href="https://zoho-quote-analyzer.onrender.com/board" target="_blank" rel="noopener noreferrer">
       <div class="t">Surgery Readiness <span class="ext">External</span></div>
       <div class="d">What each patient still owes before their surgery date.</div>
+    </a>
+
+    <a class="card" href="https://zoho-quote-analyzer.onrender.com/closings" target="_blank" rel="noopener noreferrer">
+      <div class="t">Closing Dashboard <span class="ext">External</span></div>
+      <div class="d">Quotes that closed, by rep.</div>
     </a>
 
   </div>
