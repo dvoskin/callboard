@@ -399,8 +399,28 @@ class BooksClient:
             who = next((owner[k] for k in keys if k in owner), "")
             if not who:
                 unmatched += 1
+
+            # ONE canonical id per invoice, kept on the row.
+            #
+            # The caller counts "retainers paid", and a retainer settled by two
+            # payments is one retainer -- counting payment ROWS reported Rothmel
+            # 4 for 3 and Adelita 4 for 2, inflated by exactly however many
+            # people paid in instalments. `keys` above cannot be used for this:
+            # it holds BOTH the number and the id of every invoice, so one
+            # invoice would count as two.
+            inv_ids = []
+            for inv in (r.get("invoices") or []):
+                cid = str(inv.get("invoice_id") or inv.get("invoice_number") or "").strip()
+                if cid:
+                    inv_ids.append(cid)
+            if not inv_ids:
+                for n in str(r.get("invoice_numbers") or "").split(","):
+                    if n.strip():
+                        inv_ids.append(n.strip())
+
             r = dict(r)
             r["salesperson_name"] = who or "Unassigned"
+            r["invoice_ids"] = inv_ids
             out.append(r)
         if unmatched:
             # Say it rather than letting the total quietly land in "Unassigned".

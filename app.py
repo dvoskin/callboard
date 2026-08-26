@@ -2669,6 +2669,13 @@ def _v5_books_fetch(date_start: str, date_end: str):
         except (TypeError, ValueError):
             return 0.0
 
+    # "Retainers paid" counts RETAINERS, not payment records. A retainer settled
+    # in two instalments is one retainer; counting rows reported Rothmel 4 for 3
+    # and Adelita 4 for 2, over by exactly however many people paid in parts.
+    # paid_amount still sums every payment -- that is money received, and all of
+    # it arrived.
+    paid_invoices = defaultdict(set)
+
     for label, fn, field in (
         ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 2000), None),
         ("retainers_sent", lambda: _books.list_sent_retainer_invoices(date_start, date_end, 500), None),
@@ -2677,8 +2684,17 @@ def _v5_books_fetch(date_start: str, date_end: str):
         try:
             rows = fn() or []
             for r in rows:
-                b = bucket(r.get("salesperson_name") or "Unassigned")
-                b[label] += 1
+                who = r.get("salesperson_name") or "Unassigned"
+                b = bucket(who)
+                if label == "retainers_paid":
+                    ids = r.get("invoice_ids") or []
+                    # A payment with no invoice on it still happened; keying it
+                    # by its own id counts it once rather than dropping it.
+                    ids = ids or ["payment:%s" % (r.get("payment_id")
+                                                  or r.get("payment_number") or id(r))]
+                    paid_invoices[_norm_name(who)].update(ids)
+                else:
+                    b[label] += 1
                 if label == "quotes_sent" and (r.get("status") or "") in _QUOTE_CLOSED:
                     b["quotes_invoiced"] += 1
                 if field:
@@ -2689,6 +2705,10 @@ def _v5_books_fetch(date_start: str, date_end: str):
             # means "no quotes today" must not look the same on the board.
             log.warning("v5 books %s failed: %s", label, _redact(e))
             meta["errors"].append({"metric": label, "detail": _redact(e)[:200]})
+
+    for nkey, invs in paid_invoices.items():
+        if nkey in by_agent:
+            by_agent[nkey]["retainers_paid"] = len(invs)
 
     with _v5_books_lock:
         _v5_books_cache[key] = {"at": time.time(), "by_agent": by_agent, "meta": meta}
