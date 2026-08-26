@@ -402,12 +402,16 @@
     // day is stated beside today and left for the reader to judge.
     var C = d.collections;
     if (C && C.total) {
+        // Every figure names the RECORD it came from. "Collected" beside "all
+        // payments" read as a total beside a subset -- so a Books number that
+        // was legitimately smaller looked like an error. They are two separate
+        // records of the same week and the labels have to say so.
         var bits = [];
         if (d.live) {
-            bits.push('Collected today <b>' + money(C.today) + '</b>');
-            if (C.typical_day) bits.push('a typical day is <b>' + money(C.typical_day) + '</b>');
+            bits.push('Billers logged <b>' + money(C.today) + '</b> today');
+            if (C.typical_day) bits.push('typical day <b>' + money(C.typical_day) + '</b>');
         } else {
-            bits.push('Collected <b>' + money(C.total) + '</b>');
+            bits.push('Billers logged <b>' + money(C.total) + '</b>');
             if (C.days_with_money) bits.push('over <b>' + C.days_with_money + '</b> day' +
                                              (C.days_with_money === 1 ? '' : 's'));
             if (C.typical_day) bits.push('<b>' + money(C.typical_day) + '</b> a day');
@@ -415,17 +419,20 @@
         if (C.trend_pct != null) {
             bits.push('trending <b>' + (C.trend_pct > 0 ? '+' : '') + C.trend_pct + '%</b>');
         }
-        // Everything that came in, beside the part a biller recorded. Stated as
-        // a difference rather than a "self-service total": the sheet and Books
-        // are different books and the gap can run either way.
+        // The gap runs both ways and means something different each way, so it
+        // is named rather than signed. Books ahead IS the self-service money --
+        // the thing this was added to surface. The sheet ahead is money Books
+        // never saw, which is what cash looks like.
         var P = C.payments;
         if (P && P.available) {
-            bits.push('all payments <b>' + money(P.all_payments) + '</b>');
+            var gap = '';
             if (P.difference) {
-                bits.push(P.sheet_exceeds_books
-                    ? '<b>' + money(-P.difference) + '</b> in the sheet is not in Books'
-                    : '<b>' + money(P.difference) + '</b> not recorded by a biller');
+                gap = P.sheet_exceeds_books
+                    ? ' &mdash; <b>' + money(-P.difference) + '</b> less, so the sheet holds ' +
+                      'payments Books never saw'
+                    : ' &mdash; <b>' + money(P.difference) + '</b> more, paid without a biller';
             }
+            bits.push('Books shows <b>' + money(P.all_payments) + '</b>' + gap);
         }
         h += '<div class="key coll">' + bits.map(function (b) {
             return '<span>' + b + '</span>'; }).join('') + '</div>';
