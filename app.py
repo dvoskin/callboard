@@ -3209,6 +3209,60 @@ def api_v5_diag():
     return jsonify(out)
 
 
+@app.route("/api/v5/diag/payments")
+@login_required
+def api_v5_diag_payments():
+    """The payment rows behind "retainers paid", so a wrong count can be READ
+    rather than guessed at.
+
+    Two rounds of fixing this were reasoning from a number alone -- payments
+    counted instead of retainers, then one invoice counted twice because a
+    number and an id are different strings. Both were right and neither was the
+    whole answer, which is what guessing looks like.
+
+    NO PATIENT DATA. Salesperson, invoice identity, amount and payment id only:
+    everything needed to see why a count is what it is, and nothing about who
+    the patient was.
+    """
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    day = request.args.get("day") or (
+        datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
+    try:
+        rows = _books.list_retainer_payments(day, day)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"day": day, "error": _redact(str(e))[:300]}), 200
+
+    by_agent = {}
+    for r in rows:
+        who = r.get("salesperson_name") or "Unassigned"
+        b = by_agent.setdefault(who, {"payments": [], "invoices": set(), "amount": 0.0})
+        ids = r.get("invoice_ids") or []
+        b["payments"].append({
+            "invoice_ids": ids,
+            "amount": r.get("amount"),
+            "payment_id": r.get("payment_id") or r.get("payment_number"),
+            "mode": r.get("payment_mode"),
+            # The RAW shapes, because which one a row carries is exactly what
+            # made two references to one invoice look like two invoices.
+            "has_invoices_array": bool(r.get("invoices")),
+            "invoice_numbers_field": r.get("invoice_numbers") or None,
+        })
+        b["invoices"].update(ids)
+        try:
+            b["amount"] += float(r.get("amount") or 0)
+        except (TypeError, ValueError):
+            pass
+    return jsonify({
+        "day": day,
+        "total_payment_rows": len(rows),
+        "agents": {w: {"payment_rows": len(v["payments"]),
+                       "distinct_invoices": len(v["invoices"]),
+                       "amount": round(v["amount"], 2),
+                       "payments": v["payments"]}
+                   for w, v in sorted(by_agent.items())},
+    })
+
+
 @app.route("/api/v5/ingest/status")
 @login_required
 def api_v5_ingest_status():

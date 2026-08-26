@@ -71,6 +71,25 @@ def run():
         ("Adelita amount is every payment", g("Adelita Flowers", "paid_amount"), 1600.0),
     ]
 
+    # The SAME invoice referred to two different ways across two payments must
+    # collapse to one. This is what left Adelita at 3 instead of 2: payment
+    # shapes vary row to row, so one carried the id and the other the number.
+    c2 = books_client.BooksClient()
+    c2.client_id = c2.client_secret = c2.refresh_token = c2.org_id = "x"
+    c2.list_customer_payments = lambda *a, **k: [
+        {"invoices": [{"invoice_id": "77", "invoice_number": "INV-77"}],
+         "amount": 300, "payment_id": "a"},
+        {"invoice_numbers": "INV-77", "amount": 300, "payment_id": "b"},
+    ]
+    c2._list_documents = lambda *a, **k: [
+        {"invoice_id": "77", "invoice_number": "INV-77",
+         "salesperson_name": "Adelita Flowers"}]
+    both = c2.list_retainer_payments("2026-08-26", "2026-08-26")
+    idents = set()
+    for r in both:
+        idents.update(r["invoice_ids"])
+    cases.append(("id and number are one invoice", len(idents), 1))
+
     # And the client must hand over ONE id per invoice. `keys` used for the
     # owner lookup holds both the number AND the id of each invoice, so reusing
     # it here would count a single invoice twice.

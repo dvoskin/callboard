@@ -373,14 +373,26 @@ class BooksClient:
             back = (_date.fromisoformat(date_start) - _td(days=lookback_days)).isoformat()
         except ValueError:
             back = date_start
-        owner = {}
+        # canon maps EVERY way an invoice can be referred to -- its number and
+        # its id -- onto one identity.
+        #
+        # Without it the same invoice gets two identities across two payments,
+        # because the payment shape varies row to row: one carries an `invoices`
+        # array (so the id is used) and another only `invoice_numbers` (so the
+        # number is). Counting distinct ids then still double-counts a retainer
+        # paid in instalments -- Adelita went from 4 to 3 rather than to 2, which
+        # is one merged pair and one that was not.
+        owner, canon = {}, {}
         try:
             for inv in self._list_documents("invoices", back, date_end, 2000):
+                ident = str(inv.get("invoice_id") or inv.get("invoice_number") or "").strip()
                 who = (inv.get("salesperson_name") or "").strip()
-                if not who:
-                    continue
                 for k in (inv.get("invoice_number"), inv.get("invoice_id")):
-                    if k:
+                    if not k:
+                        continue
+                    if ident:
+                        canon[str(k)] = ident
+                    if who:
                         owner[str(k)] = who
         except Exception as e:  # noqa: BLE001
             log.warning("Books: invoice lookup for payments failed: %s", e)
@@ -408,15 +420,30 @@ class BooksClient:
             # people paid in instalments. `keys` above cannot be used for this:
             # it holds BOTH the number and the id of every invoice, so one
             # invoice would count as two.
+            # ONE identity per invoice on this payment.
+            #
+            # Resolved through canon where the invoice is known, so a number on
+            # one payment and an id on another collapse to the same retainer.
+            # Where it is NOT known -- an invoice older than the lookback, or a
+            # failed lookup -- the id and the number of a single invoice are
+            # still one invoice, so they must not both be kept. Adding every
+            # reference and de-duplicating counted such an invoice twice.
             inv_ids = []
-            for inv in (r.get("invoices") or []):
-                cid = str(inv.get("invoice_id") or inv.get("invoice_number") or "").strip()
-                if cid:
-                    inv_ids.append(cid)
-            if not inv_ids:
+
+            def _add(ident):
+                if ident and ident not in inv_ids:
+                    inv_ids.append(ident)
+
+            invoices = r.get("invoices") or []
+            for inv in invoices:
+                iid = str(inv.get("invoice_id") or "").strip()
+                num = str(inv.get("invoice_number") or "").strip()
+                _add(canon.get(iid) or canon.get(num) or iid or num)
+            if not invoices:
                 for n in str(r.get("invoice_numbers") or "").split(","):
-                    if n.strip():
-                        inv_ids.append(n.strip())
+                    n = n.strip()
+                    if n:
+                        _add(canon.get(n, n))
 
             r = dict(r)
             r["salesperson_name"] = who or "Unassigned"
