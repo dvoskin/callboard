@@ -1480,9 +1480,15 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             # tab that stopped being readable weeks ago, and those must not look
             # the same -- Andrea's tab was renamed to "PLEASANT" and dropped out
             # in complete silence, including on days she had logged $8,000.
+            # Future dates are typos, not entries, and they must not count as
+            # "latest" -- Vivian's tab carries a 2026-11-03 that would sit above
+            # every real row and make the driest tab on the sheet look like the
+            # freshest, silencing the very warning that is meant to flag it.
             latest = {}
+            _today = (date_end if date_end <= local_today else local_today)
             for seat in roster:
-                per = coll.get(seat["name"]) or {}
+                per = {d: v for d, v in (coll.get(seat["name"]) or {}).items()
+                       if d.isoformat() <= _today}
                 latest[seat["name"]] = max(per).isoformat() if per else None
             report["collections_meta"] = {
                 "tabs": cmeta.get("tabs", {}), "errors": cmeta.get("errors", []),
