@@ -1904,6 +1904,10 @@ def api_v6_collections():
         # the loop never ran.
         "pid": os.getpid(),
         "threads": sorted(t.name for t in threading.enumerate()),
+        # Books payments live on the same background loop, so one URL answers
+        # "is the money half working" for both halves rather than two.
+        "payments": {k: v for k, v in _payments_cached().items() if k != "by_day"},
+        "payment_days": len((_payments_cached().get("by_day") or {})),
         "refresher": dict(_collections_state,
                           age_of_last_ok=(round(time.time() - _collections_state["last_ok_at"])
                                           if _collections_state.get("last_ok_at") else None),
