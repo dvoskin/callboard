@@ -1805,6 +1805,11 @@ def api_v6_collections():
         # with a refresher that has never finished as with one that has never
         # started -- the endpoint could not tell the two apart, so neither could
         # anyone reading it.
+        # Which threads are actually alive in THIS process. The whole question
+        # has been whether the refresher is running at all, and every field
+        # above it reports what the loop wrote -- which tells you nothing when
+        # the loop never ran.
+        "threads": sorted(t.name for t in threading.enumerate()),
         "refresher": dict(_collections_state,
                           age_of_last_ok=(round(time.time() - _collections_state["last_ok_at"])
                                           if _collections_state.get("last_ok_at") else None),
@@ -6341,7 +6346,17 @@ def _collections_loop():
 
 if not globals().get("_collections_started"):
     _collections_started = True
-    threading.Thread(target=_collections_loop, daemon=True, name="collections").start()
+    _collections_state["thread_started_at"] = time.time()
+    try:
+        threading.Thread(target=_collections_loop, daemon=True, name="collections").start()
+    except Exception as _e:  # noqa: BLE001
+        # A thread that fails to start is not allowed to do it quietly. The live
+        # board sat on loading:true with an EMPTY refresher -- no attempts, no
+        # error, nothing -- which says the loop body never ran once, and there
+        # was no way from outside to tell "never started" from "started and
+        # died".
+        _collections_state["thread_start_error"] = "%s: %s" % (type(_e).__name__, _e)
+        log.exception("collections thread failed to start")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
