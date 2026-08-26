@@ -6301,7 +6301,7 @@ def _ensure_background_thread():
     with _bg_lock:
         if _bg_started:
             return
-        t = threading.Thread(target=_background_loop, daemon=True, name="refresh")
+        t = threading.Thread(target=_background_loop, daemon=True, name="loop:refresh")
         t.start()
         _bg_started = True
 
@@ -6312,7 +6312,7 @@ _ensure_background_thread()
 # The billing board's day-snapshot warmer. Same once-only guard, same reason:
 # gunicorn imports this module in the worker, `python app.py` runs it directly.
 if not _v6_warm_state["running"]:
-    threading.Thread(target=_v6_warm_loop, daemon=True, name="v6-warm").start()
+    threading.Thread(target=_v6_warm_loop, daemon=True, name="loop:v6-warm").start()
 
 
 _collections_state: dict = {}
@@ -6345,9 +6345,15 @@ def _collections_loop():
         time.sleep(120)
 
 
-_WORKER_LOOPS = (("refresh", lambda: _background_loop()),
-                 ("v6-warm", lambda: _v6_warm_loop()),
-                 ("collections", lambda: _collections_loop()))
+# Dedicated names. A one-shot manual refresh worker is also called "refresh"
+# (see _kick_refresh), and _ensure_worker_threads decides whether to start a
+# loop by looking for its name among the live threads -- so a transient worker
+# that happened to be running at the moment of the first request would satisfy
+# the check and the real loop would never start. That is the bug this helper
+# exists to fix, reintroduced through a name collision.
+_WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
+                 ("loop:v6-warm", lambda: _v6_warm_loop()),
+                 ("loop:collections", lambda: _collections_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 
@@ -6400,7 +6406,7 @@ if not globals().get("_collections_started"):
     _collections_started = True
     _collections_state["thread_started_at"] = time.time()
     try:
-        threading.Thread(target=_collections_loop, daemon=True, name="collections").start()
+        threading.Thread(target=_collections_loop, daemon=True, name="loop:collections").start()
     except Exception as _e:  # noqa: BLE001
         # A thread that fails to start is not allowed to do it quietly. The live
         # board sat on loading:true with an EMPTY refresher -- no attempts, no

@@ -33,7 +33,11 @@ os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 
 import app as appmod  # noqa: E402
 
-WANT = {"refresh", "v6-warm", "collections"}
+WANT = {"loop:refresh", "loop:v6-warm", "loop:collections"}
+# A one-shot manual refresh worker is also called "refresh". If the loops were
+# named the same, a transient worker alive at the moment of the first request
+# would satisfy the liveness check and the real loop would never start.
+COLLIDING = "refresh"
 
 
 def run():
@@ -54,12 +58,20 @@ def run():
         os.close(r)
         out = {}
         try:
-            # Nothing real must run; only the wiring is under test.
-            appmod._background_loop = lambda: time.sleep(60)
-            appmod._v6_warm_loop = lambda: time.sleep(60)
-            appmod._collections_loop = lambda: time.sleep(60)
-
             out["after_fork"] = sorted(WANT & {t.name for t in threading.enumerate()})
+
+            # A decoy carrying the one-shot worker's name must not be mistaken
+            # for a running loop. This has to happen HERE, in the child, where
+            # the loops are actually dead -- in the parent they are all alive,
+            # so nothing starts and the assertion reads empty whatever the code
+            # does. And it records whether the loop BODIES ran, because a decoy
+            # satisfies a check that only looks for the name.
+            ran = set()
+            appmod._background_loop = lambda: (ran.add("refresh"), time.sleep(30))
+            appmod._v6_warm_loop = lambda: (ran.add("v6-warm"), time.sleep(30))
+            appmod._collections_loop = lambda: (ran.add("collections"), time.sleep(30))
+            stop = threading.Event()
+            threading.Thread(target=stop.wait, daemon=True, name=COLLIDING).start()
             # Every "already started" flag is inherited and lying.
             out["flags_say_started"] = bool(
                 appmod.__dict__.get("_collections_started")
@@ -73,7 +85,8 @@ def run():
             appmod._ensure_worker_threads()
             time.sleep(0.3)
             out["after_ensure"] = sorted(WANT & {t.name for t in threading.enumerate()})
-            out["pid_differs"] = os.getpid() != pid
+            out["loops_entered"] = sorted(ran)
+            stop.set()
         except Exception as e:  # noqa: BLE001
             out["error"] = "%s: %s" % (type(e).__name__, e)
         os.write(w, json.dumps(out).encode())
@@ -96,6 +109,9 @@ def run():
         ("...but the flags claim otherwise", child.get("flags_say_started"), True),
         ("ensure brings them back", sorted(child.get("after_ensure") or []), sorted(WANT)),
         ("no error in the child", child.get("error"), None),
+        ("a decoy 'refresh' fools nothing",
+         sorted(child.get("loops_entered") or []),
+         ["collections", "refresh", "v6-warm"]),
     ]:
         ok = got == want
         print("  %-38s want %-26s got %-26s %s"
