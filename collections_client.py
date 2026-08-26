@@ -244,6 +244,27 @@ def _date_column(header):
                 None)
 
 
+def _name_column(header):
+    """The patient-name column, or None.
+
+    Used to tell a payment from the sheet's own SUBTOTAL rows. Every real
+    payment belongs to a patient; a row carrying money and no name is the
+    running total the agents type at the end of a day's block. Undated, it
+    inherits the date above under the forward-fill rule and is counted as if it
+    were another payment -- so a day's takings landed twice.
+
+    That was not a rounding error. 49.9% of Gabriela's money and 50.4% of
+    Yareth's sat in nameless rows: their entire history read at roughly double.
+
+    "Dr Name" is excluded, and so is anything about a location or centre.
+    """
+    low = [(c or "").strip().lower() for c in header]
+    return next((i for i, h in enumerate(low)
+                 if "name" in h
+                 and not any(x in h for x in ("dr ", "dr.", "doctor", "location", "center",
+                                              "centre", "surgeon"))), None)
+
+
 def _amount_candidates(header):
     """The column the header names, and the one to its right.
 
@@ -304,6 +325,7 @@ def read_tab(sheet_id, gid):
     if hi is None:
         return {}, {"error": "no 'collected' column found"}
     di = _date_column(head[hi])
+    ni = _name_column(head[hi])
     cands = _amount_candidates(head[hi])
     if not cands:
         return {}, {"error": "could not locate the amount column"}
@@ -337,6 +359,21 @@ def read_tab(sheet_id, gid):
             elif (r[di] or "").strip():
                 stats["bad_date"] += 1
         seen_rows += 1
+        # A payment belongs to a patient. Money with no name is the block's own
+        # subtotal, and counting it doubles the day. Only skipped when the tab
+        # actually HAS a name column -- guessing one is not worth dropping every
+        # row of a tab shaped differently.
+        is_total = (ni is not None and not (ni < len(r) and (r[ni] or "").strip()))
+        if is_total:
+            # Counted ONCE for the row. Doing it inside the per-column loop
+            # counted a one-column subtotal once and then divided it by the
+            # number of candidates, which reported zero rows and half the money.
+            row_amt = next((parse_amount(r[c]) for c in cands
+                            if c < len(r) and parse_amount(r[c])), None)
+            if row_amt:
+                stats["subtotal_rows"] = stats.get("subtotal_rows", 0) + 1
+                stats["subtotal_amount"] = round(
+                    stats.get("subtotal_amount", 0.0) + row_amt, 2)
         for c in cands:
             amt = parse_amount(r[c]) if c < len(r) else None
             if amt is None:
@@ -344,6 +381,8 @@ def read_tab(sheet_id, gid):
             counts[c] += 1
             if amt:
                 last_money[c] = seen_rows
+            if is_total:
+                continue
             if cur is None:
                 continue
             per[c][cur] += amt
@@ -367,7 +406,7 @@ def read_tab(sheet_id, gid):
         return (last_money[c], c == cands[0])
     ai = max(cands, key=score)
     stats["rows"] = counts[ai]
-    stats["date_col"], stats["amount_col"] = di, ai
+    stats["date_col"], stats["amount_col"], stats["name_col"] = di, ai, ni
     stats["amount_candidates"] = {c: {"values": counts[c], "last_money_row": last_money[c]}
                                   for c in cands}
     return dict(per[ai]), stats

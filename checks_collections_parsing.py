@@ -118,6 +118,50 @@ def run():
         ("...and its total", per4.get(date(2026, 8, 26)), 1000.0),
     ]
 
+    # 4: the sheet's own SUBTOTAL rows are not payments.
+    #
+    # Agents type a running total at the end of each day's block. It carries
+    # money, no patient, and no date -- so the forward-fill adopts the date
+    # above and it is counted as another payment, landing the day's takings
+    # twice. Gabriela read $19,800 for a $9,900 day. Across her whole tab 49.9%
+    # of the money sat in nameless rows, and 50.4% of Yareth's: their entire
+    # history was roughly double.
+    per5, st5 = _tab([
+        "Date,Patient Name,Amount Collected",
+        "8/26/2026,Someone,$350",
+        ",Another,$500",              # undated but NAMED -- a real payment
+        ",,$850",                     # undated and NAMELESS -- the block total
+    ])
+    cases += [
+        ("subtotal row excluded", per5.get(date(2026, 8, 26)), 850.0),
+        ("...and counted as one", st5.get("subtotal_rows"), 1),
+        ("...with its amount noted", st5.get("subtotal_amount"), 850.0),
+        ("named undated row kept", per5.get(date(2026, 8, 26)) > 500, True),
+    ]
+
+    # A tab with no name column at all must not lose every row -- guessing a
+    # column is not worth emptying a differently-shaped tab.
+    per6, st6 = _tab([
+        "Date,Amount Collected",
+        "8/26/2026,$400",
+        ",$600",
+    ])
+    cases += [
+        ("no name column -> nothing dropped", per6.get(date(2026, 8, 26)), 1000.0),
+        ("...and none claimed as subtotals", st6.get("subtotal_rows", 0), 0),
+    ]
+
+    # "Dr Name" is not the patient name. Treating it as one would make every row
+    # without a doctor look like a subtotal.
+    per7, st7 = _tab([
+        "Date,Dr Name,Patient Name,Amount Collected",
+        "8/26/2026,,Someone,$700",
+    ])
+    cases += [
+        ("Dr Name is not the patient", per7.get(date(2026, 8, 26)), 700.0),
+        ("...so nothing is dropped", st7.get("subtotal_rows", 0), 0),
+    ]
+
     for label, got, want in cases:
         ok = got == want
         print("  %-34s want %-10s got %-10s %s"
