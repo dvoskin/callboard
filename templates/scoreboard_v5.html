@@ -205,6 +205,9 @@
   // A median over an even number of people lands on .5 — right, but it reads as a
   // typo. Display rounds; every comparison still uses the true value.
   function w(n) { return Math.round(n || 0); }
+  function money(v) {
+    return v == null ? '\u2014' : '$' + Math.round(v).toLocaleString();
+  }
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -263,6 +266,10 @@
     ranked.forEach(function (a, i) {
       var up = a.talk >= f.talk;
       const bk = a.books || {};
+      // Did Books answer at all? A zero it never sent and a zero it did are the
+      // same digit on screen and mean opposite things.
+      const bm = (d.meta || {}).books || {};
+      const booksOk = !bm.loading && !(bm.errors || []).length;
       const cell2 = function (label, value, isZero) {
         return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + label +
                '</em><b>' + value + '</b></div>';
@@ -292,10 +299,16 @@
              // nothing can be attributed and every cell would read as a dash --
              // worse than not showing the row at all.
              '' +
-             // Retainers paid is hidden, not removed: the API still computes it,
-             // so it reappears the moment the Books token is sorted. Showing a
-             // confident 0 for money that may well have been collected is worse
-             // than showing nothing.
+             // Retainers paid, back now the Books token is sorted. Shown ONLY
+             // when Books actually answered: a confident 0 for money that may
+             // well have been collected is worse than showing nothing, which is
+             // why this was hidden rather than deleted while the token was
+             // refusing. booksOk carries that distinction.
+             (booksOk
+                ? cell2('Retainers paid', w(bk.retainers_paid || 0), !bk.retainers_paid) +
+                  cell2('Retainer $', bk.paid_amount ? money(bk.paid_amount) : '—',
+                        !bk.paid_amount)
+                : '') +
              // Where the talk time actually went. Name and time only -- the point
              // is which queues a rep is living in, and a call count beside each
              // one turns a glance into a reading exercise.

@@ -37,7 +37,10 @@ class FakeBooks:
 
 A._books = FakeBooks()
 A._v5_books_cache.clear()
-by_agent, meta = A._v5_books("2026-08-19", "2026-08-19")
+# _v5_books is the non-blocking front door now -- it serves cache and kicks a
+# background refresh, so on a cold cache it correctly returns nothing. The
+# bucketing under test lives in the fetch itself.
+by_agent, meta = A._v5_books_fetch("2026-08-19", "2026-08-19")
 
 ade = by_agent[A._norm_name("Adelita Flowers")]
 cha = by_agent[A._norm_name("Charlotte Mckay")]
@@ -72,7 +75,7 @@ bucket_keys, projected = set(), set()
 # Scope to _v5_books' own bucket(): app.py has other setdefault buckets (call
 # counters) whose keys are nothing to do with Books.
 v5books = next(n for n in ast.walk(tree)
-               if isinstance(n, ast.FunctionDef) and n.name == "_v5_books")
+               if isinstance(n, ast.FunctionDef) and n.name == "_v5_books_fetch")
 for node in ast.walk(v5books):
     if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
             and node.func.attr == "setdefault" and len(node.args) == 2

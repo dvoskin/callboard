@@ -1181,8 +1181,13 @@ _inbox_parse_cache: dict = {}
 _INBOX_PARSE_MAX = 400
 
 
-def _parse_inbox_cached(path):
-    """Parsed rows for one inbox file, or None if it cannot be read."""
+def _parse_inbox_cached_full(path):
+    """(rows, unit) for one inbox file, or None if it cannot be read.
+
+    Keyed on path + mtime + size, which is safe because a delivered day is
+    immutable: a newer report for the same day is written as a new file or with
+    a new mtime.
+    """
     try:
         st = path.stat()
         key = (str(path), st.st_mtime, st.st_size)
@@ -1192,15 +1197,21 @@ def _parse_inbox_cached(path):
     if hit is not None:
         return hit
     try:
-        rows, _unit = parse_interaction_csv(
+        rows, unit = parse_interaction_csv(
             path.read_text(encoding="utf-8-sig", errors="replace"))
     except Exception as e:  # noqa: BLE001
-        log.warning("v6: inbox file %s unusable: %s", path.name, e)
+        log.warning("inbox file %s unusable: %s", path.name, e)
         return None
     if len(_inbox_parse_cache) > _INBOX_PARSE_MAX:
         _inbox_parse_cache.clear()      # cheap bound; these are whole-day files
-    _inbox_parse_cache[key] = rows
-    return rows
+    _inbox_parse_cache[key] = (rows, unit)
+    return rows, unit
+
+
+def _parse_inbox_cached(path):
+    """Parsed rows for one inbox file, or None if it cannot be read."""
+    got = _parse_inbox_cached_full(path)
+    return None if got is None else got[0]
 
 
 def _v6_cx_rows_for_team(team, days, roster):
@@ -2585,16 +2596,55 @@ def _zero_call_row(display, b):
     return row
 
 
+_v5_books_inflight: set = set()
+
+
 def _v5_books(date_start: str, date_end: str):
-    """Per-agent Books figures for the range: quotes sent, retainers sent, and
-    retainers PAID (by payment date). Cached briefly -- Books is slow and every
-    agent on the board reads from the same fetch."""
+    """Per-agent Books figures, NEVER fetched inside the request.
+
+    Books is slow -- several document listings over a window -- and it used to
+    run in the request path behind a five-minute cache, so one unlucky page load
+    in every five minutes paid the whole cost. That was survivable only while
+    the token was refusing instantly: the moment Books started answering, the
+    sales board went from quick to barely loading.
+
+    Same shape as collections and payments now: serve what is cached, kick a
+    refresh in the background, and say plainly when there is nothing yet. The
+    board polls every two minutes, and these are daily figures.
+    """
     key = (date_start, date_end)
     now = time.time()
     with _v5_books_lock:
         hit = _v5_books_cache.get(key)
         if hit and now - hit["at"] < _V5_BOOKS_TTL:
             return hit["by_agent"], dict(hit["meta"], cached=True)
+        already = key in _v5_books_inflight
+        if not already:
+            _v5_books_inflight.add(key)
+    if not already:
+        threading.Thread(target=_v5_books_refresh, args=key, daemon=True,
+                         name="books:%s..%s" % key).start()
+    if hit:
+        # Stale beats absent: the figures are a day's totals, not a live feed.
+        return hit["by_agent"], dict(hit["meta"], cached=True, stale=True,
+                                     age_seconds=round(now - hit["at"]))
+    return {}, {"cached": False, "loading": True, "errors": [],
+                "detail": "Quotes and retainers are still loading from Books; "
+                          "they appear on the next refresh."}
+
+
+def _v5_books_refresh(date_start: str, date_end: str):
+    """The actual Books fetch. Background thread only -- this is slow."""
+    key = (date_start, date_end)
+    try:
+        return _v5_books_fetch(date_start, date_end)
+    finally:
+        with _v5_books_lock:
+            _v5_books_inflight.discard(key)
+
+
+def _v5_books_fetch(date_start: str, date_end: str):
+    key = (date_start, date_end)
 
     by_agent, meta = {}, {"cached": False, "errors": []}
 
@@ -2722,9 +2772,16 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
         # would quietly rank people on stale numbers with no warning at all.
         ages = {q.name: round((time.time() - q.stat().st_mtime) / 3600.0, 2) for q in paths}
         age_h = max(ages.values())
+        # THE CACHE. /v6 has parsed through it for weeks; /v5 read the files
+        # raw on every request, and once this merged every scope for a day
+        # rather than one file that became several multi-megabyte CSVs parsed
+        # per page load. The sales board went from quick to barely loading.
         rows, unit, seen = [], None, set()
         for q in paths:
-            got, u = parse_interaction_csv(q.read_text(encoding="utf-8-sig", errors="replace"))
+            got_full = _parse_inbox_cached_full(q)
+            if got_full is None:
+                continue
+            got, u = got_full
             unit = unit or u
             for r in got:
                 if _interaction_key(r) in seen:
