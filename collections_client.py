@@ -40,7 +40,7 @@ import re
 import threading
 import time
 import urllib.request
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import date, datetime
 
 log = logging.getLogger(__name__)
@@ -150,23 +150,69 @@ def list_tabs(sheet_id=SHEET_ID):
     return out
 
 
-def parse_date(raw):
-    """Hand-typed date -> date, or None. None means 'do not trust', not 'blank'."""
-    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})$", (raw or "").strip())
-    if not m:
+_MONTHS = {}
+for _i, _n in enumerate(["january", "february", "march", "april", "may", "june", "july",
+                         "august", "september", "october", "november", "december"], 1):
+    _MONTHS[_n] = _i
+    _MONTHS[_n[:3]] = _i
+_MONTHS["sept"] = 9
+
+
+def parse_date(raw, default_year=None):
+    """Hand-typed date -> date, or None. None means 'do not trust', not 'blank'.
+
+    Four shapes, because the sheet contains four and only the first was read:
+
+        8/26/2026     the shape this was written for
+        8/26          Andrea's tab -- no year at all
+        August 26     Vivian's -- a month NAME, and no year
+        Aug 26, 2026  Yareth's surgery-date style
+
+    The year-less ones are why today's collections were reported as zero while
+    the sheet plainly had them: Andrea's $1,781 sits in a cell reading "8/26".
+
+    default_year carries the year forward from the last row that stated one --
+    the same rule the sheet already relies on for dates themselves. Guessing the
+    CURRENT year instead would drag every undated row of an old section into
+    this year and inflate today.
+    """
+    txt = (raw or "").strip().rstrip(".")
+    if not txt:
         return None
-    a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    if y < 100:
-        y += 2000
-    if not (YEAR_LO <= y <= YEAR_HI):
+
+    m = re.match(r"^(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?$", txt)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        y = int(m.group(3)) if m.group(3) else default_year
+        if y is None:
+            return None
+        if y < 100:
+            y += 2000
+        if not (YEAR_LO <= y <= YEAR_HI):
+            return None
+        try:
+            if a > 12 and b <= 12:
+                return date(y, b, a)          # unambiguously DD/MM
+            if a <= 12:
+                return date(y, a, b)          # MM/DD, the sheet's usual habit
+        except ValueError:
+            return None
         return None
-    try:
-        if a > 12 and b <= 12:
-            return date(y, b, a)          # unambiguously DD/MM
-        if a <= 12:
-            return date(y, a, b)          # MM/DD, the sheet's usual habit
-    except ValueError:
-        return None
+
+    # "August 26", "Aug 26, 2026", "Sept 7"
+    m = re.match(r"^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?$", txt)
+    if m:
+        mon = _MONTHS.get(m.group(1).lower())
+        if not mon:
+            return None
+        d = int(m.group(2))
+        y = int(m.group(3)) if m.group(3) else default_year
+        if y is None or not (YEAR_LO <= y <= YEAR_HI):
+            return None
+        try:
+            return date(y, mon, d)
+        except ValueError:
+            return None
     return None
 
 
@@ -179,6 +225,31 @@ def parse_amount(raw):
         return float(v)
     except ValueError:
         return None
+
+
+RECENT_ROWS = 400         # the window that decides which column is live
+
+
+def _date_column(header):
+    low = [(c or "").strip().lower() for c in header]
+    return next((i for i, h in enumerate(low)
+                 if "date" in h and not any(x in h for x in ("dob", "birth", "surgery"))),
+                None)
+
+
+def _amount_candidates(header):
+    """The column the header names, and the one to its right.
+
+    Both, because the header is not always over the money -- one tab has an
+    extra column so "Amount Collected" sits one to the left of it -- and because
+    a tab's layout can change partway down. Which of them is right is decided
+    from the data, at the end, in read_tab.
+    """
+    low = [(c or "").strip().lower() for c in header]
+    ai = next((i for i, h in enumerate(low) if "collect" in h), None)
+    if ai is None:
+        return []
+    return [ai, ai + 1]
 
 
 def _find_columns(header, rows):
@@ -225,35 +296,74 @@ def read_tab(sheet_id, gid):
                if any("collect" in (c or "").strip().lower() for c in r)), None)
     if hi is None:
         return {}, {"error": "no 'collected' column found"}
-    di, ai = _find_columns(head[hi], head[hi + 1:])
-    if ai is None:
+    di = _date_column(head[hi])
+    cands = _amount_candidates(head[hi])
+    if not cands:
         return {}, {"error": "could not locate the amount column"}
 
-    per = defaultdict(float)
+    # Fold EVERY candidate column, and decide between them at the end on which
+    # one still holds money in the most RECENT rows.
+    #
+    # Choosing up front from the first 400 rows is what broke Yareth's tab: her
+    # sheet's layout changed partway through, so "Amount Collected" has nothing
+    # in the first 400 rows and 389 values in the last 400, while the column to
+    # its right has the mirror image. Sampling the top picked the DEAD column
+    # and every recent figure read as zero. What the board reports is recent, so
+    # what decides the column has to be recent too.
+    per = {c: defaultdict(float) for c in cands}
+    last_money = {c: -1 for c in cands}     # row index of the last NON-ZERO value
+    counts = {c: 0 for c in cands}
+    seen_rows = 0
     cur = None
+    last_year = None
     stats = {"dated": 0, "filled": 0, "bad_date": 0, "before_first_date": 0, "rows": 0}
     import itertools
     for r in itertools.chain(head[hi + 1:], reader):
-        if ai >= len(r):
-            continue
-        d = parse_date(r[di]) if (di is not None and di < len(r)) else None
-        if d:
-            cur = d
-            stats["dated"] += 1
-        elif di is not None and di < len(r) and (r[di] or "").strip():
-            stats["bad_date"] += 1
-        amt = parse_amount(r[ai])
-        if amt is None:
-            continue
-        if cur is None:
+        d = None
+        if di is not None and di < len(r):
+            # The year carries forward from the last row that stated one; the
+            # sheet writes "August 26" and "8/26" with no year at all.
+            d = parse_date(r[di], last_year)
+            if d:
+                cur, last_year = d, d.year
+                stats["dated"] += 1
+            elif (r[di] or "").strip():
+                stats["bad_date"] += 1
+        seen_rows += 1
+        for c in cands:
+            amt = parse_amount(r[c]) if c < len(r) else None
+            if amt is None:
+                continue
+            counts[c] += 1
+            if amt:
+                last_money[c] = seen_rows
+            if cur is None:
+                continue
+            per[c][cur] += amt
+        if cur is None and any(c < len(r) and parse_amount(r[c]) is not None for c in cands):
             stats["before_first_date"] += 1
-            continue
-        if not d:
-            stats["filled"] += 1          # Danny's rule: belongs to the date above
-        per[cur] += amt
-        stats["rows"] += 1
+        elif cur is not None and not d:
+            stats["filled"] += 1
+
+    # Whichever column carried money most RECENTLY wins, with the header's own
+    # column breaking a tie -- so a tab that never changed shape is read exactly
+    # as before.
+    #
+    # Deliberately not "most values in the last N rows": that only works while
+    # the live section is longer than the window, and a tab that switched
+    # columns yesterday would still be read from the dead one. Where the money
+    # stops is a fact about the tab, not about a window size someone chose.
+    #
+    # NON-ZERO, because the tabs end in hundreds of $0.00 padding rows and a
+    # column of zeroes would otherwise look as live as a column of takings.
+    def score(c):
+        return (last_money[c], c == cands[0])
+    ai = max(cands, key=score)
+    stats["rows"] = counts[ai]
     stats["date_col"], stats["amount_col"] = di, ai
-    return dict(per), stats
+    stats["amount_candidates"] = {c: {"values": counts[c], "last_money_row": last_money[c]}
+                                  for c in cands}
+    return dict(per[ai]), stats
 
 
 class CollectionsClient:
