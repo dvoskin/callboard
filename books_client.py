@@ -257,36 +257,25 @@ class BooksClient:
                 return False
         return [r for r in rows if _is_paid(r)]
 
-    def list_retainer_payments(
+    def list_customer_payments(
         self,
         date_start: str,
         date_end: str,
-        lookback_days: int = 180,
-        max_records: int = 500,
+        max_records: int = 4000,
     ) -> list[dict]:
-        """Payments RECEIVED in [date_start, date_end], attributed to the
-        salesperson on the invoice each one settles.
+        """EVERY customer payment received in the window, unattributed.
 
-        This is NOT list_paid_retainer_invoices. That filters on the INVOICE
-        date and asks "is it paid now", so a retainer raised on Monday and paid
-        today never appears on today's board. A daily scoreboard wants the
-        payment fact on the day the money arrived, which means filtering on the
-        payment date and then looking up who owns the invoice.
+        This is the whole till -- payments a biller keyed into the shared sheet
+        and payments the customer made themselves, which never reach that sheet
+        at all. The billing board needs both to say what actually came in.
 
-        Payments carry no salesperson, so invoices over a wider window are
-        fetched once and used as the lookup rather than one call per payment.
+        Raises rather than returning [] on a refusal. A missing scope and a day
+        with no payments are the same empty list, and this codebase has been
+        bitten by that shape repeatedly; the caller decides how to say so.
         """
         if not (self.client_id and self.client_secret and self.refresh_token and self.org_id):
-            log.info("Books not configured — no retainer payments available")
-            return []
-
-        # Resolve the token OUTSIDE the try. _headers() refreshes the OAuth token,
-        # and a refresh failure is an auth problem, not a transient network one --
-        # swallowing it here returned [] and reported "0 retainers paid" with no
-        # error at all, while the other two metrics correctly surfaced the same
-        # failure. Let it propagate.
+            raise RuntimeError("Books is not configured (client id/secret/refresh token/org id).")
         headers = self._headers()
-
         raw, page, per_page = [], 1, 200
         while len(raw) < max_records:
             try:
@@ -319,6 +308,38 @@ class BooksClient:
             if len(rows) < per_page:
                 break
             page += 1
+        return raw
+
+    def list_retainer_payments(
+        self,
+        date_start: str,
+        date_end: str,
+        lookback_days: int = 180,
+        max_records: int = 500,
+    ) -> list[dict]:
+        """Payments RECEIVED in [date_start, date_end], attributed to the
+        salesperson on the invoice each one settles.
+
+        This is NOT list_paid_retainer_invoices. That filters on the INVOICE
+        date and asks "is it paid now", so a retainer raised on Monday and paid
+        today never appears on today's board. A daily scoreboard wants the
+        payment fact on the day the money arrived, which means filtering on the
+        payment date and then looking up who owns the invoice.
+
+        Payments carry no salesperson, so invoices over a wider window are
+        fetched once and used as the lookup rather than one call per payment.
+        """
+        if not (self.client_id and self.client_secret and self.refresh_token and self.org_id):
+            log.info("Books not configured — no retainer payments available")
+            return []
+
+        # The token is resolved inside list_customer_payments, which raises on a
+        # refresh failure rather than swallowing it -- an auth problem is not a
+        # quiet day.
+        try:
+            raw = self.list_customer_payments(date_start, date_end, max_records)
+        except RuntimeError:
+            raise
 
         if not raw:
             log.info("Books: no payments received %s..%s", date_start, date_end)

@@ -415,8 +415,27 @@
         if (C.trend_pct != null) {
             bits.push('trending <b>' + (C.trend_pct > 0 ? '+' : '') + C.trend_pct + '%</b>');
         }
+        // Everything that came in, beside the part a biller recorded. Stated as
+        // a difference rather than a "self-service total": the sheet and Books
+        // are different books and the gap can run either way.
+        var P = C.payments;
+        if (P && P.available) {
+            bits.push('all payments <b>' + money(P.all_payments) + '</b>');
+            if (P.difference) {
+                bits.push(P.sheet_exceeds_books
+                    ? '<b>' + money(-P.difference) + '</b> in the sheet is not in Books'
+                    : '<b>' + money(P.difference) + '</b> not recorded by a biller');
+            }
+        }
         h += '<div class="key coll">' + bits.map(function (b) {
             return '<span>' + b + '</span>'; }).join('') + '</div>';
+    }
+
+    // Why the payments half is missing, when it is. An absent number that never
+    // explains itself is how the collections column spent a day reading zero.
+    if (C && C.payments && !C.payments.available && C.total) {
+        h += '<div class="warn">Payments from Books are not being counted: ' +
+             esc(C.payments.reason) + '</div>';
     }
 
     if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {

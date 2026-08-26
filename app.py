@@ -1530,13 +1530,47 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                 avg_o = sum(older) / len(older)
                 if avg_o:
                     trend = round(((sum(newer) / len(newer)) - avg_o) / avg_o * 100)
+            # Everything that came in, against the part a biller recorded.
+            #
+            # Reported side by side and NOT silently subtracted. The sheet and
+            # Books are different books: the sheet can hold cash Books never
+            # sees, Books holds payments for things billers do not handle. A
+            # difference is worth showing; a difference presented as a clean
+            # "self-service total" would be arithmetic pretending to be a fact.
+            pc = _payments_cached()
+            recorded = round(sum(team_by_day.values()), 2)
+            pay = None
+            if pc.get("error"):
+                pay = {"available": False, "reason": pc["error"]}
+            elif pc.get("by_day") is None:
+                pay = {"available": False,
+                       "reason": "Payments have not been read yet; they load in the "
+                                 "background and appear on the next refresh."}
+            elif days and pc.get("covers_from") and min(days) < pc["covers_from"]:
+                pay = {"available": False,
+                       "reason": ("Payments are held for the last %d days (from %s); this "
+                                  "window starts before that, so a total would be short."
+                                  % (_PAYMENTS_DAYS, pc["covers_from"]))}
+            else:
+                allp = round(sum(v for d, v in pc["by_day"].items() if d in wanted), 2)
+                diff = round(allp - recorded, 2)
+                pay = {"available": True, "all_payments": allp,
+                       "recorded_by_billers": recorded,
+                       "difference": diff,
+                       # A negative difference is not "negative self-service"; it
+                       # means the sheet holds money Books does not, and saying
+                       # so beats printing a minus sign as if it were a total.
+                       "sheet_exceeds_books": diff < 0,
+                       "count": pc.get("count"),
+                       "as_of_seconds": round(time.time() - pc["at"]) if pc.get("at") else None}
             report["collections"] = {
                 "by_day": {d: round(v, 2) for d, v in sorted(team_by_day.items())},
                 "today": round(team_by_day.get(local_today, 0.0), 2),
-                "total": round(sum(team_by_day.values()), 2),
+                "total": recorded,
                 "typical_day": typical,
                 "days_with_money": len(money_days),
                 "trend_pct": trend,
+                "payments": pay,
             }
             report["collections_meta"] = {
                 "tabs": cmeta.get("tabs", {}), "errors": cmeta.get("errors", []),
@@ -6374,6 +6408,54 @@ if not _v6_warm_state["running"]:
     threading.Thread(target=_v6_warm_loop, daemon=True, name="loop:v6-warm").start()
 
 
+# ── every payment, not just the ones a biller recorded ────────────
+#
+# The shared sheet holds what a BILLER keyed in. Customers also pay by
+# themselves and those never reach it, so the sheet under-states what actually
+# came in. Zoho Books has the whole till.
+#
+# Cached on a rolling window and refreshed in the background, for the reason
+# this file has learned the hard way twice: a multi-second network call inside a
+# request is how the billing board ended up sitting on "Loading" forever.
+_PAYMENTS_DAYS = int(os.environ.get("PAYMENTS_WINDOW_DAYS", "120"))
+_PAYMENTS_TTL = float(os.environ.get("PAYMENTS_TTL_SECONDS", 300))
+_payments = {"at": 0.0, "by_day": None, "error": None,
+             "covers_from": None, "covers_to": None, "count": 0}
+_payments_lock = threading.Lock()
+
+
+def _payments_cached():
+    with _payments_lock:
+        return dict(_payments)
+
+
+def _payments_refresh(local_today):
+    """Fold the last _PAYMENTS_DAYS of Books payments into {date: total}."""
+    end = local_today
+    start = (datetime.fromisoformat(local_today).date()
+             - timedelta(days=_PAYMENTS_DAYS - 1)).isoformat()
+    try:
+        rows = _books.list_customer_payments(start, end)
+    except Exception as e:  # noqa: BLE001
+        with _payments_lock:
+            _payments.update({"at": time.time(), "error": "%s" % e})
+        log.warning("Books payments refresh failed: %s", e)
+        return
+    by_day = defaultdict(float)
+    for r in rows:
+        d = (r.get("date") or "").strip()[:10]
+        try:
+            amt = float(r.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if len(d) == 10 and amt:
+            by_day[d] += amt
+    with _payments_lock:
+        _payments.update({"at": time.time(), "by_day": dict(by_day), "error": None,
+                          "covers_from": start, "covers_to": end, "count": len(rows)})
+    log.info("Books payments: %d payment(s) over %s..%s", len(rows), start, end)
+
+
 _collections_state: dict = {}
 
 
@@ -6395,6 +6477,11 @@ def _collections_loop():
                 t0 = time.time()
                 _collections.refresh()
                 _collections_state["last_refresh_seconds"] = round(time.time() - t0, 1)
+            # Same loop, same cadence: both are "what money came in today".
+            if time.time() - _payments["at"] >= _PAYMENTS_TTL:
+                tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+                _payments_refresh(
+                    (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat())
         except Exception as e:  # noqa: BLE001
             _collections_state["error"] = "%s: %s" % (type(e).__name__, e)
             _collections_state["error_at"] = time.time()
