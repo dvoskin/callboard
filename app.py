@@ -1809,6 +1809,7 @@ def api_v6_collections():
         # has been whether the refresher is running at all, and every field
         # above it reports what the loop wrote -- which tells you nothing when
         # the loop never ran.
+        "pid": os.getpid(),
         "threads": sorted(t.name for t in threading.enumerate()),
         "refresher": dict(_collections_state,
                           age_of_last_ok=(round(time.time() - _collections_state["last_ok_at"])
@@ -6300,7 +6301,7 @@ def _ensure_background_thread():
     with _bg_lock:
         if _bg_started:
             return
-        t = threading.Thread(target=_background_loop, daemon=True)
+        t = threading.Thread(target=_background_loop, daemon=True, name="refresh")
         t.start()
         _bg_started = True
 
@@ -6342,6 +6343,57 @@ def _collections_loop():
         else:
             _collections_state["last_ok_at"] = time.time()
         time.sleep(120)
+
+
+_WORKER_LOOPS = (("refresh", lambda: _background_loop()),
+                 ("v6-warm", lambda: _v6_warm_loop()),
+                 ("collections", lambda: _collections_loop()))
+_thread_pid = None
+_thread_pid_lock = threading.Lock()
+
+
+def _ensure_worker_threads():
+    """Start the background loops in THIS process, after any fork.
+
+    Threads do not survive fork -- the child keeps only the thread that called
+    it. When the app module is imported BEFORE gunicorn forks its worker, every
+    loop started at import runs in the master while the worker serves requests
+    with none of them, and the worker's own copy of their state stays empty for
+    the life of the process.
+
+    That is precisely what the live board reported: thread_started_at set, so
+    the start line had run, and threading.enumerate() showing only MainThread
+    and gunicorn's own pool -- no collections, no v6-warm, no refresh. The
+    collections sheet was being read all along, in a process that never answers
+    a request.
+
+    Guarded on the PID rather than a boolean, because a boolean is inherited
+    across the fork and reads as "already started" in the very process where
+    nothing is running. Liveness is checked by NAME for the same reason.
+    """
+    global _thread_pid
+    pid = os.getpid()
+    if _thread_pid == pid:
+        return
+    with _thread_pid_lock:
+        if _thread_pid == pid:
+            return
+        live = {t.name for t in threading.enumerate()}
+        for name, target in _WORKER_LOOPS:
+            if name in live:
+                continue
+            try:
+                threading.Thread(target=target, daemon=True, name=name).start()
+                log.info("started %s loop in pid %d", name, pid)
+            except Exception as e:  # noqa: BLE001
+                log.exception("could not start %s loop", name)
+                _collections_state["thread_start_error"] = "%s: %s" % (type(e).__name__, e)
+        _thread_pid = pid
+
+
+@app.before_request
+def _start_worker_threads_once():
+    _ensure_worker_threads()
 
 
 if not globals().get("_collections_started"):
