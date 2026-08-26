@@ -1800,6 +1800,16 @@ def api_v6_collections():
         return jsonify({"error": "collections_failed", "detail": str(e)}), 500
     return jsonify({
         "meta": meta,
+        # The LOOP's own state, not just the cache's. "loading: true" with no
+        # error is what the live board reported, and it is exactly as consistent
+        # with a refresher that has never finished as with one that has never
+        # started -- the endpoint could not tell the two apart, so neither could
+        # anyone reading it.
+        "refresher": dict(_collections_state,
+                          age_of_last_ok=(round(time.time() - _collections_state["last_ok_at"])
+                                          if _collections_state.get("last_ok_at") else None),
+                          age_of_last_error=(round(time.time() - _collections_state["error_at"])
+                                             if _collections_state.get("error_at") else None)),
         "agents": {a: {"days": len(p),
                        "first": min(p).isoformat() if p else None,
                        "last": max(p).isoformat() if p else None,
@@ -6313,9 +6323,13 @@ def _collections_loop():
     """
     time.sleep(5)          # let the worker finish booting first
     while True:
+        _collections_state["attempts"] = _collections_state.get("attempts", 0) + 1
+        _collections_state["last_attempt_at"] = time.time()
         try:
             if _collections.stale():
+                t0 = time.time()
                 _collections.refresh()
+                _collections_state["last_refresh_seconds"] = round(time.time() - t0, 1)
         except Exception as e:  # noqa: BLE001
             _collections_state["error"] = "%s: %s" % (type(e).__name__, e)
             _collections_state["error_at"] = time.time()

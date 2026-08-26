@@ -94,6 +94,48 @@ def _fetch(url, timeout=120):
         return r.read().decode("utf-8", "replace")
 
 
+def _term(ln):
+    """One line with its terminator put back.
+
+    csv.reader rebuilds a quoted field that spans lines out of the terminators
+    it is given, so yielding bare lines silently joins "a note\nsplit in two"
+    into "a notesplit in two".
+
+    It does NOT also strip the CR. Restoring the newline is enough -- csv sees
+    a normal CRLF ending and handles it, which a mutation confirmed by staying
+    green when the strip was removed. Stripping it would additionally corrupt a
+    CRLF *inside* a quoted note, where the carriage return is data.
+    """
+    return ln + "\n"
+
+
+def _fetch_lines(url, timeout=120):
+    """Yield decoded lines without ever holding the whole tab in memory.
+
+    read_tab used to pull the CSV into a string, then build a list of every
+    row, then take two more slices of that list -- so one tab was resident
+    three times over. Vivian's is 25,824 rows wide enough to matter, and four
+    of these run back to back inside a 512MB instance. That is the shape of a
+    worker that dies silently and restarts: nothing raises, nothing is logged,
+    and the cache simply stays empty forever, which is exactly what the live
+    board reported -- loading: true, no error, no tabs.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "call-tracker/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        tail = ""
+        while True:
+            chunk = r.read(65536)
+            if not chunk:
+                break
+            tail += chunk.decode("utf-8", "replace")
+            lines = tail.split("\n")
+            tail = lines.pop()
+            for ln in lines:
+                yield _term(ln)
+        if tail:
+            yield _term(tail)
+
+
 def list_tabs(sheet_id=SHEET_ID):
     """[(name, gid)] for every tab, read from the published HTML view."""
     html = _fetch(f"https://docs.google.com/spreadsheets/d/{sheet_id}/htmlview")
@@ -162,22 +204,36 @@ def _find_columns(header, rows):
     return di, ai
 
 
+SNIFF_ROWS = 400          # enough to verify a column holds money; see _find_columns
+
+
 def read_tab(sheet_id, gid):
-    """{date: total} for one tab, plus a small diagnostic."""
-    raw = _fetch(f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}")
-    rows = list(csv.reader(io.StringIO(raw)))
-    hi = next((i for i, r in enumerate(rows[:10])
+    """{date: total} for one tab, plus a small diagnostic.
+
+    Streams. Only the first SNIFF_ROWS rows are ever held at once -- the rest
+    are folded into the running totals a row at a time -- so peak memory does
+    not grow with the size of the tab.
+    """
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    reader = csv.reader(_fetch_lines(url))
+    head = []
+    for row in reader:
+        head.append(row)
+        if len(head) >= SNIFF_ROWS:
+            break
+    hi = next((i for i, r in enumerate(head[:10])
                if any("collect" in (c or "").strip().lower() for c in r)), None)
     if hi is None:
         return {}, {"error": "no 'collected' column found"}
-    di, ai = _find_columns(rows[hi], rows[hi + 1:])
+    di, ai = _find_columns(head[hi], head[hi + 1:])
     if ai is None:
         return {}, {"error": "could not locate the amount column"}
 
     per = defaultdict(float)
     cur = None
     stats = {"dated": 0, "filled": 0, "bad_date": 0, "before_first_date": 0, "rows": 0}
-    for r in rows[hi + 1:]:
+    import itertools
+    for r in itertools.chain(head[hi + 1:], reader):
         if ai >= len(r):
             continue
         d = parse_date(r[di]) if (di is not None and di < len(r)) else None
