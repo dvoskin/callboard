@@ -314,6 +314,15 @@
            '<span class="exp">exp ' + exp + (unit || '') + '</span></div>';
   }
 
+  // A seat held out of the ranking still banked money, and the sheet knows it
+  // whether or not the phone log does. These notices render instead of a row,
+  // so without this the whole Collected figure disappeared for anyone the call
+  // data could not rank -- which on a quiet morning is everybody.
+  function collNote(a) {
+    if (!a || a.collected_total == null || !a.collected_total) return '';
+    return ' Collected <b>' + money(a.collected_total) + '</b> in this window.';
+  }
+
   function money(v) {
     if (v == null) return '\u2014';
     return '$' + Math.round(v).toLocaleString();
@@ -400,10 +409,21 @@
     }
 
     var live = !!d.live;
-    // Only billing has a collections sheet behind it.
-    var hasColl = ranked.some(function (a) { return a.collected_total != null; });
+    // Only billing has a collections sheet behind it -- and the question is
+    // whether the BOARD has collections, not whether the ranked seats do.
+    //
+    // Asking `ranked` alone meant the whole Collected column vanished on any
+    // view where nobody made it into the ranking: a today view with sparse or
+    // rate-limited call data leaves every seat in silent/stalled, and the
+    // column disappeared with them, while a 7- or 30-day view of the same
+    // sheet showed it fine. Collections come from the sheet; whether a seat
+    // dialled has nothing to do with whether they banked money.
+    var hasColl = [].concat(ranked, silent, stalled, unknown)
+      .some(function (a) { return a && a.collected_total != null; });
     h += '<div class="' + (live ? 'live' : '') + (hasColl ? ' hascoll' : '') + '">';
-    h += '<div class="hd">' +
+    // No column headings over an empty list. When nothing ranks, the seats
+    // render as notices below and a bare header row sits over nothing.
+    if (ranked.length) h += '<div class="hd">' +
       '<div class="a-rk"></div><div class="a-nm">Agent</div>' +
       '<div class="a-tk">' + (live ? 'So far' : 'Talk/day') + '</div>' +
       (live ? '<div class="a-pc">vs expected</div>' : '') +
@@ -516,7 +536,7 @@
         var t = a.totals || {};
         h += '<div class="warn bad"><b>' + esc(a.name) + '</b> &mdash; <b>' + t.calls +
              '</b> call(s), <b>none</b> connected. Held out of the ranking: a line that ' +
-             'never connects is broken, not last.</div>';
+             'never connects is broken, not last.' + collNote(a) + '</div>';
       });
     }
 
@@ -533,7 +553,7 @@
       silent.forEach(function (a) {
         h += '<div class="warn bad"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
              ') &mdash; no calls at all. An empty seat, a wrong extension, or the wrong ' +
-             'platform &mdash; not a zero score.</div>';
+             'platform &mdash; not a zero score.' + collNote(a) + '</div>';
       });
     }
 

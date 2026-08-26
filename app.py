@@ -1499,8 +1499,13 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             }
             if not cmeta.get("loading"):
                 never = [n for n, d in latest.items() if d is None]
+                # `and` is left to right: the old order evaluated min(days)
+                # BEFORE the length guard meant to protect it, so an empty
+                # window raised ValueError out of the collections block and
+                # took the whole report with it.
+                window_start = min(days) if days else None
                 stale = [(n, d) for n, d in latest.items()
-                         if d and d < min(days) and len(days) > 0]
+                         if d and window_start and d < window_start]
                 if never:
                     report["warnings"].append({
                         "kind": "collections_missing_tab",
