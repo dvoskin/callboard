@@ -30,10 +30,17 @@
   .who{margin-top:9px;font-size:12px;color:var(--muted)}
   .who b{color:var(--ink-2);font-weight:600}
 
-  /* One grid, no section headings. Headings over these would give sections of
-     one and two, each leaving a half-empty row -- structure describing itself
-     rather than the content. The category rides on the card instead. */
-  .grid{display:grid;gap:10px;grid-template-columns:1fr;margin-bottom:10px}
+  /* Grouped by department, which is how people arrive here: someone owns a team
+     and wants that team's boards. An earlier version kept one flat grid because
+     a section of one leaves a half-empty row. True, and the wrong trade -- a
+     half-empty row costs nothing, and a scheduling manager scanning seven tiles
+     for theirs costs every time.
+     Each section is its own grid, so a short section cannot pull the next one
+     up alongside it. */
+  h2{margin:17px 0 7px;font-size:11px;font-weight:700;letter-spacing:.07em;
+     text-transform:uppercase;color:var(--muted)}
+  h2:first-of-type{margin-top:2px}
+  .grid{display:grid;gap:10px;grid-template-columns:1fr}
   @media(min-width:600px){.grid{grid-template-columns:1fr 1fr;gap:12px}}
 
   /* Whole card is the tap target -- on a phone a small text link is a miss
@@ -71,18 +78,27 @@
     {% endif %}
   </header>
 
+  <h2>Sales</h2>
   <div class="grid">
     <a class="card" href="/v3">
       <div class="t">Scheduled Call Tracker</div>
-      <div class="d">Scheduled calls, overdue follow-ups, and who is on a call now.</div>
+      <div class="d">Scheduled and overdue calls.</div>
     </a>
 
     <a class="card" href="/v5">
       <div class="t">Sales Talk Time</div>
-      <div class="d">Talk time and calls per sales rep.</div>
+      <div class="d">Talk time and calls per rep.</div>
     </a>
 
-    {% for tm in teams %}
+    <a class="card" href="https://zoho-quote-analyzer.onrender.com/closings" target="_blank" rel="noopener noreferrer">
+      <div class="t">Closing Dashboard <span class="ext">External</span></div>
+      <div class="d">Quotes that closed, by rep.</div>
+    </a>
+  </div>
+
+  <h2>Billing</h2>
+  <div class="grid">
+    {% for tm in teams if tm.key == 'billing' %}
     <a class="card" href="{{ tm.path }}">
       <div class="t">{{ tm.label }}</div>
       <div class="d">{{ tm.blurb }}</div>
@@ -91,14 +107,28 @@
 
     <a class="card" href="https://zoho-quote-analyzer.onrender.com/board" target="_blank" rel="noopener noreferrer">
       <div class="t">Surgery Readiness <span class="ext">External</span></div>
-      <div class="d">What each patient still owes before their surgery date.</div>
+      <div class="d">What patients owe before surgery.</div>
     </a>
+  </div>
 
-    <a class="card" href="https://zoho-quote-analyzer.onrender.com/closings" target="_blank" rel="noopener noreferrer">
-      <div class="t">Closing Dashboard <span class="ext">External</span></div>
-      <div class="d">Quotes that closed, by rep.</div>
+  <h2>Scheduling</h2>
+  <div class="grid">
+    {% for tm in teams if tm.key == 'scheduling' %}
+    <a class="card" href="{{ tm.path }}">
+      <div class="t">{{ tm.label }}</div>
+      <div class="d">{{ tm.blurb }}</div>
     </a>
+    {% endfor %}
+  </div>
 
+  <h2>Customer Service</h2>
+  <div class="grid">
+    {% for tm in teams if tm.key == 'inbound' %}
+    <a class="card" href="{{ tm.path }}">
+      <div class="t">{{ tm.label }}</div>
+      <div class="d">{{ tm.blurb }}</div>
+    </a>
+    {% endfor %}
   </div>
 
   <footer>

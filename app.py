@@ -2047,14 +2047,15 @@ def scoreboard_v6():
 # quote targets or headcounts. It is a way in, not a small second copy of the
 # board, and a copy is a thing that can disagree.
 _HUB_TEAM_BLURB = {
-    "billing": "Talk time, calls, and collected amounts per agent.",
+    "billing": "Talk time, calls and collections.",
     "scheduling": "Talk time and calls per scheduler.",
-    "inbound": "Talk time and answered calls per agent.",
+    "inbound": "Talk time and answered calls.",
 }
 
 
 def _hub_team_tiles():
-    return [{"path": "/" + _TEAM_PATHS[team],
+    return [{"key": team,
+             "path": "/" + _TEAM_PATHS[team],
              "label": TEAM_LABELS.get(team, team.title()),
              "blurb": _HUB_TEAM_BLURB.get(team, "")}
             for team in ("billing", "scheduling", "inbound")]
