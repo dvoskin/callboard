@@ -3,6 +3,7 @@ from __future__ import annotations  # PEP 604 unions (str | None) on Python 3.9
 import os
 import re
 import json
+from collections import defaultdict
 import threading
 import time
 import logging
@@ -1465,8 +1466,9 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
         try:
             coll, cmeta = _collections.cached()   # never fetches; see collections_client
             wanted = {d for d in days}
-            for a in report.get("ranked", []) + report.get("silent", []) + \
-                     report.get("stalled", []) + report.get("unknown", []):
+            _coll_rows = (report.get("ranked", []) + report.get("silent", [])
+                          + report.get("stalled", []) + report.get("unknown", []))
+            for a in _coll_rows:
                 per = coll.get(a["name"]) or {}
                 hit = {k.isoformat(): v for k, v in per.items()
                        if k.isoformat() in wanted}
@@ -1490,6 +1492,42 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                 per = {d: v for d, v in (coll.get(seat["name"]) or {}).items()
                        if d.isoformat() <= _today}
                 latest[seat["name"]] = max(per).isoformat() if per else None
+            # ---- the only three collections figures worth a place on the board
+            #
+            # A total on its own does not tell anyone what to do. What does:
+            # where today sits against a normal day, whether the trend is up or
+            # down, and what a connected call is actually worth per seat -- the
+            # last being the one number the call figures cannot express, since a
+            # seat can be bottom on talk time and top on takings.
+            team_by_day = defaultdict(float)
+            for a in _coll_rows:
+                for d, v in (a.get("collected_by_day") or {}).items():
+                    team_by_day[d] += v
+                conn = ((a.get("totals") or {}).get("connected")) or 0
+                a["collected_per_connected"] = (round(a["collected_total"] / conn)
+                                                if conn and a.get("collected_total") else None)
+            money_days = sorted(d for d, v in team_by_day.items() if v)
+            typical = (round(sum(team_by_day[d] for d in money_days) / len(money_days))
+                       if money_days else None)
+            # Trend compares the recent half of the days that HAVE money against
+            # the earlier half. Days with nothing are excluded: a weekend would
+            # otherwise read as a collapse in collections.
+            trend = None
+            if len(money_days) >= 4:
+                half = len(money_days) // 2
+                older = [team_by_day[d] for d in money_days[:half]]
+                newer = [team_by_day[d] for d in money_days[half:]]
+                avg_o = sum(older) / len(older)
+                if avg_o:
+                    trend = round(((sum(newer) / len(newer)) - avg_o) / avg_o * 100)
+            report["collections"] = {
+                "by_day": {d: round(v, 2) for d, v in sorted(team_by_day.items())},
+                "today": round(team_by_day.get(local_today, 0.0), 2),
+                "total": round(sum(team_by_day.values()), 2),
+                "typical_day": typical,
+                "days_with_money": len(money_days),
+                "trend_pct": trend,
+            }
             report["collections_meta"] = {
                 "tabs": cmeta.get("tabs", {}), "errors": cmeta.get("errors", []),
                 "cached": cmeta.get("cached"), "loading": cmeta.get("loading", False),

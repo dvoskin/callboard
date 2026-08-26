@@ -66,6 +66,8 @@
   .key span{white-space:nowrap}
   .key i{font-style:normal;font-weight:700}
   .key .b-below{color:var(--dn)}
+  .key.coll{border-bottom:0;padding-top:6px;padding-bottom:0}
+  .key.coll b{color:var(--ink);font-weight:600}
 
   /* the list
      Four layouts, because two independent flags each add a column: a LIVE day
@@ -391,6 +393,30 @@
          (T.talk_minutes || {}).floor || '') + 'm</i></span>' +
       '</div>';
 
+    // Collections context: one line, and deliberately no "today vs a full day"
+    // ratio. Today is a part-day and collections are logged in batches, not
+    // continuously, so pro-rating them against a whole day would repeat the
+    // mistake that put agents on this board at 200% of expected. The typical
+    // day is stated beside today and left for the reader to judge.
+    var C = d.collections;
+    if (C && C.total) {
+        var bits = [];
+        if (d.live) {
+            bits.push('Collected today <b>' + money(C.today) + '</b>');
+            if (C.typical_day) bits.push('a typical day is <b>' + money(C.typical_day) + '</b>');
+        } else {
+            bits.push('Collected <b>' + money(C.total) + '</b>');
+            if (C.days_with_money) bits.push('over <b>' + C.days_with_money + '</b> day' +
+                                             (C.days_with_money === 1 ? '' : 's'));
+            if (C.typical_day) bits.push('<b>' + money(C.typical_day) + '</b> a day');
+        }
+        if (C.trend_pct != null) {
+            bits.push('trending <b>' + (C.trend_pct > 0 ? '+' : '') + C.trend_pct + '%</b>');
+        }
+        h += '<div class="key coll">' + bits.map(function (b) {
+            return '<span>' + b + '</span>'; }).join('') + '</div>';
+    }
+
     if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {
       $('out').innerHTML = h + '<div class="empty">No seats on the roster.</div>';
       return;
@@ -480,6 +506,22 @@
                '<span class="vl' + (band ? ' b-' + band : '') + '">' + value + '</span>' +
                (tail ? '<span class="tl">' + tail + '</span>' : '') + '</div>';
       };
+      // What a connected call was worth. The one collections figure the call
+      // columns cannot express: a seat can sit bottom on talk time and top on
+      // takings, and only this says so.
+      var collLine = '';
+      if (a.collected_total) {
+        collLine = line('Collected', money(a.collected_total),
+                        (a.collected_per_connected
+                           ? money(a.collected_per_connected) + ' per connected call'
+                           : '') +
+                        (a.collected_days > 1
+                           ? (a.collected_per_connected ? ' &middot; ' : '') +
+                             money(a.collected_per_day) + '/day over ' +
+                             a.collected_days + ' days'
+                           : ''));
+      }
+
       var body;
       if (pace) {
         body = '<div class="lns">' + METRICS.map(function (m) {
@@ -490,7 +532,7 @@
                                   : 'on track for <b>' + pj + u + '</b>') +
                       (t != null ? ' &middot; target ' + t + u : ''),
                       pace.grades[k] || 'below');
-        }).join('') + '</div>';
+        }).join('') + collLine + '</div>';
       } else {
         var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
                       connected: tot.connected, long_calls: tot[longKey]};
@@ -499,7 +541,7 @@
           return line(m[1], p[k] + u + '/day',
                       totals[k] + ' total' + (t != null ? ' &middot; target ' + t + u : ''),
                       g[k] || 'below');
-        }).join('') + '</div>';
+        }).join('') + collLine + '</div>';
       }
 
       // One line, and only facts that are not already on the row or in the
@@ -511,9 +553,6 @@
                   'longest ' + hm(tot.longest_seconds)];
       if (!pace) bits.push('median day ' + a.median_talk_minutes + 'm');
       if (!pace && a.idle_days) bits.push(a.idle_days + ' idle days not averaged');
-      if (a.collected_total != null && a.collected_per_day != null) {
-        bits.push(money(a.collected_per_day) + '/day collected');
-      }
       if (pace && !pace.projectable) bits.push('too early to project');
       var foot = bits.join(' &middot; ');
 

@@ -36,6 +36,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import os
 import re
 import threading
 import time
@@ -85,7 +86,13 @@ def build_tab_map(agents=()):
     return out
 
 YEAR_LO, YEAR_HI = 2023, 2027          # anything outside this is a typo
-_TTL = float(60 * 30)                   # the sheet is megabytes; half an hour
+# How far behind the sheet the board is allowed to be.
+#
+# Half an hour was set when a refresh held every tab in memory and took ~20s.
+# It streams now -- 21MB peak, 5.3s for all four tabs -- so the board can follow
+# the sheet much more closely for no meaningful cost. The loop wakes every two
+# minutes, so worst case is this plus about two minutes.
+_TTL = float(os.environ.get("COLLECTIONS_TTL_SECONDS", 60 * 5))
 
 
 def _fetch(url, timeout=120):
