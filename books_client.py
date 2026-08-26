@@ -51,9 +51,15 @@ class BooksClient:
     def _get_access_token(self) -> str:
         if self._access_token and self._token_expiry and datetime.now() < self._token_expiry:
             return self._access_token
+        # In the BODY, not the query string. As params they ended up inside the
+        # request URL, so any error carrying that URL -- and these reach
+        # meta["errors"] in /api/v5/report, readable by every /v5/board?k=
+        # link holder -- carried the client secret and refresh token with it.
+        # A form post keeps them out of the URL entirely, and that is also what
+        # makes it safe to report Zoho's own error below.
         resp = requests.post(
             f"{self.accounts_url}/oauth/v2/token",
-            params={
+            data={
                 "refresh_token": self.refresh_token,
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
@@ -61,13 +67,29 @@ class BooksClient:
             },
             timeout=15,
         )
-        # The credentials ride in the query string, so an HTTPError raised here
-        # carries them inside the URL -- and that string reaches meta["errors"]
-        # in /api/v5/report, which every /v5/board?k= link holder can read.
-        # Never let it escape: report the status code instead.
         if not resp.ok:
+            # Zoho's own error code, which is the whole diagnosis: invalid_code
+            # means the value is not a refresh token, invalid_client means it
+            # belongs to a different app. "HTTP 400" alone sent someone to the
+            # console to regenerate a token that was never the problem.
+            #
+            # The named field only -- never the whole body, which is not ours to
+            # promise anything about.
+            code = ""
+            try:
+                code = (resp.json() or {}).get("error") or ""
+            except Exception:  # noqa: BLE001
+                pass
+            hint = {
+                "invalid_code": " The value is not a valid refresh token -- an access "
+                                "token, an expired one, or one that has been revoked.",
+                "invalid_client": " The refresh token was issued by a different Zoho app "
+                                  "than ZOHO_CLIENT_ID/ZOHO_CLIENT_SECRET.",
+                "invalid_client_secret": " ZOHO_CLIENT_SECRET does not match ZOHO_CLIENT_ID.",
+            }.get(code, "")
             raise RuntimeError(
-                "Books token endpoint returned HTTP %d." % resp.status_code
+                "Books token endpoint returned HTTP %d%s.%s"
+                % (resp.status_code, " (%s)" % code if code else "", hint)
             )
         data = resp.json()
         if "access_token" not in data:
