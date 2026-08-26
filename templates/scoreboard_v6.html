@@ -260,11 +260,11 @@
   <h1 id="title">Team KPI Board</h1>
   <p class="sub" id="sub">Loading&hellip;</p>
 
+  <div class="ctl" id="days"></div>
   <div class="ctl">
     <input type="date" id="start" aria-label="Start date" />
+    <span class="to">to</span>
     <input type="date" id="end" aria-label="End date" />
-    <button id="go" type="button">Show</button>
-    <span id="days"></span>
     <span class="spin" id="spin"></span>
   </div>
 
@@ -368,8 +368,10 @@
       sub += ', day <b>' + Math.round(pc.fraction * 100) +
              '%</b> through &mdash; targets pro-rated';
     } else {
-      var today = new Date().toISOString().slice(0, 10);
-      if ((d.window || {}).end >= today) {
+      // isoLocal, not toISOString: in the evening the UTC date is already
+      // tomorrow, so a finished day stopped being called "in progress" hours
+      // early -- and the ranges the chips built were off by a day outright.
+      if ((d.window || {}).end >= isoLocal(new Date())) {
         sub += ' &middot; <b>today is still in progress</b>';
       }
     }
@@ -511,15 +513,14 @@
       // takings, and only this says so.
       var collLine = '';
       if (a.collected_total) {
+        // Per-connected only. Adding "$14,419/day over 6 days" ran past the
+        // line on a phone and got an ellipsis, and it is the team line's
+        // figure repeated for one seat -- the per-connected number is the one
+        // nothing else on the board says.
         collLine = line('Collected', money(a.collected_total),
-                        (a.collected_per_connected
-                           ? money(a.collected_per_connected) + ' per connected call'
-                           : '') +
-                        (a.collected_days > 1
-                           ? (a.collected_per_connected ? ' &middot; ' : '') +
-                             money(a.collected_per_day) + '/day over ' +
-                             a.collected_days + ' days'
-                           : ''));
+                        a.collected_per_connected
+                          ? money(a.collected_per_connected) + ' per connected call'
+                          : '');
       }
 
       var body;
@@ -695,7 +696,7 @@
         render(res.j);
         var w = res.j.window || {};
         if (w.start && !$('start').value) { $('start').value = w.start; $('end').value = w.end; }
-        buildDayButtons();
+        syncChips();
       })
       .catch(function (err) {
         if (bailed) return;
@@ -706,53 +707,104 @@
       });
   }
 
+  // LOCAL date, not UTC. The presets used d.toISOString(), which is UTC, so
+  // after 8pm Eastern every one of them asked for a range a day ahead -- "Today"
+  // fetched tomorrow and came back empty. A board about a working day has to
+  // count days the way the floor does.
+  function isoLocal(d) {
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+             .toISOString().slice(0, 10);
+  }
+
+  // Ranges people actually ask for, not just "last N days". Yesterday is how you
+  // check a finished day; the month ones are how the numbers get reported.
+  function presetRange(key) {
+    var now = new Date();
+    var d = function (n) { var x = new Date(now); x.setDate(x.getDate() + n); return x; };
+    var monthStart = function (off) {
+      return new Date(now.getFullYear(), now.getMonth() + off, 1);
+    };
+    switch (key) {
+      case 'today':      return [d(0), d(0)];
+      case 'yesterday':  return [d(-1), d(-1)];
+      case '7d':         return [d(-6), d(0)];
+      case '30d':        return [d(-29), d(0)];
+      case 'month':      return [monthStart(0), d(0)];
+      case 'lastmonth':  return [monthStart(-1),
+                                 new Date(now.getFullYear(), now.getMonth(), 0)];
+    }
+  }
+
+  var PRESETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7d', '7 days'],
+                 ['30d', '30 days'], ['month', 'This month'], ['lastmonth', 'Last month']];
+
   function buildDayButtons() {
     var box = $('days');
     if (box.dataset.built) return;
     box.dataset.built = '1';
-    var mk = function (label, days) {
+    PRESETS.forEach(function (pr) {
       var b = document.createElement('button');
-      b.className = 'day'; b.type = 'button'; b.textContent = label;
+      b.className = 'day'; b.type = 'button'; b.textContent = pr[1];
+      b.dataset.key = pr[0];
       b.onclick = function () {
-        var end = new Date();
-        var start = new Date(); start.setDate(start.getDate() - (days - 1));
-        var iso = function (d) { return d.toISOString().slice(0, 10); };
-        $('start').value = iso(start); $('end').value = iso(end);
-        box.querySelectorAll('.day').forEach(function (x) { x.classList.remove('on'); });
-        b.classList.add('on');
+        var r = presetRange(pr[0]);
+        $('start').value = isoLocal(r[0]);
+        $('end').value = isoLocal(r[1]);
+        syncChips();
         load();
       };
       box.appendChild(b);
-    };
-    mk('Today', 1); mk('7d', 7); mk('30d', 30); mk('90d', 90);
-    var first = box.querySelector('.day');
-    if (first) first.classList.add('on');    // the board opens on Today
+    });
+    syncChips();
+  }
+
+  // Highlight whichever preset the current range happens to match -- including
+  // after the dates are edited by hand, so the chips describe what is on screen
+  // rather than only what was last clicked.
+  function syncChips() {
+    var box = $('days');
+    if (!box) return;
+    var a = $('start').value, b = $('end').value;
+    box.querySelectorAll('.day').forEach(function (x) {
+      var r = presetRange(x.dataset.key);
+      x.classList.toggle('on', !!r && isoLocal(r[0]) === a && isoLocal(r[1]) === b);
+    });
   }
 
   // Open on today, explicitly. The API defaults to today anyway, but leaving the
   // pickers blank meant the board's own controls did not say what it was showing.
   (function initToday() {
-    var t = new Date();
-    var iso = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    var iso = isoLocal(new Date());
     $('start').value = iso;
     $('end').value = iso;
+    // Build the range controls BEFORE the first fetch, not after a successful
+    // one. They used to be created in the success path, so a board whose first
+    // request failed offered no way to ask for a different range -- the one
+    // control that could have got it out of the error.
+    buildDayButtons();
   })();
 
-  function clearDayChips() {
-    var box = $('days');
-    if (box) box.querySelectorAll('.day').forEach(function (x) { x.classList.remove('on'); });
-  }
-
-  $('go').onclick = function () { clearDayChips(); load(); };
+  // The range applies itself. A separate "Show" button was a second way to do
+  // what picking a date already means, and picking a date and then wondering
+  // why nothing moved is the whole friction being removed here.
   ['start', 'end'].forEach(function (id) {
-    $(id).addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { clearDayChips(); load(); }
+    var el = $(id);
+    el.addEventListener('change', function () {
+      if (!$('start').value || !$('end').value) return;
+      if ($('start').value > $('end').value) {          // swap rather than refuse
+        var t = $('start').value; $('start').value = $('end').value; $('end').value = t;
+      }
+      syncChips();
+      load();
+    });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { syncChips(); load(); }
     });
   });
   load();
   // Today's numbers move; a board left open on a wall should not go stale.
   setInterval(function () {
-    var today = new Date().toISOString().slice(0, 10);
+    var today = isoLocal(new Date());
     if (!$('end').value || $('end').value >= today) load();
   }, 120000);
 })();
