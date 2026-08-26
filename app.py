@@ -1462,6 +1462,16 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # the same working days the call figures use. Read-only and aggregate: the
     # sheet carries patient names, DOBs and clearances, none of which come near
     # the dashboard.
+    #
+    # PARKED (2026-08-26): these are only the amounts a BILLER recorded.
+    # Customers also pay by themselves, and those never reach this sheet -- they
+    # are not in any of its tabs (CASH is a directory of payment receivers, the
+    # Alex/Late fee tabs are late-fee records). The source is Zoho Books
+    # /customerpayments, which returns 401 code 57 because the OAuth token has
+    # no ZohoBooks.customerpayments.READ scope. books_client already has the
+    # call. When the refresh token is re-issued with that scope: total every
+    # payment in the window, subtract what is attributed to a biller here, and
+    # report the remainder as self-service.
     if team == "billing":
         try:
             coll, cmeta = _collections.cached()   # never fetches; see collections_client
