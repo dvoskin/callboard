@@ -2101,7 +2101,15 @@ def hub_v7():
                                teams=_hub_team_tiles())
     if not V5_PASSWORDS and not V7_PASSWORDS:
         return redirect("/login")
-    return render_template("v5_password.html", error=error), (401 if error else 200)
+    return render_template("v5_password.html", error=error,
+                           page_title="Goals Dashboards",
+                           # V7 specifically, not "no password at all": with
+                           # neither set the route redirects to /login above, so
+                           # that flag could never be true. The case worth
+                           # reporting is a hub password that never arrived while
+                           # the scoreboard one still works -- indistinguishable
+                           # from a typo, to the one person who can check it.
+                           no_hub_password=not V7_PASSWORDS), (401 if error else 200)
 
 
 @app.route("/v7/logout")

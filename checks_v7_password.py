@@ -25,6 +25,12 @@ os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 
 import app as appmod  # noqa: E402
 
+# A marker only the real hub carries. "Goals Dashboards" used to serve, until
+# the login page was given the destination's name as its title -- at which
+# point a wrong password rendered a page containing the very string that was
+# supposed to prove the hub had NOT rendered.
+HUB_MARKER = 'href="/customer-service"' 
+
 
 def _client():
     appmod.app.config["TESTING"] = True
@@ -45,7 +51,7 @@ def case_hub_word_opens_every_dashboard():
     v6 = c.get("/v6").get_data(as_text=True)
     fails = 0
     for label, got, want in [
-        ("hub renders", "Goals Dashboards" in hub, True),
+        ("hub renders", HUB_MARKER in hub, True),
         ("no second-door note", "hub password" in hub, False),
         ("/v3 tracker opens", c.get("/v3").status_code, 200),
         ("/v5 talk time opens", "Sales Floor Scoreboard" in v5 or "id=\"out\"" in v5, True),
@@ -89,7 +95,7 @@ def case_board_word_opens_everything():
     v6 = c.get("/v6").get_data(as_text=True)
     fails = 0
     for label, got, want in [
-        ("hub renders", "Goals Dashboards" in hub, True),
+        ("hub renders", HUB_MARKER in hub, True),
         ("hub NOT limited", "hub password" in hub, False),
         ("/v5 board opens", "Sales Floor Scoreboard" in v5, True),
         ("/v6 board opens", "Team KPI Board" in v6, True),
@@ -107,7 +113,7 @@ def case_wrong_word_opens_nothing():
     fails = 0
     for label, got, want in [
         ("rejected with 401", r.status_code, 401),
-        ("hub NOT rendered", "Goals Dashboards" in hub, False),
+        ("hub NOT rendered", HUB_MARKER in hub, False),
     ]:
         ok = got == want
         print("  %-24s want %-8s got %-8s %s" % (label, want, got, "OK" if ok else "<<< FAIL"))
@@ -131,6 +137,41 @@ def case_throttle_covers_the_hub():
     return 0 if ok else 1
 
 
+def case_hub_login_page_names_the_hub():
+    """The hub's login page was the SCOREBOARD's, title and all.
+
+    /v7 shares v5_password.html, which said "Sales Floor Scoreboard" -- so
+    someone following the hub link, typing the hub password and getting nowhere
+    could not tell whether they were even at the right door. And when the hub
+    password is not configured on an instance, that is indistinguishable from
+    typing it wrong, by the one person who could check the setting.
+    """
+    import importlib
+    fails = 0
+
+    os.environ["V7_PASSWORDS"] = ""
+    importlib.reload(appmod)
+    appmod.app.config["TESTING"] = True
+    pg = appmod.app.test_client().get("/v7").get_data(as_text=True)
+    for label, got, want in [
+        ("titled for the hub", "Goals Dashboards" in pg, True),
+        ("not the scoreboard", "Sales Floor Scoreboard" in pg, False),
+        ("missing hub password is named", "No hub password is set" in pg, True),
+    ]:
+        ok = got == want
+        print("  %-24s want %-8s got %-8s %s" % (label, want, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
+    os.environ["V7_PASSWORDS"] = "hubword"
+    importlib.reload(appmod)
+    appmod.app.config["TESTING"] = True
+    pg2 = appmod.app.test_client().get("/v7").get_data(as_text=True)
+    ok = "No hub password is set" not in pg2
+    print("  %-24s want %-8s got %-8s %s"
+          % ("...and hidden when set", True, ok, "OK" if ok else "<<< FAIL"))
+    return fails + (0 if ok else 1)
+
+
 def run():
     total = 0
     for title, fn in [
@@ -139,6 +180,7 @@ def run():
         ("board word opens everything", case_board_word_opens_everything),
         ("wrong word opens nothing", case_wrong_word_opens_nothing),
         ("throttle covers the hub", case_throttle_covers_the_hub),
+        ("hub login page names the hub", case_hub_login_page_names_the_hub),
     ]:
         print("\n== %s" % title)
         total += fn()
