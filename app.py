@@ -1901,6 +1901,10 @@ def api_v6_collections():
     number is worse than no number -- this makes it explainable."""
     if not _v6_allowed():
         return jsonify({"error": "unauthorized"}), 401
+    # Collections ARE the billing data; this endpoint is the raw form of it.
+    if not _billing_allowed():
+        return jsonify({"error": "unauthorized",
+                        "detail": "The billing board needs its own password."}), 401
     try:
         data, meta = _collections.daily_by_agent(force=request.args.get("force") == "1")
     except Exception as e:  # noqa: BLE001
@@ -1940,6 +1944,13 @@ def api_v6_report():
     """Billing KPI board for a window. Serves /v6 and /v6/board."""
     if not (_v6_allowed()):
         return jsonify({"error": "unauthorized"}), 401
+    # Before the configuration check, not after. Authorisation must not sit
+    # behind "is RingCentral set up": on an instance where it is not, the gate
+    # was never reached and the 503 answered first -- which happens to reveal
+    # nothing, but only by accident.
+    if _team_key(request.args.get("team")) == "billing" and not _billing_allowed():
+        return jsonify({"error": "unauthorized",
+                        "detail": "The billing board needs its own password."}), 401
     if not _ringcx.configured:
         # An empty board and a quiet phone look identical. Say which this is.
         return jsonify({
@@ -2007,6 +2018,75 @@ def _v6_token_ok() -> bool:
     return hmac.compare_digest(supplied, BILLING_TOKEN)
 
 
+# A SECOND word, for the billing board only.
+#
+# Every other board names talk time and call counts. This one also carries what
+# each agent collected and what the practice took in, and the hub word is handed
+# round the floor -- so collections sit behind a door the hub word does not open.
+#
+# Unset means unset: with no BILLING_PASSWORDS the board behaves exactly as it
+# did, rather than locking everybody out of a working page on deploy.
+BILLING_PASSWORDS = tuple(
+    p.strip() for p in os.environ.get("BILLING_PASSWORDS", "").split(",") if p.strip()
+)
+if not BILLING_PASSWORDS:
+    print("[v6] BILLING_PASSWORDS is not set — the billing board and its collections "
+          "figures open to anyone with the hub or scoreboard password.", flush=True)
+
+
+def _billing_password_matches(supplied: str) -> bool:
+    """Constant-time, for the same reason the others are: response time
+    otherwise says which word matched."""
+    if not supplied or not BILLING_PASSWORDS:
+        return False
+    ok = False
+    for p in BILLING_PASSWORDS:
+        if hmac.compare_digest(supplied, p):
+            ok = True
+    return ok
+
+
+def _billing_allowed() -> bool:
+    """The extra gate in front of collections.
+
+    A share token passes: /v6/board?k= is a deliberate grant of exactly this
+    board, usually to a wall display, and someone who has been handed that link
+    has already been given the data.
+    """
+    if not BILLING_PASSWORDS:
+        return True
+    if _v6_token_ok():
+        return True
+    return bool(session.get("billing_pw"))
+
+
+def _billing_gate(team):
+    """The password page for billing, or None to carry on.
+
+    Returns a response only when the caller should stop. Applied AFTER the
+    normal gate, so this is a second door rather than a different one.
+    """
+    if team != "billing" or _billing_allowed():
+        return None
+    ip = (request.headers.get("CF-Connecting-IP")
+          or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+          or request.remote_addr or "?")
+    error = ""
+    if request.method == "POST":
+        supplied = request.form.get("password", "").strip()
+        if _v5_pw_throttled(ip):
+            error = "Too many tries. Wait five minutes."
+        elif _billing_password_matches(supplied):
+            session["billing_pw"] = True
+            return redirect(request.path + ("?" + request.query_string.decode()
+                                            if request.query_string else ""))
+        else:
+            _v5_pw_record_failure(ip)
+            error = "That is not the password."
+    return render_template("v5_password.html", error=error,
+                           page_title="Billing"), (401 if error else 200)
+
+
 def _v6_allowed() -> bool:
     """A signed-in user, the v5 word-password session (same staff gate), or the
     billing share token. The billing board names different people than the sales
@@ -2037,6 +2117,9 @@ def scoreboard_v6():
             error = "That is not the password."
 
     if session.get("user") or _word_authed() or not GOOGLE_CLIENT_ID:
+        gated = _billing_gate(_team_key(request.args.get("team")))
+        if gated is not None:
+            return gated
         return render_template("scoreboard_v6.html",
                                current_user=session.get("user") or {},
                                share_mode=False, share_token="",
@@ -2134,13 +2217,16 @@ def _render_team_board(team):
         if not V5_PASSWORDS and not V7_PASSWORDS:
             return redirect("/login")
         return render_template("v5_password.html", error=""), 200
+    gated = _billing_gate(team)
+    if gated is not None:
+        return gated
     return render_template("scoreboard_v6.html",
                            current_user=session.get("user") or {},
                            share_mode=False, share_token="",
                            fixed_team=team)
 
 
-@app.route("/billing")
+@app.route("/billing", methods=["GET", "POST"])
 def board_billing():
     return _render_team_board("billing")
 
