@@ -1292,6 +1292,9 @@ def _v6_cx_rows_for_team(team, days, roster):
                            else "Accepted" if answered
                            else "No Answer" if outbound else "Missed"),
                 "duration": r.get("talk_time", r.get("duration", 0)) or 0,
+                # Kept so the board can be reconciled with the RingCX report's
+                # Handle Time column, which is talk + wrap.
+                "wrap_seconds": r.get("wrap_time") or 0,
                 "start_time": _cx_iso(r.get("start_time"), day),
                 "source": "ringcx",
             })

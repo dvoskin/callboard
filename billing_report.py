@@ -178,6 +178,12 @@ def _blank_bucket():
         # against `handled_calls`.
         "calls": 0, "handled_calls": 0, "dials": 0, "inbound": 0,
         "inbound_answered": 0, "connected": 0, "talk_seconds": 0,
+        # After-call work, carried so the board can be RECONCILED with the
+        # RingCX Interaction Report, whose "Handle Time" column is exactly
+        # talk + wrap. Comparing the two without knowing that reads as a
+        # discrepancy: Sarahi Rivera showed 95.5m here against 121.6m there,
+        # which is 24 seconds of wrap on each of 64 calls.
+        "wrap_seconds": 0,
         "longest_seconds": 0, "unreadable_time": 0,
     }
     for m in CONV_MARKS:
@@ -208,6 +214,10 @@ def _fold(bucket, row):
         dur = 0
     bucket["connected"] += 1
     bucket["talk_seconds"] += dur
+    try:
+        bucket["wrap_seconds"] += max(0, int(float(row.get("wrap_seconds") or 0)))
+    except (TypeError, ValueError):
+        pass
     bucket["longest_seconds"] = max(bucket["longest_seconds"], dur)
     for m in CONV_MARKS:
         if dur >= m:
@@ -363,6 +373,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "worked_days": len(worked), "idle_days": len(idle), "idle_day_list": idle,
             "per_day": per_day, "scored": scored, "grades": grades, "band": band,
             "answer_rate_pct": answer_rate,
+            "wrap_minutes": round(wtot["wrap_seconds"] / 60.0, 1),
+            "handle_minutes": round((wtot["talk_seconds"] + wtot["wrap_seconds"]) / 60.0, 1),
             "avg_call_seconds": round(wtot["talk_seconds"] / wtot["connected"])
                                 if wtot["connected"] else 0,
             "long_call_share_pct": _rate(wtot[f"over_{long_call_seconds}s"],

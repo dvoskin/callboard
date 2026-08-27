@@ -578,6 +578,13 @@
       var bits = ['Ext ' + esc(a.ext || a.ext_id),
                   'avg call ' + a.avg_call_seconds + 's',
                   'longest ' + hm(tot.longest_seconds)];
+      // Wrap, and the handle total it adds up to. Only where there is any --
+      // RingEX has no after-call work to report, so an unconditional "+0m wrap"
+      // would be noise on the billing board.
+      if (a.wrap_minutes) {
+        bits.push('wrap ' + a.wrap_minutes + 'm');
+        bits.push('handle ' + a.handle_minutes + 'm');
+      }
       if (!pace) bits.push('median day ' + a.median_talk_minutes + 'm');
       if (!pace && a.idle_days) bits.push(a.idle_days + ' idle days not averaged');
       if (pace && !pace.projectable) bits.push('too early to project');
@@ -643,6 +650,10 @@
          '<span class="sep">&middot;</span>' +
          (m.cached ? (m.age_seconds || 0) + 's old' : 'live') +
          '<span class="sep">&middot;</span>connected calls only' +
+         // Which time this is. The RingCX report's own column is Handle Time =
+         // talk + wrap, and comparing the two without knowing that reads as a
+         // discrepancy rather than as two different measurements.
+         '<span class="sep">&middot;</span>talk time, wrap excluded' +
          '</div>';
 
     $('out').innerHTML = h;
