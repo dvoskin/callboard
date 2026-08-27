@@ -308,6 +308,11 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         wtot["longest_seconds"] = max([b["longest_seconds"] for b in worked.values()] or [0])
 
         per_day = {
+            # Wrap is per-day like everything else here. It is NOT a scored
+            # metric -- talk time remains the one the KPI is judged on -- but a
+            # total sitting beside four per-day figures reads as a fifth of the
+            # same kind, and this one is a fortnight's worth.
+            "wrap_minutes": round(wtot["wrap_seconds"] / 60.0 / n, 1),
             "calls": round(wtot["handled_calls"] / n, 1),
             "connected": round(wtot["connected"] / n, 1),
             "long_calls": round(wtot[f"over_{long_call_seconds}s"] / n, 1),

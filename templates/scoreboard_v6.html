@@ -549,6 +549,20 @@
                           : '');
       }
 
+      // Wrap is a line of its own, not a scored metric: talk time is what the
+      // KPI judges. It earns the space because the RingCX report's Handle Time
+      // column is talk + wrap, and without it the two reports disagree by a
+      // number nobody can locate. Only shown where there IS any -- RingEX has
+      // no after-call work, so on the billing board this stays absent.
+      var wrapLine = '';
+      if (a.wrap_minutes || (a.per_day || {}).wrap_minutes) {
+        wrapLine = pace
+          ? line('Wrap', a.wrap_minutes + 'm',
+                 'handle <b>' + a.handle_minutes + 'm</b>')
+          : line('Wrap', (a.per_day.wrap_minutes || 0) + 'm/day',
+                 a.wrap_minutes + 'm total &middot; handle ' + a.handle_minutes + 'm');
+      }
+
       var body;
       if (pace) {
         body = '<div class="lns">' + METRICS.map(function (m) {
@@ -559,7 +573,7 @@
                                   : 'on track for <b>' + pj + u + '</b>') +
                       (t != null ? ' &middot; target ' + t + u : ''),
                       pace.grades[k] || 'below');
-        }).join('') + collLine + '</div>';
+        }).join('') + wrapLine + collLine + '</div>';
       } else {
         var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
                       connected: tot.connected, long_calls: tot[longKey]};
@@ -568,7 +582,7 @@
           return line(m[1], p[k] + u + '/day',
                       totals[k] + ' total' + (t != null ? ' &middot; target ' + t + u : ''),
                       g[k] || 'below');
-        }).join('') + collLine + '</div>';
+        }).join('') + wrapLine + collLine + '</div>';
       }
 
       // One line, and only facts that are not already on the row or in the
@@ -578,13 +592,6 @@
       var bits = ['Ext ' + esc(a.ext || a.ext_id),
                   'avg call ' + a.avg_call_seconds + 's',
                   'longest ' + hm(tot.longest_seconds)];
-      // Wrap, and the handle total it adds up to. Only where there is any --
-      // RingEX has no after-call work to report, so an unconditional "+0m wrap"
-      // would be noise on the billing board.
-      if (a.wrap_minutes) {
-        bits.push('wrap ' + a.wrap_minutes + 'm');
-        bits.push('handle ' + a.handle_minutes + 'm');
-      }
       if (!pace) bits.push('median day ' + a.median_talk_minutes + 'm');
       if (!pace && a.idle_days) bits.push(a.idle_days + ' idle days not averaged');
       if (pace && !pace.projectable) bits.push('too early to project');
