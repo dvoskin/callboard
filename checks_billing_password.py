@@ -79,6 +79,19 @@ def run():
          BOARD in c3.get("/billing").get_data(as_text=True), False),
     ]
 
+    # The second door must not offer a way in that does not work there. A
+    # Google session satisfies the FIRST gate and not this one, so the link
+    # would send someone round a sign-in and return them to this same page.
+    c5 = _client()
+    bill = c5.get("/billing").get_data(as_text=True)
+    hub = appmod.app.test_client().get("/v7").get_data(as_text=True)
+    cases += [
+        ("billing door hides Google", "Sign in with Google" in bill, False),
+        ("...but the hub still offers it", "Sign in with Google" in hub, True),
+        ("...and says why it is asking",
+         "collected amounts" in bill, True),
+    ]
+
     # UNSET: the board must behave exactly as before.
     import importlib
     os.environ["BILLING_PASSWORDS"] = ""

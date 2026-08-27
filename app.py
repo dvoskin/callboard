@@ -2084,7 +2084,11 @@ def _billing_gate(team):
             _v5_pw_record_failure(ip)
             error = "That is not the password."
     return render_template("v5_password.html", error=error,
-                           page_title="Billing"), (401 if error else 200)
+                           page_title="Billing",
+                           page_sub="This board shows collected amounts, so it "
+                                    "takes its own password.",
+                           page_cta="Open billing",
+                           hide_google=True), (401 if error else 200)
 
 
 def _v6_allowed() -> bool:
@@ -2189,6 +2193,8 @@ def hub_v7():
         return redirect("/login")
     return render_template("v5_password.html", error=error,
                            page_title="Goals Dashboards",
+                           page_sub="Call and collections boards for every team.",
+                           page_cta="Open dashboards",
                            # V7 specifically, not "no password at all": with
                            # neither set the route redirects to /login above, so
                            # that flag could never be true. The case worth
@@ -2216,7 +2222,10 @@ def _render_team_board(team):
     if not _v6_allowed():
         if not V5_PASSWORDS and not V7_PASSWORDS:
             return redirect("/login")
-        return render_template("v5_password.html", error=""), 200
+        return render_template("v5_password.html", error="",
+                               page_title=TEAM_LABELS.get(team, "Team KPI Board"),
+                               page_sub="Talk time and calls for the "
+                                        + TEAM_LABELS.get(team, "team") + " team."), 200
     gated = _billing_gate(team)
     if gated is not None:
         return gated
