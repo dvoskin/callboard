@@ -341,6 +341,7 @@
 
     (d.warnings || []).forEach(function (x) {
       if (x.kind === 'report_stale') h += '<div class="warn">' + esc(x.detail) + '</div>';
+      if (x.kind === 'report_stopped') h += '<div class="warn">' + esc(x.detail) + '</div>';
     });
 
     if (!SHARE) {
@@ -352,6 +353,7 @@
            w(r.ex_missed_absent) + '</b> missed</div>';
       (d.warnings || []).forEach(function (x) {
         if (x.kind === 'report_stale') return;
+        if (x.kind === 'report_stopped') return;
         h += '<div class="warn">' + esc(x.kind.replace(/_/g, ' ')) + ' — ' + esc(x.detail || '') +
              (x.values ? ' (' + x.values.map(function (v) { return esc(v[0]) + ' ×' + v[1]; }).join(', ') + ')' : '') +
              '</div>';

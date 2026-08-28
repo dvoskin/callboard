@@ -224,11 +224,38 @@ def run():
     _os.utime(old_p, (long_ago, long_ago))
     loaded3 = appmod._load_inbox_csv(DAY_ISO, is_today=True, stale_after_hours=3.0)
     m3 = loaded3[1] if loaded3 else {}
+    # ONE report has stopped while the other keeps arriving. That is a fact
+    # about the stopped one, not about this board: reporting it as staleness
+    # marked the SALES board delayed whenever the Inbound & Scheduling
+    # forwarder lagged -- someone else's pipeline, shown as this board being
+    # behind.
     for label, got, want_ in [
-        ("stale report is flagged", m3.get("stale"), True),
-        ("...and named", old_p.name in (m3.get("stale_detail") or ""), True),
-        ("...age is the oldest", round(m3.get("age_hours") or 0) >= 6, True),
+        ("stopped report is named", old_p.name in (m3.get("stopped_reports") or {}), True),
+        ("...with its own age",
+         round((m3.get("stopped_reports") or {}).get(old_p.name, 0)) >= 6, True),
+        ("...and the detail says so", old_p.name in (m3.get("stopped_detail") or ""), True),
+        ("board NOT called stale", m3.get("stale"), None),
+        # `or 99` would read a genuine 0.0 as the fallback -- the freshest file
+        # is zero hours old, which is exactly the value this asserts.
+        ("...age is the freshest",
+         (m3["age_hours"] if m3.get("age_hours") is not None else 99) < 1, True),
         ("...rows still returned", len(loaded3[0]) if loaded3 else 0, 2),
+    ]:
+        ok = got == want_
+        print("  %-24s want %-28s got %-28s %s"
+              % (label, want_, got, "OK" if ok else "<<< FAIL"))
+        fails += 0 if ok else 1
+
+    # And when EVERY report has stopped, the board IS stale -- which is the
+    # signal the original single-file version carried and must not be lost.
+    for q in appmod.RINGCX_INBOX_DIR.glob("interactions_%s*.csv" % DAY_ISO):
+        _os.utime(q, (long_ago, long_ago))
+    loaded4 = appmod._load_inbox_csv(DAY_ISO, is_today=True, stale_after_hours=3.0)
+    m4 = loaded4[1] if loaded4 else {}
+    for label, got, want_ in [
+        ("all stopped -> stale", m4.get("stale"), True),
+        ("...and says how long", "6.0 hours" in (m4.get("stale_detail") or ""), True),
+        ("...rows still returned", len(loaded4[0]) if loaded4 else 0, 2),
     ]:
         ok = got == want_
         print("  %-24s want %-28s got %-28s %s"

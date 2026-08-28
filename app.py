@@ -2897,8 +2897,19 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
         # newest file would let a healthy Inbound & Scheduling report every
         # fifteen minutes mask a sales report that died hours ago, and the board
         # would quietly rank people on stale numbers with no warning at all.
+        # Two questions, two answers. They were collapsed into one and the
+        # answer was wrong for both.
+        #
+        #   is this board's data still arriving?   the FRESHEST file
+        #   has a pipeline died?                   any file that has stopped
+        #
+        # Taking the oldest for both marked the SALES board delayed whenever the
+        # Inbound & Scheduling report lagged -- a different team's forwarder,
+        # reported as this board being behind. Taking the newest for both was
+        # the original bug: a healthy neighbour masked a dead sales report.
         ages = {q.name: round((time.time() - q.stat().st_mtime) / 3600.0, 2) for q in paths}
-        age_h = max(ages.values())
+        age_h = min(ages.values())
+        stopped = {n: a for n, a in ages.items() if a > stale_after_hours}
         # THE CACHE. /v6 has parsed through it for weeks; /v5 read the files
         # raw on every request, and once this merged every scope for a day
         # rather than one file that became several multi-megabyte CSVs parsed
@@ -2922,15 +2933,21 @@ def _load_inbox_csv(date_start: str, is_today: bool = True, stale_after_hours: f
                 "report_ages_hours": ages,
                 "rows": len(rows), "unit": unit, "age_hours": round(age_h, 2),
                 "covers_to": covers_to or None}
+        # A report that has stopped is reported as ITSELF -- named, with its own
+        # age -- rather than as the whole board being late.
+        if is_today and stopped:
+            meta["stopped_reports"] = stopped
+            meta["stopped_detail"] = (
+                "%s has not been delivered for %.1f hours. Figures for the people in "
+                "that report stop there; the rest of this board is current."
+                % (max(stopped, key=stopped.get), max(stopped.values())))
         if is_today and age_h > stale_after_hours:
             # Still use it -- a stale report beats a different report -- but say so.
             meta["stale"] = True
-            oldest = max(ages, key=ages.get)
             meta["stale_detail"] = (
-                "%s has not been delivered for %.1f hours. The reports are emailed "
+                "No report has been delivered for %.1f hours. They are emailed "
                 "through the day, so the forwarder has probably stopped. Figures "
-                "below are correct up to that point, not up to now."
-                % (oldest, age_h))
+                "below are correct up to that point, not up to now." % age_h)
         return rows, meta
     except Exception as e:  # noqa: BLE001
         log.warning("ringcx inbox for %s unusable: %s", date_start, e)
@@ -3573,6 +3590,11 @@ def api_v5_report():
         if cx_source.get("stale"):
             report.setdefault("warnings", []).append(
                 {"kind": "report_stale", "detail": cx_source["stale_detail"]})
+        # A neighbour that has stopped is worth saying and is NOT this board
+        # being late: the reports share an inbox but not an audience.
+        elif cx_source.get("stopped_detail"):
+            report.setdefault("warnings", []).append(
+                {"kind": "report_stopped", "detail": cx_source["stopped_detail"]})
         if cx_source["source"] == "live_cdr_api":
             report.setdefault("warnings", []).append({
                 "kind": "ringcx_source_fallback",
