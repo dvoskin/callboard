@@ -3596,11 +3596,31 @@ def api_v5_report():
             report.setdefault("warnings", []).append(
                 {"kind": "report_stopped", "detail": cx_source["stopped_detail"]})
         if cx_source["source"] == "live_cdr_api":
+            # WHEN it stopped, not just that it has. "Nothing today" is a
+            # symptom; "the last one was for the 26th, 19 hours ago" says
+            # whether the forwarder died overnight or RingCX stopped sending,
+            # and that is the difference between two places to go looking.
+            _last = ""
+            try:
+                _days = _inbox_days()
+                if _days:
+                    _newest = max(_days)
+                    _p = _inbox_path_for(_newest)
+                    _paths = [q for q in _inbox_paths_all_scopes(_newest) if q.exists()]
+                    _age = (min((time.time() - q.stat().st_mtime) / 3600.0
+                                for q in _paths) if _paths else None)
+                    _last = (" The most recent delivered report is for %s%s."
+                             % (_newest,
+                                ", received %.1f hours ago" % _age if _age is not None else ""))
+                else:
+                    _last = " No Interaction Report has ever been delivered to this instance."
+            except Exception:  # noqa: BLE001
+                pass
             report.setdefault("warnings", []).append({
                 "kind": "ringcx_source_fallback",
                 "detail": "No Interaction Report has been delivered for this day, so RingCX "
                           "figures come from the live CDR pull. That is a different report "
-                          "and may not contain every interaction.",
+                          "and may not contain every interaction." + _last,
             })
         report["meta"]["share_mode"] = bool(_v5_token_ok() and not session.get("user"))
         return jsonify(report)
