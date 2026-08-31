@@ -120,6 +120,34 @@ function forwardRingCXReports_() {
   const threads = GmailApp.search(QUERY, 0, MAX_THREADS);  // no label filter — see header
   let sent = 0, failed = 0, already = 0, noCsv = 0;
 
+  // ONLY THE NEWEST REPORT PER SUBJECT.
+  //
+  // Each RingCX report is a ROLLING export of the whole day, not an increment:
+  // the 3pm one contains everything the 2:45pm one did. The server already
+  // relies on that -- a day is only replaced by a report reaching further into
+  // it -- so posting all of them was always redundant work, and it was the
+  // expensive kind: one attachment fetch each, every fifteen minutes, all day.
+  //
+  // The superseded ones are marked seen WITHOUT being fetched. That is the
+  // saving: the quota goes on the report that will actually be used.
+  //
+  // Per SUBJECT, because the subjects are how the sales and the
+  // Inbound & Scheduling reports are told apart. Keeping only the newest
+  // overall would drop one of them entirely.
+  const newest = {};                                 // subject -> newest unseen message
+  const superseded = [];
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (msg) {
+      if (map[msg.getId()]) { already++; return; }
+      const subj = msg.getSubject() || '';
+      const prev = newest[subj];
+      if (!prev) { newest[subj] = msg; return; }
+      if (msg.getDate() > prev.getDate()) { superseded.push(prev); newest[subj] = msg; }
+      else { superseded.push(msg); }
+    });
+  });
+  superseded.forEach(function (m) { markSeen_(map, m.getId()); });
+
   threads.forEach(function (thread) {
     let ok = false, bad = false;
     thread.getMessages().forEach(function (msg) {
@@ -166,7 +194,8 @@ function forwardRingCXReports_() {
 
   saveSeen_(map);
   console.log('threads ' + threads.length + ' | sent ' + sent + ' | failed ' + failed +
-              ' | already done ' + already + ' | messages without a CSV ' + noCsv);
+              ' | already done ' + already + ' | superseded (not fetched) ' +
+              superseded.length + ' | messages without a CSV ' + noCsv);
   if (!threads.length) {
     console.warn('Query matched nothing. Check the report really comes from ' + SENDER +
                  ' and arrived within the last 2 days.');
