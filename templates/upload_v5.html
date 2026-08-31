@@ -1,0 +1,100 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Upload a report</title>
+<style>
+  :root{ --bg:#fff; --fg:#111; --muted:#6b7280; --line:#e5e7eb;
+         --ok:#0b6e67; --dn:#b42318; --ring:rgba(17,17,17,.10) }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0b0c0e; --fg:#f3f4f6; --muted:#9ca3af; --line:#23262b;
+           --ok:#4fccbf; --dn:#f97066; --ring:rgba(243,244,246,.14) }
+  }
+  *{ box-sizing:border-box }
+  body{ margin:0; background:var(--bg); color:var(--fg); padding:28px 18px 60px;
+        font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif }
+  .wrap{ max-width:520px; margin:0 auto }
+  h1{ font-size:23px; margin:0 0 5px; letter-spacing:-.02em }
+  p.sub{ margin:0 0 22px; color:var(--muted); font-size:13.5px }
+  label{ display:block; font-size:12.5px; color:var(--muted); margin:16px 0 6px }
+  input[type=file],select{ width:100%; padding:10px 12px; font-size:15px; color:var(--fg);
+        background:transparent; border:1px solid var(--line); border-radius:8px }
+  select:focus,input:focus{ outline:none; border-color:var(--fg); box-shadow:0 0 0 3px var(--ring) }
+  button{ width:100%; margin-top:18px; padding:11px 12px; font-size:15px; font-weight:600;
+        color:var(--bg); background:var(--fg); border:0; border-radius:8px; cursor:pointer }
+  button:disabled{ opacity:.5; cursor:default }
+  .out{ margin-top:18px; font-size:13.5px; line-height:1.55; white-space:pre-wrap }
+  .out.ok{ color:var(--ok) } .out.bad{ color:var(--dn) }
+  .note{ margin-top:22px; padding-top:14px; border-top:1px solid var(--line);
+         font-size:12.5px; color:var(--muted); line-height:1.6 }
+  a{ color:inherit }
+</style>
+<div class="wrap">
+  <h1>Upload a report</h1>
+  <p class="sub">For when the Gmail forwarder cannot deliver one &mdash; a stopped
+     trigger, or the mailbox's daily quota. The file is the same RingCX
+     Interaction Report CSV the forwarder sends.</p>
+
+  <label for="scope">Which report is this?</label>
+  <select id="scope">
+    <option value="Daily Interaction Report (Sales)">Sales</option>
+    <option value="Interaction Report (Inbound &amp; Scheduling)">Inbound &amp; Scheduling</option>
+  </select>
+
+  <label for="file">Report CSV</label>
+  <input id="file" type="file" accept=".csv,text/csv">
+
+  <button id="go" type="button" disabled>Upload</button>
+  <div class="out" id="out"></div>
+
+  <p class="note">It goes through exactly the same path as the forwarder, so the
+     same rules apply: a day is only replaced by a report that reaches further
+     into it, and a report with no dated rows is accepted and stored as nothing.
+     <a href="/v7">Back to the dashboards</a></p>
+</div>
+<script>
+(function () {
+  var f = document.getElementById('file'), go = document.getElementById('go'),
+      out = document.getElementById('out'), scope = document.getElementById('scope');
+  f.onchange = function () { go.disabled = !f.files.length; out.textContent = ''; };
+  go.onclick = function () {
+    if (!f.files.length) return;
+    go.disabled = true; out.className = 'out'; out.textContent = 'Uploading…';
+    var fd = new FormData();
+    fd.append('file', f.files[0]);
+    fetch('/api/v5/ingest?scope=' + encodeURIComponent(scope.value),
+          { method: 'POST', body: fd })
+      .then(function (r) { return r.text().then(function (t) { return [r.status, t]; }); })
+      .then(function (p) {
+        var code = p[0], j;
+        try { j = JSON.parse(p[1]); } catch (e) { j = null; }
+        go.disabled = false;
+        if (!j) { out.className = 'out bad';
+                  out.textContent = 'HTTP ' + code + '\n' + p[1].slice(0, 400); return; }
+        if (j.error) { out.className = 'out bad';
+                       out.textContent = j.error + '\n' + (j.detail || ''); return; }
+        if (j.status === 'empty_report') {
+          out.className = 'out';
+          out.textContent = 'Accepted, but it has no dated rows, so nothing was stored.\n'
+                          + (j.detail || '');
+          return;
+        }
+        // Say what actually landed. "Uploaded" on its own is the kind of
+        // reassurance that has been wrong before on this pipeline.
+        var w = (j.days_written || []).map(function (d) {
+          return '  ' + d.day + ' — ' + d.rows + ' rows, covers to ' + (d.covers_to || '?');
+        }).join('\n');
+        var s = (j.days_skipped || []).map(function (d) {
+          return '  ' + d.day + ' — kept what was there (' + d.reason + ')';
+        }).join('\n');
+        out.className = 'out ok';
+        out.textContent = j.total_rows + ' rows read, ' + j.agents + ' agents.\n'
+                        + (w ? 'Stored:\n' + w + '\n' : '')
+                        + (s ? 'Unchanged:\n' + s : '');
+      })
+      .catch(function (e) {
+        go.disabled = false; out.className = 'out bad';
+        out.textContent = 'Could not reach the server: ' + e;
+      });
+  };
+})();
+</script>

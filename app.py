@@ -2967,8 +2967,17 @@ def api_v5_ingest():
              -H "X-API-Key: $INGEST_API_KEY" \
              -F "file=@interactions.csv"
     """
+    # The key, or a signed-in person. The forwarder is a script and uses the
+    # key; a human uploading a report by hand when the forwarder is down -- a
+    # dead trigger, an exhausted Gmail quota -- has no key and should not need
+    # to go and find one.
+    #
+    # A GOOGLE session specifically, not the word passwords. Those get handed
+    # round the floor and are read-only everywhere else; this writes a report
+    # that every board then reports from.
     supplied = request.headers.get("X-API-Key", "") or request.args.get("key", "")
-    if not INGEST_API_KEY or not hmac.compare_digest(supplied, INGEST_API_KEY):
+    key_ok = bool(INGEST_API_KEY) and hmac.compare_digest(supplied, INGEST_API_KEY)
+    if not (key_ok or session.get("user") or not GOOGLE_CLIENT_ID):
         return jsonify({"error": "unauthorized"}), 401
 
     f = request.files.get("file")
@@ -3385,6 +3394,20 @@ def api_v5_diag_payments():
                        "payments": v["payments"]}
                    for w, v in sorted(by_agent.items())},
     })
+
+
+@app.route("/v5/upload")
+@login_required
+def v5_upload_page():
+    """Post a report by hand when the forwarder cannot.
+
+    The forwarder is a Gmail script and it has failure modes nothing here can
+    fix: a disabled trigger, a mailbox's daily quota. On 2026-08-27 the quota
+    ran out mid-morning and there was no way to get the day's report in without
+    a terminal and the ingest key.
+    """
+    return render_template("upload_v5.html",
+                           current_user=session.get("user") or {})
 
 
 @app.route("/api/v5/ingest/status")
