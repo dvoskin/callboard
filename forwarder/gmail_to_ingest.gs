@@ -16,6 +16,23 @@
  *   4. Triggers (clock icon) -> Add Trigger -> forwardRingCXReports,
  *      Time-driven, Minutes timer, every 15 minutes.
  *
+ * GMAIL QUOTA. Every run costs mailbox allowance whether or not there is
+ * anything new: a search, a walk of each matching thread, and a fetch of every
+ * attachment on a message not seen before. Exhausting it stops the forwarder
+ * dead for the rest of the day and the board simply has no report -- which is
+ * how 2026-08-27 went. What this file does to stay inside it:
+ *
+ *   has:attachment      a report without one is nothing this can use
+ *   newer_than:1d       the window is re-scanned on EVERY run; 2d doubled the
+ *                       standing cost for catch-up nobody was using
+ *   includeInlineImages:false
+ *                       every signature logo was being fetched and discarded
+ *   labels on change    a run where everything was already ingested used to
+ *                       rewrite labels on every thread anyway
+ *
+ * If it still runs out, lower the trigger to every 30 minutes before anything
+ * else -- these are daily figures and the board is minutes-stale by design.
+ *
  * Progress is tracked per MESSAGE, not per thread. Gmail groups messages that
  * share a subject into one thread, so an earlier version that excluded already
  * -labelled THREADS went permanently blind to every later report arriving in the
@@ -35,7 +52,21 @@ const SENDER     = 'ringcx.analytics@ringcentral.com';
 // -in:spam is deliberate: `from:` matches a header, which can be spoofed, and spam
 // is where a forged lookalike would land. Trash and All Mail are the user's own
 // filing; Spam is not.
-const QUERY      = 'from:' + SENDER + ' in:anywhere -in:spam newer_than:2d';
+// has:attachment: a report without one is nothing this script can use, and
+// every message the search returns costs quota whether or not it is usable.
+// newer_than:1d rather than 2d: the trigger runs every 15 minutes, so a day is
+// 96 runs of slack, and the window is scanned on EVERY one of them. Two days
+// doubled the standing cost for catch-up nobody was using.
+const QUERY      = 'from:' + SENDER + ' in:anywhere -in:spam has:attachment newer_than:1d';
+
+// How many threads to walk per run. The reports thread by subject, so this is
+// a handful in practice; the cap only matters when Gmail splits them.
+const MAX_THREADS = 12;
+
+// Attachment options. Without these Gmail fetches inline images too -- every
+// signature logo on every report -- and the code then throws them away. Paying
+// to retrieve something in order to discard it is the cheapest quota to save.
+const ATT_OPTS   = { includeInlineImages: false, includeAttachments: true };
 
 const LABEL_DONE = 'ringcx/ingested';
 const LABEL_FAIL = 'ringcx/failed';
@@ -63,10 +94,30 @@ function saveSeen_(map) {
 
 // ── main ───────────────────────────────────────────────────────
 function forwardRingCXReports() {
+  try {
+    forwardRingCXReports_();
+  } catch (e) {
+    // Gmail's daily quota reads as a bare exception and stops the run dead.
+    // Name it, because "Service invoked too many times" in a stack trace looks
+    // like a script bug and is not one -- it is the mailbox's allowance for the
+    // day, and it resets on its own.
+    const msg = String((e && e.message) || e);
+    if (msg.indexOf('too many times') >= 0 || msg.indexOf('Limit Exceeded') >= 0) {
+      console.error('Gmail daily quota is used up: ' + msg +
+                    '  Nothing was lost -- unposted reports stay unmarked and go ' +
+                    'on the next run once the quota resets. If this repeats, ' +
+                    'lower the trigger frequency.');
+      return;
+    }
+    throw e;
+  }
+}
+
+function forwardRingCXReports_() {
   const done = getOrCreateLabel_(LABEL_DONE);
   const fail = getOrCreateLabel_(LABEL_FAIL);
   const map = seen_();
-  const threads = GmailApp.search(QUERY, 0, 25);     // no label filter — see header
+  const threads = GmailApp.search(QUERY, 0, MAX_THREADS);  // no label filter — see header
   let sent = 0, failed = 0, already = 0, noCsv = 0;
 
   threads.forEach(function (thread) {
@@ -75,7 +126,7 @@ function forwardRingCXReports() {
       const id = msg.getId();
       if (map[id]) { already++; return; }            // this MESSAGE is done
 
-      const atts = msg.getAttachments().filter(function (a) {
+      const atts = msg.getAttachments(ATT_OPTS).filter(function (a) {
         return a.getName() && a.getSize() > 0;       // skip inline signature images
       });
       const csvs = atts.filter(function (a) { return /\.csv$/i.test(a.getName()); });
@@ -106,8 +157,11 @@ function forwardRingCXReports() {
       // is retried next tick, so a report never silently goes missing.
       if (allOk) { markSeen_(map, id); ok = true; } else { bad = true; }
     });
+    // Label writes cost quota too. Only when this run actually did something
+    // to the thread -- a run where every message was already ingested used to
+    // still rewrite labels on all of them, every fifteen minutes, forever.
     if (ok) thread.addLabel(done);
-    if (bad) thread.addLabel(fail); else if (ok) thread.removeLabel(fail);
+    if (bad) thread.addLabel(fail);
   });
 
   saveSeen_(map);
@@ -156,7 +210,7 @@ function testOnce() {
     console.log('— thread: "' + t.getFirstMessageSubject() + '" (' +
                 t.getMessageCount() + ' message(s))');
     t.getMessages().forEach(function (m) {
-      const names = m.getAttachments().filter(function (a) {
+      const names = m.getAttachments(ATT_OPTS).filter(function (a) {
         return a.getName() && a.getSize() > 0;
       }).map(function (a) {
         if (/\.csv$/i.test(a.getName())) { csv++; } else { other++; }
