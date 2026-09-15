@@ -56,11 +56,17 @@
   .key span{white-space:nowrap}
   .floor b{color:var(--ink);font-weight:700}
   .floor .sep{opacity:.45;padding:0 5px}
+  /* Totals, not medians, so a line of their own under the floor. */
+  .tot{font-size:12.5px;color:var(--muted);margin-top:-3px;padding:0 0 8px}
+  .tot b{color:var(--ink);font-weight:700}
+  .tot .sep{opacity:.45;padding:0 5px}
 
   /* the list — flat grid, hairlines only */
+  /* Quotes and retainers follow the call figures in wider columns. They are
+     Books counts, not calls, so they carry no arrow: the floor is a call median. */
   .hd,.r{display:grid;align-items:center;
-         grid-template-columns:22px minmax(0,1fr) 84px 62px 52px 58px;
-         grid-template-areas:"rk nm tk d t3 t10"}
+         grid-template-columns:22px minmax(0,1fr) 80px 54px 46px 50px 64px 76px;
+         grid-template-areas:"rk nm tk d t3 t10 q rt"}
   .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
       color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
   .r{padding:7px 0;border-bottom:1px solid var(--hair)}
@@ -105,13 +111,15 @@
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
   .a-d{grid-area:d} .a-t3{grid-area:t3} .a-t10{grid-area:t10}
+  .a-q{grid-area:q} .a-rt{grid-area:rt}
   .rk{grid-area:rk;color:var(--muted);font-size:11.5px}
   .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;
       overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px}
   .r.low .nm{color:var(--dn)}
   .tk{grid-area:tk;font-weight:700;font-size:14.5px}
-  .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10}
-  .d,.t3,.t10{font-weight:600;color:var(--ink-2);font-size:13px}
+  .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
+  .d,.t3,.t10,.q,.rt{font-weight:600;color:var(--ink-2);font-size:13px}
+  .q.zero,.rt.zero{color:var(--muted);font-weight:500}
   .lbl{display:none;color:var(--muted);font-weight:400}
   .up{color:var(--up)} .down{color:var(--dn)}
   .mk{font-size:9px;padding-right:2px}
@@ -124,14 +132,14 @@
        down the page. Equal 1fr columns aligned them but pushed them apart, which
        made a list you scroll daily harder to read, not easier. The trailing
        column absorbs the slack. */
-    .r{grid-template-columns:16px auto auto minmax(0,1fr) auto;
-       grid-template-areas:"rk nm nm nm tk" ".  d  t3 t10 .";
+    .r{grid-template-columns:16px auto auto auto auto minmax(0,1fr) auto;
+       grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 t10 q rt .";
        row-gap:0;column-gap:9px;padding:6px 0}
     .rk{font-size:11px}
     .nm{font-size:14px;padding-right:6px}
     .tk{font-size:14px}
-    .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10}
-    .d,.t3,.t10{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
+    .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
+    .d,.t3,.t10,.q,.rt{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
     /* The number carries the row; the word only says which number. */
     .lbl{display:inline;font-size:10.5px;opacity:.7}
     .mk{font-size:8px}
@@ -148,10 +156,18 @@
     .lead-long{display:none} .lead-short{display:inline}
     .floor{font-size:12px;padding:6px 0;line-height:1.45}
     .floor .sep{padding:0 4px}
+    .tot{font-size:12px;padding:0 0 6px}
+    .tot .sep{padding:0 4px}
     #stamp{font-size:12px;line-height:1.45}
     .key{font-size:10.5px;gap:0 10px;line-height:1.45;padding:0 0 6px}
     .key span:nth-child(2){display:none}   /* "Floor = median rep" -- the word
                                               Floor is right above it */
+  }
+  /* Five figures under the name ran 10px into the gutter at 360px once quotes
+     and retainers joined the call counts. Tighter gaps hold them on one line
+     rather than wrapping a second one under every rep. */
+  @media(max-width:380px){
+    .r{column-gap:6px}
   }
 
   ul{list-style:none;margin:0;padding:0}
@@ -246,12 +262,35 @@
       }
       $('out').innerHTML = '<div class="msg">' + msg + '</div>'; return;
     }
+    // Did Books answer, figure by figure? A zero it never sent and a zero it did
+    // are the same digit on screen and mean opposite things -- and one refused
+    // module must not blank the figures that did arrive.
+    var bm = (d.meta || {}).books;
+    var bErr = ((bm && bm.errors) || []).map(function (e) { return e.metric; });
+    var booksHas = function (metric) {
+      return !!bm && !bm.loading && bErr.indexOf(metric) === -1;
+    };
+    var everyone = ranked.concat(thin);
+    var sumB = function (k) {
+      return everyone.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0);
+    };
+    var bcell = function (v, metric, cls, one, many) {
+      var ok = booksHas(metric), n = w(v);
+      return '<span class="' + cls + (ok && !n ? ' zero' : '') + '">' +
+             (ok ? n : '\u2014') + '<span class="lbl"> ' + (n === 1 ? one : many) +
+             '</span></span>';
+    };
     var h = '';
     h += '<div class="floor"><span class="lead-long">Floor to clear</span>' +
          '<span class="lead-short">Floor</span>&nbsp; <b>' + hm(f.talk) + '</b> talk' +
          '<span class="sep">·</span><b>' + w(f.attempts) + '</b> dials' +
          '<span class="sep">·</span><b>' + w(f.over_3) + '</b> &gt;3m' +
          '<span class="sep">·</span><b>' + w(f.over_10) + '</b> &gt;10m</div>';
+    h += '<div class="tot">Sent&nbsp; <b>' +
+         (booksHas('quotes_sent') ? w(sumB('quotes_sent')) : '\u2014') + '</b> quotes' +
+         '<span class="sep">·</span><b>' +
+         (booksHas('retainers_sent') ? w(sumB('retainers_sent')) : '\u2014') + '</b> retainers' +
+         (bm && bm.loading ? '<span class="sep">·</span>loading from Books…' : '') + '</div>';
     // A legend, not a tooltip: this is read on phones, where hover does not exist.
     h += '<div class="key">' +
            '<span><b class="u">▲</b><b class="d">▼</b> vs the floor</span>' +
@@ -262,14 +301,11 @@
 
     h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">Rep</span>' +
          '<span class="a-tk">Talk</span><span class="a-d">Dials</span>' +
-         '<span class="a-t3">&gt;3m</span><span class="a-t10">&gt;10m</span></div>';
+         '<span class="a-t3">&gt;3m</span><span class="a-t10">&gt;10m</span>' +
+         '<span class="a-q">Quotes</span><span class="a-rt">Retainers</span></div>';
     ranked.forEach(function (a, i) {
       var up = a.talk >= f.talk;
       const bk = a.books || {};
-      // Did Books answer at all? A zero it never sent and a zero it did are the
-      // same digit on screen and mean opposite things.
-      const bm = (d.meta || {}).books || {};
-      const booksOk = !bm.loading && !(bm.errors || []).length;
       const cell2 = function (label, value, isZero) {
         return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + label +
                '</em><b>' + value + '</b></div>';
@@ -285,14 +321,17 @@
            // the width of the row it sat under.
            cell(a.over_3, f.over_3, 't3', ' >3m') +
            cell(a.over_10, f.over_10, 't10', ' >10m') +
+           bcell(bk.quotes_sent, 'quotes_sent', 'q', 'quote', 'quotes') +
+           bcell(bk.retainers_sent, 'retainers_sent', 'rt', 'retainer', 'retainers') +
            '</div>';
       h += '<div class="det" id="d' + i + '"><div class="dg">' +
              cell2('Campaign', hm(a.campaign), !a.campaign) +
              cell2('Direct', hm(a.direct), !a.direct) +
              cell2('Longest', hm(a.longest)) +
              '<span class="rule"></span>' +
-             cell2('Quotes sent', w(bk.quotes_sent), !bk.quotes_sent) +
-             cell2('Invoiced', w(bk.quotes_invoiced || 0), !bk.quotes_invoiced) +
+             // Quotes sent is in the row now; the panel keeps what the row does not.
+             cell2('Quotes invoiced', booksHas('quotes_sent') ? w(bk.quotes_invoiced || 0) : '\u2014',
+                   !bk.quotes_invoiced) +
              // Follow Up Created is HIDDEN, not removed: the API still computes
              // it, so it returns the moment the CRM name join is sorted. Owner
              // arrives without a name on this token (owner_surnames: [""]), so
@@ -303,8 +342,8 @@
              // when Books actually answered: a confident 0 for money that may
              // well have been collected is worse than showing nothing, which is
              // why this was hidden rather than deleted while the token was
-             // refusing. booksOk carries that distinction.
-             (booksOk
+             // refusing. booksHas carries that distinction.
+             (booksHas('retainers_paid')
                 ? cell2('Retainers paid', w(bk.retainers_paid || 0), !bk.retainers_paid) +
                   cell2('Retainer $', bk.paid_amount ? money(bk.paid_amount) : '—',
                         !bk.paid_amount)
@@ -333,8 +372,11 @@
     if (thin.length) {
       h += '<h2>No calls yet</h2><ul>';
       thin.forEach(function (a) {
+        var tb = a.books || {}, xtra = '';
+        if (tb.quotes_sent) xtra += ' · ' + w(tb.quotes_sent) + ' quote' + (tb.quotes_sent === 1 ? '' : 's');
+        if (tb.retainers_sent) xtra += ' · ' + w(tb.retainers_sent) + ' retainer' + (tb.retainers_sent === 1 ? '' : 's');
         h += '<li><b>' + esc(a.name) + '</b><span>' + w(a.attempts) + ' call' +
-             (a.attempts === 1 ? '' : 's') + ' · ' + hm(a.talk) + ' talk</span></li>';
+             (a.attempts === 1 ? '' : 's') + ' · ' + hm(a.talk) + ' talk' + xtra + '</span></li>';
       });
       h += '</ul><p class="note">No calls logged yet in this window.</p>';
     }
@@ -345,6 +387,21 @@
     });
 
     if (!SHARE) {
+      // Books work with nowhere to sit -- no salesperson on the document, or a
+      // name that matches no rep here. Named, so the totals above never quietly
+      // disagree with Books.
+      if (booksHas('quotes_sent') && booksHas('retainers_sent')) {
+        var xq = (bm.quotes_sent_rows || 0) - sumB('quotes_sent'),
+            xr = (bm.retainers_sent_rows || 0) - sumB('retainers_sent');
+        if (xq > 0 || xr > 0) {
+          h += '<div class="warn">Books has ' + xq + ' more quote' + (xq === 1 ? '' : 's') +
+               ' and ' + xr + ' more retainer' + (xr === 1 ? '' : 's') +
+               ' than this board shows (no salesperson set, or a name with no row here)' +
+               ((bm.not_on_board || []).length
+                  ? '. Books names without a row: ' + bm.not_on_board.map(esc).join(', ')
+                  : '') + '.</div>';
+        }
+      }
       var r = d.recon || {};
       h += '<div class="recon">RingCX holds <b>' +
            (r.coverage_pct == null ? '—' : r.coverage_pct + '%') + '</b> of the connected ' +
@@ -391,7 +448,7 @@
     });
   }
 
-  var LAST_OK = null, STALE = false;
+  var LAST_OK = null, STALE = false, BOOKS_RETRY = 0, BOOKS_TIMER = null;
 
   function stampAge() {
     var el = $('age');
@@ -492,6 +549,19 @@
           });
         }
         render(res.j);
+        // Books is fetched in the background, so the first load of a day usually
+        // lands before it has. Waiting out the five-minute timer left Quotes and
+        // Retainers blank for that long; ask again shortly, a few times at most.
+        var bmeta = (res.j.meta || {}).books;
+        if (bmeta && bmeta.loading) {
+          if (BOOKS_RETRY < 9) {
+            BOOKS_RETRY++;
+            clearTimeout(BOOKS_TIMER);
+            BOOKS_TIMER = setTimeout(load, 10000);
+          }
+        } else {
+          BOOKS_RETRY = 0;
+        }
       })
       .catch(function (err) {
         if ($('spin')) $('spin').textContent = '';

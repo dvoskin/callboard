@@ -196,6 +196,58 @@ class BooksClient:
                  len(out), len(rows), date_start, date_end)
         return out
 
+    # Retainers are their own Books module. /invoices holds the FULL invoice a
+    # signed quote also produces, and on the day it goes out that invoice is
+    # still a draft -- so a retainer count read from /invoices is zero for the
+    # whole floor. Measured 2026-09-15: 19 RET- documents in /retainerinvoices
+    # (15 sent, 4 paid) beside 19 INV- in /invoices (15 draft, 4 partially_paid),
+    # and the board, reading /invoices through the unpaid-only filter below,
+    # showed 0 retainers sent for every rep.
+    #
+    # "Sent" is every retainer that left the office, paid or not. A retainer the
+    # patient paid the same afternoon was still sent; dropping it is the mistake
+    # quotes made first -- a rep looks worse the faster they close.
+    _RETAINER_NOT_SENT = frozenset({"draft", "void"})
+
+    def list_retainers_sent(
+        self,
+        date_start: str,
+        date_end: str,
+        max_records: int = 2000,
+    ) -> list[dict]:
+        """Retainer invoices CREATED in [date_start, date_end] that went out.
+
+        Same created-date handling as list_sent_estimates. The rep lives on the
+        cf_salesperson custom field -- retainer invoices carry no
+        salesperson_name -- so it is copied there for callers that key on it.
+        Checked 2026-09-15: cf_salesperson matched the rep on the originating
+        quote for 19 of 19.
+        """
+        from datetime import date as _date, timedelta as _td
+        try:
+            lo = (_date.fromisoformat(date_start)
+                  - _td(days=self._CREATED_PAD_DAYS)).isoformat()
+            hi = (_date.fromisoformat(date_end)
+                  + _td(days=self._CREATED_PAD_DAYS)).isoformat()
+        except ValueError:
+            lo, hi = date_start, date_end
+
+        rows = self._list_documents("retainerinvoices", lo, hi, max_records)
+        out = []
+        for r in rows:
+            if (r.get("status") or "").lower() in self._RETAINER_NOT_SENT:
+                continue
+            day = (r.get("created_time") or "")[:10] or (r.get("date") or "")
+            if not (date_start <= day <= date_end):
+                continue
+            r = dict(r)
+            r["salesperson_name"] = ((r.get("cf_salesperson") or "").strip()
+                                     or (r.get("salesperson_name") or "").strip())
+            out.append(r)
+        log.info("Books: %d of %d retainer invoices were sent and CREATED between %s and %s",
+                 len(out), len(rows), date_start, date_end)
+        return out
+
     # Retainer statuses that still owe money — these are what the Follow Up
     # Tracker needs to chase. In Goals' workflow most retainers go straight
     # to `partially_paid` because the customer drops a deposit on send, so a
@@ -519,8 +571,12 @@ class BooksClient:
                     self.last_source_was_cache = True
                     return self._load_cache(date_start, date_end, max_records,
                                              key=cache_key, include_statuses=include_statuses)
-                scope_hint = ("ZohoBooks.estimates.READ" if doc_type == "estimates"
-                              else "ZohoBooks.invoices.READ")
+                # Retainer invoices are NOT covered by ZohoBooks.invoices.* -- the
+                # quote analyzer found that out and took ZohoBooks.fullaccess.ALL.
+                scope_hint = {
+                    "estimates": "ZohoBooks.estimates.READ",
+                    "retainerinvoices": "retainer invoice (ZohoBooks.fullaccess.ALL reads it)",
+                }.get(doc_type, "ZohoBooks.invoices.READ")
                 raise RuntimeError(
                     f"Books API auth error {resp.status_code} — the refresh token "
                     f"likely lacks {scope_hint} scope. ({resp.text[:120]})"

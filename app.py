@@ -2785,7 +2785,10 @@ def _v5_books_fetch(date_start: str, date_end: str):
 
     for label, fn, field in (
         ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 2000), None),
-        ("retainers_sent", lambda: _books.list_sent_retainer_invoices(date_start, date_end, 500), None),
+        # Every retainer that went out, from /retainerinvoices. This used to call
+        # list_sent_retainer_invoices -- /invoices, unpaid only, the follow-up
+        # tracker's question rather than the board's -- and read 0 for every rep.
+        ("retainers_sent", lambda: _books.list_retainers_sent(date_start, date_end, 2000), None),
         ("retainers_paid", lambda: _books.list_retainer_payments(date_start, date_end), "amount"),
     ):
         try:
@@ -3236,6 +3239,7 @@ def api_v5_diag():
                 _scopes, _denied = {}, []
                 for _name, _path in (("estimates", "estimates"),
                                      ("invoices", "invoices"),
+                                     ("retainerinvoices", "retainerinvoices"),
                                      ("customerpayments", "customerpayments")):
                     try:
                         _r = requests.get(
@@ -3252,11 +3256,12 @@ def api_v5_diag():
                         _denied.append(_name)
                 probe["scopes"] = _scopes
                 probe["result"] = (
-                    "Books works - all three scopes readable."
+                    "Books works - estimates, invoices, retainer invoices and "
+                    "payments are all readable."
                     if not _denied else
-                    "Token is valid but lacks scope for: %s. Regenerate the Zoho "
-                    "token with ZohoBooks.estimates.READ, ZohoBooks.invoices.READ "
-                    "and ZohoBooks.customerpayments.READ, then set it as "
+                    "Token is valid but cannot read: %s. Retainer invoices are not "
+                    "covered by ZohoBooks.invoices.READ; a token with "
+                    "ZohoBooks.fullaccess.ALL reads all four. Set it as "
                     "ZOHO_BOOKS_REFRESH_TOKEN." % ", ".join(_denied))
         out["books_probe"] = probe
     except Exception as e:  # noqa: BLE001
@@ -3563,7 +3568,7 @@ def api_v5_report():
                     continue
                 if roster is not None and k not in roster:
                     continue
-                if not (v["quotes_sent"] or v["quotes_invoiced"]):
+                if not (v["quotes_sent"] or v["quotes_invoiced"] or v["retainers_sent"]):
                     continue
                 report.setdefault("unranked", []).append(_zero_call_row(v["display"], v))
                 added.append(v["display"])
