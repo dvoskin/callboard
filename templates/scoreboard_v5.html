@@ -60,6 +60,10 @@
   .tot{font-size:12.5px;color:var(--muted);margin-top:-3px;padding:0 0 8px}
   .tot b{color:var(--ink);font-weight:700}
   .tot .sep{opacity:.45;padding:0 5px}
+  /* Books' own date filter, beside the board's count rather than instead of it:
+     the two ask different questions and a manager checking one against the
+     other should not have to guess which. */
+  .tot .alt{opacity:.7}
 
   /* the list — flat grid, hairlines only */
   /* Quotes and retainers follow the call figures in wider columns. They are
@@ -290,7 +294,15 @@
          (booksHas('quotes_sent') ? w(sumB('quotes_sent')) : '\u2014') + '</b> quotes' +
          '<span class="sep">·</span><b>' +
          (booksHas('retainers_sent') ? w(sumB('retainers_sent')) : '\u2014') + '</b> retainers' +
-         (bm && bm.loading ? '<span class="sep">·</span>loading from Books…' : '') + '</div>';
+         (booksHas('retainers_paid')
+            ? '<span class="sep">·</span><b>' + w(sumB('retainers_paid')) + '</b> closed' : '') +
+         (bm && bm.loading ? '<span class="sep">·</span>loading from Books…' : '') +
+         (booksHas('quotes_sent') && bm.quotes_by_books_date != null
+            ? '<br><span class="alt">Books date filter: ' + w(bm.quotes_by_books_date) + ' quotes' +
+              (bm.retainers_by_books_date != null
+                 ? ' · ' + w(bm.retainers_by_books_date) + ' retainers' : '') +
+              ' — a quote written in the evening carries the next day\u2019s date</span>'
+            : '') + '</div>';
     // A legend, not a tooltip: this is read on phones, where hover does not exist.
     h += '<div class="key">' +
            '<span><b class="u">▲</b><b class="d">▼</b> vs the floor</span>' +
@@ -344,8 +356,8 @@
              // why this was hidden rather than deleted while the token was
              // refusing. booksHas carries that distinction.
              (booksHas('retainers_paid')
-                ? cell2('Retainers paid', w(bk.retainers_paid || 0), !bk.retainers_paid) +
-                  cell2('Retainer $', bk.paid_amount ? money(bk.paid_amount) : '—',
+                ? cell2('Retainers closed', w(bk.retainers_paid || 0), !bk.retainers_paid) +
+                  cell2('Closed $', bk.paid_amount ? money(bk.paid_amount) : '—',
                         !bk.paid_amount)
                 : '') +
              // Where the talk time actually went. Name and time only -- the point

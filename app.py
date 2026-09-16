@@ -2776,49 +2776,53 @@ def _v5_books_fetch(date_start: str, date_end: str):
         except (TypeError, ValueError):
             return 0.0
 
-    # "Retainers paid" counts RETAINERS, not payment records. A retainer settled
-    # in two instalments is one retainer; counting rows reported Rothmel 4 for 3
-    # and Adelita 4 for 2, over by exactly however many people paid in parts.
-    # paid_amount still sums every payment -- that is money received, and all of
-    # it arrived.
-    paid_invoices = defaultdict(set)
+    # Both date bases, per metric: what the board counts (created in the window)
+    # and what Books shows when filtered on the document's own date. Filled by
+    # the client per call rather than held on it -- windows refresh concurrently.
+    q_stats, r_stats = {}, {}
 
     for label, fn, field in (
-        ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 2000), None),
+        ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 2000, stats=q_stats), None),
         # Every retainer that went out, from /retainerinvoices. This used to call
         # list_sent_retainer_invoices -- /invoices, unpaid only, the follow-up
         # tracker's question rather than the board's -- and read 0 for every rep.
-        ("retainers_sent", lambda: _books.list_retainers_sent(date_start, date_end, 2000), None),
-        ("retainers_paid", lambda: _books.list_retainer_payments(date_start, date_end), "amount"),
+        ("retainers_sent", lambda: _books.list_retainers_sent(date_start, date_end, 2000, stats=r_stats), None),
+        # Retainers CLOSED in the window: the retainer itself, paid in full, the
+        # money arriving that day. This counted customer payments before, which
+        # are mostly payments against the full INV- invoice and have nothing to
+        # do with a retainer closing -- 2026-09-15 read 32 payment rows where
+        # Books closed 8 retainers for $4,000. The amount is the retainer's own
+        # total, so "Closed $" is the value of what closed that day.
+        ("retainers_paid", lambda: _books.list_retainers_paid_on(date_start, date_end), "total"),
     ):
         try:
             rows = fn() or []
+            seen = set()
             for r in rows:
                 who = r.get("salesperson_name") or "Unassigned"
                 b = bucket(who)
                 if label == "retainers_paid":
-                    ids = r.get("invoice_ids") or []
-                    # A payment with no invoice on it still happened; keying it
-                    # by its own id counts it once rather than dropping it.
-                    ids = ids or ["payment:%s" % (r.get("payment_id")
-                                                  or r.get("payment_number") or id(r))]
-                    paid_invoices[_norm_name(who)].update(ids)
-                else:
-                    b[label] += 1
+                    # One retainer, counted once, however the scan reached it.
+                    ident = str(r.get("retainerinvoice_id")
+                                or r.get("retainerinvoice_number") or id(r))
+                    if ident in seen:
+                        continue
+                    seen.add(ident)
+                b[label] += 1
                 if label == "quotes_sent" and (r.get("status") or "") in _QUOTE_CLOSED:
                     b["quotes_invoiced"] += 1
                 if field:
                     b["paid_amount"] += _num(r.get(field))
             meta[label + "_rows"] = len(rows)
+            if label == "quotes_sent" and "by_books_date" in q_stats:
+                meta["quotes_by_books_date"] = q_stats["by_books_date"]
+            if label == "retainers_sent" and "by_books_date" in r_stats:
+                meta["retainers_by_books_date"] = r_stats["by_books_date"]
         except Exception as e:  # noqa: BLE001
             # Name the failure. A zero that means "Books errored" and a zero that
             # means "no quotes today" must not look the same on the board.
             log.warning("v5 books %s failed: %s", label, _redact(e))
             meta["errors"].append({"metric": label, "detail": _redact(e)[:200]})
-
-    for nkey, invs in paid_invoices.items():
-        if nkey in by_agent:
-            by_agent[nkey]["retainers_paid"] = len(invs)
 
     with _v5_books_lock:
         _v5_books_cache[key] = {"at": time.time(), "by_agent": by_agent, "meta": meta}

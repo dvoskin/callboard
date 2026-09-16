@@ -160,6 +160,7 @@ class BooksClient:
         date_start: str,
         date_end: str,
         max_records: int = 2000,
+        stats: Optional[dict] = None,
     ) -> list[dict]:
         """Quotes CREATED in [date_start, date_end].
 
@@ -187,13 +188,22 @@ class BooksClient:
             "estimates", lo, hi, max_records,
             include_statuses=set(self._QUOTE_SENT_STATUSES))
 
-        out = []
+        out, dated = [], []
         for r in rows:
             day = (r.get("created_time") or "")[:10] or (r.get("date") or "")
             if date_start <= day <= date_end:
                 out.append(r)
-        log.info("Books: %d of %d estimates were CREATED between %s and %s",
-                 len(out), len(rows), date_start, date_end)
+            # The same window on the estimate's OWN date -- what Books shows when
+            # you filter it by that day. Not the same documents: on 2026-09-15,
+            # 101 quotes were created and 100 carried the date, overlapping by 87.
+            # Reported beside the created count so the board can be reconciled
+            # against Books without changing who gets credit for the work.
+            if date_start <= (r.get("date") or "")[:10] <= date_end:
+                dated.append(r)
+        log.info("Books: %d of %d estimates were CREATED between %s and %s (%d carry that date)",
+                 len(out), len(rows), date_start, date_end, len(dated))
+        if stats is not None:
+            stats["by_books_date"] = len(dated)
         return out
 
     # Retainers are their own Books module. /invoices holds the FULL invoice a
@@ -214,6 +224,7 @@ class BooksClient:
         date_start: str,
         date_end: str,
         max_records: int = 2000,
+        stats: Optional[dict] = None,
     ) -> list[dict]:
         """Retainer invoices CREATED in [date_start, date_end] that went out.
 
@@ -233,19 +244,23 @@ class BooksClient:
             lo, hi = date_start, date_end
 
         rows = self._list_documents("retainerinvoices", lo, hi, max_records)
-        out = []
+        out, dated = [], []
         for r in rows:
             if (r.get("status") or "").lower() in self._RETAINER_NOT_SENT:
                 continue
             day = (r.get("created_time") or "")[:10] or (r.get("date") or "")
-            if not (date_start <= day <= date_end):
-                continue
             r = dict(r)
             r["salesperson_name"] = ((r.get("cf_salesperson") or "").strip()
                                      or (r.get("salesperson_name") or "").strip())
-            out.append(r)
-        log.info("Books: %d of %d retainer invoices were sent and CREATED between %s and %s",
-                 len(out), len(rows), date_start, date_end)
+            day_doc = (r.get("date") or "")[:10]
+            if date_start <= day <= date_end:
+                out.append(r)
+            if date_start <= day_doc <= date_end:
+                dated.append(r)
+        log.info("Books: %d of %d retainer invoices were sent and CREATED between %s and %s "
+                 "(%d carry that date)", len(out), len(rows), date_start, date_end, len(dated))
+        if stats is not None:
+            stats["by_books_date"] = len(dated)
         return out
 
     # Retainer statuses that still owe money — these are what the Follow Up
@@ -299,6 +314,56 @@ class BooksClient:
             log.info("Books retainers: filtered %d rows with zero balance",
                      before - len(rows))
         return rows
+
+    def list_retainers_paid_on(
+        self,
+        date_start: str,
+        date_end: str,
+        max_pages: int = 8,
+    ) -> list[dict]:
+        """Retainers CLOSED in [date_start, date_end] -- paid in full, with the
+        money arriving in that window.
+
+        Not the same question as list_paid_retainer_invoices, which filters on
+        the retainer's own date and so misses one raised on Monday and paid on
+        Friday. Not the same as counting customer payments either: those are
+        every payment the practice took, most of them against the full INV-
+        invoice rather than the retainer, which is why the board's "retainers
+        paid" was reading money that had nothing to do with a retainer closing.
+        Measured 2026-09-15: 8 retainers closed, $4,000, against 32 payment rows.
+
+        Books cannot filter on last_payment_date, so this scans newest-modified
+        first and stops once a whole page predates the window -- the same shape
+        the quote analyzer uses for its closings count, which matches Zoho
+        Analytics.
+        """
+        # ONE paginated call. An earlier version looped calling this helper,
+        # which paginates internally from page 1 every time -- it re-read the
+        # same 200 rows 15 times and reported 120 closings where Books had 8.
+        rows = self._list_documents(
+            "retainerinvoices", date_start, date_end, max_pages * 200,
+            sort_column="last_modified_time", sort_order="D", send_dates=False)
+        out = []
+        for r in rows:
+            if (r.get("status") or "").lower() != "paid":
+                continue
+            try:
+                if float(r.get("total") or 0) <= 0:   # $0 or void: no money in
+                    continue
+            except (TypeError, ValueError):
+                continue
+            paid_day = (r.get("last_payment_date") or "")[:10]
+            # Right after a payment posts the date can be unstamped; a retainer
+            # modified inside the window and reading paid still closed in it.
+            if not paid_day:
+                paid_day = (r.get("last_modified_time") or "")[:10]
+            if date_start <= paid_day <= date_end:
+                r = dict(r)
+                r["salesperson_name"] = ((r.get("cf_salesperson") or "").strip()
+                                         or (r.get("salesperson_name") or "").strip())
+                out.append(r)
+        log.info("Books: %d retainer(s) closed between %s and %s", len(out), date_start, date_end)
+        return out
 
     def list_paid_retainer_invoices(
         self,
@@ -518,6 +583,9 @@ class BooksClient:
         status: Optional[str] = None,
         exclude_statuses: Optional[set] = None,
         include_statuses: Optional[set] = None,
+        sort_column: str = "date",
+        sort_order: Optional[str] = None,
+        send_dates: bool = True,
     ) -> list[dict]:
         """Shared list+paginate logic for estimates and invoices.
 
@@ -543,12 +611,18 @@ class BooksClient:
         while len(results) < max_records:
             params = {
                 "organization_id": self.org_id,
-                "date_start": date_start,
-                "date_end": date_end,
-                "sort_column": "date",
+                "sort_column": sort_column,
                 "page": page,
                 "per_page": per_page,
             }
+            # A payment can land on a document raised weeks earlier, so "paid on
+            # this day" cannot be found by filtering on the document's own date.
+            # Those callers scan by last modified instead.
+            if send_dates:
+                params["date_start"] = date_start
+                params["date_end"] = date_end
+            if sort_order:
+                params["sort_order"] = sort_order
             if status:
                 params["status"] = status
             resp = requests.get(
