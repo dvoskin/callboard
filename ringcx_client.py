@@ -1559,6 +1559,16 @@ class RingCXClient:
         Jorge Mier's (436843034) in one digit, and "2-9 dials a day and no
         connections" is exactly what the wrong, barely-used extension would look
         like. This is the reader that can tell those apart.
+
+        DELIBERATELY NOT the same read as _fetch_extension_names, and not to be
+        merged with it. That one passes type=User and status=Enabled, so a
+        Disabled extension, or one typed Limited / DigitalUser / department, is
+        INVISIBLE to it -- and the account-wide call log attributes calls through
+        exactly that map, so such a seat's calls are silently credited to nobody.
+        "They should have calls logged" with an empty board is what that looks
+        like. This read filters nothing and reports `type` and `status` precisely
+        so that case is diagnosable instead of being mistaken for a quiet phone.
+        It is a diagnostic, called by hand, so the extra rows cost nothing.
         """
         out, meta = {}, {"pages": 0, "note": None, "http_error": None,
                          "rate_group": None, "total": 0}
