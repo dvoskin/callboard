@@ -1619,6 +1619,33 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             # "latest" -- Vivian's tab carries a 2026-11-03 that would sit above
             # every real row and make the driest tab on the sheet look like the
             # freshest, silencing the very warning that is meant to flag it.
+            # ── Collected, but not on the call roster ────────────────────
+            # Someone can bank money without dialling from a billing line: Ana
+            # Salazar's calls moved to Inbound (ext 271) in August while her
+            # collections tab kept running to today. Keying the board purely on
+            # the CALL roster made her money invisible. These seats are shown
+            # with their takings and explicitly NOT ranked -- ranking a person
+            # on talk time they do not have is the same mistake as ranking a
+            # dead handset last. Their calls are not fetched either: the RingEX
+            # budget is 10/min and their line is not where they work.
+            _on_board = {a["name"] for a in _coll_rows}
+            collectors = []
+            for who, per in sorted(coll.items()):
+                if who in _on_board:
+                    continue
+                hit = {k.isoformat(): v for k, v in per.items()
+                       if k.isoformat() in wanted}
+                if not sum(hit.values()):
+                    continue
+                collectors.append({
+                    "name": who,
+                    "collected_total": round(sum(hit.values()), 2),
+                    "collected_days": len(hit),
+                    "collected_by_day": hit,
+                    "calls_tracked": False,
+                })
+            report["collectors"] = collectors
+
             latest = {}
             _today = (date_end if date_end <= local_today else local_today)
             for seat in roster:
@@ -1633,7 +1660,7 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             # last being the one number the call figures cannot express, since a
             # seat can be bottom on talk time and top on takings.
             team_by_day = defaultdict(float)
-            for a in _coll_rows:
+            for a in _coll_rows + report.get("collectors", []):
                 for d, v in (a.get("collected_by_day") or {}).items():
                     team_by_day[d] += v
                 conn = ((a.get("totals") or {}).get("connected")) or 0
@@ -1720,6 +1747,15 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                                     % (", ".join(sorted(never)),
                                        (" (unread tabs: %s)" % ", ".join(cmeta["unmapped_tabs"]))
                                        if cmeta.get("unmapped_tabs") else "")),
+                    })
+                unread_people = cmeta.get("unknown_person_tabs") or []
+                if unread_people:
+                    report["warnings"].append({
+                        "kind": "collections_unread_tab",
+                        "message": ("The sheet has tab(s) this board does not read: %s. If "
+                                    "that is a biller, their collections are missing from "
+                                    "every figure here until the tab is mapped."
+                                    % ", ".join(unread_people)),
                     })
                 if stale:
                     report["warnings"].append({
@@ -2977,7 +3013,7 @@ def _v5_books_fetch(date_start: str, date_end: str):
     # Both date bases, per metric: what the board counts (created in the window)
     # and what Books shows when filtered on the document's own date. Filled by
     # the client per call rather than held on it -- windows refresh concurrently.
-    q_stats, r_stats = {}, {}
+    q_stats, r_stats, paid_stats = {}, {}, {}
 
     for label, fn, field in (
         ("quotes_sent", lambda: _books.list_sent_estimates(date_start, date_end, 2000, stats=q_stats), None),
@@ -2991,7 +3027,8 @@ def _v5_books_fetch(date_start: str, date_end: str):
         # do with a retainer closing -- 2026-09-15 read 32 payment rows where
         # Books closed 8 retainers for $4,000. The amount is the retainer's own
         # total, so "Closed $" is the value of what closed that day.
-        ("retainers_paid", lambda: _books.list_retainers_paid_on(date_start, date_end), "total"),
+        ("retainers_paid", lambda: _books.list_retainers_paid_on(date_start, date_end,
+                                                                  stats=paid_stats), "total"),
     ):
         try:
             rows = fn() or []
@@ -3016,6 +3053,29 @@ def _v5_books_fetch(date_start: str, date_end: str):
                 meta["quotes_by_books_date"] = q_stats["by_books_date"]
             if label == "retainers_sent" and "by_books_date" in r_stats:
                 meta["retainers_by_books_date"] = r_stats["by_books_date"]
+            if label == "retainers_paid":
+                # "Retainers paid" is a newest-first SCAN of every retainer,
+                # filtered to the window afterwards -- Books cannot filter on
+                # last_payment_date. So it has two ways of being quietly wrong,
+                # and both are now stated instead of inferred from a number that
+                # looks fine: the scan may not have reached back to the start of
+                # the window at all (undercount), and some rows may be dated by
+                # a modification timestamp rather than a payment (overcount).
+                meta["retainers_paid_scan"] = {
+                    "scanned": paid_stats.get("scanned"),
+                    "matched": paid_stats.get("matched"),
+                    "reached_back": paid_stats.get("reached_back"),
+                    "truncated": bool(paid_stats.get("truncated")),
+                    "inferred_day": paid_stats.get("inferred_day", 0),
+                }
+                if paid_stats.get("truncated"):
+                    meta["errors"].append({
+                        "metric": "retainers_paid",
+                        "detail": ("The retainer scan hit its record cap before reaching %s, "
+                                   "so retainers paid is a FLOOR for this window, not a "
+                                   "count. Narrow the date range for an exact figure."
+                                   % date_start),
+                    })
         except Exception as e:  # noqa: BLE001
             # Name the failure. A zero that means "Books errored" and a zero that
             # means "no quotes today" must not look the same on the board.

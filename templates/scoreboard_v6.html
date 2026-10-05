@@ -677,6 +677,21 @@
       });
     }
 
+    // Banked money, but their calls are not on this board. Ana Salazar collects
+    // daily while her line moved to Inbound in August, so keying the board on
+    // the CALL roster alone hid her takings entirely. Shown, with the money,
+    // and deliberately NOT ranked -- there is no talk time to rank them on.
+    var collectors = d.collectors || [];
+    if (collectors.length) {
+      h += '<h2>Collected &mdash; calls not tracked here</h2>';
+      collectors.forEach(function (a) {
+        h += '<div class="warn"><b>' + esc(a.name) + '</b> &mdash; <b>' +
+             money(a.collected_total) + '</b> collected on <b>' + a.collected_days +
+             '</b> day(s) in this window. Not ranked: this board only tracks calls ' +
+             'for the billing line, and theirs is elsewhere.</div>';
+      });
+    }
+
     var warns = (d.warnings || []).filter(function (x) {
       return x.kind !== 'no_activity' && x.kind !== 'no_connections' &&
              x.kind !== 'unknown_seat';

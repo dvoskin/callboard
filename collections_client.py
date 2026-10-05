@@ -57,7 +57,27 @@ TAB_TO_AGENT = {
     "andrea": "Andrea Pleasant",
     "a.pleasant": "Andrea Pleasant",
     "pleasant": "Andrea Pleasant",
+    # Ana collects but does not dial from the billing line -- her calls moved to
+    # Inbound (ext 271) in August, which is exactly why she is not on the call
+    # roster and why her tab could never match: roster-derived matching needs
+    # four letters ("ana" would otherwise claim "ANALYSIS"), so she has to be
+    # named here. Measured 2026-10-05: 317 filled rows, 122 days, running to
+    # today -- an active tab that was being dropped in silence.
+    "ana": "Ana Salazar",
+    "anasalazar": "Ana Salazar",
+    "salazar": "Ana Salazar",
 }
+
+# Tabs that are deliberately not an agent's collections, so the board does not
+# nag about them forever. Everything NOT here and not mapped is reported: that
+# is how a newly added biller's tab gets noticed instead of silently ignored.
+#
+# The Alex tabs are late-fee and cancellation records, not a biller's takings --
+# measured 2026-10-05 the "Alex" tab totals NEGATIVE $929,709 with dates running
+# into November, on a different column layout from every biller tab. Counting it
+# as collections would put refunds on a performance board.
+NON_AGENT_TABS = {"cash", "alex", "alexlatefee", "latefee", "newtrackertemplate",
+                  "template", "analysis"}
 
 
 def _norm_tab(name):
@@ -473,6 +493,10 @@ class CollectionsClient:
                     # (CASH, Late fee, a template) or an agent quietly missing
                     # from the board, and only a human can tell which.
                     meta["unmapped_tabs"].append(name)
+                    if _norm_tab(name) not in NON_AGENT_TABS:
+                        # Not one of the known non-agent tabs, so this is most
+                        # likely a biller whose takings nobody is reading.
+                        meta.setdefault("unknown_person_tabs", []).append(name)
                     continue
                 try:
                     per, st = read_tab(self.sheet_id, gid)

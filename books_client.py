@@ -320,6 +320,7 @@ class BooksClient:
         date_start: str,
         date_end: str,
         max_pages: int = 8,
+        stats: Optional[dict] = None,
     ) -> list[dict]:
         """Retainers CLOSED in [date_start, date_end] -- paid in full, with the
         money arriving in that window.
@@ -340,10 +341,17 @@ class BooksClient:
         # ONE paginated call. An earlier version looped calling this helper,
         # which paginates internally from page 1 every time -- it re-read the
         # same 200 rows 15 times and reported 120 closings where Books had 8.
+        st = stats if stats is not None else {}
         rows = self._list_documents(
             "retainerinvoices", date_start, date_end, max_pages * 200,
-            sort_column="last_modified_time", sort_order="D", send_dates=False)
+            sort_column="last_modified_time", sort_order="D", send_dates=False,
+            # Stop as soon as the scan is older than the window, and RECORD
+            # whether it got there. Without this the cap and a complete scan are
+            # indistinguishable, so a window the scan never reached reports a
+            # confident, wrong, low number.
+            stop_before=date_start, stats=st)
         out = []
+        inferred = 0
         for r in rows:
             if (r.get("status") or "").lower() != "paid":
                 continue
@@ -355,14 +363,27 @@ class BooksClient:
             paid_day = (r.get("last_payment_date") or "")[:10]
             # Right after a payment posts the date can be unstamped; a retainer
             # modified inside the window and reading paid still closed in it.
+            # But this is an INFERENCE, not a payment date: an old retainer
+            # merely EDITED inside the window reads the same way and would be
+            # counted as closing today. Kept, because the posting race is real,
+            # and counted separately so the board can say how much of the figure
+            # rests on it rather than presenting all of it as measured.
             if not paid_day:
                 paid_day = (r.get("last_modified_time") or "")[:10]
+                if date_start <= paid_day <= date_end:
+                    inferred += 1
             if date_start <= paid_day <= date_end:
                 r = dict(r)
                 r["salesperson_name"] = ((r.get("cf_salesperson") or "").strip()
                                          or (r.get("salesperson_name") or "").strip())
                 out.append(r)
-        log.info("Books: %d retainer(s) closed between %s and %s", len(out), date_start, date_end)
+        st["inferred_day"] = inferred
+        st["scanned"] = len(rows)
+        st["matched"] = len(out)
+        log.info("Books: %d retainer(s) closed between %s and %s "
+                 "(scanned %d, reached_back=%s, truncated=%s, inferred day=%d)",
+                 len(out), date_start, date_end, len(rows),
+                 st.get("reached_back"), st.get("truncated"), inferred)
         return out
 
     def list_paid_retainer_invoices(
@@ -586,6 +607,8 @@ class BooksClient:
         sort_column: str = "date",
         sort_order: Optional[str] = None,
         send_dates: bool = True,
+        stop_before: Optional[str] = None,
+        stats: Optional[dict] = None,
     ) -> list[dict]:
         """Shared list+paginate logic for estimates and invoices.
 
@@ -594,7 +617,19 @@ class BooksClient:
         - include_statuses: keep ONLY matching items client-side. Used by the
           cache fallback so the same whitelist applies whether we hit the live
           API or the local snapshot.
+        - stop_before: an ISO day. Only meaningful when scanning newest-first
+          with send_dates=False. Paging stops once a whole page is older than
+          it, which is both cheaper and -- far more importantly -- the only way
+          to know the scan actually REACHED the window. Without it a scan that
+          ran out of its record cap and a scan that genuinely found everything
+          return the same list, and the caller reports the short number as fact.
+        - stats: filled with reached_back / truncated / pages so the caller can
+          say "this is a floor" instead of printing a confident undercount.
         """
+        st = stats if stats is not None else {}
+        st.setdefault("pages", 0)
+        st.setdefault("reached_back", stop_before is None)
+        st.setdefault("truncated", False)
         cache_key = "estimates" if doc_type == "estimates" else "retainers"
         self.last_source_was_cache = False
         # Cache-only mode (no creds configured)
@@ -666,9 +701,23 @@ class BooksClient:
             if include_statuses:
                 batch = [b for b in batch if (b.get("status") or "") in include_statuses]
             results.extend(batch)
+            st["pages"] = page
+            # Reached back past the window? Then everything older is irrelevant
+            # and the scan is COMPLETE -- which is the fact the caller needs.
+            if stop_before and batch:
+                oldest = min((b.get("last_modified_time") or "")[:10]
+                             for b in batch if b.get("last_modified_time"))
+                if oldest and oldest < stop_before:
+                    st["reached_back"] = True
+                    break
             if not data.get("page_context", {}).get("has_more_page"):
+                st["reached_back"] = True      # no more data exists at all
                 break
             page += 1
+        else:
+            # Ran out of record budget with more pages behind it.
+            if stop_before and not st["reached_back"]:
+                st["truncated"] = True
 
         log.info("Books: %d %s between %s and %s",
                  len(results), doc_type, date_start, date_end)

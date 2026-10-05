@@ -51,13 +51,26 @@ def run():
          ["Alex", "Alex (Late fee)", "CASH", "Late fee", "NEW TRACKER template"]),
     ]
 
-    # Short fragments must not match: an agent called "Ana" would otherwise
-    # claim a tab named "ANALYSIS", and initials would claim half the sheet.
-    m2 = build_tab_map(["Ana Salazar", "Bo Li"])
+    # Short fragments must not be DERIVED from a roster name: a three-letter
+    # first name would otherwise claim any tab starting the same way, and
+    # initials would claim half the sheet. Tested with a name that is not in
+    # the explicit map, because "ana" IS mapped explicitly now -- Ana Salazar
+    # collects daily but her phone line moved to Inbound, so her tab can only
+    # ever be matched by name.
+    m2 = build_tab_map(["Eve Harper", "Bo Li"])
     cases += [
-        ("short names do not match", m2.get(_norm_tab("Ana")), None),
+        ("short names are not derived", m2.get(_norm_tab("Eve")), None),
         ("...nor two-letter ones", m2.get(_norm_tab("Li")), None),
-        ("...but the full surname does", m2.get(_norm_tab("Salazar")), "Ana Salazar"),
+        ("...but the full surname is", m2.get(_norm_tab("Harper")), "Eve Harper"),
+    ]
+
+    # The collision the rule above exists to prevent. Matching is on the WHOLE
+    # normalised tab name, so an explicit short key cannot swallow a longer tab:
+    # "ANALYSIS" normalises to "analysis", which is not "ana".
+    m3 = build_tab_map([])
+    cases += [
+        ("explicit 'Ana' maps to Ana Salazar", m3.get(_norm_tab("Ana")), "Ana Salazar"),
+        ("and does NOT claim 'ANALYSIS'", m3.get(_norm_tab("ANALYSIS")), None),
     ]
 
     for label, got, want in cases:

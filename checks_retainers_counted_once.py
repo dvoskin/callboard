@@ -1,12 +1,17 @@
-""""Retainers paid" counts RETAINERS, not payment records.
+""""Retainers paid" counts RETAINERS, not rows, and says when it is a floor.
 
-A retainer settled in two instalments is one retainer. Counting payment rows
-reported Rothmel 4 for 3 and Adelita 4 for 2 -- over by exactly however many
-people paid in parts, which is why it was not a clean doubling and did not look
-like a duplication bug.
+A retainer settled in two instalments is one retainer. It used to count payment
+records and reported Rothmel 4 for 3 -- over by however many people paid in
+parts, which is why it was not a clean doubling and did not look like a
+duplication bug. It now counts retainers CLOSED in the window (2026-08-25), and
+the same invariant has to hold for the new source: one retainer, counted once,
+however many times the scan sees it.
 
-paid_amount still sums every payment. That is money received and all of it
-arrived; only the COUNT is per retainer.
+The second claim is newer and is the one that bites quietly. Books cannot filter
+on last_payment_date, so this is a newest-first SCAN of every retainer, capped
+at a record budget. A scan that never reached the start of the window returns a
+SHORT list that looks exactly like a real one -- so when it is truncated the
+board has to say so rather than print a confident undercount.
 
 Run with no arguments. Reads nothing from the network.
 """
@@ -32,23 +37,23 @@ def run():
     real_ret = appmod._books.list_sent_retainer_invoices
     real_pay = appmod._books.list_retainer_payments
 
-    payments = [
-        # Rothmel: 3 retainers, one of them paid in two instalments -> 4 rows
-        _pay("Rothmel Foncham", ["INV-1"], 500),
-        _pay("Rothmel Foncham", ["INV-2"], 500),
-        _pay("Rothmel Foncham", ["INV-3"], 250),
-        _pay("Rothmel Foncham", ["INV-3"], 250),
-        # Adelita: 2 retainers, both split -> 4 rows
-        _pay("Adelita Flowers", ["INV-4"], 300),
-        _pay("Adelita Flowers", ["INV-4"], 300),
-        _pay("Adelita Flowers", ["INV-5"], 100),
-        _pay("Adelita Flowers", ["INV-5"], 900),
-        # A payment carrying no invoice must still count once, not vanish
-        _pay("Alicia Reyes", [], 750),
+    # Retainers CLOSED in the window, as list_retainers_paid_on returns them.
+    # R3 appears twice: the scan can reach one retainer by more than one route,
+    # and that must not become two retainers.
+    retainers = [
+        {"retainerinvoice_id": "R1", "salesperson_name": "Rothmel Foncham", "total": 500},
+        {"retainerinvoice_id": "R2", "salesperson_name": "Rothmel Foncham", "total": 500},
+        {"retainerinvoice_id": "R3", "salesperson_name": "Rothmel Foncham", "total": 500},
+        {"retainerinvoice_id": "R3", "salesperson_name": "Rothmel Foncham", "total": 500},
+        {"retainerinvoice_id": "R4", "salesperson_name": "Adelita Flowers", "total": 800},
+        {"retainerinvoice_id": "R5", "salesperson_name": "Adelita Flowers", "total": 800},
+        # No id at all must still count once, not vanish.
+        {"salesperson_name": "Alicia Reyes", "total": 750},
     ]
+    real_paid = appmod._books.list_retainers_paid_on
     appmod._books.list_sent_estimates = lambda *a, **k: []
-    appmod._books.list_sent_retainer_invoices = lambda *a, **k: []
-    appmod._books.list_retainer_payments = lambda *a, **k: payments
+    appmod._books.list_retainers_sent = lambda *a, **k: []
+    appmod._books.list_retainers_paid_on = lambda *a, **k: retainers
     appmod._v5_books_cache.clear()
     try:
         by_agent, meta = appmod._v5_books_fetch("2026-08-26", "2026-08-26")
@@ -56,6 +61,7 @@ def run():
         appmod._books.list_sent_estimates = real_est
         appmod._books.list_sent_retainer_invoices = real_ret
         appmod._books.list_retainer_payments = real_pay
+        appmod._books.list_retainers_paid_on = real_paid
         appmod._v5_books_cache.clear()
 
     def g(name, field):
@@ -63,13 +69,43 @@ def run():
 
     cases = [
         ("Rothmel: 3 retainers", g("Rothmel Foncham", "retainers_paid"), 3),
-        ("...not 4 payment rows", g("Rothmel Foncham", "retainers_paid") == 4, False),
+        ("...not 4 scan rows", g("Rothmel Foncham", "retainers_paid") == 4, False),
         ("Adelita: 2 retainers", g("Adelita Flowers", "retainers_paid"), 2),
-        ("payment with no invoice counts", g("Alicia Reyes", "retainers_paid"), 1),
-        # The money is unaffected: every instalment arrived.
-        ("Rothmel amount is every payment", g("Rothmel Foncham", "paid_amount"), 1500.0),
-        ("Adelita amount is every payment", g("Adelita Flowers", "paid_amount"), 1600.0),
+        ("a retainer with no id counts", g("Alicia Reyes", "retainers_paid"), 1),
+        # The money is unaffected by the dedup: 3 x 500, 2 x 800.
+        ("Rothmel amount is the retainers", g("Rothmel Foncham", "paid_amount"), 1500.0),
+        ("Adelita amount is the retainers", g("Adelita Flowers", "paid_amount"), 1600.0),
     ]
+
+    # A truncated scan must be declared, not printed as a count. Without this a
+    # window the scan never reached back to reports a confident low number and
+    # nothing anywhere says it is partial.
+    def _truncated(date_start, date_end, *a, **k):
+        st = k.get("stats")
+        if st is not None:
+            st.update({"truncated": True, "reached_back": False,
+                       "scanned": 1600, "matched": 1, "inferred_day": 0})
+        return [{"retainerinvoice_id": "R9", "salesperson_name": "Rothmel Foncham",
+                 "total": 100}]
+
+    appmod._books.list_sent_estimates = lambda *a, **k: []
+    appmod._books.list_retainers_sent = lambda *a, **k: []
+    appmod._books.list_retainers_paid_on = _truncated
+    appmod._v5_books_cache.clear()
+    try:
+        _ba, meta_t = appmod._v5_books_fetch("2026-06-01", "2026-08-26")
+    finally:
+        appmod._books.list_sent_estimates = real_est
+        appmod._books.list_retainers_paid_on = real_paid
+        appmod._v5_books_cache.clear()
+    cases.append(("truncated scan is flagged",
+                  (meta_t.get("retainers_paid_scan") or {}).get("truncated"), True))
+    cases.append(("truncated scan raises an error for the board",
+                  any(e.get("metric") == "retainers_paid"
+                      for e in meta_t.get("errors", [])), True))
+    # Negative half: a scan that DID reach back must not cry wolf.
+    cases.append(("a complete scan is not flagged",
+                  (meta.get("retainers_paid_scan") or {}).get("truncated"), False))
 
     # The SAME invoice referred to two different ways across two payments must
     # collapse to one. This is what left Adelita at 3 instead of 2: payment
