@@ -2268,6 +2268,53 @@ def api_v6_cx_agents():
         if any_rows:
             days_with_data.append(day)
 
+    # ?who= : one person, day by day, against the DAY's own health. "She stopped
+    # appearing" has two very different causes that look identical from a list
+    # of last-seen dates -- the report stopped carrying her, or she stopped
+    # taking calls -- and only the day's total row count next to hers separates
+    # them. Asked of Ana Salazar on 2026-10-05, whose calls stop on 10-01 while
+    # her collections run to today.
+    who = (request.args.get("who") or "").strip().lower()
+    if who:
+        per_day = []
+        for i in range(days_back):
+            day = (today - timedelta(days=i)).isoformat()
+            files, seen_keys = [], set()
+            d_rows = d_mine = 0
+            d_agents = set()
+            for path in _inbox_paths_all_scopes(day):
+                parsed = _parse_inbox_cached(path)
+                if parsed is None:
+                    continue
+                f_rows = f_mine = 0
+                for r in parsed:
+                    key = ((r.get("agent_name") or "").strip().lower(),
+                           (r.get("start_time") or "").strip(),
+                           (r.get("ani") or "").strip(),
+                           (r.get("dnis") or "").strip())
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    nm = (r.get("agent_name") or "").strip()
+                    f_rows += 1
+                    d_rows += 1
+                    if nm and nm.upper() != "N/A":
+                        d_agents.add(nm)
+                    if nm.lower() == who:
+                        f_mine += 1
+                        d_mine += 1
+                files.append({"file": path.name, "rows": f_rows, "for_who": f_mine})
+            per_day.append({"day": day, "weekday": (today - timedelta(days=i)).strftime("%a"),
+                            "rows": d_rows, "for_who": d_mine,
+                            "distinct_agents": len(d_agents), "files": files})
+        return jsonify({
+            "who": request.args.get("who"),
+            "window_days": days_back,
+            # A day with rows but none of hers is the person. A day with no rows
+            # at all, or missing a scope the others have, is the pipeline.
+            "days": per_day,
+        })
+
     # Which roster, if any, already claims each name -- so a near-miss spelling
     # is visible as "in the reports but on nobody's roster".
     rostered = {}
