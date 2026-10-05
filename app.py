@@ -35,7 +35,9 @@ from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
 from billing_report import (build_report as build_billing_report,
-                            build_pace_curve, is_connected as _billing_connected)
+                            build_pace_curve, is_connected as _billing_connected,
+                            _blank_bucket as _billing_blank_bucket,
+                            _fold as _billing_fold)
 from v5_report import (build_report as build_v5_report,
                        parse_interaction_csv, CsvShapeError, EmptyReportError,
                        parse_ts as _v5_parse_ts)
@@ -1675,6 +1677,59 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                     "calls_tracked": False,
                 })
             report["collectors"] = collectors
+
+            # A collector who DOES make calls, just on another platform. Ana
+            # Salazar collects on the billing sheet and takes her calls in
+            # RingCX (confirmed 2026-10-05: 313 interactions in 14 days, roster
+            # "inbound"), so the two halves of her day sat on two different
+            # boards and neither one showed a whole person.
+            #
+            # Her calls are shown here beside her money and deliberately NOT
+            # graded or ranked. Billing's targets are outbound-billing targets
+            # (talk 60/85/110); inbound's are 80/133/180. Scoring her against
+            # billing's bar would be the same defect as pacing a team on another
+            # team's curve -- a real number measured against the wrong one.
+            if collectors:
+                cx_seats, cx_team = {}, None
+                for tk, seats in _TEAM_ROSTERS.items():
+                    if _TEAM_SOURCES.get(tk) != "ringcx":
+                        continue
+                    for seat in seats:
+                        for c in collectors:
+                            if seat["name"] == c["name"]:
+                                cx_seats[c["name"]] = seat
+                                cx_team = cx_team or tk
+                if cx_seats:
+                    try:
+                        cx_rows = _v6_cx_rows_for_team(
+                            cx_team, days, list(cx_seats.values()))[0]
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("v6 collector cx rows failed: %s", e)
+                        cx_rows = {}
+                    for c in collectors:
+                        seat = cx_seats.get(c["name"])
+                        if not seat:
+                            continue
+                        c["ext"] = seat.get("ext")
+                        c["call_source"] = "RingCX"
+                        rws = cx_rows.get(c["name"])
+                        if rws is None:
+                            # On RingCX, but no report covering this window has
+                            # been delivered. Not the same as making no calls.
+                            continue
+                        b = _billing_blank_bucket()
+                        conn_days = set()
+                        for r in rws:
+                            _billing_fold(b, r)
+                            if _billing_connected(r):
+                                d0 = (r.get("start_time") or "")[:10]
+                                if d0:
+                                    conn_days.add(d0)
+                        c["calls_tracked"] = True
+                        c["calls"] = b["handled_calls"]
+                        c["connected"] = b["connected"]
+                        c["talk_minutes"] = round(b["talk_seconds"] / 60.0, 1)
+                        c["call_days"] = len(conn_days)
 
             latest = {}
             _today = (date_end if date_end <= local_today else local_today)

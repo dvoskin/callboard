@@ -683,12 +683,28 @@
     // and deliberately NOT ranked -- there is no talk time to rank them on.
     var collectors = d.collectors || [];
     if (collectors.length) {
-      h += '<h2>Collected &mdash; calls not tracked here</h2>';
+      h += '<h2>Collecting from another line</h2>';
       collectors.forEach(function (a) {
-        h += '<div class="warn"><b>' + esc(a.name) + '</b> &mdash; <b>' +
-             money(a.collected_total) + '</b> collected on <b>' + a.collected_days +
-             '</b> day(s) in this window. Not ranked: this board only tracks calls ' +
-             'for the billing line, and theirs is elsewhere.</div>';
+        var money_ = '<b>' + money(a.collected_total) + '</b> collected on <b>' +
+                     a.collected_days + '</b> day(s)';
+        var calls = '';
+        if (a.calls_tracked) {
+          // Their calls, from whichever platform they actually work on, beside
+          // the money. Stated, never graded: these are not billing's targets.
+          calls = ' &middot; <b>' + a.calls + '</b> call' + (a.calls === 1 ? '' : 's') +
+                  ', <b>' + a.connected + '</b> connected, <b>' +
+                  hm(Math.round((a.talk_minutes || 0) * 60)) + '</b> talk over <b>' +
+                  a.call_days + '</b> day(s) on <b>' + esc(a.call_source || 'another line') +
+                  '</b>';
+        } else if (a.call_source) {
+          calls = ' &middot; calls are on <b>' + esc(a.call_source) + '</b>, but no report ' +
+                  'covering this window has been delivered &mdash; which is not the same ' +
+                  'as making none';
+        }
+        h += '<div class="warn"><b>' + esc(a.name) + '</b>' +
+             (a.ext ? ' (ext ' + esc(a.ext) + ')' : '') + ' &mdash; ' + money_ + calls +
+             '. Held out of the ranking: these calls are not measured against ' +
+             'billing\'s targets.</div>';
       });
     }
 
