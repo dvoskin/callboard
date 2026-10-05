@@ -1545,6 +1545,71 @@ class RingCXClient:
     # scoped to this key, never to the call path.
     SMS_RATE_GROUP = "sms"
 
+    # The extension directory is its own rate class; read it from the header
+    # rather than assuming, the same way the message store does.
+    DIRECTORY_RATE_GROUP = "directory"
+
+    def fetch_extension_directory(self, max_pages: int = 10, timeout: float = 20.0):
+        """{extensionNumber: {id, name, type, status}} for the whole account.
+
+        Nothing else here can check an ext_id. Every roster seat names BOTH an
+        ext_id and an extension number, the fetches use only the ext_id, and the
+        two are never compared -- so a mistyped ext_id reads as a real extension
+        that happens to be quiet. Ana Salazar's ext_id (436846034) differs from
+        Jorge Mier's (436843034) in one digit, and "2-9 dials a day and no
+        connections" is exactly what the wrong, barely-used extension would look
+        like. This is the reader that can tell those apart.
+        """
+        out, meta = {}, {"pages": 0, "note": None, "http_error": None,
+                         "rate_group": None, "total": 0}
+        grp = self.DIRECTORY_RATE_GROUP
+        if self.rate_limited(grp):
+            meta["http_error"] = 429
+            meta["note"] = ("RingEX directory is in a cooldown for another %.0fs after a "
+                            "429; this read was skipped." % self.cooldown_remaining(grp))
+            return out, meta
+        try:
+            self._ensure_rc_token()
+            page = 1
+            while page <= max_pages:
+                url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
+                       f"/extension")
+                r = requests.get(url, headers=self._rc_headers(),
+                                 params={"perPage": 1000, "page": page}, timeout=timeout)
+                meta["rate_group"] = r.headers.get("X-Rate-Limit-Group") or meta["rate_group"]
+                if r.status_code == 429:
+                    self.note_rate_limited(r.headers.get("Retry-After"), group=grp)
+                    meta["http_error"] = 429
+                    meta["note"] = "RingEX returned 429 reading the extension directory."
+                    break
+                if r.status_code != 200:
+                    meta["http_error"] = r.status_code
+                    meta["note"] = "RingEX returned HTTP %s reading the extension directory." % r.status_code
+                    break
+                data = r.json() or {}
+                recs = data.get("records") or []
+                meta["pages"] += 1
+                for e in recs:
+                    num = str(e.get("extensionNumber") or "").strip()
+                    if not num:
+                        continue
+                    nm = (e.get("name") or "").strip()
+                    if not nm:
+                        ci = e.get("contact") or {}
+                        nm = ("%s %s" % (ci.get("firstName") or "",
+                                         ci.get("lastName") or "")).strip()
+                    out[num] = {"id": str(e.get("id") or ""), "name": nm,
+                                "type": e.get("type") or "",
+                                "status": e.get("status") or ""}
+                meta["total"] = len(out)
+                nav = data.get("navigation") or {}
+                if not nav.get("nextPage"):
+                    break
+                page += 1
+        except Exception as e:  # noqa: BLE001
+            meta["note"] = "extension directory read failed: %s" % e
+        return out, meta
+
     def fetch_extension_messages(self, ext_id, start_dt: datetime, end_dt: datetime,
                                  max_pages: int = 6, max_wait: float = 0.0,
                                  timeout: float = 15.0) -> tuple[list[dict], dict]:

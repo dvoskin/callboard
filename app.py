@@ -2303,6 +2303,87 @@ def api_v6_warm():
     return jsonify(st)
 
 
+@app.route("/api/v6/ext-probe")
+def api_v6_ext_probe():
+    """Is this ext_id really that extension number, and has it any calls?
+
+    Two questions the board could not answer about itself. Every seat names an
+    ext_id AND an extension number; the fetches use only the ext_id and nothing
+    ever compares them, so a mistyped ext_id reads as a real extension that
+    happens to be quiet. Asked of Ana Salazar on 2026-10-05, after Danny said she
+    is "supposed to be extension 271 on the RingEX side": her roster ext_id
+    (436846034) is one digit from Jorge Mier's (436843034), and a wrong,
+    barely-used extension looks exactly like the 2-9 dials a day and no
+    connections that her line was written off for in August.
+
+    ?ext=271   the extension NUMBER to resolve (default: every billing seat's)
+    ?days=N    how far back to count calls (default 7)
+    """
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        days_back = max(1, min(int(request.args.get("days", 7)), 31))
+    except (TypeError, ValueError):
+        days_back = 7
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(days_back)]
+
+    directory, dmeta = _ringcx.fetch_extension_directory()
+    roster, _ = _billing_roster("billing")
+    want = (request.args.get("ext") or "").strip()
+    seats = ([{"name": "(asked)", "ext": want, "ext_id": None}] if want
+             else [dict(x) for x in roster])
+
+    def _count(ext_id):
+        """Per-day (calls, connected) for one ext_id, and whether each day READ."""
+        out = []
+        for day in days:
+            rows, ok, why = _v6_fetch_day_diag(ext_id, day, tz_off)
+            out.append({"day": day, "read": bool(ok),
+                        "calls": len(rows) if ok else None,
+                        "connected": (sum(1 for r in rows if _billing_connected(r))
+                                      if ok else None),
+                        "why": why})
+        return out
+
+    checked = []
+    for seat in seats:
+        num = str(seat.get("ext") or "")
+        found = directory.get(num)
+        claimed = seat.get("ext_id")
+        # The whole point: does the directory agree with the roster?
+        agrees = bool(found and claimed and str(found["id"]) == str(claimed))
+        entry = {
+            "name_on_roster": seat.get("name"),
+            "extension": num,
+            "ext_id_on_roster": claimed,
+            "directory": found or None,
+            "ext_id_matches_directory": agrees if (found and claimed) else None,
+            # Resolved id first: if the roster is wrong, counting its ext_id
+            # measures the wrong handset and proves nothing about this person.
+            "calls_by_day": _count(found["id"]) if found
+                            else (_count(claimed) if claimed else []),
+            "counted_ext_id": (found or {}).get("id") or claimed,
+        }
+        if found and claimed and not agrees:
+            entry["warning"] = (
+                "The roster's ext_id %s is NOT extension %s -- the directory says "
+                "extension %s is id %s (%s). Every figure this board has shown for "
+                "%s came from the roster's id, so it described a different handset."
+                % (claimed, num, num, found["id"], found["name"] or "unnamed",
+                   seat.get("name")))
+            entry["calls_by_day_roster_ext_id"] = _count(claimed)
+        checked.append(entry)
+
+    return jsonify({
+        "window": {"start": days[-1], "end": days[0], "days": days_back},
+        "directory_meta": dmeta,
+        "directory_size": len(directory),
+        "checked": checked,
+    })
+
+
 @app.route("/api/v6/cx-agents")
 def api_v6_cx_agents():
     """Every agent name that actually appears in the delivered RingCX reports.
