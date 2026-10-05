@@ -2367,6 +2367,12 @@ def api_v6_cx_agents():
     who = (request.args.get("who") or "").strip().lower()
     if who:
         per_day = []
+        # Which CHANNEL (RingCX queue) carried her work, and whether that channel
+        # is still carrying ANYONE's. If her queue's last day across every agent
+        # is also her last day, the queue was retired and she was moved. If other
+        # agents are still on it after she left it, the change is hers. Neither
+        # can be seen from a count of her rows alone.
+        her_chan_last, other_chan_last = {}, {}
         for i in range(days_back):
             day = (today - timedelta(days=i)).isoformat()
             files, seen_keys = [], set()
@@ -2390,19 +2396,37 @@ def api_v6_cx_agents():
                     d_rows += 1
                     if nm and nm.upper() != "N/A":
                         d_agents.add(nm)
+                    ch = (r.get("channel") or "").strip() or "(none)"
                     if nm.lower() == who:
                         f_mine += 1
                         d_mine += 1
+                        if day > her_chan_last.get(ch, ""):
+                            her_chan_last[ch] = day
+                    elif nm and nm.upper() != "N/A":
+                        if day > other_chan_last.get(ch, ""):
+                            other_chan_last[ch] = day
                 files.append({"file": path.name, "rows": f_rows, "for_who": f_mine})
             per_day.append({"day": day, "weekday": (today - timedelta(days=i)).strftime("%a"),
                             "rows": d_rows, "for_who": d_mine,
                             "distinct_agents": len(d_agents), "files": files})
+        channels = []
+        for ch, last in sorted(her_chan_last.items(), key=lambda kv: -len(kv[0])):
+            others = other_chan_last.get(ch, "")
+            channels.append({
+                "channel": ch,
+                "her_last_day": last,
+                "anyone_last_day": max(last, others) if others else last,
+                # Somebody else still working her queue AFTER she left it says the
+                # queue is alive and the change is hers, not the queue's.
+                "others_after_her": bool(others and others > last),
+            })
         return jsonify({
             "who": request.args.get("who"),
             "window_days": days_back,
             # A day with rows but none of hers is the person. A day with no rows
             # at all, or missing a scope the others have, is the pipeline.
             "days": per_day,
+            "channels": channels,
         })
 
     # Which roster, if any, already claims each name -- so a near-miss spelling
