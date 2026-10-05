@@ -388,9 +388,20 @@
     // is read. The team's own averages used to sit here too; they are the list
     // itself, restated, and they pushed the sentence onto three lines on a
     // phone before it said anything a reader could act on.
-    var sub = '<b>' + ranked.length + '</b> seat' + (ranked.length === 1 ? '' : 's') +
+    // The ROSTER's size, not the chart's. These used to be the same number, and
+    // became different the moment a seat could be ranked at zero: with three
+    // seats still unfetched and one ranked, "1 seat" said the team had shrunk to
+    // one person. The count a reader checks against the roster must not move
+    // because of how far a rate-limited fetch has got.
+    var seatsAll = ranked.length + silent.length + stalled.length + unknown.length;
+    var sub = '<b>' + seatsAll + '</b> seat' + (seatsAll === 1 ? '' : 's') +
       ' &middot; <b>' + (team.agent_days || 0) + '</b> working day' +
       ((team.agent_days || 0) === 1 ? '' : 's');
+    // Say it on the headline, not only in a note at the bottom: a ranking that
+    // is missing seats is provisional, and the order can still change.
+    if (unknown.length) {
+      sub += ' &middot; <b>' + unknown.length + '</b> not read yet';
+    }
     if (d.live && ranked.length && ranked[0].pace) {
       var pc = ranked[0].pace;
       // For a RingCX team these are the SAME instant -- the pace clock is pulled

@@ -24,6 +24,7 @@ Four things can go wrong, and each has a case:
      still maps to the name, so it returns as an untracked collector.
 """
 import sys
+import pathlib
 
 errors, passed = [], 0
 
@@ -147,12 +148,26 @@ m2 = " ".join(w["message"] for w in rep2["warnings"] if w["kind"] == "ranked_at_
 ck("unread is called NOT READ, not no-calls", "not read" in m2, m2)
 ck("and it says how many days", "2 day(s)" in m2, m2)
 
+# ---- 6. the header counts the ROSTER, not the chart ----
+# With always_rank, one seat can rank while the rest are still unfetched. Driving
+# the headline off `ranked` then said "1 seat" for a four-person team -- the board
+# appeared to have lost everyone but her. Seen live on 2026-10-05.
+_html = (pathlib.Path(__file__).with_name("templates") / "scoreboard_v6.html").read_text()
+ck("the seat count sums every bucket, not just ranked",
+   "ranked.length + silent.length + stalled.length + unknown.length" in _html,
+   "seatsAll is not computed from all four buckets")
+ck("the headline uses that total",
+   "'<b>' + seatsAll + '</b> seat'" in _html,
+   "the headline is still driven by ranked.length")
+ck("an unread seat is declared on the headline",
+   "'</b> not read yet'" in _html, "no not-read-yet count on the headline")
+
 # ---- 4. off the board means off the footnote too ----
 ck("Andrea is excluded from the collectors footnote",
    "Andrea Pleasant" in A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
 
 # ---- the coverage witness: her absence vs her report's absence ----
-import tempfile, pathlib  # noqa: E402
+import tempfile  # noqa: E402
 TMP = pathlib.Path(tempfile.mkdtemp()) / "inbox"
 TMP.mkdir(parents=True)
 A.RINGCX_INBOX_DIR = TMP
