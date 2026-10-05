@@ -70,12 +70,18 @@ def run():
     tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "templates", "scoreboard_v5.html")).read()
     cases += [
-        ("board computes booksOk", "const booksOk" in tpl, True),
-        ("...from loading and errors",
-         bool(re.search(r"booksOk\s*=\s*!bm\.loading\s*&&\s*!\(bm\.errors", tpl)), True),
-        ("retainers paid is rendered", "Retainers paid" in tpl, True),
-        ("...only when booksOk",
-         bool(re.search(r"booksOk\s*\?\s*cell2\('Retainers paid'", tpl)), True),
+        # The gate used to be a single `booksOk` for all of Books. It is now
+        # per METRIC (booksHas), which is strictly stronger: one refused module
+        # no longer blanks the figures that did arrive. The invariant is
+        # unchanged and is the only thing asserted here -- a figure Books never
+        # sent must render as an em-dash, never as a confident zero.
+        ("board gates Books figures per metric", "booksHas" in tpl, True),
+        ("...on loading AND that metric's own error",
+         bool(re.search(r"booksHas\s*=\s*function\s*\(metric\)[\s\S]{0,160}?"
+                        r"!bm\.loading[\s\S]{0,80}?bErr\.indexOf\(metric\)", tpl)), True),
+        ("retainers paid is rendered", "retainers_paid" in tpl, True),
+        ("...only when Books answered for it",
+         bool(re.search(r"booksHas\('retainers_paid'\)\s*\?\s*cell2\(", tpl)), True),
     ]
 
     for label, got, want in cases:

@@ -30,10 +30,25 @@ ROWS = ([{"salesperson_name": "Adelita Flowers", "status": "sent"}] * 12 +
         [{"salesperson_name": "Charlotte Mckay", "status": "signed"}] * 1)
 
 class FakeBooks:
+    """Signature-tolerant on purpose.
+
+    This fake used to pin each method's exact arguments, and when the real
+    client grew a `stats=` keyword every quotes call raised TypeError. The
+    fetch catches per-metric exceptions by design -- a Books outage must not
+    blank the board -- so the error was swallowed, every bucket came back
+    empty, and the check died on `KeyError: 'adelita flowers'` ten lines later.
+    The runner then reported NO TALLY, i.e. nothing about quotes at all.
+
+    *a/**k means a signature change can no longer break this. A change to WHICH
+    method is called still fails, loudly, at the errors assertion below --
+    which is why that assertion now runs FIRST.
+    """
     configured = True
-    def list_sent_estimates(self, a, b, c=None): return ROWS
-    def list_sent_retainer_invoices(self, a, b, c=None): return []
-    def list_retainer_payments(self, a, b): return []
+    def list_sent_estimates(self, *a, **k): return ROWS
+    def list_sent_retainer_invoices(self, *a, **k): return []
+    def list_retainer_payments(self, *a, **k): return []
+    def list_retainers_sent(self, *a, **k): return []
+    def list_retainers_paid_on(self, *a, **k): return []
 
 A._books = FakeBooks()
 A._v5_books_cache.clear()
@@ -41,6 +56,21 @@ A._v5_books_cache.clear()
 # background refresh, so on a cold cache it correctly returns nothing. The
 # bucketing under test lives in the fetch itself.
 by_agent, meta = A._v5_books_fetch("2026-08-19", "2026-08-19")
+
+# FIRST, before anything dereferences a bucket. _v5_books_fetch swallows a
+# per-metric failure on purpose, so an empty result is ambiguous: it means
+# "no quotes" or "the call blew up". Asserting this here turns the second case
+# into a sentence naming the method and the argument, instead of a KeyError on
+# a name that has nothing to do with the cause.
+ok("no Books error was raised", not meta.get("errors"), meta.get("errors"))
+
+if meta.get("errors"):
+    # Stop here rather than dying on a KeyError ten lines down. run_checks.sh
+    # treats a suite with no tally line as "did not finish" and prints nothing
+    # about what it was testing -- which is exactly how this sat red and
+    # unread while the quotes split it guards was never actually checked.
+    print("\n%d failed" % len(fail))
+    sys.exit(1)
 
 ade = by_agent[A._norm_name("Adelita Flowers")]
 cha = by_agent[A._norm_name("Charlotte Mckay")]
@@ -53,13 +83,19 @@ ok("viewed and declined count as sent", cha["quotes_sent"] == 4, cha)   # 2 view
 ok("signed counts as invoiced too", cha["quotes_invoiced"] == 1, cha)
 ok("a converted quote is not lost from sent",
    cha["quotes_sent"] >= cha["quotes_invoiced"], cha)
-ok("no Books error was raised", not meta.get("errors"), meta.get("errors"))
 
 # the template must render both, and must not resurrect the merged label
 import io
 tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read()
-ok("panel shows Quotes sent", "cell2('Quotes sent', w(bk.quotes_sent)" in tpl)
-ok("panel shows Invoiced", "cell2('Invoiced', w(bk.quotes_invoiced || 0)" in tpl)
+# What matters is that each figure is BOUND into the per-agent panel, not how
+# the cell is spelled. Pinning the exact call text made this fail the moment
+# the panel was rebuilt to carry retainers too (f8fe33d) -- a rename reported
+# as a missing metric, which is a false alarm that costs more than it catches.
+ok("panel binds quotes sent", "bk.quotes_sent" in tpl)
+ok("panel binds quotes invoiced", "bk.quotes_invoiced" in tpl)
+# Retainers paid is the figure Danny found wrong on 2026-10-05; it reaching the
+# panel at all is worth holding onto now that it is being changed.
+ok("panel binds retainers paid", "bk.retainers_paid" in tpl)
 ok("merged Quotes cell is gone", "cell2('Quotes', w(bk.quotes_sent)" not in tpl)
 
 # ---- the seam between bucketing and template -------------------------------
