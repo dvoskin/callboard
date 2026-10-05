@@ -2158,6 +2158,92 @@ def api_v6_warm():
     return jsonify(st)
 
 
+@app.route("/api/v6/cx-agents")
+def api_v6_cx_agents():
+    """Every agent name that actually appears in the delivered RingCX reports.
+
+    The boards match a roster to a report BY NAME, so a person whose RingCX
+    login is spelled differently reads as "logged no calls at all" -- an
+    accusation built out of a string mismatch. There was no way to ask the
+    inbox who is in it, so the only way to find that out was to guess a name
+    and see if the board lit up.
+
+    Asked of Ana Salazar on 2026-10-05: her billing line went quiet in August
+    and the question was whether her calls had moved to RingCX. The 60 delivered
+    reports available at the time ran 05-28..07-29 -- entirely BEFORE the move
+    -- so her absence from them said nothing, which is exactly the kind of
+    non-answer this endpoint exists to replace.
+
+    ?days=N   how far back to look (default 14)
+    ?q=text   case-insensitive substring filter on the name
+    """
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        days_back = max(1, min(int(request.args.get("days", 14)), 120))
+    except (TypeError, ValueError):
+        days_back = 14
+    q = (request.args.get("q") or "").strip().lower()
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+
+    counts, last_seen, days_with_data = {}, {}, []
+    for i in range(days_back):
+        day = (today - timedelta(days=i)).isoformat()
+        seen_keys, any_rows = set(), False
+        for path in _inbox_paths_all_scopes(day):
+            parsed = _parse_inbox_cached(path)
+            if parsed is None:
+                continue
+            for r in parsed:
+                key = ((r.get("agent_name") or "").strip().lower(),
+                       (r.get("start_time") or "").strip(),
+                       (r.get("ani") or "").strip(),
+                       (r.get("dnis") or "").strip())
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                name = (r.get("agent_name") or "").strip()
+                if not name or name.upper() == "N/A":
+                    continue
+                any_rows = True
+                counts[name] = counts.get(name, 0) + 1
+                if day > last_seen.get(name, ""):
+                    last_seen[name] = day
+        if any_rows:
+            days_with_data.append(day)
+
+    # Which roster, if any, already claims each name -- so a near-miss spelling
+    # is visible as "in the reports but on nobody's roster".
+    rostered = {}
+    for tk, seats in _TEAM_ROSTERS.items():
+        for seat in seats:
+            rostered.setdefault(seat["name"].strip().lower(), []).append(tk)
+
+    agents = [{"name": n, "interactions": c, "last_seen": last_seen.get(n),
+               "on_roster": rostered.get(n.strip().lower()) or []}
+              for n, c in counts.items()
+              if not q or q in n.lower()]
+    agents.sort(key=lambda a: -a["interactions"])
+
+    # Roster names with NO report rows: either they are not on RingCX, or they
+    # are in it under a different spelling and this is the list to scan.
+    missing = sorted(
+        seat["name"] for tk, seats in _TEAM_ROSTERS.items()
+        if _TEAM_SOURCES.get(tk) == "ringcx" for seat in seats
+        if seat["name"].strip().lower() not in {n.strip().lower() for n in counts}
+    )
+    return jsonify({
+        "window_days": days_back,
+        "days_with_delivered_data": days_with_data,
+        "newest_day_with_data": days_with_data[0] if days_with_data else None,
+        "distinct_agents": len(counts),
+        "query": q or None,
+        "agents": agents,
+        "ringcx_roster_absent_from_reports": missing,
+    })
+
+
 @app.route("/api/v6/collections")
 def api_v6_collections():
     """What the collections reader actually found, per tab. The sheet is
