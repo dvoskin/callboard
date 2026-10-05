@@ -73,13 +73,15 @@ def _build(coll_data, unknown_tabs=()):
 
 def case_collector_without_calls_is_shown():
     f = 0
-    rep = _build({"Ana Salazar": {date(2026, 10, 1): 4200.0}})
+    # Synthetic, not Ana: she is a ranked billing seat now (sourced from RingCX),
+    # so using her here would test the opposite of what this case is about.
+    rep = _build({"Marisol Vega": {date(2026, 10, 1): 4200.0}})
     names = [c["name"] for c in rep.get("collectors", [])]
-    f = _eq("Ana appears as a collector", names, ["Ana Salazar"], f)
+    f = _eq("an off-roster collector appears", names, ["Marisol Vega"], f)
     f = _eq("with her money", (rep["collectors"][0]["collected_total"]
                                if rep.get("collectors") else None), 4200.0, f)
     ranked = [a["name"] for a in rep.get("ranked", [])]
-    f = _eq("and is NOT ranked on talk time", "Ana Salazar" in ranked, False, f)
+    f = _eq("and is NOT ranked on talk time", "Marisol Vega" in ranked, False, f)
 
     # Negative half: a roster seat's money must still go through the normal
     # path, not get re-reported as a collector.

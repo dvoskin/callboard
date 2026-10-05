@@ -306,6 +306,17 @@
   // growing a row of zeros. `unknown` is the case that matters: RingEX refusing
   // the message store and a seat sending nothing are the same empty list, and
   // this board names individuals.
+  // Which platform carried this row's calls, shown only when it differs from the
+  // board's own. Without it, Ana Salazar's RingCX zero is indistinguishable from
+  // a billing seat that dialled nothing -- the same confusion that read her dead
+  // RingEX handset as a failing agent for eleven working days.
+  function srcChip(a) {
+    if (!a || !a.call_source) return '';
+    return '<span class="sms" title="Calls for this seat are read from ' +
+      esc(a.call_source) + ', not this board\u2019s own platform.">on <b>' +
+      esc(a.call_source) + '</b></span>';
+  }
+
   function smsChip(a) {
     var s = a && a.sms;
     if (!s) return '';
@@ -528,7 +539,7 @@
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + smsChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + srcChip(a) + smsChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -677,10 +688,11 @@
       });
     }
 
-    // Banked money, but their calls are not on this board. Ana Salazar collects
-    // daily while her line moved to Inbound in August, so keying the board on
-    // the CALL roster alone hid her takings entirely. Shown, with the money,
-    // and deliberately NOT ranked -- there is no talk time to rank them on.
+    // Banked money from someone the board does not rank. Keying the board on the
+    // CALL roster alone hid these takings entirely -- Ana Salazar collected daily
+    // while her line sat on Inbound. She is now a billing seat read from RingCX
+    // and ranks above, so this section is for whoever is next: shown with the
+    // money, and NOT ranked, because there is no talk time to rank them on.
     var collectors = d.collectors || [];
     if (collectors.length) {
       h += '<h2>Collecting from another line</h2>';

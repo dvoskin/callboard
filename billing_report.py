@@ -285,6 +285,12 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         # point: one is a rate limit, the other is an accusation.
         complete = True if not isinstance(meta, dict) else bool(meta.get("complete", True))
         missing_days = (meta.get("missing_days") or []) if isinstance(meta, dict) else []
+        # Which platform carried this seat's calls, when it is not the team's own.
+        call_source = (meta.get("call_source") if isinstance(meta, dict) else "") or ""
+        # Keep this seat IN the ranking even at zero. Off by default, because the
+        # rule below exists for good reason; on for a seat whose zero is the
+        # thing the reader is watching, rather than a sign the instrument broke.
+        always_rank = bool(meta.get("always_rank")) if isinstance(meta, dict) else False
 
         total = _blank_bucket()
         by_day = {}
@@ -425,6 +431,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         agents.append({
             "pace": pace,
             "name": name, "ext": ext, "ext_id": ext_id,
+            "call_source": call_source, "always_rank": always_rank,
             "totals": total, "worked": wtot,
             "worked_days": len(worked), "idle_days": len(idle), "idle_day_list": idle,
             "per_day": per_day, "scored": scored, "grades": grades, "band": band,
@@ -464,12 +471,17 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
     # exactly this from 2026-08-10 (2-9 dials a day, zero connections, eleven
     # straight working days), and reading that as last place would have put a
     # dead handset on a performance board.
-    ranked = sorted([a for a in agents if not a["no_activity"]
-                     and not a["no_connections"] and not a["unknown"]],
+    # always_rank overrides the hold-out, for a seat the reader has asked to see
+    # on the board whatever its number. It does NOT silence the finding: the
+    # zero still raises its warning below, so a ranked 0.0 cannot be mistaken
+    # for a measured performance.
+    ranked = sorted([a for a in agents if a["always_rank"] or
+                     (not a["no_activity"] and not a["no_connections"]
+                      and not a["unknown"])],
                     key=lambda a: -a["per_day"]["talk_minutes"])
-    silent = [a for a in agents if a["no_activity"]]
-    stalled = [a for a in agents if a["no_connections"]]
-    unknown = [a for a in agents if a["unknown"]]
+    silent = [a for a in agents if a["no_activity"] and not a["always_rank"]]
+    stalled = [a for a in agents if a["no_connections"] and not a["always_rank"]]
+    unknown = [a for a in agents if a["unknown"] and not a["always_rank"]]
 
     team = _blank_bucket()
     for a in agents:
@@ -545,6 +557,23 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                         f"connected none of them. A line that logs calls but never connects is "
                         f"out, reassigned, or broken -- it is not last place, so this seat is "
                         f"held out of the ranking."),
+        })
+
+    # A seat ranked at zero by request still has to say why it is zero, or the
+    # board shows a 0.0 that reads as a measured bad day.
+    for a in ranked:
+        if not a["always_rank"] or a["totals"]["calls"]:
+            continue
+        where = a["call_source"] or "this board's platform"
+        if a["complete"]:
+            why = (f"the delivered {where} data covers this window and carries none "
+                   f"for them")
+        else:
+            why = (f"{where} data is missing for up to {len(a['missing_days'])} day(s) "
+                   f"of this window, so the zero is 'not read', not 'no calls'")
+        warnings.append({
+            "kind": "ranked_at_zero",
+            "message": (f"{a['name']} is shown on the board at 0.0 because {why}."),
         })
 
     for a in unknown:

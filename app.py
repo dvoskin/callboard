@@ -900,16 +900,35 @@ def scoreboard_v5_board():
 BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
 # Three teams, one board. Confirmed by Danny 2026-08-24/25 from the roster sheet.
 #
-# Ana Salazar sits under INBOUND, not billing: her billing line went quiet after
-# 2026-08-11, which read like a departure until the roster showed she had moved
-# to Preop WFP. A seat going silent on one team is worth checking against the
-# org chart before it is read as a person stopping work.
+# Ana Salazar sits on BOTH: inbound, where her calls are, and billing, where her
+# collections are. Her billing line went quiet after 2026-08-11, which read like
+# a departure until the roster showed she had moved to Preop WFP. A seat going
+# silent on one team is worth checking against the org chart before it is read as
+# a person stopping work. The same calls appearing on two boards is intended --
+# two views of one person, not two people.
 _TEAM_ROSTERS = {
     "billing": [
         {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
         {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
         {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
-        {"name": "Andrea Pleasant",    "ext_id": 388372049,  "ext": "148"},
+        # Andrea Pleasant was removed from this board on 2026-10-05 at Danny's
+        # request. Her seat is left here, commented, because deleting it loses
+        # the extension -- and a board that has to be rebuilt from memory is how
+        # a wrong ext_id gets typed in.
+        # {"name": "Andrea Pleasant",  "ext_id": 388372049,  "ext": "148"},
+        #
+        # Ana Salazar collects against billing but her CALLS are on RingCX: her
+        # RingEX line (ext 271) has been dead since 2026-08-11, when she moved to
+        # Preop WFP. Ranking her on RingEX would score her on a handset nobody
+        # uses. source="ringcx" takes her calls from the delivered Interaction
+        # Report instead, witnessed by the inbound roster -- see source_team.
+        #
+        # always_rank keeps her on the board at 0.0 rather than in a footnote.
+        # Danny asked for this on 2026-10-05: her collections are the reason she
+        # is on this board, and a collector with no calls is a thing he wants to
+        # SEE, not a seat to hold out. The zero still raises its own warning.
+        {"name": "Ana Salazar",        "ext_id": 436846034,  "ext": "271",
+         "source": "ringcx", "source_team": "inbound", "always_rank": True},
     ],
     "scheduling": [
         {"name": "Alanis Castillo",    "ext_id": 1154698035, "ext": "225"},
@@ -954,6 +973,13 @@ def _team_key(raw):
 
 
 _BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
+
+# Off the billing board entirely -- not ranked, and NOT surfaced in the
+# "Collecting from another line" footnote either. Dropping a seat from the roster
+# alone does not do this: her sheet tab still maps to her name, so she would
+# reappear below the board as an untracked collector, which is not what "take
+# her off" means. Andrea Pleasant, at Danny's request on 2026-10-05.
+BILLING_BOARD_EXCLUDE = {"Andrea Pleasant"}
 # Per-team KPI targets. Billing's were measured over 257 working agent-days
 # (2026-05-26..08-23): floor = p25 of observed days, target = median, stretch =
 # p75. A team with no entry here falls back to billing_report's defaults, which
@@ -1054,8 +1080,16 @@ def _billing_roster(team=DEFAULT_TEAM):
         if not isinstance(r, dict) or not r.get("ext_id"):
             meta.setdefault("skipped", []).append(str(r)[:80])
             continue
-        clean.append({"name": (r.get("name") or f"ext {r.get('ext') or r['ext_id']}").strip(),
-                      "ext_id": r["ext_id"], "ext": str(r.get("ext") or "")})
+        seat = {"name": (r.get("name") or f"ext {r.get('ext') or r['ext_id']}").strip(),
+                "ext_id": r["ext_id"], "ext": str(r.get("ext") or "")}
+        # This loop REBUILDS each seat, so any key not copied here is dropped --
+        # which would silently turn a RingCX-sourced seat back into a RingEX one
+        # and score it on a dead handset. Optional keys are carried only when
+        # present, so a plain seat stays exactly the three-key shape it was.
+        for k in ("source", "source_team", "always_rank"):
+            if r.get(k):
+                seat[k] = r[k]
+        clean.append(seat)
     if not clean:
         clean = _TEAM_ROSTERS[team]
         meta["error"] = (meta.get("error", "") + " No usable seats in the override; "
@@ -1434,6 +1468,32 @@ def _v6_cx_rows_for_team(team, days, roster):
     return by_agent, found_days, covers_to
 
 
+def _v6_cx_days_covered(days, witnesses):
+    """Which of `days` have a delivered report that covers this GROUP.
+
+    A single seat cannot witness its own coverage: if she took no calls, she is
+    absent from a report that arrived perfectly. Her teammates can -- any one of
+    them appearing proves the scope was delivered that day, so her absence from
+    it is a real zero rather than a gap.
+
+    With no witnesses, every day counts as covered: an unknown source_team must
+    not silently mark the whole window unread.
+    """
+    want = {(w.get("name") or "").strip().lower() for w in witnesses}
+    if not want:
+        return set(days)
+    covered = set()
+    for day in days:
+        for path in _inbox_paths_all_scopes(day):
+            parsed = _parse_inbox_cached(path)
+            if parsed is None:
+                continue
+            if any((r.get("agent_name") or "").strip().lower() in want for r in parsed):
+                covered.add(day)
+                break
+    return covered
+
+
 def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT_TEAM):
     """Assemble the window from day snapshots, fetching only what is missing."""
     roster, roster_meta = _billing_roster(team)
@@ -1461,9 +1521,37 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
         stats = {"cached": cx_days, "fetched": 0, "missing": max(0, len(days) - cx_days)}
         data_as_of = cx_covers.get(local_today)
     else:
-        rows_by_agent, stats = _v6_fetch_ringex(roster, days, local_today,
+        # A seat may work a different platform from its team. Billing dials from
+        # RingEX, but Ana Salazar's calls are on RingCX while her collections are
+        # billing's -- so the team splits and each half is read from its own
+        # source. Spending RingEX budget on her dead extension would return the
+        # 2-9 unanswered dials a day that made her look like a failing agent.
+        cx_seats = [x for x in roster if (x.get("source") or "") == "ringcx"]
+        cx_names = {x["name"] for x in cx_seats}
+        ex_seats = [x for x in roster if x["name"] not in cx_names]
+        rows_by_agent, stats = _v6_fetch_ringex(ex_seats, days, local_today,
                                                 tz_offset_minutes)
         data_as_of = None          # RingEX is queried live; it reaches to now
+        for seat in cx_seats:
+            seat_rows = _v6_cx_rows_for_team(team, days, [seat])[0].get(seat["name"], [])
+            # Coverage is judged by the seat's OWN team on the report, not by the
+            # seat. "She has no rows today" and "today's report does not cover
+            # her team" are different facts: the first is a real zero, the second
+            # is unread, and collapsing them is how a quiet agent and a broken
+            # feed come to look identical. Her teammates are the witnesses that
+            # her scope arrived.
+            covered = _v6_cx_days_covered(days, _TEAM_ROSTERS.get(
+                seat.get("source_team") or "", []))
+            short = len(days) - len(covered)
+            rows_by_agent[seat["name"]] = {
+                "rows": seat_rows,
+                "ext": seat["ext"], "ext_id": seat["ext_id"],
+                "complete": short <= 0,
+                "missing_days": [d for d in days if d not in covered],
+                "call_source": "RingCX",
+                "always_rank": bool(seat.get("always_rank")),
+            }
+            stats = dict(stats, cx_seats=stats.get("cx_seats", 0) + 1)
 
     # SMS is read for every team, including the RingCX ones: a seat's texting
     # happens on its RingEX extension whatever platform carries its calls, so
@@ -1663,7 +1751,7 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             _on_board = {a["name"] for a in _coll_rows}
             collectors = []
             for who, per in sorted(coll.items()):
-                if who in _on_board:
+                if who in _on_board or who in BILLING_BOARD_EXCLUDE:
                     continue
                 hit = {k.isoformat(): v for k, v in per.items()
                        if k.isoformat() in wanted}
@@ -1678,11 +1766,13 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                 })
             report["collectors"] = collectors
 
-            # A collector who DOES make calls, just on another platform. Ana
-            # Salazar collects on the billing sheet and takes her calls in
-            # RingCX (confirmed 2026-10-05: 313 interactions in 14 days, roster
+            # A collector who DOES make calls, just on another platform. The
+            # case was Ana Salazar: she collected on the billing sheet and took
+            # her calls in RingCX (313 interactions in 14 days, roster
             # "inbound"), so the two halves of her day sat on two different
-            # boards and neither one showed a whole person.
+            # boards and neither one showed a whole person. She is a billing
+            # seat sourced from RingCX now, which is the better answer for her;
+            # this stays for whoever turns up off-roster next.
             #
             # Her calls are shown here beside her money and deliberately NOT
             # graded or ranked. Billing's targets are outbound-billing targets

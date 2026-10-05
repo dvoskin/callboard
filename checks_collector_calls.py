@@ -1,9 +1,14 @@
 """A collector who works another line gets BOTH halves of her day shown.
 
-Ana Salazar collects on the billing sheet and takes her calls in RingCX
-(confirmed 2026-10-05: 313 interactions in 14 days, roster "inbound"). Her
-money was on the billing board and her calls were on the inbound one, so
-neither screen showed a whole person.
+The case was Ana Salazar: she collected on the billing sheet and took her calls
+in RingCX (313 interactions in 14 days, roster "inbound"), so her money was on
+the billing board and her calls on the inbound one and neither screen showed a
+whole person. She has since become a billing seat read from RingCX, which is a
+better answer for her -- see checks_seat_source_split.
+
+The exemplar here is therefore SYNTHETIC on purpose. Pinning this mechanism to a
+real person meant that promoting her broke eleven assertions about machinery that
+had not changed, and the next collector who turns up off-roster needs it working.
 
 Two things this has to keep straight, because getting either wrong turns a
 real number into a wrong one:
@@ -54,6 +59,15 @@ def _build(coll_data, cx_rows, raise_cx=False):
         coll_data, {"loading": False, "tabs": {}, "errors": [], "age_seconds": 1,
                     "unmapped_tabs": [], "unknown_person_tabs": []})
 
+    # Calls only attach to a collector who holds a seat on a RingCX team, so the
+    # synthetic collector gets a synthetic seat. Patched, not added to the real
+    # roster, so this check cannot be passed or broken by a roster edit.
+    real_rosters = appmod._TEAM_ROSTERS
+    appmod._TEAM_ROSTERS = dict(
+        real_rosters,
+        inbound=list(real_rosters["inbound"]) + [
+            {"name": "Marisol Vega", "ext_id": 999000111, "ext": "299"}])
+
     def _fake_cx(team, days, roster_):
         if raise_cx:
             raise RuntimeError("inbox unreadable")
@@ -66,23 +80,24 @@ def _build(coll_data, cx_rows, raise_cx=False):
     finally:
         appmod._collections.cached = real_coll
         appmod._v6_cx_rows_for_team = real_cx
+        appmod._TEAM_ROSTERS = real_rosters
 
 
-def _ana(rep):
-    return next((c for c in rep.get("collectors", []) if c["name"] == "Ana Salazar"), None)
+def _off_roster(rep):
+    return next((c for c in rep.get("collectors", []) if c["name"] == "Marisol Vega"), None)
 
 
 def case_calls_shown_beside_money():
     f = 0
-    rows = {"Ana Salazar": [
+    rows = {"Marisol Vega": [
         _cx("Outbound", "Call connected", 300),   # 5 min talk
         _cx("Inbound", "Accepted", 120),          # 2 min talk
         _cx("Outbound", "No Answer", 80),         # ring time, NOT talk
         _cx("Inbound", "Missed", 40),             # never picked up
     ]}
-    rep = _build({"Ana Salazar": {date(2026, 10, 1): 9100.0}}, rows)
-    a = _ana(rep)
-    f = _eq("Ana is a collector", bool(a), True, f)
+    rep = _build({"Marisol Vega": {date(2026, 10, 1): 9100.0}}, rows)
+    a = _off_roster(rep)
+    f = _eq("the off-roster collector is listed", bool(a), True, f)
     f = _eq("her money is still there", a and a["collected_total"], 9100.0, f)
     f = _eq("her calls are attached", a and a["calls_tracked"], True, f)
     f = _eq("the platform is named", a and a["call_source"], "RingCX", f)
@@ -92,15 +107,15 @@ def case_calls_shown_beside_money():
     # 300 + 120 = 420s. The 80s ring and 40s miss must NOT appear.
     f = _eq("talk is connected-only (ring time excluded)", a and a["talk_minutes"], 7.0, f)
     f = _eq("still NOT ranked",
-            "Ana Salazar" in [x["name"] for x in rep.get("ranked", [])], False, f)
+            "Marisol Vega" in [x["name"] for x in rep.get("ranked", [])], False, f)
     return f
 
 
 def case_no_report_is_not_zero_calls():
     """On RingCX, but nothing delivered for the window: unknown, not zero."""
     f = 0
-    rep = _build({"Ana Salazar": {date(2026, 10, 1): 9100.0}}, {})
-    a = _ana(rep)
+    rep = _build({"Marisol Vega": {date(2026, 10, 1): 9100.0}}, {})
+    a = _off_roster(rep)
     f = _eq("she still appears for the money", bool(a), True, f)
     # False, not absent: the collector is built with calls_tracked=False and it
     # only flips true when rows actually arrived. The template reads the flag,
@@ -111,9 +126,9 @@ def case_no_report_is_not_zero_calls():
     f = _eq("but the platform is still named", a and a.get("call_source"), "RingCX", f)
 
     # And a broken inbox must not take the board down with it.
-    rep2 = _build({"Ana Salazar": {date(2026, 10, 1): 50.0}}, {}, raise_cx=True)
+    rep2 = _build({"Marisol Vega": {date(2026, 10, 1): 50.0}}, {}, raise_cx=True)
     f = _eq("an unreadable inbox still renders the money",
-            (_ana(rep2) or {}).get("collected_total"), 50.0, f)
+            (_off_roster(rep2) or {}).get("collected_total"), 50.0, f)
     return f
 
 
