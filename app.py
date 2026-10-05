@@ -562,6 +562,36 @@ def _background_loop():
 # ------------------------------------------------------------------ routes
 
 
+_BOOT_AT = time.time()
+
+
+@app.route("/api/build")
+def api_build():
+    """Which commit is actually RUNNING, and since when.
+
+    Deliberately unauthenticated, because the question it answers is "has my
+    push reached the server" and every other endpoint that could answer it is
+    behind a login -- so the check needed the login to work, which is backwards.
+    It returns a commit id and an uptime, nothing about anyone.
+
+    This exists because on 2026-10-05 three commits sat unshipped for hours
+    while the board was read as buggy: Ana's collections tab was mapped in the
+    code and still showed as unmapped live. The tell was an uptime of 98 hours
+    -- a deploy restarts the process, so the service was running four-day-old
+    code -- but that had to be reconstructed from a background thread's start
+    time in an unrelated diagnostic. One endpoint, asked directly.
+    """
+    up = time.time() - _BOOT_AT
+    return jsonify({
+        # Render injects this at build time; absent in local dev.
+        "commit": os.environ.get("RENDER_GIT_COMMIT") or "unknown",
+        "branch": os.environ.get("RENDER_GIT_BRANCH") or "unknown",
+        "started_at": datetime.fromtimestamp(_BOOT_AT, timezone.utc).isoformat(),
+        "uptime_seconds": round(up),
+        "uptime_human": "%dh %dm" % (up // 3600, (up % 3600) // 60),
+    })
+
+
 @app.route("/health")
 def health():
     """Render health-check probe — must respond quickly."""
