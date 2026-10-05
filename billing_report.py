@@ -564,13 +564,13 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
     for a in ranked:
         if not a["always_rank"] or a["totals"]["calls"]:
             continue
-        where = a["call_source"] or "this board's platform"
+        where = a["call_source"] or "this board's own platform"
         if a["complete"]:
-            why = (f"the delivered {where} data covers this window and carries none "
+            why = (f"the window was read in full on {where} and holds no calls "
                    f"for them")
         else:
-            why = (f"{where} data is missing for up to {len(a['missing_days'])} day(s) "
-                   f"of this window, so the zero is 'not read', not 'no calls'")
+            why = (f"up to {len(a['missing_days'])} day(s) of this window could not "
+                   f"be read on {where}, so the zero is 'not read', not 'no calls'")
         warnings.append({
             "kind": "ranked_at_zero",
             "message": (f"{a['name']} is shown on the board at 0.0 because {why}."),

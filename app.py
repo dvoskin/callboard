@@ -917,18 +917,25 @@ _TEAM_ROSTERS = {
         # a wrong ext_id gets typed in.
         # {"name": "Andrea Pleasant",  "ext_id": 388372049,  "ext": "148"},
         #
-        # Ana Salazar collects against billing but her CALLS are on RingCX: her
-        # RingEX line (ext 271) has been dead since 2026-08-11, when she moved to
-        # Preop WFP. Ranking her on RingEX would score her on a handset nobody
-        # uses. source="ringcx" takes her calls from the delivered Interaction
-        # Report instead, witnessed by the inbound roster -- see source_team.
+        # Ana Salazar is a RingEX seat on extension 271. Danny confirmed this on
+        # 2026-10-05 ("she is supposed to be extension 271 on the RingEX side")
+        # and asked for her to be read from RingEX, not RingCX.
+        #
+        # ⚠️ The ext_id below is NOT yet confirmed to BE extension 271. Nothing
+        # fetches by `ext`; it is decoration, and this id differs from Jorge
+        # Mier's (436843034) by one digit. Her line was written off in August on
+        # "2-9 dials a day, zero connections, eleven working days" -- which is
+        # what a dead line looks like AND what a colleague's barely-used handset
+        # looks like. /api/v6/ext-probe?ext=271 resolves the number against the
+        # RingEX directory; if it disagrees with this id, correct it HERE from
+        # what the directory says and do not trust any past figure for her.
         #
         # always_rank keeps her on the board at 0.0 rather than in a footnote.
         # Danny asked for this on 2026-10-05: her collections are the reason she
         # is on this board, and a collector with no calls is a thing he wants to
         # SEE, not a seat to hold out. The zero still raises its own warning.
         {"name": "Ana Salazar",        "ext_id": 436846034,  "ext": "271",
-         "source": "ringcx", "source_team": "inbound", "always_rank": True},
+         "always_rank": True},
     ],
     "scheduling": [
         {"name": "Alanis Castillo",    "ext_id": 1154698035, "ext": "225"},
