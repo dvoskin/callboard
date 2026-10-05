@@ -68,6 +68,13 @@ class RingCXClient:
         # recover instead of being re-consumed the instant it opens.
         self._cool_until: float = 0.0
         self._cool_reason: str = ""
+        # RingCentral meters its API in GROUPS with separate budgets (call-log is
+        # "heavy", 10/60s -- confirmed from live 429 headers). A 429 on one group
+        # says nothing about another, so one shared cooldown would let the SMS
+        # reader pause the call board, and the call board is the one this service
+        # exists to serve. Default/None stays on _cool_until so every existing
+        # caller behaves exactly as before.
+        self._cool_until_groups: dict = {}
 
         # Agent status cache (avoid 62 API calls every 15s)
         self._agents_cache: list[dict] = []
@@ -85,20 +92,39 @@ class RingCXClient:
         return bool(self.client_id and self.client_secret and self.jwt_token)
 
     # ── shared rate-limit cooldown ────────────────────────────────
-    def rate_limited(self) -> bool:
-        """True while RingEX has told us to stop. Check before spending a call."""
-        return time.time() < self._cool_until
+    def rate_limited(self, group: str = None) -> bool:
+        """True while RingEX has told us to stop. Check before spending a call.
 
-    def cooldown_remaining(self) -> float:
-        return max(0.0, self._cool_until - time.time())
+        `group` is a RingCentral rate-limit group ("heavy", "medium", ...).
+        None means the default bucket every call-path caller has always used.
+        """
+        return time.time() < self._cool_until_for(group)
 
-    def note_rate_limited(self, retry_after: float = 60.0) -> None:
-        """One 429 anywhere pauses everyone for the window RingEX named."""
+    def cooldown_remaining(self, group: str = None) -> float:
+        return max(0.0, self._cool_until_for(group) - time.time())
+
+    def _cool_until_for(self, group: str = None) -> float:
+        if not group:
+            return self._cool_until
+        return self._cool_until_groups.get(group, 0.0)
+
+    def note_rate_limited(self, retry_after: float = 60.0, group: str = None) -> None:
+        """A 429 pauses callers on THAT group for the window RingEX named.
+
+        Scoped deliberately: the SMS reader and the call-log reader are metered
+        separately by RingCentral, so pausing both on one refusal would take the
+        call board down for a limit it never hit.
+        """
         wait = min(max(float(retry_after or 60), 5.0), 120.0)
-        self._cool_until = max(self._cool_until, time.time() + wait)
-        self._cool_reason = ("RingEX returned 429; all callers paused for %.0fs so the "
-                             "per-minute window can recover." % wait)
-        log.warning("RingEX cooldown: pausing all callers for %.0fs", wait)
+        until = time.time() + wait
+        if group:
+            self._cool_until_groups[group] = max(
+                self._cool_until_groups.get(group, 0.0), until)
+        else:
+            self._cool_until = max(self._cool_until, until)
+        self._cool_reason = ("RingEX returned 429; %s callers paused for %.0fs so the "
+                             "per-minute window can recover." % (group or "call", wait))
+        log.warning("RingEX cooldown (%s): pausing for %.0fs", group or "default", wait)
 
     # ══════════════════════════════════════════════════════════════
     # Auth — RingEX (standard RingCentral)
@@ -1506,6 +1532,111 @@ class RingCXClient:
             meta["note"] = (f"RingEX call-log request failed for extension {ext_id}: {e}. "
                             f"No calls could be read, which is not the same as there being none.")
             log.error("ext %s call-log error: %s", ext_id, e)
+        return list(rows.values()), meta
+
+    # ══════════════════════════════════════════════════════════════
+    # SMS — read the message store (per-extension, for the KPI boards)
+    # ══════════════════════════════════════════════════════════════
+
+    # RingCentral meters message-store separately from call-log. We do NOT
+    # hardcode which group it lands in: every response carries
+    # X-Rate-Limit-Group and the reader records what RingEX actually said, so
+    # the budget is observed rather than assumed. The cooldown it opens is
+    # scoped to this key, never to the call path.
+    SMS_RATE_GROUP = "sms"
+
+    def fetch_extension_messages(self, ext_id, start_dt: datetime, end_dt: datetime,
+                                 max_pages: int = 6, max_wait: float = 0.0,
+                                 timeout: float = 15.0) -> tuple[list[dict], dict]:
+        """Every SMS on ONE extension in [start_dt, end_dt].
+
+        Mirrors fetch_extension_calls deliberately, including its honesty
+        contract: a failed read and a silent phone are the same empty list, and
+        this feeds a board that names individuals, so `meta` always carries why.
+
+        MMS arrives in the message store typed as SMS with attachments; the
+        types actually seen are reported in meta["types"] rather than assumed,
+        so a missing category shows up instead of silently reading as zero.
+        """
+        rows: dict[str, dict] = {}
+        meta = {"pages": 0, "truncated": False, "note": None, "http_error": None,
+                "rate_group": None, "types": {}}
+        grp = self.SMS_RATE_GROUP
+        if self.rate_limited(grp):
+            meta["http_error"] = 429
+            meta["note"] = ("RingEX message store is in a cooldown for another %.0fs "
+                            "after a 429; this read was skipped rather than spending a "
+                            "request that would be refused." % self.cooldown_remaining(grp))
+            return [], meta
+        try:
+            self._ensure_rc_token()
+            page = 1
+            while page <= max_pages:
+                params = {
+                    "dateFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "dateTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "messageType": "SMS", "perPage": 250, "page": page,
+                }
+                url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
+                       f"/extension/{ext_id}/message-store")
+                if self.rate_limited(grp):
+                    meta["http_error"] = 429
+                    meta["note"] = ("RingEX message store cooldown; stopped after page "
+                                    f"{page - 1} rather than spending a refused request.")
+                    break
+                r = requests.get(url, headers=self._rc_headers(), params=params, timeout=timeout)
+                # Learn the real budget from the response, every time.
+                meta["rate_group"] = r.headers.get("X-Rate-Limit-Group") or meta["rate_group"]
+                if r.status_code == 429:
+                    self.note_rate_limited(r.headers.get("Retry-After"), group=grp)
+                    meta["http_error"] = 429
+                    meta["note"] = ("RingEX is rate limiting the message store (HTTP 429); "
+                                    "this seat's SMS figures are incomplete for the window.")
+                    break
+                if r.status_code == 204:
+                    break
+                if not r.ok:
+                    meta["http_error"] = r.status_code
+                    meta["note"] = (f"RingEX message store returned HTTP {r.status_code} for "
+                                    f"extension {ext_id}; SMS could not be read, which is not "
+                                    f"the same as there being none.")
+                    log.warning("ext %s message-store page %d failed: %s",
+                                ext_id, page, r.status_code)
+                    break
+                recs = r.json().get("records", [])
+                meta["pages"] = page
+                for rec in recs:
+                    frm = rec.get("from") or {}
+                    to_list = rec.get("to") or []
+                    to0 = to_list[0] if to_list else {}
+                    mtype = rec.get("type", "") or ""
+                    meta["types"][mtype] = meta["types"].get(mtype, 0) + 1
+                    rows[rec.get("id") or f"{page}:{len(rows)}"] = {
+                        "id": rec.get("id", ""),
+                        "direction": rec.get("direction", "") or "",
+                        "type": mtype,
+                        "start_time": rec.get("creationTime", "") or "",
+                        "from_number": frm.get("phoneNumber", "") or "",
+                        "to_number": to0.get("phoneNumber", "") or "",
+                        "conversation_id": (rec.get("conversation") or {}).get("id", ""),
+                        "status": rec.get("messageStatus", "") or "",
+                        "availability": rec.get("availability", "") or "",
+                        "has_attachment": bool(rec.get("attachments")),
+                        "source": "ringex_sms",
+                    }
+                if len(recs) < 250:
+                    break
+                page += 1
+                time.sleep(0.35)
+            else:
+                meta["truncated"] = True
+                meta["note"] = (f"Hit the {max_pages}-page cap for extension {ext_id}; there "
+                                f"are more messages in this window than were read.")
+        except Exception as e:  # noqa: BLE001
+            meta["note"] = (f"RingEX message-store request failed for extension {ext_id}: {e}. "
+                            f"No messages could be read, which is not the same as none being "
+                            f"sent.")
+            log.error("ext %s message-store error: %s", ext_id, e)
         return list(rows.values()), meta
 
     # ══════════════════════════════════════════════════════════════

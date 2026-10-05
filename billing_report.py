@@ -224,6 +224,19 @@ def _fold(bucket, row):
             bucket[f"over_{m}s"] += 1
 
 
+def _blank_sms():
+    return {"sent": 0, "received": 0, "total": 0, "inbound_conversations": 0}
+
+
+def _fold_sms(bucket, row):
+    """Add one message to a bucket. Outbound = sent by the agent."""
+    bucket["total"] += 1
+    if row.get("direction") == "Outbound":
+        bucket["sent"] += 1
+    elif row.get("direction") == "Inbound":
+        bucket["received"] += 1
+
+
 def _rate(num, den):
     return round(100.0 * num / den, 1) if den else 0.0
 
@@ -241,7 +254,7 @@ def grade(value, spec):
 
 def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, window=None,
                  targets=None, long_call_seconds=LONG_CALL_SECONDS,
-                 roster_meta=None, now_local=None, curves=None):
+                 roster_meta=None, now_local=None, curves=None, sms_by_agent=None):
     """Build the billing scoreboard.
 
     rows_by_agent -- {display_name: [call rows]}. Rows are RingEX call-log
@@ -370,6 +383,44 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 pace["grades"][k] = grade(proj, targets[k]) if proj is not None else None
             pace["projectable"] = frac >= MIN_FRAC_TO_JUDGE
 
+        # ── SMS ───────────────────────────────────────────────────────────
+        # Carried as its own block, not folded into the call buckets: a message
+        # is not a call, `worked_days` is defined by CONNECTED CALLS, and the
+        # two streams fail independently -- the message store can refuse while
+        # the call log answers. sms is None when SMS was never read for this
+        # seat, which the board must render as "not read", never as zero. An
+        # unread window and a silent phone are the same empty list, and this
+        # board names individuals.
+        sms = None
+        if sms_by_agent is not None and name in sms_by_agent:
+            smeta = sms_by_agent[name]
+            srows = smeta["rows"] if isinstance(smeta, dict) else smeta
+            scomplete = True if not isinstance(smeta, dict) else bool(smeta.get("complete", True))
+            smissing = (smeta.get("missing_days") or []) if isinstance(smeta, dict) else []
+            stot = _blank_sms()
+            sby_day = {}
+            for r in srows:
+                _fold_sms(stot, r)
+                t = _ts(r.get("start_time"), tz_offset_minutes)
+                if t is None:
+                    continue
+                _fold_sms(sby_day.setdefault(t.date().isoformat(), _blank_sms()), r)
+            sms = {
+                "sent": stot["sent"], "received": stot["received"], "total": stot["total"],
+                # Per WORKED day, the same denominator every other per-day figure
+                # on this board uses, so the columns are comparable.
+                "sent_per_day": round(stot["sent"] / n, 1),
+                "received_per_day": round(stot["received"] / n, 1),
+                "total_per_day": round(stot["total"] / n, 1),
+                # Days the seat texted at all -- reported beside the average so a
+                # big number spread over two days cannot read as a daily habit.
+                "active_days": len([1 for b in sby_day.values() if b["total"] > 0]),
+                "by_day": sby_day,
+                "complete": scomplete, "missing_days": smissing,
+                # Nothing read AND the window was not fully covered: unknown, not zero.
+                "unknown": stot["total"] == 0 and not scomplete,
+            }
+
         daily_talk = sorted(b["talk_seconds"] / 60.0 for b in worked.values())
         agents.append({
             "pace": pace,
@@ -385,10 +436,13 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "long_call_share_pct": _rate(wtot[f"over_{long_call_seconds}s"],
                                          wtot["connected"]),
             "median_talk_minutes": round(statistics.median(daily_talk), 1) if daily_talk else 0.0,
+            "sms": sms,
             "days": [dict(by_day[d], date=d,
                           talk_minutes=round(by_day[d]["talk_seconds"] / 60.0, 1),
                           long_calls=by_day[d][f"over_{long_call_seconds}s"],
-                          worked=by_day[d]["connected"] > 0)
+                          worked=by_day[d]["connected"] > 0,
+                          sms_sent=((sms or {}).get("by_day", {}).get(d) or {}).get("sent"),
+                          sms_received=((sms or {}).get("by_day", {}).get(d) or {}).get("received"))
                      for d in sorted(by_day)],
             "complete": complete, "missing_days": missing_days,
             # An empty seat is only a FINDING when the window was actually read.
@@ -433,6 +487,32 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         "answer_rate_pct": _rate(team["inbound_answered"], team["inbound"]),
         "unanswered_inbound": team["inbound"] - team["inbound_answered"],
     }
+
+    # Team SMS. Summed only over seats whose messages were actually READ, with
+    # the count of those seats carried alongside -- a team total quietly missing
+    # two of five seats is a wrong number, not a small one.
+    sms_seats = [a for a in agents if a.get("sms")]
+    if sms_seats:
+        t_sent = sum(a["sms"]["sent"] for a in sms_seats)
+        t_recv = sum(a["sms"]["received"] for a in sms_seats)
+        team_summary["sms"] = {
+            "sent": t_sent, "received": t_recv, "total": t_sent + t_recv,
+            "sent_per_day": round(t_sent / team_days, 1),
+            "received_per_day": round(t_recv / team_days, 1),
+            "seats": len(sms_seats), "seats_total": len(agents),
+            "complete": all(a["sms"]["complete"] for a in sms_seats)
+                        and len(sms_seats) == len(agents),
+        }
+
+    partial_sms = [a for a in agents if a.get("sms") and not a["sms"]["complete"]]
+    if partial_sms:
+        warnings.append({
+            "kind": "sms_incomplete",
+            "message": ("The message store could not be read in full for "
+                        + ", ".join(a["name"] for a in partial_sms)
+                        + ". Their SMS figures cover only what was read and are a FLOOR, "
+                          "not a count -- RingEX refused the rest."),
+        })
 
     if unknown_results:
         warnings.append({

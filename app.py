@@ -1109,6 +1109,107 @@ def _v6_fetch_day(ext_id, day_iso, tz_offset_minutes):
     return rows, ok
 
 
+# ── SMS (message store) ───────────────────────────────────────────────────
+# Same day-snapshot shape as calls, in its own directory and with its own
+# budget. Two reasons it is not bolted onto the call fetch: RingCentral meters
+# message-store separately from call-log, so sharing a budget would make an SMS
+# limit take the call board down; and the two can fail independently, which the
+# board has to be able to say rather than printing a zero.
+V6_SMS_DIR = _data_dir / "v6_sms"
+_V6_SMS_ENABLED = os.environ.get("V6_SMS_ENABLED", "1") not in ("0", "false", "no")
+_V6_SMS_BUDGET = 12          # seat-days per request
+_V6_SMS_DEADLINE = 4.0       # seconds; calls get the larger share of the request
+_V6_SMS_HTTP_TIMEOUT = 8.0
+_V6_SMS_MAX_FAILS = 1
+_v6_sms_today_cache: dict = {}
+
+
+def _v6_sms_snap_path(ext_id, day_iso):
+    return V6_SMS_DIR / str(ext_id) / f"{day_iso}.json"
+
+
+def _v6_sms_load_day(ext_id, day_iso):
+    p = _v6_sms_snap_path(ext_id, day_iso)
+    try:
+        if p.exists():
+            return json.loads(p.read_text())
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 sms snapshot unreadable %s: %s", p, e)
+    return None
+
+
+def _v6_sms_save_day(ext_id, day_iso, rows):
+    p = _v6_sms_snap_path(ext_id, day_iso)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rows))
+        tmp.replace(p)
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 sms snapshot unwritable %s: %s", p, e)
+
+
+def _v6_fetch_sms_day(ext_id, day_iso, tz_offset_minutes):
+    """One seat, one local day of SMS. Returns (rows, ok, group)."""
+    start_dt = _parse_local_date_to_utc(day_iso, 0, 0, 0, tz_offset_minutes)
+    end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
+    rows, meta = _ringcx.fetch_extension_messages(
+        ext_id, start_dt, end_dt, max_pages=4, max_wait=0.0,
+        timeout=_V6_SMS_HTTP_TIMEOUT)
+    ok = not meta.get("note") and not meta.get("truncated")
+    return rows, ok, meta.get("rate_group")
+
+
+def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
+    """SMS day snapshots for a roster. Returns (sms_by_agent, stats).
+
+    Never raises and never blocks the board: if SMS cannot be read the seat is
+    returned incomplete, and build_report renders that as "not read" rather than
+    as zero messages.
+    """
+    stats = {"cached": 0, "fetched": 0, "missing": 0, "rate_group": None}
+    if not _V6_SMS_ENABLED:
+        return None, stats
+    deadline = time.time() + _V6_SMS_DEADLINE
+    budget = _V6_SMS_BUDGET
+    out = {}
+    for seat in roster:
+        eid = seat["ext_id"]
+        rows, missing, fails = [], [], 0
+        for day in days:
+            is_today = day >= local_today
+            if is_today:
+                c = _v6_sms_today_cache.get((eid, day))
+                if c and time.time() - c["at"] < _V6_TTL_TODAY:
+                    rows.extend(c["rows"]); stats["cached"] += 1
+                    continue
+            else:
+                got = _v6_sms_load_day(eid, day)
+                if got is not None:
+                    rows.extend(got); stats["cached"] += 1
+                    continue
+            if budget <= 0 or fails >= _V6_SMS_MAX_FAILS or time.time() > deadline:
+                missing.append(day); stats["missing"] += 1
+                continue
+            budget -= 1
+            got, ok, group = _v6_fetch_sms_day(eid, day, tz_offset_minutes)
+            if group:
+                stats["rate_group"] = group
+            if not ok:
+                fails += 1
+                missing.append(day); stats["missing"] += 1
+                continue
+            stats["fetched"] += 1
+            rows.extend(got)
+            if is_today:
+                _v6_sms_today_cache[(eid, day)] = {"at": time.time(), "rows": got}
+            else:
+                _v6_sms_save_day(eid, day, got)
+        out[seat["name"]] = {"rows": rows, "complete": not missing,
+                             "missing_days": missing}
+    return out, stats
+
+
 def _v6_seat_curve(ext_id, tz_offset_minutes, days_back=45):
     """A seat's own intraday pace curve, from the day snapshots already on disk.
 
@@ -1331,9 +1432,16 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
         rows_by_agent, stats = _v6_fetch_ringex(roster, days, local_today,
                                                 tz_offset_minutes)
         data_as_of = None          # RingEX is queried live; it reaches to now
+
+    # SMS is read for every team, including the RingCX ones: a seat's texting
+    # happens on its RingEX extension whatever platform carries its calls, so
+    # "no usable RingEX CALL data" does not imply no usable message data.
+    sms_by_agent, sms_stats = _v6_fetch_sms(roster, days, local_today, tz_offset_minutes)
+    stats = dict(stats, sms=sms_stats)
+
     return _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                       date_start, date_end, tz_offset_minutes, local_today, days,
-                      data_as_of=data_as_of)
+                      data_as_of=data_as_of, sms_by_agent=sms_by_agent)
 
 
 def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
@@ -1439,7 +1547,7 @@ def _reconcile_report_clock(now_local, data_as_of):
 
 def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                date_start, date_end, tz_offset_minutes, local_today, days=(),
-               data_as_of=None):
+               data_as_of=None, sms_by_agent=None):
     """Shared tail: pace curves, report build, and the notes about what is missing.
 
     data_as_of -- "HH:MM:SS" the delivered data actually reaches, or None when
@@ -1471,6 +1579,7 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
         roster_meta=roster_meta, now_local=now_local, curves=curves,
         targets=TEAM_TARGETS.get(team),
         default_curve=TEAM_PACE_CURVES.get(team),
+        sms_by_agent=sms_by_agent,
     )
     # Collected amounts, billing only. Joined by agent+day so it lines up with
     # the same working days the call figures use. Read-only and aggregate: the
@@ -1833,6 +1942,53 @@ def _v6_warm_loop():
             for k in [k for k in list(_v6_today_cache) if k[1] != tstr]:
                 _v6_today_cache.pop(k, None)
 
+            # ── SMS warm pass ────────────────────────────────────────────────
+            # Wrapped in its own try so a message-store problem can never stop
+            # the CALL warmer: calls are what the board is scored on. Its own
+            # rate-limit group, so backing off here does not pause call fetches.
+            if _V6_SMS_ENABLED:
+                try:
+                    sms_done = 0
+                    for seat in roster:
+                        c = _v6_sms_today_cache.get((seat["ext_id"], tstr))
+                        if not (c and time.time() - c["at"] < _V6_TODAY_WARM_TTL):
+                            rows, ok, grp = _v6_fetch_sms_day(seat["ext_id"], tstr, tz_off)
+                            if grp:
+                                _v6_warm_state["sms_rate_group"] = grp
+                            if ok:
+                                _v6_sms_today_cache[(seat["ext_id"], tstr)] = {
+                                    "at": time.time(), "rows": rows}
+                                sms_done += 1
+                                time.sleep(_V6_WARM_PAUSE)
+                            else:
+                                _v6_warm_state["sms_error"] = "today %s" % seat["ext_id"]
+                                break
+                    # Backfill finished SMS days, newest first, small slice per cycle.
+                    sms_gaps = []
+                    for seat in roster:
+                        for i in range(1, _V6_WARM_DAYS + 1):
+                            day = (today - timedelta(days=i)).isoformat()
+                            if _v6_sms_load_day(seat["ext_id"], day) is None:
+                                sms_gaps.append((seat["ext_id"], day))
+                    _v6_warm_state["sms_missing"] = len(sms_gaps)
+                    sms_gaps.sort(key=lambda g: g[1], reverse=True)
+                    for eid, day in sms_gaps[:20]:
+                        rows, ok, grp = _v6_fetch_sms_day(eid, day, tz_off)
+                        if grp:
+                            _v6_warm_state["sms_rate_group"] = grp
+                        if not ok:
+                            _v6_warm_state["sms_error"] = "backfill %s %s" % (eid, day)
+                            break
+                        _v6_sms_save_day(eid, day, rows)
+                        sms_done += 1
+                        _v6_warm_state["sms_filled"] = _v6_warm_state.get("sms_filled", 0) + 1
+                        time.sleep(_V6_WARM_PAUSE)
+                    for k in [k for k in list(_v6_sms_today_cache) if k[1] != tstr]:
+                        _v6_sms_today_cache.pop(k, None)
+                except Exception as e:  # noqa: BLE001
+                    _v6_warm_state["sms_error"] = "%s: %s" % (type(e).__name__, e)
+                    log.warning("v6 sms warm error: %s", e)
+
             if not gaps:
                 time.sleep(900)                            # nothing to do; check again later
                 continue
@@ -1869,6 +2025,48 @@ def _v6_warm_loop():
             time.sleep(120)
         else:
             _v6_warm_state["cycles_ok"] = _v6_warm_state.get("cycles_ok", 0) + 1
+
+
+@app.route("/api/v6/sms-probe")
+def api_v6_sms_probe():
+    """Read ONE seat-day of SMS and report exactly what RingEX said.
+
+    This exists because the thing that matters most here cannot be checked from
+    a laptop: which rate-limit GROUP RingCentral meters the message store in.
+    call-log is "heavy" (10/60s, confirmed from live 429 headers) and that
+    budget is already shared with the sales dashboard. If the message store
+    turns out to share it, the SMS reader has to be switched off
+    (V6_SMS_ENABLED=0) rather than left to compete with the call board.
+    So: no assumption in the code, one probe that prints the header.
+    """
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        return jsonify({"error": "RingEX not configured"}), 503
+    team = request.args.get("team", DEFAULT_TEAM)
+    roster, _ = _billing_roster(team)
+    if not roster:
+        return jsonify({"error": "no roster for team %s" % team}), 400
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    day = request.args.get("day") or (
+        datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
+    seat = roster[0]
+    start_dt = _parse_local_date_to_utc(day, 0, 0, 0, tz_off)
+    end_dt = _parse_local_date_to_utc(day, 23, 59, 59, tz_off)
+    rows, meta = _ringcx.fetch_extension_messages(
+        seat["ext_id"], start_dt, end_dt, max_pages=1, max_wait=0.0, timeout=10.0)
+    return jsonify({
+        "seat": seat["name"], "ext": seat["ext"], "ext_id": seat["ext_id"],
+        "day": day,
+        # The answer this endpoint exists for.
+        "rate_group": meta.get("rate_group"),
+        "sms_enabled": _V6_SMS_ENABLED,
+        "http_error": meta.get("http_error"), "note": meta.get("note"),
+        "pages": meta.get("pages"), "types_seen": meta.get("types"),
+        "messages": len(rows),
+        "sent": sum(1 for r in rows if r.get("direction") == "Outbound"),
+        "received": sum(1 for r in rows if r.get("direction") == "Inbound"),
+    })
 
 
 @app.route("/api/v6/warm")
