@@ -2310,6 +2310,119 @@ def api_v6_warm():
     return jsonify(st)
 
 
+# Telephony status is the "on a call" axis; presenceStatus is everything else.
+# Ringing and OnHold are deliberately NOT folded into "on a call": a ringing phone
+# is not a conversation, and a floor lead reading this wants the difference.
+_PRESENCE_LABELS = {
+    "CallConnected": ("on_call", "On a call"),
+    "Ringing": ("ringing", "Ringing"),
+    "OnHold": ("on_hold", "On hold"),
+    "ParkedCall": ("on_hold", "Parked"),
+}
+_AVAILABILITY_LABELS = {
+    "Available": ("available", "Available"),
+    "Busy": ("busy", "Busy"),
+    "Offline": ("offline", "Offline"),
+}
+
+
+def _presence_for_seat(p):
+    """(state, label) for one presence record, or the unknown pair when absent.
+
+    An extension nobody reported on is NOT idle. A seat missing from the presence
+    list, a presence call that stood down, and a genuinely free phone all arrive
+    here as an absence of "on a call", and only the first two are unknown. Saying
+    "Not on a call" for them would be inventing the most reassuring reading.
+    """
+    if not p:
+        return "unknown", "Not read"
+    tel = (p.get("telephony_status") or "").strip()
+    if tel in _PRESENCE_LABELS:
+        return _PRESENCE_LABELS[tel]
+    # DND outranks presenceStatus: a phone set to do-not-disturb reads "Available"
+    # on some accounts while refusing every call.
+    dnd = (p.get("dnd_status") or "")
+    if dnd.startswith("DoNotAccept"):
+        return "dnd", "Do not disturb"
+    return _AVAILABILITY_LABELS.get((p.get("status") or "").strip(),
+                                    ("unknown", "Not read"))
+
+
+@app.route("/api/v6/presence")
+def api_v6_presence():
+    """Who is on a call right now, per seat on the board.
+
+    Deliberately NOT part of /api/v6/report. Presence with detailedTelephonyState
+    is in RingCentral's "heavy" class -- the same ~10/minute budget the call log
+    spends -- so folding it into the report would make a board that is already
+    short of call data shorter, and a presence failure would take the figures
+    down with it. The two are fetched and fail apart.
+
+    The underlying read is account-level and cached for 60s, so the cost is one
+    request a minute no matter how many people have the board open.
+    """
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    team = _team_key(request.args.get("team"))
+    roster, _ = _billing_roster(team)
+    agents, pmeta = _ringcx.agent_statuses_with_age()
+
+    by_id = {str(a.get("ext_id")): a for a in agents}
+    by_num = {str(a.get("ext_number")): a for a in agents if a.get("ext_number")}
+
+    # Stale presence is not shown as presence. Past its own TTL plus a grace
+    # window the state is withheld and the age is reported instead, because a
+    # wrong "on a call" is worse than no answer -- it is the one a lead acts on.
+    too_old = bool(pmeta["age_seconds"] is not None
+                   and pmeta["age_seconds"] > pmeta["ttl_seconds"] * 3)
+    usable = bool(agents) and not pmeta["never_read"] and not too_old
+
+    seats = []
+    for seat in roster:
+        p = by_id.get(str(seat["ext_id"]))
+        # Presence carries the extension NUMBER, so it independently answers
+        # whether this seat's ext_id really is the extension beside it -- the
+        # question /api/v6/ext-probe exists for, answered here for free.
+        mismatch = None
+        if p and seat.get("ext") and str(p.get("ext_number") or ""):
+            if str(p["ext_number"]) != str(seat["ext"]):
+                mismatch = ("roster says extension %s, but ext_id %s is extension "
+                            "%s (%s) in RingCentral"
+                            % (seat["ext"], seat["ext_id"], p["ext_number"],
+                               p.get("name") or "unnamed"))
+        by_number = by_num.get(str(seat.get("ext") or ""))
+        state, label = _presence_for_seat(p if usable else None)
+        seats.append({
+            "name": seat["name"],
+            "ext": seat["ext"],
+            "ext_id": seat["ext_id"],
+            "state": state,
+            "label": label,
+            # on_call is a conversation in progress, not a ringing phone.
+            "on_call": state == "on_call",
+            "matched": bool(p),
+            "presence_name": (p or {}).get("name") or None,
+            "ext_number_seen": (p or {}).get("ext_number") or None,
+            "ext_mismatch": mismatch,
+            # What the number on the roster resolves to, when it is somebody else.
+            "name_at_this_extension": (by_number or {}).get("name") if by_number else None,
+        })
+
+    return jsonify({
+        "team": team,
+        "seats": seats,
+        "as_of_age_seconds": pmeta["age_seconds"],
+        "stale": pmeta["stale"],
+        "withheld": not usable,
+        # Why there is no answer, so "Not read" never has to be guessed at.
+        "note": pmeta["note"] or (
+            "presence has not been read yet" if pmeta["never_read"] else
+            "the last presence read is more than %ds old, so it is withheld rather "
+            "than shown as current" % (pmeta["ttl_seconds"] * 3) if too_old else None),
+        "agents_seen": len(agents),
+    })
+
+
 @app.route("/api/v6/ext-probe")
 def api_v6_ext_probe():
     """Is this ext_id really that extension number, and has it any calls?

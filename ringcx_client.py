@@ -79,6 +79,12 @@ class RingCXClient:
         # Agent status cache (avoid 62 API calls every 15s)
         self._agents_cache: list[dict] = []
         self._agents_cache_expiry: float = 0
+        # WHEN the presence cache was actually filled, not when it expires. On a
+        # cooldown or an error this reader returns the previous list unchanged,
+        # so without this a twenty-minute-old "on a call" is indistinguishable
+        # from a live one -- and presence is the one figure on the board that is
+        # worthless the moment it is stale.
+        self._agents_cache_at: float = 0.0
         self._ext_names: dict = {}
         self._ext_names_expiry: float = 0.0
         # Why presence is empty. An empty list must never be readable as "nobody
@@ -465,6 +471,30 @@ class RingCXClient:
         self._ext_names_expiry = time.time() + self._EXT_NAMES_TTL
         return names
 
+    def agent_statuses_with_age(self) -> tuple[list[dict], dict]:
+        """(agents, meta) -- presence plus how old it is and why, if it is stale.
+
+        get_agent_statuses() returns the PREVIOUS list unchanged when it is in a
+        cooldown or when the call fails, which is the right call for a monitoring
+        page and a trap for a board: the shape of the answer is identical whether
+        it was read a second ago or twenty minutes ago. Presence is the one figure
+        here that is worthless the moment it is stale -- "on a call" from twenty
+        minutes ago is not a weaker fact, it is a wrong one.
+
+        meta: age_seconds (None if never read), stale (older than its own TTL),
+        note (why, when the fetch stood down), read_at.
+        """
+        agents = self.get_agent_statuses()
+        at = self._agents_cache_at or 0.0
+        age = (time.time() - at) if at else None
+        return agents, {
+            "age_seconds": round(age, 1) if age is not None else None,
+            "stale": bool(age is not None and age > self._AGENTS_CACHE_TTL),
+            "never_read": at == 0.0,
+            "note": self.last_presence_note,
+            "ttl_seconds": self._AGENTS_CACHE_TTL,
+        }
+
     def get_agent_statuses(self) -> list[dict]:
         """Fetch presence status for all extensions via RingEX API.
 
@@ -575,7 +605,8 @@ class RingCXClient:
                 log.info("  On call: %s (%s) — calls: %s", a["name"], a["telephony_status"],
                          a["active_calls"][:2] if a["active_calls"] else "[]")
             self._agents_cache = agents
-            self._agents_cache_expiry = time.time() + self._AGENTS_CACHE_TTL
+            self._agents_cache_at = time.time()
+            self._agents_cache_expiry = self._agents_cache_at + self._AGENTS_CACHE_TTL
             return agents
 
         except Exception as e:
