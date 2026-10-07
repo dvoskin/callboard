@@ -439,6 +439,24 @@ ck("the Collected column survives when the money sits on folded seats",
 ck("the strip and heading say Not Active, not Quiet",
    "</b>Not Active</span>" in html and "Not active today</div>" in html and "</b>Quiet</span>" not in html, "still says Quiet")
 
+# ---- the dashboard's own link ----
+r1 = c.get("/billing-surgical")
+ck("/billing-surgical serves the dashboard", r1.status_code == 200, r1.status_code)
+h1 = r1.get_data(as_text=True)
+ck("with both boards", 'var BOARD_TEAMS = ["billing", "surgical"]' in h1 and 'var FIXED = ""' in h1, "not the two-board landing")
+ck("under the dashboard title", "Surgical Coordinator Dashboard" in h1, "title missing")
+ck("a bad share token is a 404, not a page", c.get("/billing-surgical/board?k=wrong").status_code == 404,
+   c.get("/billing-surgical/board?k=wrong").status_code)
+_tok = A._v6_token_ok
+A._v6_token_ok = lambda: True
+try:
+    r2 = c.get("/billing-surgical/board?k=ok")
+    h2 = r2.get_data(as_text=True)
+    ck("the share form renders both boards without a login",
+       r2.status_code == 200 and 'var BOARD_TEAMS = ["billing", "surgical"]' in h2 and "var SHARE = true" in h2, (r2.status_code, "SHARE" in h2))
+finally:
+    A._v6_token_ok = _tok
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

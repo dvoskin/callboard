@@ -3499,6 +3499,27 @@ def board_surgical_coordinator():
     return _render_team_board("surgical")
 
 
+# The dashboard's own link. Danny, 2026-10-07: "can you make a custom new link
+# for this dashboard". /v6 keeps working; this is the one to bookmark and send.
+# Same gate as /v6 (Google session or the word password), same two boards.
+@app.route("/billing-surgical", methods=["GET", "POST"])
+def board_billing_surgical():
+    return scoreboard_v6()
+
+
+# ...and its no-login share form, for a wall screen or a forwarded link:
+# /billing-surgical/board?k=<BILLING_TOKEN>. 404 rather than 403 on a bad token,
+# like /v6/board, because this URL gets passed around.
+@app.route("/billing-surgical/board")
+def board_billing_surgical_share():
+    if not _v6_token_ok():
+        return ("Not Found", 404)
+    return render_template("scoreboard_v6.html", current_user={},
+                           share_mode=True, share_token=request.args.get("k", ""),
+                           fixed_team=None, board_teams=BOARD_TEAMS,
+                           landing_title=LANDING_TITLE)
+
+
 @app.route("/sales")
 def board_sales():
     return _render_team_board("sales")
