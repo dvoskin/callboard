@@ -74,7 +74,7 @@ try:
     ck("every roster seat is reported", sorted(by) == sorted(ROSTER), sorted(by))
     ck("a connected call is ON CALL",
        by.get("Vivian Martinez", {}).get("on_call") is True, by.get("Vivian Martinez"))
-    ck("and is labelled for a human", by.get("Vivian Martinez", {}).get("label") == "On a call",
+    ck("and is labelled for a human", by.get("Vivian Martinez", {}).get("label") == "On a Call",
        by.get("Vivian Martinez"))
     # A ringing phone is not a conversation. Folding it into "on a call" would
     # overstate how busy the floor is at exactly the moment someone checks.
@@ -84,9 +84,10 @@ try:
        by.get("Yareth Pavon"))
     ck("on hold is NOT on a call", by.get("Gabriela Maldonado", {}).get("on_call") is False,
        by.get("Gabriela Maldonado"))
-    ck("on hold is named", by.get("Gabriela Maldonado", {}).get("label") == "On hold",
+    ck("on hold is named", by.get("Gabriela Maldonado", {}).get("label") == "On Hold",
        by.get("Gabriela Maldonado"))
-    ck("an idle phone is Available", by.get("Ana Salazar", {}).get("state") == "available",
+    ck("an idle phone is Available, the same word RingCX uses", by.get("Ana Salazar", {}).get("state") == "idle"
+   and by.get("Ana Salazar", {}).get("label") == "Available",
        by.get("Ana Salazar"))
 
     # ---- absence is not idleness ----
@@ -94,7 +95,7 @@ try:
     by = {s["name"]: s for s in j.get("seats", [])}
     missing = by.get("Ana Salazar", {})
     ck("a seat absent from presence is NOT READ", missing.get("state") == "unknown", missing)
-    ck("and is not labelled as free", missing.get("label") == "Not read", missing)
+    ck("and is not labelled as free", missing.get("label") == "Not Read", missing)
     ck("and is not claimed to be on a call", missing.get("on_call") is False, missing)
     ck("and says it was not matched", missing.get("matched") is False, missing)
     ck("the seat that WAS reported still reads",
@@ -171,7 +172,7 @@ try:
        by.get("Judith Merlo", {}).get("call"))
     ck("HOLD is on hold, not on a call", by.get("Oscar Caballero", {}).get("state") == "on_hold", by.get("Oscar Caballero"))
     ck("a seat absent from a READ list has no active call (a real negative)",
-       by.get("Johana Duron", {}).get("state") == "idle" and by.get("Johana Duron", {}).get("label") == "No active call",
+       by.get("Johana Duron", {}).get("state") == "idle" and by.get("Johana Duron", {}).get("label") == "Available",
        by.get("Johana Duron"))
     ck("and is not on a call", by.get("Johana Duron", {}).get("on_call") is False, by.get("Johana Duron"))
     ck("the surgical table is no longer withheld", j.get("withheld") is False, j.get("withheld"))
@@ -192,6 +193,20 @@ try:
 finally:
     A._ringcx.active_calls_with_status = _real_cx
     A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+
+# ---- every label is Title Case, and both platforms share the words ----
+_MINOR = {"a", "on", "of", "the", "to"}
+def _title_ok(lbl):
+    return all((w.lower() in _MINOR and i) or w[:1].isupper() for i, w in enumerate(lbl.split()))
+_labels = {v[1] for v in A._PRESENCE_LABELS.values()} | {v[1] for v in A._AVAILABILITY_LABELS.values()} | \
+          {A._LABEL_UNKNOWN[1], A._LABEL_IDLE[1], "Do Not Disturb"} | \
+          {A._cx_call_state({"call_state": k})[1] for k in ("ON_HOLD", "ACTIVE", "RINGING")}
+ck("every pill label is Title Case", all(_title_ok(l) for l in _labels), sorted(l for l in _labels if not _title_ok(l)))
+ck("a free phone is 'Available' on both platforms", A._AVAILABILITY_LABELS["Available"] == A._LABEL_IDLE == ("idle", "Available"),
+   (A._AVAILABILITY_LABELS["Available"], A._LABEL_IDLE))
+ck("a live call is the same word on both platforms",
+   A._PRESENCE_LABELS["CallConnected"][1] == A._cx_call_state({"call_state": "ACTIVE"})[1] == "On a Call",
+   (A._PRESENCE_LABELS["CallConnected"][1], A._cx_call_state({"call_state": "ACTIVE"})[1]))
 
 # ---- presence must not be able to take the board down ----
 called = []

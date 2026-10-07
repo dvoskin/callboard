@@ -344,6 +344,10 @@ ck("the KPI's handled count is unchanged (dials + inbound answered)", pdj.get("c
 ck("the surgical report asks the page to split by direction", jj.get("split_direction") is True, jj.get("split_direction"))
 ck("billing does not", jb.get("split_direction") is False, jb.get("split_direction"))
 
+ck("zero-call seats collapse on the live day", "r r-quiet" in html and "no calls yet today" in html, "quiet-row branch missing")
+ck("the In / Out cell, header and panel lines exist", "'In / Out' : 'Calls'" in html and "line('Inbound'" in html, "direction UI missing")
+ck("data notes fold behind one line", '<details class="notes"><summary>' in html, "notes not folded")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

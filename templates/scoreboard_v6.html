@@ -97,20 +97,36 @@
   .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:0;color:#000;background:#fff;padding:0;
       text-transform:none}
   .bd .sub{margin:0 0 10px}
-  .pz{margin-left:7px;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;
-      border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
-  .pz-on_call{color:#166534;background:#dcfce7}
-  .pz-ringing{color:#854d0e;background:#fef9c3}
-  .pz-on_hold{color:#854d0e;background:#fef9c3}
-  .pz-available{color:#1d4ed8;background:#dbeafe}
-  .pz-busy{color:#9a3412;background:#ffedd5}
-  .pz-dnd{color:#9a3412;background:#ffedd5}
+  .pz{margin-left:7px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;
+      border:1px solid currentColor;white-space:nowrap;vertical-align:1px;letter-spacing:0}
+  /* One vocabulary on every table, whichever platform the seat is read from:
+     On a Call / Ringing / On Hold / Available / Busy / Do Not Disturb /
+     Offline / Not Read. Same pill, same colour for the same word. */
+  .pz-on_call{color:#166534;background:#dcfce7;border-color:#86efac}
+  .pz-ringing{color:#854d0e;background:#fef9c3;border-color:#fde047}
+  .pz-on_hold{color:#854d0e;background:#fef9c3;border-color:#fde047}
+  .pz-idle{color:#1d4ed8;background:#dbeafe;border-color:#93c5fd}
+  .pz-busy{color:#9a3412;background:#ffedd5;border-color:#fdba74}
+  .pz-dnd{color:#9a3412;background:#ffedd5;border-color:#fdba74}
   .pz-offline{color:var(--muted);background:transparent}
-  /* No active call on RingCX: a real reading, shown quietly. */
-  .pz-idle{color:var(--muted);background:transparent;font-weight:600}
-  /* Not read is deliberately the dullest thing on the row: it is the absence of
+  /* Not Read is deliberately the dullest thing on the row: it is the absence of
      a fact, and it must not compete with the states that ARE facts. */
   .pz-unknown{color:var(--muted);background:transparent;font-weight:400;font-style:italic}
+  /* A seat with no calls yet today, on the live day: one quiet line, not a
+     row of zeros the eye has to read past. Expands like any other row. */
+  .r.r-quiet{display:flex;align-items:center;gap:10px;min-height:0;padding:5px 0;
+             border-top:1px solid var(--hair);color:var(--muted)}
+  .r.r-quiet .rk{width:22px;flex:none}
+  .r.r-quiet .nm{flex:1 1 auto;color:var(--ink-2)}
+  .r.r-quiet .qn{font-size:12px;font-style:italic;white-space:nowrap}
+  /* Data notes fold behind one line; the table is what the page is for. */
+  details.notes{margin:12px 0 4px}
+  details.notes>summary{cursor:pointer;font-size:11.5px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);list-style:none;display:flex;gap:8px;align-items:center}
+  details.notes>summary::-webkit-details-marker{display:none}
+  details.notes>summary::before{content:'\25B8';font-size:10px}
+  details.notes[open]>summary::before{content:'\25BE'}
+  details.notes .warn{font-size:12px;padding:6px 9px;margin:6px 0}
   .sms{margin-left:7px;font-size:11px;font-weight:600;color:var(--muted);
        white-space:nowrap}
   .sms b{font-weight:700;color:var(--ink-2)}
@@ -643,6 +659,16 @@
       var band = pace && pace.grades ? (pace.grades.talk_minutes || a.band) : a.band;
       var show = pace ? pace.actual : p;
       var pg = pace && pace.grades ? pace.grades : g;
+      // Danny, 2026-10-07: "collapse users without any active calls for the
+      // day". On the live day a seat with no calls yet is one quiet line.
+      var quiet = live && (((a.totals || {}).calls || 0) === 0);
+      if (quiet) {
+        h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
+          '<div class="rk">' + (i + 1) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+          '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
+          '</div>';
+      } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
@@ -717,6 +743,15 @@
       // SMS detail. Sent and received are shown separately and never summed
       // into one "messages" figure: outbound is work the agent did, inbound is
       // work that arrived, and adding them hides which.
+      // Direction, on the queue tables: what the In / Out cell shows, spelled
+      // out, with how much of the inbound was actually answered.
+      var dirLines = '';
+      if (d.split_direction) {
+        var pdx = a.per_day || {};
+        dirLines = line('Inbound', (pdx.inbound == null ? '\u2014' : pdx.inbound) + ' per day',
+                        (pdx.inbound_answered == null ? '' : pdx.inbound_answered + ' answered per day')) +
+                   line('Outbound', (pdx.outbound == null ? '\u2014' : pdx.outbound) + ' per day', '');
+      }
       var smsLine = '';
       if (a.sms && a.sms.unknown) {
         smsLine = line('SMS', 'not read',
@@ -738,7 +773,7 @@
                                   : 'on track for <b>' + pj + u + '</b>') +
                       (t != null ? ' &middot; target ' + t + u : ''),
                       pace.grades[k] || 'below');
-        }).join('') + wrapLine + smsLine + collLine + '</div>';
+        }).join('') + wrapLine + dirLines + smsLine + collLine + '</div>';
       } else {
         var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
                       connected: tot.connected, long_calls: tot[longKey]};
@@ -747,7 +782,7 @@
           return line(m[1], p[k] + u + '/day',
                       totals[k] + ' total' + (t != null ? ' &middot; target ' + t + u : ''),
                       g[k] || 'below');
-        }).join('') + wrapLine + smsLine + collLine + '</div>';
+        }).join('') + wrapLine + dirLines + smsLine + collLine + '</div>';
       }
 
       // One line, and only facts that are not already on the row or in the
@@ -847,7 +882,10 @@
              x.kind !== 'unknown_seat';
     });
     if (warns.length) {
-      h += '<h2>Data notes</h2>';
+      // Danny, 2026-10-07: "collapse data notes sections slightly". Folded
+      // behind one line with the count; the table is what the page is for.
+      h += '<details class="notes"><summary>' + warns.length + ' data note' +
+           (warns.length === 1 ? '' : 's') + '</summary>';
       warns.forEach(function (x) {
         h += '<div class="warn' + (x.kind === 'incomplete_fetch' ? ' bad' : '') + '">' +
              esc(x.message) +
@@ -855,6 +893,7 @@
                return esc(v[0]) + ' ×' + v[1];
              }).join(', ') + ')' : '') + '</div>';
       });
+      h += '</details>';
     }
 
     var m = d.meta || {};

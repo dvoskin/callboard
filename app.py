@@ -2606,14 +2606,21 @@ def api_v6_warm():
 # Telephony status is the "on a call" axis; presenceStatus is everything else.
 # Ringing and OnHold are deliberately NOT folded into "on a call": a ringing phone
 # is not a conversation, and a floor lead reading this wants the difference.
+# One vocabulary for every table, whichever platform a seat is read from, in
+# Title Case (Danny, 2026-10-07: "make the call status pills uniform between the
+# tables ... Title Case and neat", then "No active call should probably be
+# available"). A free phone is "Available" on both platforms: RingEX's
+# NoCall+Available and RingCX's absence from a read active-calls list.
 _PRESENCE_LABELS = {
-    "CallConnected": ("on_call", "On a call"),
+    "CallConnected": ("on_call", "On a Call"),
     "Ringing": ("ringing", "Ringing"),
-    "OnHold": ("on_hold", "On hold"),
-    "ParkedCall": ("on_hold", "Parked"),
+    "OnHold": ("on_hold", "On Hold"),
+    "ParkedCall": ("on_hold", "On Hold"),
 }
+_LABEL_IDLE = ("idle", "Available")
+_LABEL_UNKNOWN = ("unknown", "Not Read")
 _AVAILABILITY_LABELS = {
-    "Available": ("available", "Available"),
+    "Available": _LABEL_IDLE,
     "Busy": ("busy", "Busy"),
     "Offline": ("offline", "Offline"),
 }
@@ -2628,7 +2635,7 @@ def _presence_for_seat(p):
     "Not on a call" for them would be inventing the most reassuring reading.
     """
     if not p:
-        return "unknown", "Not read"
+        return _LABEL_UNKNOWN
     tel = (p.get("telephony_status") or "").strip()
     if tel in _PRESENCE_LABELS:
         return _PRESENCE_LABELS[tel]
@@ -2636,9 +2643,8 @@ def _presence_for_seat(p):
     # on some accounts while refusing every call.
     dnd = (p.get("dnd_status") or "")
     if dnd.startswith("DoNotAccept"):
-        return "dnd", "Do not disturb"
-    return _AVAILABILITY_LABELS.get((p.get("status") or "").strip(),
-                                    ("unknown", "Not read"))
+        return "dnd", "Do Not Disturb"
+    return _AVAILABILITY_LABELS.get((p.get("status") or "").strip(), _LABEL_UNKNOWN)
 
 
 # RingCX active calls, one read per 30s however many boards are open. The
@@ -2674,10 +2680,10 @@ def _cx_call_state(call):
     else that is an active call with this agent on it is a call in progress."""
     st = (call.get("call_state") or "").upper()
     if "HOLD" in st or "PARK" in st:
-        return "on_hold", "On hold"
+        return "on_hold", "On Hold"
     if "RING" in st or "QUEUE" in st or "OFFER" in st:
         return "ringing", "Ringing"
-    return "on_call", "On a call"
+    return "on_call", "On a Call"
 
 
 @app.route("/api/v6/presence")
@@ -2723,7 +2729,7 @@ def api_v6_presence():
             key = " ".join((seat["name"] or "").split()).lower()
             cl = by_name.get(key)
             if not cx_ok:
-                state, label = "unknown", "Not read"
+                state, label = _LABEL_UNKNOWN
                 note = (cx_meta or {}).get("note") or (cx_meta or {}).get("last_note") or \
                        "RingCX active calls have not been read"
             elif cl:
@@ -2731,7 +2737,8 @@ def api_v6_presence():
                 note = None
             else:
                 # The list is complete, so absence IS the fact here.
-                state, label, note = "idle", "No active call", None
+                state, label = _LABEL_IDLE
+                note = None
             cx_seats_out.append({
                 "name": seat["name"], "ext": seat.get("ext"), "ext_id": seat.get("ext_id"),
                 "state": state, "label": label, "on_call": state == "on_call",
