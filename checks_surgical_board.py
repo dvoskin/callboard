@@ -50,7 +50,7 @@ ck("every scheduling seat is on it", all(n in names for n in sched), names)
 ck("every customer-service seat is on it", all(n in names for n in inb), names)
 ck("nobody is on it twice", len(names) == len(set(names)), names)
 BORROWED = {"Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado"}
-EXTRA = {"Judith Merlo", "Alex Morales", "Chery Marroquin"}
+EXTRA = {"Judith Merlo", "Alex Morales", "Chery Marroquin", "Ana Castro"}
 ck("the three billers are OFF it again (Danny, 2026-10-07)", not (BORROWED & set(names)), names)
 ck("the RingCX-only people Danny listed are on it", EXTRA <= set(names), names)
 ck("and nobody else", set(names) == set(sched) | set(inb) | EXTRA, names)
@@ -178,7 +178,7 @@ finally:
 ck("nobody on the surgical table is asked of RingEX", asked_ex == [], asked_ex)
 ck("everyone is asked of RingCX, in one read",
    set(asked_cx) == set(sched) | set(inb) | EXTRA, asked_cx)
-ck("every seat reaches the report", len(_got.get("rows", {})) == 12, len(_got.get("rows", {})))
+ck("every seat reaches the report", len(_got.get("rows", {})) == 13, len(_got.get("rows", {})))
 # Danny, 2026-10-07: "dont show sms performance for surgical coordinators".
 # Off means not READ either: no message-store budget for a board that hides it.
 ck("the surgical build never reads SMS", _sms_calls == [], _sms_calls)
@@ -254,7 +254,7 @@ try:
        jj.get("team_label"))
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
-    ck("with every seat present", len(all_rows) == 12, len(all_rows))
+    ck("with every seat present", len(all_rows) == 13, len(all_rows))
     ck("the surgical report says SMS is off", jj.get("sms_enabled") is False, jj.get("sms_enabled"))
     ck("no surgical row carries SMS", all(not a.get("sms") for a in all_rows),
        [a["name"] for a in all_rows if a.get("sms")])
@@ -266,7 +266,7 @@ try:
     ck("the page hides the chip when a board has SMS off",
        "sms_enabled === false) return ''" in html, "smsChip not gated on sms_enabled")
     ck("and every one of them in the ranked table, none in a footnote",
-       len(jj.get("ranked", [])) == 12, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
+       len(jj.get("ranked", [])) == 13, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
 finally:
     A._v6_fetch_sms = _real_sms
     if _real_cfg is not None:
@@ -296,13 +296,20 @@ try:
     m = b.get("roster_match_today", {}).get("surgical", {})
     ck("/api/build counts surgical seats seen today", m.get("seats_seen_today") == 1, m)
     ck("and the rows they account for", m.get("rows_matched_today") == 2, m)
-    ck("and knows the roster size", m.get("seats") == 12, m)
+    ck("and knows the roster size", m.get("seats") == 13, m)
     ck("a name on no roster is counted, not named",
        b.get("today_agents_on_no_roster") == 1, b.get("today_agents_on_no_roster"))
     # Blank-agent rows are dropped by the parser before this point, so there is
     # deliberately NO "rows with no agent" figure: it could only ever be 0.
     ck("no always-zero queue-traffic figure is published",
        "today_rows_with_no_agent" not in b, sorted(b))
+    # A person on two rosters (scheduling AND surgical) was listed twice among
+    # the absent; the fixture's day carries only Alex Morales, so everyone else
+    # on the RingCX rosters is absent, each exactly once.
+    ja = c.get("/api/v6/cx-agents?days=1").get_json() or {}
+    _absent = ja.get("ringcx_roster_absent_from_reports", [])
+    ck("the absent list names each person once", len(_absent) == len(set(_absent)), _absent)
+    ck("and does not name the one who was seen", "Alex Morales" not in _absent, _absent)
     ck("no agent NAME leaks through the open endpoint",
        "Alex Morales" not in json.dumps(b) and "Nobody Known" not in json.dumps(b), b)
 finally:

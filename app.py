@@ -1042,14 +1042,18 @@ _COMBINED_TEAMS = {
         # "Chery Marroquin" with one r for the Cherry Danny named -- all seen in
         # the May-July extract). Their bar is the team default below.
         #
-        # Danny's 2026-10-06 list also names Ana Castro and Luisa. Neither is
-        # in any RingCX report and neither has a known RingEX extension, so they
-        # are NOT here: a seat with a guessed source reads as a quiet phone, and
-        # that is worse than a seat that is visibly missing.
+        # Danny's 2026-10-06 list also names Luisa. She is in no RingCX report
+        # (not among the 20 agents on 2026-10-07) and has no known RingEX
+        # extension, so she is NOT here: a seat with a guessed source reads as a
+        # quiet phone, and that is worse than a seat that is visibly missing.
         "extra": [
             {"name": "Judith Merlo",    "source": "ringcx", "ext": "", "ext_id": None},
             {"name": "Alex Morales",    "source": "ringcx", "ext": "", "ext_id": None},
             {"name": "Chery Marroquin", "source": "ringcx", "ext": "", "ext_id": None},
+            # Confirmed 2026-10-07 from /api/v6/cx-agents on prod: "Ana Castro",
+            # 40 interactions that day, on no roster. Newer than the July extract
+            # this machine holds, which is why she looked absent from here.
+            {"name": "Ana Castro",      "source": "ringcx", "ext": "", "ext_id": None},
         ],
     },
 }
@@ -2904,11 +2908,11 @@ def api_v6_cx_agents():
 
     # Roster names with NO report rows: either they are not on RingCX, or they
     # are in it under a different spelling and this is the list to scan.
-    missing = sorted(
+    missing = sorted({
         seat["name"] for tk, seats in _TEAM_ROSTERS.items()
         if _TEAM_SOURCES.get(tk) == "ringcx" for seat in seats
         if seat["name"].strip().lower() not in {n.strip().lower() for n in counts}
-    )
+    })
     return jsonify({
         "window_days": days_back,
         "days_with_delivered_data": days_with_data,
