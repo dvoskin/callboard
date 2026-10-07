@@ -37,7 +37,9 @@ from ringcx_client import RingCXClient
 from billing_report import (build_report as build_billing_report,
                             build_pace_curve, is_connected as _billing_connected,
                             _blank_bucket as _billing_blank_bucket,
-                            _fold as _billing_fold)
+                            _fold as _billing_fold,
+                            DEFAULT_TARGETS as _BILLING_TARGETS,
+                            _PACE_CURVE_DEFAULT as _BILLING_CURVE)
 from v5_report import (build_report as build_v5_report,
                        parse_interaction_csv, CsvShapeError, EmptyReportError,
                        parse_ts as _v5_parse_ts)
@@ -960,26 +962,78 @@ _TEAM_ROSTERS = {
 # because scheduling's median day is 94 talk minutes and customer service's is
 # 133, which is above scheduling's stretch. One bar across both would mark one
 # group down and the other up for doing their own job properly.
-_COMBINED_TEAMS = {"surgical": ("scheduling", "inbound")}
+_COMBINED_TEAMS = {
+    "surgical": {
+        # Whole rosters, as they are. Someone added to either appears here.
+        "parts": ("scheduling", "inbound"),
+        # Borrowed from another roster BY NAME, so an ext_id is never typed a
+        # second time -- a roster rebuilt from memory is how a wrong id gets in.
+        # They keep their own team's bar and curve and are read from RingEX.
+        "borrow": {"billing": ("Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado")},
+        # On no other roster. A RingCX seat is matched by NAME in the delivered
+        # Interaction Report and needs no RingEX extension; the names are the
+        # report's own spelling (Judith Merlo 65 rows, Alex Morales 2,563 rows,
+        # "Chery Marroquin" with one r for the Cherry Danny named -- all seen in
+        # the May-July extract). Their bar is the team default below.
+        #
+        # Danny's 2026-10-06 list also names Ana Castro and Luisa. Neither is
+        # in any RingCX report and neither has a known RingEX extension, so they
+        # are NOT here: a seat with a guessed source reads as a quiet phone, and
+        # that is worse than a seat that is visibly missing.
+        "extra": [
+            {"name": "Judith Merlo",    "source": "ringcx", "ext": "", "ext_id": None},
+            {"name": "Alex Morales",    "source": "ringcx", "ext": "", "ext_id": None},
+            {"name": "Chery Marroquin", "source": "ringcx", "ext": "", "ext_id": None},
+        ],
+    },
+}
+
+# What a seat is measured against, by the roster it came from. Billing's bar
+# and curve live in billing_report as its defaults rather than in TEAM_TARGETS.
+_GROUP_BARS = {"billing": (_BILLING_TARGETS, _BILLING_CURVE)}
+
+
+def _group_bar(group):
+    if group in _GROUP_BARS:
+        return _GROUP_BARS[group]
+    return TEAM_TARGETS.get(group), TEAM_PACE_CURVES.get(group)
 
 
 def _combined_roster(team):
-    """Seats of a combined team, each tagged with the bar it is judged against.
+    """Seats of a combined team, each tagged with the bar it is judged against
+    and the platform it is read from.
 
-    Deduped on name: somebody on both rosters is one person with one row, and
-    the first roster listed wins their targets.
+    Deduped on name across parts, borrows and extras: somebody on two lists is
+    one person with one row, and the first list wins their bar.
     """
+    spec = _COMBINED_TEAMS[team]
     seats, seen = [], set()
-    for part in _COMBINED_TEAMS[team]:
+
+    def _add(seat, group, source=None):
+        if seat["name"] in seen:
+            return
+        seen.add(seat["name"])
+        s = dict(seat)
+        s["group"] = group
+        s["targets"], s["default_curve"] = _group_bar(group)
+        if source:
+            s["source"] = source
+        seats.append(s)
+
+    for part in spec["parts"]:
         for seat in _TEAM_ROSTERS[part]:
-            if seat["name"] in seen:
-                continue
-            seen.add(seat["name"])
-            s = dict(seat)
-            s["group"] = part
-            s["targets"] = TEAM_TARGETS.get(part)
-            s["default_curve"] = TEAM_PACE_CURVES.get(part)
-            seats.append(s)
+            _add(seat, part)
+    for src_team, names in spec.get("borrow", {}).items():
+        by = {x["name"]: x for x in _TEAM_ROSTERS[src_team]}
+        for nm in names:
+            if nm not in by:
+                raise RuntimeError("combined team %r borrows %r from %r, who is not on it"
+                                   % (team, nm, src_team))
+            # Explicit, because the combined team's default may differ from
+            # the roster this seat came from.
+            _add(by[nm], src_team, source=_TEAM_SOURCES[src_team])
+    for seat in spec.get("extra", []):
+        _add(seat, team, source=seat.get("source"))
     return seats
 
 
@@ -1048,6 +1102,11 @@ TEAM_TARGETS = {
         "long_calls":   {"floor": 7, "target": 12, "stretch": 18},
     },
 }
+# A seat on the Surgical Coordinator table that came from no part roster -- the
+# RingCX-only extras -- is judged on the queue bar. Billing's 85-minute median is
+# below customer service's FLOOR; inheriting it would grade queue agents on a
+# dialler's day. Parts and borrowed seats carry their own bar regardless.
+TEAM_TARGETS["surgical"] = TEAM_TARGETS["inbound"]
 
 # The billing roster, so a sheet tab named after one of them matches whatever it
 # is called this month. Set here rather than at construction because the client
@@ -1077,6 +1136,8 @@ TEAM_PACE_CURVES = {
     ],
 }
 
+TEAM_PACE_CURVES["surgical"] = TEAM_PACE_CURVES["inbound"]
+
 # Built HERE, not beside the roster: _combined_roster reads TEAM_TARGETS and
 # TEAM_PACE_CURVES, which are defined above this line and below the roster.
 for _ct, _parts in _COMBINED_TEAMS.items():
@@ -1084,11 +1145,13 @@ for _ct, _parts in _COMBINED_TEAMS.items():
     # Every part is RingCX today. Asserted rather than assumed: a combined team
     # spanning two sources would need the per-seat override, and silently picking
     # one would read the wrong platform for half the table.
-    _sources = {_TEAM_SOURCES[p] for p in _parts}
+    # The PARTS set the team's default platform; a borrowed or extra seat that
+    # works elsewhere carries its own `source`, and the build reads each seat
+    # from its own. The parts themselves must agree, or "default" means nothing.
+    _sources = {_TEAM_SOURCES[p] for p in _parts["parts"]}
     if len(_sources) != 1:
-        raise RuntimeError(
-            "combined team %r spans sources %s; give its seats an explicit "
-            "per-seat source instead of inheriting one" % (_ct, sorted(_sources)))
+        raise RuntimeError("combined team %r: its parts span sources %s"
+                           % (_ct, sorted(_sources)))
     _TEAM_SOURCES[_ct] = _sources.pop()
 
 
@@ -1134,11 +1197,17 @@ def _billing_roster(team=DEFAULT_TEAM):
     roster = raw if isinstance(raw, list) and raw else _TEAM_ROSTERS[team]
     clean = []
     for r in roster:
-        if not isinstance(r, dict) or not r.get("ext_id"):
+        # A RingEX seat is fetched by ext_id and is nothing without one. A RingCX
+        # seat is matched by NAME in the delivered report and may have no RingEX
+        # extension at all -- Judith Merlo and Alex Morales take every call in
+        # RingCX -- so for them a missing ext_id is not a broken seat. SMS and
+        # presence do need the id and say "not read" without it.
+        is_cx = isinstance(r, dict) and (r.get("source") or "") == "ringcx"
+        if not isinstance(r, dict) or not (r.get("ext_id") or (is_cx and r.get("name"))):
             meta.setdefault("skipped", []).append(str(r)[:80])
             continue
         seat = {"name": (r.get("name") or f"ext {r.get('ext') or r['ext_id']}").strip(),
-                "ext_id": r["ext_id"], "ext": str(r.get("ext") or "")}
+                "ext_id": r.get("ext_id"), "ext": str(r.get("ext") or "")}
         # This loop REBUILDS each seat, so any key not copied here is dropped --
         # which would silently turn a RingCX-sourced seat back into a RingEX one
         # and score it on a dead handset. Optional keys are carried only when
@@ -1299,6 +1368,14 @@ def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
     out = {}
     for seat in roster:
         eid = seat["ext_id"]
+        # A RingCX-only seat has no RingEX extension and so no message store.
+        # That is "not read", never zero: the SMS block renders as unknown with
+        # this reason rather than as a quiet phone.
+        if not eid:
+            out[seat["name"]] = {"rows": [], "complete": False,
+                                          "missing_days": list(days),
+                                          "note": "no RingEX extension on this seat"}
+            continue
         rows, missing, fails = [], [], 0
         for day in days:
             is_today = day >= local_today
@@ -1562,56 +1639,69 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
     # Scheduling and Inbound have no usable RingEX activity, so for them the
     # delivered RingCX Interaction Report is not a supplement -- it is the only
     # source. Take it instead of spending RingEX budget on empty seats.
-    if _TEAM_SOURCES.get(team) == "ringcx":
-        cx_by_agent, cx_days, cx_covers = _v6_cx_rows_for_team(team, days, roster)
+    # Every seat is read from ITS platform. A team has a default source and a
+    # seat may override it: billing dials from RingEX while Ana Salazar's calls
+    # sat on RingCX; the Surgical Coordinator table is RingCX by default and
+    # carries three billers whose calls are on RingEX. One partition per
+    # platform, each fetched by its own reader, then merged. Asking RingEX about
+    # a RingCX seat returns the 2-9 unanswered overflow dials a day that made
+    # Ana Salazar look like a failing agent -- not a weaker reading, a wrong one.
+    team_src = _TEAM_SOURCES.get(team, "ringex")
+
+    def _src(seat):
+        return (seat.get("source") or team_src)
+
+    cx_seats = [x for x in roster if _src(x) == "ringcx"]
+    ex_seats = [x for x in roster if _src(x) != "ringcx"]
+    rows_by_agent, data_as_of = {}, None
+    stats = {"cached": 0, "fetched": 0, "missing": 0}
+    if ex_seats:
+        rows_by_agent, stats = _v6_fetch_ringex(ex_seats, days, local_today,
+                                                tz_offset_minutes)
+    if cx_seats and team_src == "ringcx":
+        # The team's own report. A day counts as DELIVERED when the team's agents
+        # appear in it (see _v6_cx_rows_for_team), and that verdict is shared by
+        # every RingCX seat on the board. No delivered report for a day is NOT
+        # "they made no calls" -- it is a day nobody has sent us yet.
+        cx_by_agent, cx_days, cx_covers = _v6_cx_rows_for_team(team, days, cx_seats)
         missing_days = [] if cx_days >= len(days) else ["%d day(s)" % (len(days) - cx_days)]
-        rows_by_agent = {
-            seat["name"]: {
+        for seat in cx_seats:
+            rows_by_agent[seat["name"]] = {
                 **_seat_meta(seat),
                 "rows": cx_by_agent.get(seat["name"], []),
                 "ext": seat["ext"], "ext_id": seat["ext_id"],
-                # No delivered report for a day is NOT "they made no calls" --
-                # it is a day nobody has sent us yet.
                 "complete": cx_days >= len(days),
                 "missing_days": missing_days,
             }
-            for seat in roster
-        }
-        stats = {"cached": cx_days, "fetched": 0, "missing": max(0, len(days) - cx_days)}
+        stats = dict(stats, cached=stats["cached"] + cx_days,
+                     missing=stats["missing"] + max(0, len(days) - cx_days))
         data_as_of = cx_covers.get(local_today)
-    else:
-        # A seat may work a different platform from its team. Billing dials from
-        # RingEX, but Ana Salazar's calls are on RingCX while her collections are
-        # billing's -- so the team splits and each half is read from its own
-        # source. Spending RingEX budget on her dead extension would return the
-        # 2-9 unanswered dials a day that made her look like a failing agent.
-        cx_seats = [x for x in roster if (x.get("source") or "") == "ringcx"]
-        cx_names = {x["name"] for x in cx_seats}
-        ex_seats = [x for x in roster if x["name"] not in cx_names]
-        rows_by_agent, stats = _v6_fetch_ringex(ex_seats, days, local_today,
-                                                tz_offset_minutes)
-        data_as_of = None          # RingEX is queried live; it reaches to now
+    elif cx_seats:
         for seat in cx_seats:
             seat_rows = _v6_cx_rows_for_team(team, days, [seat])[0].get(seat["name"], [])
-            # Coverage is judged by the seat's OWN team on the report, not by the
-            # seat. "She has no rows today" and "today's report does not cover
-            # her team" are different facts: the first is a real zero, the second
-            # is unread, and collapsing them is how a quiet agent and a broken
-            # feed come to look identical. Her teammates are the witnesses that
-            # her scope arrived.
+            # A RingCX seat on a RingEX team. Coverage is judged by the seat's OWN
+            # team on the report, not by the seat: "she has no rows today" and
+            # "today's report does not cover her team" are different facts -- the
+            # first is a real zero, the second is unread -- and collapsing them is
+            # how a quiet agent and a broken feed come to look identical. Her
+            # teammates are the witnesses that her scope arrived.
             covered = _v6_cx_days_covered(days, _TEAM_ROSTERS.get(
                 seat.get("source_team") or "", []))
-            short = len(days) - len(covered)
             rows_by_agent[seat["name"]] = {
                 **_seat_meta(seat),
                 "rows": seat_rows,
                 "ext": seat["ext"], "ext_id": seat["ext_id"],
-                "complete": short <= 0,
+                "complete": len(covered) >= len(days),
                 "missing_days": [d for d in days if d not in covered],
                 "call_source": "RingCX",
                 "always_rank": bool(seat.get("always_rank")),
             }
             stats = dict(stats, cx_seats=stats.get("cx_seats", 0) + 1)
+    # A seat on the OTHER platform from its table says so on its row, whichever
+    # way round: it is why presence shows for some rows and not others.
+    for seat in (ex_seats if team_src == "ringcx" else []):
+        if seat["name"] in rows_by_agent:
+            rows_by_agent[seat["name"]]["call_source"] = "RingEX"
 
     # SMS is read for every team, including the RingCX ones: a seat's texting
     # happens on its RingEX extension whatever platform carries its calls, so
@@ -2438,12 +2528,15 @@ def api_v6_presence():
     # voicemail, so RingEX would report them "Available" all day while they are
     # on back-to-back queue calls. That is not a weaker reading, it is a wrong
     # one, so for a RingCX team nothing is shown and the reason is stated.
-    if _TEAM_SOURCES.get(team) == "ringcx":
+    team_src = _TEAM_SOURCES.get(team, "ringex")
+    cx_note = ("takes calls in RingCX; RingEX presence would describe the "
+               "overflow line, not the person")
+    roster = [x for x in roster if (x.get("source") or team_src) != "ringcx"]
+    if not roster:
         return jsonify({
             "team": team, "seats": [], "withheld": True, "stale": False,
             "as_of_age_seconds": None, "agents_seen": 0,
-            "note": ("this team takes its calls in RingCX; RingEX presence would "
-                     "describe their overflow line, not them"),
+            "note": "every seat on this team " + cx_note,
         })
     agents, pmeta = _ringcx.agent_statuses_with_age()
 

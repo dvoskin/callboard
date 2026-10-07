@@ -35,6 +35,10 @@ def ck(label, cond, got=None):
 import app as A  # noqa: E402
 from billing_report import build_report  # noqa: E402
 
+def by_name(seats, nm):
+    return next((x for x in seats if x["name"] == nm), {})
+
+
 # ---- the combined roster is a view, not a third roster ----
 surg = A._TEAM_ROSTERS["surgical"]
 names = [x["name"] for x in surg]
@@ -43,7 +47,29 @@ inb = [x["name"] for x in A._TEAM_ROSTERS["inbound"]]
 ck("every scheduling seat is on it", all(n in names for n in sched), names)
 ck("every customer-service seat is on it", all(n in names for n in inb), names)
 ck("nobody is on it twice", len(names) == len(set(names)), names)
-ck("and nobody else", set(names) == set(sched) | set(inb), names)
+BORROWED = {"Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado"}
+EXTRA = {"Judith Merlo", "Alex Morales", "Chery Marroquin"}
+ck("the three billers Danny listed are borrowed onto it", BORROWED <= set(names), names)
+ck("the RingCX-only people Danny listed are on it", EXTRA <= set(names), names)
+ck("and nobody else", set(names) == set(sched) | set(inb) | BORROWED | EXTRA, names)
+ck("billing itself is untouched by the borrow",
+   [x["name"] for x in A._TEAM_ROSTERS["billing"]]
+   == ["Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado", "Ana Salazar"],
+   [x["name"] for x in A._TEAM_ROSTERS["billing"]])
+ck("a borrowed biller keeps billing's bar",
+   by_name(surg, "Vivian Martinez")["targets"]["talk_minutes"]["target"]
+   == A._BILLING_TARGETS["talk_minutes"]["target"], by_name(surg, "Vivian Martinez").get("targets"))
+ck("and is read from RingEX", by_name(surg, "Vivian Martinez").get("source") == "ringex",
+   by_name(surg, "Vivian Martinez"))
+ck("and keeps billing's ext_id, not a retyped one",
+   by_name(surg, "Vivian Martinez")["ext_id"] == 405657034, by_name(surg, "Vivian Martinez"))
+ck("a RingCX-only newcomer is read from RingCX",
+   by_name(surg, "Alex Morales").get("source") == "ringcx", by_name(surg, "Alex Morales"))
+ck("and needs no ext_id", by_name(surg, "Alex Morales").get("ext_id") is None,
+   by_name(surg, "Alex Morales"))
+ck("and is judged on the queue bar, not billing's",
+   by_name(surg, "Alex Morales")["targets"]["talk_minutes"]["target"] == 133,
+   by_name(surg, "Alex Morales").get("targets"))
 ck("scheduling is untouched", len(sched) == 4, sched)
 ck("customer service is untouched", len(inb) == 6, inb)
 ck("it is read from RingCX like its parts", A._TEAM_SOURCES["surgical"] == "ringcx",
@@ -88,6 +114,8 @@ ck("_billing_roster keeps group", rb["Jorge Mier"].get("group") == "scheduling",
 ck("_billing_roster keeps targets", bool(rb["Jorge Mier"].get("targets")), rb["Jorge Mier"])
 ck("_billing_roster keeps the curve", bool(rb["Jorge Mier"].get("default_curve")),
    sorted(rb["Jorge Mier"]))
+ck("an ext_id-less RingCX seat survives the roster rebuild",
+   "Alex Morales" in rb and rb["Alex Morales"].get("source") == "ringcx", sorted(rb))
 ck("_seat_meta carries all three",
    set(A._seat_meta(rb["Jorge Mier"])) >= {"group", "targets", "default_curve"},
    A._seat_meta(rb["Jorge Mier"]))
@@ -133,6 +161,41 @@ ck("and has one target group", len(rep1["target_groups"]) == 1, rep1["target_gro
 ck("a seat with no bar of its own uses the board's",
    rep1["ranked"][0]["targets"]["talk_minutes"]["target"] == 94, rep1["ranked"][0]["targets"])
 
+# ---- one build, two platforms ----
+asked_ex, asked_cx = [], []
+_sv = (A._v6_fetch_ringex, A._v6_cx_rows_for_team, A._v6_fetch_sms, A._v6_finish)
+A._v6_fetch_ringex = lambda seats, d_, lt, tz: (asked_ex.extend(x["name"] for x in seats) or
+    ({x["name"]: {"rows": [], "ext": x["ext"], "ext_id": x["ext_id"], "complete": True,
+                  "missing_days": []} for x in seats}, {"cached": 0, "fetched": 0, "missing": 0}))
+A._v6_cx_rows_for_team = lambda t, d_, seats: (asked_cx.extend(x["name"] for x in seats) or
+    ({x["name"]: [] for x in seats}, len(d_), {}))
+A._v6_fetch_sms = lambda r_, d_, lt, tz: ({}, {})
+_got = {}
+A._v6_finish = lambda rows_by_agent, *a, **k: _got.setdefault("rows", rows_by_agent)
+try:
+    A._v6_build("2026-10-05", "2026-10-05", 240, "2026-10-05", team="surgical")
+finally:
+    A._v6_fetch_ringex, A._v6_cx_rows_for_team, A._v6_fetch_sms, A._v6_finish = _sv
+ck("the borrowed billers are asked of RingEX", set(asked_ex) == BORROWED, asked_ex)
+ck("everyone else is asked of RingCX, in one read",
+   set(asked_cx) == set(sched) | set(inb) | EXTRA, asked_cx)
+ck("every seat reaches the report", len(_got.get("rows", {})) == 16, len(_got.get("rows", {})))
+ck("a borrowed biller's row says it is on RingEX",
+   _got.get("rows", {}).get("Vivian Martinez", {}).get("call_source") == "RingEX",
+   _got.get("rows", {}).get("Vivian Martinez"))
+
+# ---- SMS for a seat with no extension is unknown, not zero ----
+_sv_day = A._v6_fetch_sms_day
+A._v6_fetch_sms_day = lambda eid, day, tz: ([], True, "sms")
+try:
+    sms, _ = A._v6_fetch_sms(A._billing_roster("surgical")[0], ["2026-10-05"], "2026-10-05", 240)
+finally:
+    A._v6_fetch_sms_day = _sv_day
+ck("no extension -> SMS not read", sms.get("Alex Morales", {}).get("complete") is False,
+   sms.get("Alex Morales"))
+ck("and the reason is stated", "extension" in (sms.get("Alex Morales", {}).get("note") or ""),
+   sms.get("Alex Morales"))
+
 # ---- presence is a RingEX fact; withheld for a RingCX team ----
 A.app.config["TESTING"] = True
 c = A.app.test_client()
@@ -142,9 +205,14 @@ A._ringcx.agent_statuses_with_age = lambda: ([], {"age_seconds": 1.0, "stale": F
                                                   "ttl_seconds": 60})
 try:
     j = c.get("/api/v6/presence?team=surgical").get_json()
-    ck("presence is withheld for the RingCX team", j.get("withheld") is True, j)
-    ck("with no seats shown as anything", j.get("seats") == [], j.get("seats"))
-    ck("and the reason names RingCX", "RingCX" in (j.get("note") or ""), j.get("note"))
+    pn = [x["name"] for x in j.get("seats", [])]
+    ck("presence covers the RingEX seats on the surgical table",
+       set(pn) == {"Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado"}, pn)
+    ck("and shows nothing for the RingCX seats", "Alex Morales" not in pn and
+       "Jorge Mier" not in pn, pn)
+    ja = c.get("/api/v6/presence?team=scheduling").get_json()
+    ck("an all-RingCX team is withheld with the reason",
+       ja.get("withheld") is True and "RingCX" in (ja.get("note") or ""), ja)
     jb = c.get("/api/v6/presence?team=billing").get_json()
     ck("billing presence is not withheld on that ground",
        "RingCX" not in (jb.get("note") or ""), jb.get("note"))
@@ -160,9 +228,10 @@ ck("the combined team has its own page",
    c.get("/surgical-coordinator").status_code)
 one = c.get("/surgical-coordinator").get_data(as_text=True)
 ck("that page pins ONE board", 'var FIXED = "surgical"' in one, "FIXED not pinned")
-ck("the header names each bar on a mixed table", "d.mixed_targets" in html
-   and "target_groups" in html, "no mixed-target header path")
-ck("rows carry a group chip on a mixed table", "function groupChip" in html, "no groupChip")
+ck("rows carry NO job label (removed at Danny's request)",
+   "groupChip" not in html and "GROUP_LABELS" not in html, "job-label code still in the page")
+ck("a mixed table prints no single headline target",
+   "if (d.mixed_targets" in html, "mixed-target guard missing")
 
 # ---- the report endpoint serves it ----
 # /api/v6/report answers 503 before anything else when RingCentral is not
@@ -183,7 +252,7 @@ try:
        jj.get("team_label"))
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
-    ck("with every seat present", len(all_rows) == 10, len(all_rows))
+    ck("with every seat present", len(all_rows) == 16, len(all_rows))
 finally:
     A._v6_fetch_sms = _real_sms
     if _real_cfg is not None:

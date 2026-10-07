@@ -93,7 +93,8 @@
      other once. A third binary would mean eight desktop and eight phone
      declarations to get wrong. The name cell exists in all of them. */
   .bd+.bd{margin-top:34px;padding-top:22px;border-top:1px solid var(--rule)}
-  .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:-.01em}
+  /* Plain, by request: black on white, nothing else. */
+  .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:0;color:#000;background:#fff;padding:0}
   .bd .sub{margin:0 0 10px}
   .pz{margin-left:7px;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;
       border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
@@ -352,18 +353,6 @@
   // board's own. Without it, Ana Salazar's RingCX zero is indistinguishable from
   // a billing seat that dialled nothing -- the same confusion that read her dead
   // RingEX handset as a failing agent for eleven working days.
-  var GROUP_LABELS = {scheduling: 'Scheduling', inbound: 'Customer Service'};
-
-  // Which job this row is graded as, shown only on a table that holds more than
-  // one. On a single-job board it is the board's name and would be noise.
-  function groupChip(a) {
-    if (!a || !a.group || !(LAST[CUR_SLOT] || {}).mixed_targets) return '';
-    var t = a.targets && a.targets.talk_minutes ? a.targets.talk_minutes.target : '';
-    return '<span class="sms" title="Graded against the ' +
-      esc(GROUP_LABELS[a.group] || a.group) + ' bar' + (t ? ' (' + t + 'm talk)' : '') +
-      '">' + esc(GROUP_LABELS[a.group] || a.group) + '</span>';
-  }
-
   function srcChip(a) {
     if (!a || !a.call_source) return '';
     return '<span class="sms" title="Calls for this seat are read from ' +
@@ -518,21 +507,10 @@
     // Both still sit in the expand panel, next to the figure they qualify.
     var one = function (k, TT) { TT = TT || T; return TT[k] ? TT[k].target : ''; };
     if (d.mixed_targets && (d.target_groups || []).length > 1) {
-      // Two jobs on one table. One "Daily target" line here would be true for
-      // half the rows and wrong for the other half, so each group's bar is
-      // named, and every row is graded against its own (see a.group).
-      (d.target_groups || []).forEach(function (g) {
-        var TT = g.targets || {};
-        h += '<div class="key">' +
-          '<span>' + esc(GROUP_LABELS[g.group] || g.group || 'Target') + '</span>' +
-          '<span>' + esc(one('talk_minutes', TT)) + 'm talk</span>' +
-          '<span>' + esc(one('calls', TT)) + ' calls</span>' +
-          '<span>' + esc(one('connected', TT)) + ' conn</span>' +
-          '<span>' + esc(one('long_calls', TT)) + ' ' + longLbl + '</span>' +
-          '<span><i class="b-below">red is under ' + esc(
-             (TT.talk_minutes || {}).floor || '') + 'm</i></span>' +
-          '</div>';
-      });
+      // Several jobs on one table, and Danny asked for no job labels on it. One
+      // "Daily target" line would be true for some rows and wrong for the rest,
+      // so there is no headline target here at all; each row is still graded
+      // against its own bar, which its expand panel states next to each figure.
     } else {
       h += '<div class="key">' +
         '<span>Daily target</span>' +
@@ -652,7 +630,7 @@
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + groupChip(a) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
