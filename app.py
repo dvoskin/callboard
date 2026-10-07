@@ -641,9 +641,18 @@ def api_build():
         inbox["today_agents_on_no_roster"] = len(set(seen_rows) - rostered)
     except Exception as e:  # noqa: BLE001
         inbox["error"] = str(e)[:200]
+    _ag_meta = _cx_agents_cache["meta"] or {}
     return jsonify({
         "ringcx_inbox": inbox,
         "boots": _recent_boots(),
+        # Whether RingCX's agent-state list answered on this account. Counts
+        # only. A 403/404 here means lunch/break cannot be seen and the pills
+        # fall back to active calls + today's rows.
+        "ringcx_agent_states": {"ok": _ag_meta.get("ok"), "http_error": _ag_meta.get("http_error"),
+                                "note": _ag_meta.get("note") or _ag_meta.get("last_note"),
+                                "agents": len(_cx_agents_cache["agents"]),
+                                "age_minutes": (round((time.time() - _cx_agents_cache["at"]) / 60, 1)
+                                                if _cx_agents_cache["at"] else None)},
         # Render injects this at build time; absent in local dev.
         "commit": os.environ.get("RENDER_GIT_COMMIT") or "unknown",
         "branch": os.environ.get("RENDER_GIT_BRANCH") or "unknown",
@@ -2719,6 +2728,48 @@ def _cx_active_calls():
                 time.time() - _cx_active_cache["at"])
 
 
+_cx_agents_cache = {"at": 0.0, "agents": [], "meta": None}
+
+
+def _cx_agent_states():
+    """(agents, meta, age_seconds) from the cache, refreshed when older than TTL;
+    a failed read keeps the last good list, as the calls cache does."""
+    with _cx_active_lock:
+        age = time.time() - _cx_agents_cache["at"]
+        if _cx_agents_cache["meta"] is not None and age < _CX_ACTIVE_TTL:
+            return _cx_agents_cache["agents"], _cx_agents_cache["meta"], age
+    agents, meta = _ringcx.active_agents_with_status()
+    with _cx_active_lock:
+        if meta.get("ok") or _cx_agents_cache["meta"] is None:
+            _cx_agents_cache.update(at=time.time(), agents=agents, meta=meta)
+        else:
+            _cx_agents_cache["meta"] = dict(_cx_agents_cache["meta"], last_note=meta.get("note"))
+        return (_cx_agents_cache["agents"], _cx_agents_cache["meta"],
+                time.time() - _cx_agents_cache["at"])
+
+
+def _cx_agent_state(raw):
+    """(state, label) for a RingCX agent-state string. The vocabulary is not
+    documented here, so it is matched by substring and anything unrecognised
+    is shown as itself in Title Case rather than guessed into a known bucket."""
+    st = (raw or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if not st:
+        return None
+    if "LUNCH" in st:
+        return "lunch", "On Lunch"
+    if "BREAK" in st or "AWAY" in st or "MEETING" in st or "TRAINING" in st or "PERSONAL" in st:
+        return "break", "On Break"
+    if "WRAP" in st or "WORKING" in st or "AFTER_CALL" in st:
+        return "wrap", "Wrap-Up"
+    if "ENGAGED" in st or "ON_CALL" in st or "ONCALL" in st or "TALK" in st or "CONNECTED" in st:
+        return "on_call", "On a Call"
+    if "AVAIL" in st or "READY" in st or "IDLE" in st:
+        return _LABEL_IDLE
+    if "OFFLINE" in st or "LOGGED_OUT" in st or "LOGOUT" in st:
+        return "offline", "Offline"
+    return "other", " ".join(w.capitalize() for w in st.lower().split("_"))
+
+
 def _cx_call_state(call):
     """(state, label) for one RingCX active call. The callState vocabulary is
     not documented here; HOLD and RING are matched by substring and everything
@@ -2781,9 +2832,20 @@ def api_v6_presence():
             worked_today = {n for n, rows_ in _v6_cx_rows_for_team(team, [_today], cx_roster)[0].items() if rows_}
         except Exception:  # noqa: BLE001
             worked_today = None     # unknown, not "nobody"
+        # RingCX's own agent states, when the account exposes them: Lunch, Break,
+        # Wrap and Available are states the active-calls list cannot see.
+        st_agents, st_meta, st_age = _cx_agent_states()
+        st_ok = bool(st_meta and st_meta.get("ok")) and st_age is not None and st_age < _CX_ACTIVE_TTL * 3
+        st_by_name = {}
+        for ag in st_agents:
+            nm = " ".join((ag.get("agent_name") or "").split()).lower()
+            if nm:
+                st_by_name.setdefault(nm, ag)
         for seat in cx_roster:
             key = " ".join((seat["name"] or "").split()).lower()
             cl = by_name.get(key)
+            ag = st_by_name.get(key) if st_ok else None
+            agst = _cx_agent_state(ag.get("state")) if ag else None
             if not cx_ok:
                 state, label = _LABEL_UNKNOWN
                 note = (cx_meta or {}).get("note") or (cx_meta or {}).get("last_note") or \
@@ -2791,6 +2853,11 @@ def api_v6_presence():
             elif cl:
                 state, label = _cx_call_state(cl)
                 note = None
+            elif agst and agst[0] not in ("on_call",):
+                # The agent's own state wins over inference from calls and rows:
+                # "On Lunch" is a fact RingCX reports, not one we deduce.
+                state, label = agst
+                note = ("RingCX agent state: %s" % ag.get("state")) if agst[0] == "other" else None
             elif worked_today is not None and seat["name"] not in worked_today:
                 # Danny, 2026-10-07: "users who havent started their shift could
                 # be cleanly denoted, and users without any activity recorded".

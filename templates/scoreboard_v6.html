@@ -112,6 +112,9 @@
   .pz-offline{color:var(--muted);background:transparent}
   /* The quiet states: not due yet, finished, or due and silent. Muted, not
      alarming -- none of them is a problem by itself. */
+  .pz-lunch,.pz-break{color:#9a3412;background:#ffedd5;border-color:#fdba74}
+  .pz-wrap{color:#854d0e;background:#fef9c3;border-color:#fde047}
+  .pz-other{color:var(--muted);background:transparent}
   .pz-before_shift{color:var(--muted);background:transparent;border-style:dashed}
   .pz-after_shift{color:var(--muted);background:transparent;border-style:dashed}
   .pz-no_activity{color:#9a3412;background:transparent;border-style:dashed}
@@ -643,16 +646,18 @@
         // "Quiet" is the table's own definition -- no calls and no CRM activity
         // today -- so the strip and the summary line agree. Presence states
         // only split the rest: on a call, free, or not read.
-        var nOn = 0, nFree = 0, nQuiet = quietSeats.length, nUnread = 0;
+        var nOn = 0, nFree = 0, nQuiet = quietSeats.length, nUnread = 0, nAway = 0;
         ranked.concat(silent, stalled, unknown).forEach(function (a) {
           var st = (P[a.name] || {}).state || 'unknown';
-          if (st === 'on_call' || st === 'ringing' || st === 'on_hold') nOn++;
+          if (st === 'on_call' || st === 'ringing' || st === 'on_hold' || st === 'wrap') nOn++;
           else if (st === 'idle' || st === 'busy') nFree++;
           else if (st === 'unknown') nUnread++;
+          else if (st === 'lunch' || st === 'break') nAway++;
         });
         h += '<div class="now">' +
           '<span class="nw on"><b>' + nOn + '</b>On a Call</span>' +
           '<span class="nw"><b>' + nFree + '</b>Available</span>' +
+          (nAway ? '<span class="nw"><b>' + nAway + '</b>On Break</span>' : '') +
           '<span class="nw"><b>' + nQuiet + '</b>Not Active</span>' +
           (nUnread ? '<span class="nw"><b>' + nUnread + '</b>Not Read</span>' : '') +
           (freshCap ? '<span class="cap">' + freshCap + '</span>' : '') +

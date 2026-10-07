@@ -239,13 +239,54 @@ def _title_ok(lbl):
 _labels = {v[1] for v in A._PRESENCE_LABELS.values()} | {v[1] for v in A._AVAILABILITY_LABELS.values()} | \
           {A._LABEL_UNKNOWN[1], A._LABEL_IDLE[1], "Do Not Disturb"} | \
           {A._cx_call_state({"call_state": k})[1] for k in ("ON_HOLD", "ACTIVE", "RINGING")} | \
-          {"No Activity", "Shift Over", A._shift_phase("Alex Morales", __import__("datetime").datetime(2026, 10, 7, 9, 0))[1]}
+          {"No Activity", "Shift Over", A._shift_phase("Alex Morales", __import__("datetime").datetime(2026, 10, 7, 9, 0))[1],
+           "On Lunch", "On Break", "Wrap-Up"}
 ck("every pill label is Title Case", all(_title_ok(l) for l in _labels), sorted(l for l in _labels if not _title_ok(l)))
 ck("a free phone is 'Available' on both platforms", A._AVAILABILITY_LABELS["Available"] == A._LABEL_IDLE == ("idle", "Available"),
    (A._AVAILABILITY_LABELS["Available"], A._LABEL_IDLE))
 ck("a live call is the same word on both platforms",
    A._PRESENCE_LABELS["CallConnected"][1] == A._cx_call_state({"call_state": "ACTIVE"})[1] == "On a Call",
    (A._PRESENCE_LABELS["CallConnected"][1], A._cx_call_state({"call_state": "ACTIVE"})[1]))
+
+# ---- RingCX agent STATES: lunch is lunch, not Available ----
+# Danny, 2026-10-07: "Ana castro shows available but she is in Lunch". The
+# active-calls list cannot see a lunch; the agent-state list can, and wins.
+def stprobe(states, ok=True, note=None, http_error=None, calls=None):
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+    A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
+    A._ringcx.active_calls_with_status = lambda: (calls or [], {"ok": True, "note": None, "read_at": time.time(), "http_error": None})
+    A._ringcx.active_agents_with_status = lambda: (states, {"ok": ok, "note": note, "read_at": time.time(), "http_error": http_error})
+    r = CLIENT.get("/api/v6/presence?team=surgical")
+    return r.get_json() if r.status_code == 200 else {"_http": r.status_code}
+
+_real_cx2 = (A._ringcx.active_calls_with_status, A._ringcx.active_agents_with_status, A._v6_cx_rows_for_team)
+A._v6_cx_rows_for_team = lambda t, d_, seats: ({"Ana Castro": [{"x": 1}], "Judith Merlo": [{"x": 1}]}, 1, {})
+try:
+    j = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"},
+                 {"agent_name": "Judith Merlo", "state": "AVAILABLE"},
+                 {"agent_name": "Oscar Caballero", "state": "ON-BREAK"},
+                 {"agent_name": "Kevin Altamirano", "state": "WRAP"},
+                 {"agent_name": "Angi Fuentes", "state": "SOME_NEW_STATE"}])
+    by = {x["name"]: x for x in j.get("seats", [])}
+    ck("at lunch reads On Lunch, not Available", by.get("Ana Castro", {}).get("label") == "On Lunch", by.get("Ana Castro"))
+    ck("AVAILABLE with rows today reads Available", by.get("Judith Merlo", {}).get("label") == "Available", by.get("Judith Merlo"))
+    ck("ON-BREAK reads On Break", by.get("Oscar Caballero", {}).get("label") == "On Break", by.get("Oscar Caballero"))
+    ck("WRAP reads Wrap-Up", by.get("Kevin Altamirano", {}).get("label") == "Wrap-Up", by.get("Kevin Altamirano"))
+    ck("an unknown state is shown as itself, Title Case, not guessed",
+       by.get("Angi Fuentes", {}).get("label") == "Some New State" and by.get("Angi Fuentes", {}).get("state") == "other",
+       by.get("Angi Fuentes"))
+    # an active call still wins over the agent state
+    j2 = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"}],
+                 calls=[{"agent_name": "Ana Castro", "call_state": "ACTIVE"}])
+    ck("a call in progress outranks the agent state", {x["name"]: x for x in j2["seats"]}["Ana Castro"]["on_call"] is True, j2["seats"][:1])
+    # the endpoint not being available on the account is NOT "everyone available"
+    j3 = stprobe([], ok=False, http_error=403, note="RingCX returned HTTP 403 reading agent states")
+    ck("a 403 on agent states falls back to the calls+rows reading",
+       {x["name"]: x for x in j3["seats"]}["Ana Castro"]["label"] == "Available", {x["name"]: x for x in j3["seats"]}["Ana Castro"])
+finally:
+    A._ringcx.active_calls_with_status, A._ringcx.active_agents_with_status, A._v6_cx_rows_for_team = _real_cx2
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+    A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
 
 # ---- presence must not be able to take the board down ----
 called = []

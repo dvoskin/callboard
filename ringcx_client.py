@@ -301,6 +301,66 @@ class RingCXClient:
             log.error("RingCX active calls error: %s", e)
             return [], meta
 
+    def active_agents_with_status(self) -> tuple[list[dict], dict]:
+        """(agents, meta) -- RingCX's own agent STATES: Available, Lunch, Break,
+        Engaged, Wrap ... from activeAgents/list, the sibling of activeCalls/list.
+
+        The active-calls list says who is ON a call; it cannot say that Ana
+        Castro is at lunch, so a seat between calls read "Available" while she
+        was out (Danny, 2026-10-07). The field names are read loosely
+        (state / agentState / currentState / status) because this endpoint is
+        not documented in this repo; meta says whether it answered at all, so a
+        403 or 404 reads as "not available on this account", never as "everyone
+        is available".
+        """
+        meta = {"ok": False, "note": None, "read_at": time.time(), "http_error": None}
+        try:
+            self._ensure_cx_token()
+            if not self._cx_account_id:
+                meta["note"] = "RingCX account id not set"
+                return [], meta
+            resp = requests.get(
+                f"{self.ringcx_url}/voice/api/v1/admin/accounts/{self._cx_account_id}/activeAgents/list",
+                headers=self._cx_headers(),
+                params={"product": "ACCOUNT", "productId": self._cx_account_id,
+                        "maxRows": 500, "page": 1},
+                timeout=15,
+            )
+            if resp.status_code == 204:
+                meta["ok"] = True
+                return [], meta
+            if not resp.ok:
+                meta["http_error"] = resp.status_code
+                meta["note"] = "RingCX returned HTTP %d reading agent states" % resp.status_code
+                return [], meta
+            data = resp.json()
+            if isinstance(data, dict):
+                rows = data.get("activeAgents") or data.get("records") or data.get("agents") or []
+            elif isinstance(data, list):
+                rows = data
+            else:
+                rows = []
+            out = []
+            for a in rows:
+                if not isinstance(a, dict):
+                    continue
+                name = " ".join(filter(None, [a.get("agentFirstName") or a.get("firstName") or "",
+                                              a.get("agentLastName") or a.get("lastName") or ""])).strip()
+                if not name and a.get("agentName"):
+                    name = str(a.get("agentName")).strip()
+                raw = (a.get("state") or a.get("agentState") or a.get("currentState")
+                       or a.get("status") or a.get("agentStatus") or "")
+                out.append({"agent_id": str(a.get("agentId") or a.get("id") or ""),
+                            "agent_name": name, "state": str(raw),
+                            "pending_state": str(a.get("pendingState") or a.get("pendingAgentState") or ""),
+                            "since": a.get("lastStateChangeTime") or a.get("stateChangeTime") or a.get("since")})
+            meta["ok"] = True
+            return out, meta
+        except Exception as e:  # noqa: BLE001
+            meta["note"] = "RingCX agent states could not be read: %s" % str(e)[:160]
+            log.error("RingCX agent states error: %s", e)
+            return [], meta
+
     def get_active_calls(self) -> list[dict]:
         """Fetch currently active calls from RingCX (Engage Voice).
 
