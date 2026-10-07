@@ -19,6 +19,7 @@ import os
 import sys
 import json
 import pathlib
+import time
 
 os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -366,7 +367,8 @@ def _stub_bd(s_, e_, ids, start_date=None, end_date=None):
     return {"u-judith": {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
                          "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}}
 A._zoho.activity_breakdown = _stub_bd
-A._crm_bd_cache.clear()
+A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
+A._CRM_ASYNC = False          # the checks read inline; production reads on a thread
 A._v6_cache.clear()          # the earlier request cached rows without CRM on them
 try:
     _cls.configured = property(lambda self: True)
@@ -375,7 +377,8 @@ try:
     jb2 = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
 finally:
     A._zoho.list_users, A._zoho.activity_breakdown = _real_users, _real_bd
-    A._crm_bd_cache.clear()
+    A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
+    A._CRM_ASYNC = True
     if _real_cfg is not None: _cls.configured = _real_cfg
     else: delattr(_cls, "configured")
     A._v6_fetch_sms = _real_sms
@@ -500,6 +503,26 @@ ck("the back-office share token is NOT in the repository (it is public)", _leak 
 ck("the framed board is a live preview card that opens a new tab",
    '<a class="pv" href="' in html and 'target="_blank" rel="noopener"' in html and "pointer-events:none" in html
    and 'class="pv-live">Live</span>' in html and 'scrolling="no"' in html, "preview card markup/CSS missing")
+
+# ---- in production the first CRM read must not hold the request ----
+import threading as _th
+_gate = _th.Event(); _ran = _th.Event()
+def _slow_bd(s_, e_, ids, start_date=None, end_date=None):
+    _gate.wait(5); _ran.set(); return {}
+A._zoho.list_users = lambda: {"u-judith": "Judith Merlo"}
+A._zoho.activity_breakdown = _slow_bd
+A._crm_bd_cache.clear(); A._crm_bd_inflight.clear(); A._CRM_ASYNC = True
+try:
+    _rep = {"ranked": [{"name": "Judith Merlo"}], "silent": [], "stalled": [], "unknown": []}
+    _t0 = time.time(); A._attach_crm_created(_rep, "2026-07-29T00:00:00-04:00", "2026-07-29T23:59:59-04:00"); _took = time.time() - _t0
+    ck("the request does not wait for a cold CRM read", _took < 1.0, round(_took, 2))
+    ck("and says the read is in progress, not 0", _rep["ranked"][0]["crm"] is None and "being read" in (_rep.get("crm_meta") or {}).get("error", ""), _rep.get("crm_meta"))
+    _gate.set()
+    ck("the read does run, on a thread", _ran.wait(5), "breakdown never ran")
+finally:
+    _gate.set()
+    A._zoho.list_users, A._zoho.activity_breakdown = _real_users, _real_bd
+    A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
 
 print("%d passed" % passed)
 for e in errors:

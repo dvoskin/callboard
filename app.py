@@ -3996,6 +3996,48 @@ _v5_crm_lock = threading.Lock()
 _CRM_BD_TTL = 300.0
 _crm_bd_cache: dict = {}
 _crm_bd_lock = threading.Lock()
+_crm_bd_inflight: set = set()
+# OFF the request path, like the ingest snapshot. The breakdown is up to six
+# Zoho calls in a row, each with a 25s timeout: cold, with Zoho slow, that
+# outlives gunicorn's 90s worker timeout and the worker is killed -- a
+# "restart without deploy" in the boot log, seen at 18:23:40 UTC on
+# 2026-10-07, two minutes after a deploy, when the first surgical report of
+# the new process ran it inline. Now the first request starts the read on a
+# thread and answers "being read"; the next poll serves it from the cache.
+_CRM_ASYNC = True
+
+
+def _crm_breakdown_read(key, names, start_iso, end_iso):
+    """Fill the breakdown cache for one window. Runs on a thread in production;
+    the checks run it inline. Never raises: a failure is cached briefly as an
+    error so every row reads 'not read' with the reason rather than 0."""
+    by, meta = None, {"cached": False}
+    try:
+        users = _zoho.list_users()                       # id -> full name
+        if not users:
+            meta["error"] = "CRM users could not be read, so nothing can be attributed"
+        else:
+            id_by_name = {_norm_name(full): uid for uid, full in users.items()}
+            wanted = {n: id_by_name.get(_norm_name(n)) for n in names}
+            ids = sorted({uid for uid in wanted.values() if uid})
+            raw = _zoho.activity_breakdown(start_iso, end_iso, ids,
+                                           start_date=start_iso[:10], end_date=end_iso[:10])
+            by = {}
+            for name, uid in wanted.items():
+                if uid:
+                    by[name] = raw.get(uid) or {
+                        "calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0},
+                        "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}}
+            meta["attribution"] = "id"
+            meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
+    except Exception as e:  # noqa: BLE001
+        by, meta = None, {"error": "CRM read failed: %s" % str(e)[:160]}
+    with _crm_bd_lock:
+        # an error is kept only briefly, so the next poll tries again
+        _crm_bd_cache[key] = {"at": time.time() - (_CRM_BD_TTL - 60 if by is None else 0),
+                              "by": by, "meta": meta}
+        _crm_bd_inflight.discard(key)
+    return by, meta
 
 
 def _attach_crm_created(report, start_iso, end_iso):
@@ -4015,32 +4057,23 @@ def _attach_crm_created(report, start_iso, end_iso):
     now = time.time()
     with _crm_bd_lock:
         hit = _crm_bd_cache.get(key)
-    if hit and now - hit["at"] < _CRM_BD_TTL:
+        fresh = bool(hit and now - hit["at"] < _CRM_BD_TTL)
+        start_read = not fresh and key not in _crm_bd_inflight
+        if start_read:
+            _crm_bd_inflight.add(key)
+    names = [a["name"] for a in rows]
+    if fresh:
         by, meta = hit["by"], dict(hit["meta"], cached=True)
+    elif start_read and not _CRM_ASYNC:
+        by, meta = _crm_breakdown_read(key, names, start_iso, end_iso)
     else:
-        by, meta = None, {"cached": False}
-        try:
-            users = _zoho.list_users()                       # id -> full name
-            if not users:
-                meta["error"] = "CRM users could not be read, so nothing can be attributed"
-            else:
-                id_by_name = {_norm_name(full): uid for uid, full in users.items()}
-                wanted = {a["name"]: id_by_name.get(_norm_name(a["name"])) for a in rows}
-                ids = sorted({uid for uid in wanted.values() if uid})
-                raw = _zoho.activity_breakdown(start_iso, end_iso, ids,
-                                               start_date=start_iso[:10], end_date=end_iso[:10])
-                by = {}
-                for name, uid in wanted.items():
-                    if uid:
-                        by[name] = raw.get(uid) or {
-                            "calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0},
-                            "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}}
-                meta["attribution"] = "id"
-                meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
-                with _crm_bd_lock:
-                    _crm_bd_cache[key] = {"at": time.time(), "by": by, "meta": meta}
-        except Exception as e:  # noqa: BLE001
-            by, meta = None, {"error": "CRM read failed: %s" % str(e)[:160]}
+        if start_read:
+            threading.Thread(target=_crm_breakdown_read, args=(key, names, start_iso, end_iso),
+                             name="crm-breakdown", daemon=True).start()
+        # a stale entry is better than nothing while the fresh one is read
+        by = hit["by"] if hit else None
+        meta = dict(hit["meta"], cached=True, stale=True) if hit else \
+               {"cached": False, "error": "CRM is being read; reload in a moment"}
     for a in rows:
         a["crm"] = (by or {}).get(a["name"]) if by else None
         # kept for anything still reading the single number
