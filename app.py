@@ -1132,6 +1132,9 @@ TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
 # Which teams the one link shows, in order. "The same link as the biller one"
 # means one page, two tables -- not a switcher.
 BOARD_TEAMS = ["billing", "surgical"]
+# The landing page's own name, over both boards. Danny, 2026-10-07: "change the
+# name of the link to something like Billing & Surgical Coordinator Dashboard".
+LANDING_TITLE = "Billing & Surgical Coordinator Dashboard"
 
 # Which phone platform a team actually WORKS on. This is not cosmetic: measured
 # over 2026-05-26..08-23, billing dials from RingEX (Vivian: 5,881 outbound,
@@ -3365,7 +3368,8 @@ def scoreboard_v6():
                                # The landing link shows every board in
                                # BOARD_TEAMS; an explicit ?team= still wins in
                                # the page script and renders one.
-                               board_teams=BOARD_TEAMS)
+                               board_teams=BOARD_TEAMS,
+                               landing_title=LANDING_TITLE)
     if not V5_PASSWORDS:
         return redirect("/login")
     return render_template("v5_password.html", error=error), (401 if error else 200)

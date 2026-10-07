@@ -93,6 +93,7 @@
      other once. A third binary would mean eight desktop and eight phone
      declarations to get wrong. The name cell exists in all of them. */
   .bd+.bd{margin-top:34px;padding-top:22px;border-top:1px solid var(--rule)}
+  .bd:first-child{margin-top:6px}
   /* Plain, by request: black on white, nothing else. */
   .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:0;color:#000;background:#fff;padding:0;
       text-transform:none}
@@ -332,6 +333,7 @@
   // one team still renders exactly one, unchanged -- MULTI_BOARD is only the
   // default landing page, where Billing and Surgical Coordinator sit together.
   var BOARD_TEAMS = {{ (board_teams or [])|tojson }};
+  var LANDING_TITLE = {{ (landing_title or '')|tojson }};
   var TEAM = FIXED || (new URLSearchParams(location.search).get('team') || '').toLowerCase();
   var BOARDS = TEAM ? [TEAM] : (BOARD_TEAMS.length ? BOARD_TEAMS : ['']);
   var MULTI_BOARD = BOARDS.length > 1;
@@ -346,16 +348,20 @@
     if (SLOTS_READY) return;
     if (!MULTI_BOARD) { SLOTS_READY = true; return; }
     var html = '';
-    BOARDS.forEach(function (t, i) {
-      // The first board is the page, as it always was: it owns the h1 and the
-      // summary line under it, and gets no second heading. Boards after it get
-      // the plain h2 and their own summary line.
+    BOARDS.forEach(function (t) {
+      // The page is the dashboard; each board under it has its own plain
+      // heading and its own summary line.
       html += '<section class="bd">' +
-              (i ? '<h2 class="bt" id="bt_' + slotId(t) + '">\u2026</h2>' +
-                   '<p class="sub" id="sub_' + slotId(t) + '"></p>' : '') +
+              '<h2 class="bt" id="bt_' + slotId(t) + '">\u2026</h2>' +
+              '<p class="sub" id="sub_' + slotId(t) + '"></p>' +
               '<div id="' + slotId(t) + '"></div></section>';
     });
     document.getElementById('out').innerHTML = html;
+    if (LANDING_TITLE) {
+      document.getElementById('title').textContent = LANDING_TITLE;
+      document.title = LANDING_TITLE;
+    }
+    document.getElementById('sub').textContent = '';
     SLOTS_READY = true;
   }
 
@@ -519,9 +525,9 @@
     var longKey = 'over_' + LONG + 's';
     var multi = (d.window || {}).start !== (d.window || {}).end;
 
-    // The page title follows the FIRST board, which is what the billing link
-    // showed before a second board joined it.
-    if (d.team_label && (!MULTI_BOARD || slot === slotId(BOARDS[0]))) {
+    // A single-board page is titled by its board; the landing page keeps the
+    // dashboard name set when its sections were built.
+    if (d.team_label && !MULTI_BOARD) {
       $('title').textContent = d.team_label + ' KPI Board';
       document.title = d.team_label + ' KPI Board';
     }
@@ -893,7 +899,11 @@
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">&ndash;</div>' +
         '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
-        '<div class="qn">' + (a.complete ? '' : 'not read yet') + '</div>' +
+        // Danny, 2026-10-07, on six quiet seats reading only "No Activity":
+        // "not showing any shift sched". They have no shift on file -- the
+        // schedule sheet named eleven people -- and the line now says so,
+        // because a bare "No Activity" reads as a verdict on the person.
+        '<div class="qn">' + (!a.complete ? 'not read yet' : (a.shift ? '' : 'no shift on file')) + '</div>' +
         '</div>';
     });
 
@@ -1115,7 +1125,7 @@
       });
   }
 
-  function subFor(t, i) { return (MULTI_BOARD && i) ? 'sub_' + slotId(t) : 'sub'; }
+  function subFor(t, i) { return MULTI_BOARD ? 'sub_' + slotId(t) : 'sub'; }
 
   function load() {
     ensureSlots();

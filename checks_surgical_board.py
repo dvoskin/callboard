@@ -235,9 +235,14 @@ one = c.get("/surgical-coordinator").get_data(as_text=True)
 ck("that page pins ONE board", 'var FIXED = "surgical"' in one, "FIXED not pinned")
 ck("rows carry NO job label (removed at Danny's request)",
    "groupChip" not in html and "GROUP_LABELS" not in html, "job-label code still in the page")
-ck("the first board keeps the page's own heading (billing looks as it did)",
-   "slot === slotId(BOARDS[0])" in html and "(i ? '<h2 class=\"bt\"" in html,
-   "first board no longer owns the h1 / gets a second heading")
+ck("the landing page is named as a dashboard over both boards",
+   ('var LANDING_TITLE = "Billing \\u0026 Surgical Coordinator Dashboard"' in html
+    or 'var LANDING_TITLE = "Billing & Surgical Coordinator Dashboard"' in html)
+   and A.LANDING_TITLE == "Billing & Surgical Coordinator Dashboard",
+   "landing title missing")
+ck("every board on it has its own plain heading and summary line",
+   "'<h2 class=\"bt\" id=\"bt_' + slotId(t) + '\">" in html and "(i ? '<h2" not in html, "boards not uniformly headed")
+ck("a single-board page is still titled by its board", "if (d.team_label && !MULTI_BOARD) {" in html, "single-board title lost")
 ck("row ids are scoped to the board, so two boards do not collide",
    "var id = slot + '_d' + i;" in html and "var id = 'd' + i;" not in html,
    "row ids not scoped by slot")
@@ -408,6 +413,8 @@ ck("a table of only quiet seats is not an empty board",
    "&& !unknown.length && !quietSeats.length) {" in html, "empty-state check ignores quiet seats")
 ck("quiet seats count in the headline seat total",
    "unknown.length + quietSeats.length;" in html, "seatsAll excludes quiet seats")
+
+ck("a quiet seat with no shift on file says so", "'no shift on file'" in html, "quiet line silent about a missing shift")
 
 print("%d passed" % passed)
 for e in errors:
