@@ -650,6 +650,7 @@ def api_build():
         # fall back to active calls + today's rows.
         "ringcx_agent_states": {"ok": _ag_meta.get("ok"), "http_error": _ag_meta.get("http_error"),
                                 "note": _ag_meta.get("note") or _ag_meta.get("last_note"),
+                                "path": _ag_meta.get("path"), "tried": _ag_meta.get("tried"),
                                 "agents": len(_cx_agents_cache["agents"]),
                                 "age_minutes": (round((time.time() - _cx_agents_cache["at"]) / 60, 1)
                                                 if _cx_agents_cache["at"] else None)},

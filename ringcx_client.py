@@ -313,25 +313,46 @@ class RingCXClient:
         403 or 404 reads as "not available on this account", never as "everyone
         is available".
         """
-        meta = {"ok": False, "note": None, "read_at": time.time(), "http_error": None}
+        meta = {"ok": False, "note": None, "read_at": time.time(), "http_error": None,
+                "tried": [], "path": None}
         try:
             self._ensure_cx_token()
             if not self._cx_account_id:
                 meta["note"] = "RingCX account id not set"
                 return [], meta
-            resp = requests.get(
-                f"{self.ringcx_url}/voice/api/v1/admin/accounts/{self._cx_account_id}/activeAgents/list",
-                headers=self._cx_headers(),
-                params={"product": "ACCOUNT", "productId": self._cx_account_id,
-                        "maxRows": 500, "page": 1},
-                timeout=15,
-            )
+            base = f"{self.ringcx_url}/voice/api/v1/admin/accounts/{self._cx_account_id}"
+            # The exact path is not documented here. /activeAgents/list, the
+            # obvious sibling of /activeCalls/list, answered 404 on this account
+            # on 2026-10-07, so each candidate is tried in turn, the first that
+            # answers is remembered, and every status code is reported in meta --
+            # the deploy itself is the probe, since this machine has no RingCX
+            # credentials.
+            candidates = [
+                ("/activeAgents/list", {"product": "ACCOUNT", "productId": self._cx_account_id,
+                                        "maxRows": 500, "page": 1}),
+                ("/activeAgents", {"product": "ACCOUNT", "productId": self._cx_account_id}),
+                ("/activeAgents/list", {}),
+                ("/agents/active", {}),
+                ("/agentStates", {}),
+                ("/realtime/agents", {}),
+            ]
+            if getattr(self, "_cx_agent_state_path", None):
+                candidates = [c for c in candidates if c[0] == self._cx_agent_state_path] + candidates
+            resp = None
+            for path, params in candidates:
+                r = requests.get(base + path, headers=self._cx_headers(), params=params, timeout=15)
+                meta["tried"].append({"path": path, "http": r.status_code})
+                if r.status_code in (200, 204):
+                    resp, meta["path"] = r, path
+                    self._cx_agent_state_path = path
+                    break
+            if resp is None:
+                meta["http_error"] = meta["tried"][0]["http"] if meta["tried"] else None
+                meta["note"] = ("no RingCX agent-state endpoint answered: "
+                                + ", ".join("%s %s" % (t["path"], t["http"]) for t in meta["tried"]))
+                return [], meta
             if resp.status_code == 204:
                 meta["ok"] = True
-                return [], meta
-            if not resp.ok:
-                meta["http_error"] = resp.status_code
-                meta["note"] = "RingCX returned HTTP %d reading agent states" % resp.status_code
                 return [], meta
             data = resp.json()
             if isinstance(data, dict):
