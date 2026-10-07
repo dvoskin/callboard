@@ -575,3 +575,11 @@ ck("the page drops the column and its heading where pace_column is false",
    "var paceCol = live && d.pace_column !== false;" in _tpl2 and "(paceCol ? '<div class=\"a-pc\">vs expected</div>' : '')" in _tpl2
    and "(paceCol ? paceCell(pace, 'talk_minutes', 'm') : '')" in _tpl2 and ".live.nopace .hd,.live.nopace .r{" in _tpl2 and ".live.nopace .r{grid-template-areas:\"nm tk tk\"" in _tpl2, "pace column not gated")
 ck("the subtle SMS chip is back", "var SHOW_SMS_CHIP = true;" in _tpl2, "SMS chip still off")
+
+# ---- phones: the no-pace grid keeps three columns; a live call is a dot; no Listen/Whisper ----
+_ph = _tpl2.split("@media(max-width:560px)", 1)[1]
+ck("the phone column rule names the no-pace variants (or the name sits in the 20px rank column)",
+   ".live.nopace .r,.live.nopace.hascoll .r{\n      grid-template-columns:minmax(0,1fr) 60px 56px;" in _ph, "nopace rows keep desktop columns on phones")
+ck("on phones Listen/Whisper are hidden and On a Call is a green dot",
+   ".mon{display:none}" in _ph and ".pz.pz-on_call{font-size:0" in _ph and "border-radius:50%;background:#16a34a" in _ph, "phone dot/monitor rules missing")
+ck("and the SMS arrows are NOT hidden on phones (every seat, both boards)", ".sms{display:none}" not in _ph and ".sms{font-size:10px" in _ph, "SMS chip hidden on phones")
