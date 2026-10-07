@@ -148,6 +148,8 @@
   details.notes>summary::before{content:'\25B8';font-size:10px}
   details.notes[open]>summary::before{content:'\25BE'}
   details.notes .warn{font-size:12px;padding:6px 9px;margin:6px 0}
+  details.subfold{margin:-4px 0 8px}
+  details.subfold .sub{margin:6px 0 0;font-size:12px}
   .sms{margin-left:7px;font-size:11px;font-weight:600;color:var(--muted);
        white-space:nowrap}
   .sms b{font-weight:700;color:var(--ink-2)}
@@ -620,7 +622,11 @@
     if (d.meta && d.meta.complete === false) {
       sub += ' &middot; <b>still fetching</b>';
     }
-    $(subId).innerHTML = sub;
+    // On the live day the summary line is folded under the strip, which
+    // already says who is on a call, free, quiet and unread. Danny,
+    // 2026-10-07: "Collapse the summary line under the strip too". A finished
+    // range has no strip, so its summary line stays where it was.
+    $(subId).innerHTML = d.live ? '' : sub;
 
     var h = '';
     // The glance strip (live day only): who is on a call, who is free, who is
@@ -651,6 +657,8 @@
           (freshCap ? '<span class="cap">' + freshCap + '</span>' : '') +
           '</div>';
       }
+      h += '<details class="notes subfold"><summary>Summary</summary>' +
+           '<p class="sub">' + sub + '</p></details>';
     }
     // The TARGET only. Floor and stretch were on this line too -- twelve numbers
     // to read before the first agent, to explain a scale that is now one colour.

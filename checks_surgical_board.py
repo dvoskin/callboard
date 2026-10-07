@@ -428,6 +428,10 @@ ck("the live strip exists and agrees with the table's quiet count",
    "class=\"now\"" in html and "nQuiet = quietSeats.length" in html, "live strip missing")
 ck("the panel is grouped", "grp('Quality')" in html and "grp('Schedule &amp; line')" in html, "panel not grouped")
 
+ck("on the live day the summary line folds under the strip",
+   "$(subId).innerHTML = d.live ? '' : sub;" in html and '<details class="notes subfold"><summary>Summary</summary>' in html,
+   "summary line not folded on the live day")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)
