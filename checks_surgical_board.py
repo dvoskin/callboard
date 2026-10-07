@@ -325,6 +325,25 @@ finally:
     A.RINGCX_INBOX_DIR = _real_inbox
     A._inbox_parse_cache.clear()
 
+# ---- inbound and outbound shown separately on the queue tables ----
+# Danny, 2026-10-07: "show inbound and outbound interactions for each agent not
+# just outbound on the surgical coordinator table".
+def _r(direction, result):
+    return {"direction": direction, "result": result, "duration": 60,
+            "start_time": "2026-10-05T14:00:00.000Z"}
+rd = build_report({"Judith Merlo": {"rows": [
+    _r("Inbound", "Accepted"), _r("Inbound", "Missed"),
+    _r("Outbound", "Call connected"), _r("Outbound", "No Answer"), _r("Outbound", "No Answer"),
+], "ext": "", "ext_id": None, "complete": True}}, tz_offset_minutes=240,
+    window={"start": "2026-10-05", "end": "2026-10-05"})
+pdj = rd["ranked"][0]["per_day"]
+ck("inbound interactions per day counts answered AND missed", pdj.get("inbound") == 2.0, pdj)
+ck("inbound answered is carried separately", pdj.get("inbound_answered") == 1.0, pdj)
+ck("outbound interactions per day counts every dial", pdj.get("outbound") == 3.0, pdj)
+ck("the KPI's handled count is unchanged (dials + inbound answered)", pdj.get("calls") == 4.0, pdj)
+ck("the surgical report asks the page to split by direction", jj.get("split_direction") is True, jj.get("split_direction"))
+ck("billing does not", jb.get("split_direction") is False, jb.get("split_direction"))
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

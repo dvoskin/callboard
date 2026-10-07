@@ -2268,6 +2268,11 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # False means the board neither reads nor shows SMS; the page hides every
     # SMS element on it rather than rendering "not read" for each seat.
     report["sms_enabled"] = _team_sms_enabled(team)
+    # Danny, 2026-10-07: "show inbound and outbound interactions for each agent
+    # not just outbound on the surgical coordinator table". The queue teams'
+    # work is mostly inbound; one handled-calls number hides that. RingEX
+    # billing keeps a single Calls column: it dials.
+    report["split_direction"] = _TEAM_SOURCES.get(team) == "ringcx"
     if as_of_note:
         report["data_as_of"] = as_of_note
     # The board used to print "Source: RingEX per-extension call log" on every

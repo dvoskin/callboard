@@ -622,7 +622,7 @@
       '<div class="a-rk"></div><div class="a-nm">Agent</div>' +
       '<div class="a-tk">' + (live ? 'So far' : 'Talk/day') + '</div>' +
       (live ? '<div class="a-pc">vs expected</div>' : '') +
-      '<div class="a-c">Calls</div>' +
+      '<div class="a-c">' + (d.split_direction ? 'In / Out' : 'Calls') + '</div>' +
       '<div class="a-cn">Conn</div><div class="a-lg">' + longLbl + '</div>' +
       (hasColl ? '<div class="a-co">Collected</div>' : '') + '</div>';
 
@@ -650,7 +650,14 @@
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
-        cell('c', show.calls, pg.calls || 'below', 'Calls') +
+        // Queue teams show the two directions; one handled-calls number hid
+        // that a surgical coordinator's day is mostly inbound. The colour
+        // still grades the KPI (handled calls), which is what has a target.
+        (d.split_direction
+          ? cell('c', (show.inbound == null ? '\u2014' : show.inbound) + ' / ' +
+                      (show.outbound == null ? '\u2014' : show.outbound),
+                 pg.calls || 'below', 'In / Out')
+          : cell('c', show.calls, pg.calls || 'below', 'Calls')) +
         cell('cn', show.connected, pg.connected || 'below', 'Conn') +
         cell('lg', show.long_calls, pg.long_calls || 'below', longLbl) +
         (hasColl ? '<div class="co"><span class="lbl">Collected </span><b>' +

@@ -373,6 +373,13 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             # same kind, and this one is a fortnight's worth.
             "wrap_minutes": round(wtot["wrap_seconds"] / 60.0 / n, 1),
             "calls": round(wtot["handled_calls"] / n, 1),
+            # Direction, for the queue teams. `calls` is the KPI's handled
+            # count (dials + inbound answered); these are the raw interactions
+            # by direction, so a queue agent's day reads as what it was --
+            # mostly inbound -- rather than as a small outbound number.
+            "inbound": round(wtot["inbound"] / n, 1),
+            "inbound_answered": round(wtot["inbound_answered"] / n, 1),
+            "outbound": round(wtot["dials"] / n, 1),
             "connected": round(wtot["connected"] / n, 1),
             "long_calls": round(wtot[f"over_{long_call_seconds}s"] / n, 1),
             "talk_minutes": round(wtot["talk_seconds"] / 60.0 / n, 1),
@@ -425,6 +432,9 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             actual = {
                 "talk_minutes": round(today_b["talk_seconds"] / 60.0, 1),
                 "calls": today_b["handled_calls"],
+                "inbound": today_b["inbound"],
+                "inbound_answered": today_b["inbound_answered"],
+                "outbound": today_b["dials"],
                 "connected": today_b["connected"],
                 "long_calls": today_b[f"over_{long_call_seconds}s"],
             }
@@ -434,6 +444,10 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                     "actual": actual, "expected": {}, "projected": {}, "ratio": {},
                     "grades": {}}
             for k, v in actual.items():
+                # Only the KPI metrics have a bar. The direction counts ride in
+                # `actual` for display and are not projected or graded.
+                if k not in seat_targets:
+                    continue
                 tgt_full = seat_targets[k]["target"]
                 exp = tgt_full * frac
                 pace["expected"][k] = round(exp, 1)
