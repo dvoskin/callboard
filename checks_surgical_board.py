@@ -355,12 +355,15 @@ ck("but still in the expand panel", "['connected', 'Connected', '']" in html and
 ck("no grid area still names the removed columns", " cn lg" not in html and '"c  cn lg"' not in html, "stale grid areas")
 
 # ---- Zoho CRM activities created, on each surgical row ----
-_real_crm = A._v5_activities_created
 _seen_window = {}
-def _stub_crm(s_, e_, names=None):
-    _seen_window["start"], _seen_window["end"] = s_, e_
-    return {A._norm_name("Judith Merlo"): 7, A._norm_name("Alex Morales"): None}, {"cached": False, "attribution": "id"}
-A._v5_activities_created = _stub_crm
+_real_users, _real_bd = A._zoho.list_users, A._zoho.activity_breakdown
+A._zoho.list_users = lambda: {"u-judith": "Judith Merlo", "u-oscar": "Oscar Caballero"}
+def _stub_bd(s_, e_, ids, start_date=None, end_date=None):
+    _seen_window.update(start=s_, end=e_, ids=sorted(ids), sd=start_date, ed=end_date)
+    return {"u-judith": {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
+                         "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}}
+A._zoho.activity_breakdown = _stub_bd
+A._crm_bd_cache.clear()
 A._v6_cache.clear()          # the earlier request cached rows without CRM on them
 try:
     _cls.configured = property(lambda self: True)
@@ -368,7 +371,8 @@ try:
     jc = c.get("/api/v6/report?team=surgical&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
     jb2 = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
 finally:
-    A._v5_activities_created = _real_crm
+    A._zoho.list_users, A._zoho.activity_breakdown = _real_users, _real_bd
+    A._crm_bd_cache.clear()
     if _real_cfg is not None: _cls.configured = _real_cfg
     else: delattr(_cls, "configured")
     A._v6_fetch_sms = _real_sms
@@ -380,11 +384,21 @@ ck("the CRM window is passed as local-day DATETIMES (COQL rejects bare dates)",
 ck("live-day seats with no calls and no CRM activity are not tabulated but denoted",
    "quiet today" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created;" in html
    and "quietSeats.forEach" in html, "no live-day quiet handling")
-ck("a counted person has her number", rows_c.get("Judith Merlo", {}).get("crm_created") == 7, rows_c.get("Judith Merlo", {}).get("crm_created"))
-ck("an unattributable person is None, not 0", "crm_created" in rows_c.get("Alex Morales", {}) and rows_c["Alex Morales"]["crm_created"] is None,
-   rows_c.get("Alex Morales", {}).get("crm_created", "missing"))
-ck("someone the counter never mentioned is None, not 0", rows_c.get("Jorge Mier", {}).get("crm_created") is None,
-   rows_c.get("Jorge Mier", {}).get("crm_created"))
+jcrm = rows_c.get("Judith Merlo", {}).get("crm")
+ck("a CRM user has the full breakdown on her row",
+   jcrm == {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
+            "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}, jcrm)
+ck("a CRM user with nothing in the window has real zeros",
+   rows_c.get("Oscar Caballero", {}).get("crm", {}).get("calls", {}).get("completed") == 0, rows_c.get("Oscar Caballero", {}).get("crm"))
+ck("someone who is not a CRM user by name is None, not 0", "crm" in rows_c.get("Jorge Mier", {}) and rows_c["Jorge Mier"]["crm"] is None,
+   rows_c.get("Jorge Mier", {}).get("crm", "missing"))
+ck("and is named in the meta so the gap is visible", "Jorge Mier" in (jc.get("crm_meta") or {}).get("not_crm_users", []),
+   jc.get("crm_meta"))
+ck("only the board's CRM ids are queried", _seen_window.get("ids") == ["u-judith", "u-oscar"], _seen_window.get("ids"))
+ck("tasks due uses DATE bounds, calls use datetimes",
+   _seen_window.get("sd") == "2026-07-29" and _seen_window.get("ed") == "2026-07-29", _seen_window)
+ck("the row chip shows what got DONE", "CRM <b>' + c.completed + '</b> calls" in html, "chip not on completed counts")
+ck("the panel spells out created / due / completed for both", "line('CRM calls'" in html and "line('CRM tasks'" in html, "panel lines missing")
 ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_created" not in (jb2.get("ranked") or [{}])[0],
    (jb2.get("crm_enabled"), sorted((jb2.get("ranked") or [{}])[0])))
 ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "if (!D.crm_enabled) return ''" in html,

@@ -412,12 +412,18 @@
   function crmChip(a) {
     var D = LAST[CUR_SLOT] || {};
     if (!D.crm_enabled) return '';
-    if (a.crm_created == null) {
-      var why = (D.crm_meta && D.crm_meta.error) ? D.crm_meta.error : 'could not be attributed to this person';
-      return '<span class="sms sms-na" title="Zoho CRM activities created in this window: ' + esc(why) + '">CRM not read</span>';
+    if (!a.crm) {
+      var why = (D.crm_meta && D.crm_meta.error) ? D.crm_meta.error : 'not a CRM user by this name';
+      return '<span class="sms sms-na" title="Zoho CRM, this window: ' + esc(why) + '">CRM not read</span>';
     }
-    return '<span class="sms" title="Calls and tasks this person created in Zoho CRM in the window shown">' +
-           '<b>' + esc(a.crm_created) + '</b> CRM</span>';
+    // The row shows what got DONE; the panel has created and due beside it.
+    var c = a.crm.calls, t = a.crm.tasks;
+    var tip = 'Zoho CRM in the window shown \u2014 calls: ' + c.created + ' created, ' + c.due + ' due, ' +
+              c.completed + ' completed' + (c.overdue ? ', ' + c.overdue + ' overdue' : '') +
+              '; tasks: ' + t.created + ' created, ' + t.due + ' due, ' + t.completed + ' completed' +
+              (t.open ? ', ' + t.open + ' still open' : '');
+    return '<span class="sms" title="' + esc(tip) + '">CRM <b>' + c.completed + '</b> calls \u00b7 <b>' +
+           t.completed + '</b> tasks</span>';
   }
 
   function smsChip(a) {
@@ -796,6 +802,15 @@
                         (pdx.inbound_answered == null ? '' : pdx.inbound_answered + ' answered per day')) +
                    line('Outbound', (pdx.outbound == null ? '\u2014' : pdx.outbound) + ' per day', '');
       }
+      // Zoho CRM, spelled out: calls and tasks, each created / due / completed.
+      var crmLines = '';
+      if ((LAST[CUR_SLOT] || {}).crm_enabled && a.crm) {
+        var cc = a.crm.calls, tt = a.crm.tasks;
+        crmLines = line('CRM calls', cc.completed + ' completed',
+                        cc.created + ' created \u00b7 ' + cc.due + ' due' + (cc.overdue ? ' \u00b7 ' + cc.overdue + ' overdue' : '')) +
+                   line('CRM tasks', tt.completed + ' completed',
+                        tt.created + ' created \u00b7 ' + tt.due + ' due' + (tt.open ? ' \u00b7 ' + tt.open + ' open' : ''));
+      }
       var smsLine = '';
       if (a.sms && a.sms.unknown) {
         smsLine = line('SMS', 'not read',
@@ -817,7 +832,7 @@
                                   : 'on track for <b>' + pj + u + '</b>') +
                       (t != null ? ' &middot; target ' + t + u : ''),
                       pace.grades[k] || 'below');
-        }).join('') + wrapLine + dirLines + smsLine + collLine + '</div>';
+        }).join('') + wrapLine + dirLines + crmLines + smsLine + collLine + '</div>';
       } else {
         var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
                       connected: tot.connected, long_calls: tot[longKey]};
@@ -826,7 +841,7 @@
           return line(m[1], p[k] + u + '/day',
                       totals[k] + ' total' + (t != null ? ' &middot; target ' + t + u : ''),
                       g[k] || 'below');
-        }).join('') + wrapLine + dirLines + smsLine + collLine + '</div>';
+        }).join('') + wrapLine + dirLines + crmLines + smsLine + collLine + '</div>';
       }
 
       // One line, and only facts that are not already on the row or in the

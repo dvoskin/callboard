@@ -3173,6 +3173,83 @@ class ZohoClient:
         return out
 
 
+    def activity_breakdown(self, start_iso: str, end_iso: str, owner_ids: list,
+                           start_date: str = None, end_date: str = None) -> dict:
+        """Calls and tasks per owner, each as created / due / completed in the
+        window. Restricted to owner_ids with `Owner.id in (...)`, so a board of
+        thirteen people costs a handful of small pages rather than a crawl of
+        the sales floor's day.
+
+          calls.created    Created_Time in the window (what they logged)
+          calls.due        Call_Start_Time in the window (what was scheduled)
+          calls.completed  of those due, Outgoing_Call_Status = Completed
+          calls.overdue    of those due, Outgoing_Call_Status = Overdue
+          tasks.created    Created_Time in the window
+          tasks.due        Due_Date in the window (a DATE, so date bounds)
+          tasks.completed  Closed_Time in the window (finished during it)
+          tasks.open       of those due, Status != Completed
+
+        Returns {owner_id: {"calls": {...}, "tasks": {...}}}. Raises on an HTTP
+        failure; the caller decides what a failure means to a board.
+        """
+        if not owner_ids:
+            return {}
+        ids = ",".join("'%s'" % str(i) for i in owner_ids)
+        sd = start_date or start_iso[:10]
+        ed = end_date or end_iso[:10]
+        out = {}
+
+        def _slot(uid):
+            return out.setdefault(uid, {
+                "calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0},
+                "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0},
+            })
+
+        def _rows(query):
+            offset = 0
+            while offset < 4000:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql", headers=self._headers(),
+                                     json={"select_query": query + " limit 200 offset %d" % offset},
+                                     timeout=25)
+                if resp.status_code == 204:
+                    return
+                if not resp.ok:
+                    raise RuntimeError("CRM COQL returned HTTP %d. %s"
+                                       % (resp.status_code, (resp.text or "")[:160]))
+                body = resp.json() or {}
+                for r in (body.get("data") or []):
+                    yield r
+                if not (body.get("info") or {}).get("more_records"):
+                    return
+                offset += 200
+
+        def _uid(r):
+            o = r.get("Owner") or {}
+            return str(o.get("id") or "") if isinstance(o, dict) else ""
+
+        for r in _rows(f"select id, Owner from Calls where Owner.id in ({ids}) "
+                       f"and Created_Time between '{start_iso}' and '{end_iso}'"):
+            if _uid(r): _slot(_uid(r))["calls"]["created"] += 1
+        for r in _rows(f"select id, Owner, Outgoing_Call_Status from Calls where Owner.id in ({ids}) "
+                       f"and Call_Start_Time between '{start_iso}' and '{end_iso}'"):
+            if not _uid(r): continue
+            c = _slot(_uid(r))["calls"]; c["due"] += 1
+            st = (r.get("Outgoing_Call_Status") or "").strip().lower()
+            if st == "completed": c["completed"] += 1
+            elif st == "overdue": c["overdue"] += 1
+        for r in _rows(f"select id, Owner from Tasks where Owner.id in ({ids}) "
+                       f"and Created_Time between '{start_iso}' and '{end_iso}'"):
+            if _uid(r): _slot(_uid(r))["tasks"]["created"] += 1
+        for r in _rows(f"select id, Owner, Status from Tasks where Owner.id in ({ids}) "
+                       f"and Due_Date between '{sd}' and '{ed}'"):
+            if not _uid(r): continue
+            t = _slot(_uid(r))["tasks"]; t["due"] += 1
+            if (r.get("Status") or "").strip().lower() != "completed": t["open"] += 1
+        for r in _rows(f"select id, Owner from Tasks where Owner.id in ({ids}) "
+                       f"and Closed_Time between '{start_iso}' and '{end_iso}'"):
+            if _uid(r): _slot(_uid(r))["tasks"]["completed"] += 1
+        return out
+
     def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
         """Return Zoho CRM Call records that look scheduled (no disposition yet) in [start_iso, end_iso].
 

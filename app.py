@@ -3806,21 +3806,60 @@ _v5_crm_cache: dict = {}
 _v5_crm_lock = threading.Lock()
 
 
+_CRM_BD_TTL = 300.0
+_crm_bd_cache: dict = {}
+_crm_bd_lock = threading.Lock()
+
+
 def _attach_crm_created(report, start_iso, end_iso):
-    """Put each row's CRM activities-created count on it, for the report's
-    window. None on a row means "could not tell" and renders as not read; a
-    failed read leaves every row None rather than a board of zeros."""
+    """Put each row's Zoho CRM breakdown on it for the report's window: calls
+    and tasks, each as created / due / completed (Danny, 2026-10-07: "a further
+    cleanup of the CRM tasks breakdown by like due completed created and for
+    calls too").
+
+    Attribution is by CRM user id: the board's names are matched to CRM users
+    by normalised full name, and only those ids are queried. A row whose name
+    is not a CRM user is None and renders as not read, never 0; a failed read
+    leaves every row None rather than printing a board of zeros.
+    """
     rows = (report.get("ranked", []) + report.get("silent", [])
             + report.get("stalled", []) + report.get("unknown", []))
-    names = [a["name"] for a in rows]
-    try:
-        by, meta = _v5_activities_created(start_iso, end_iso, names)
-    except Exception as e:  # noqa: BLE001
-        by, meta = None, {"error": "CRM read failed: %s" % str(e)[:160]}
+    key = (start_iso, end_iso, tuple(sorted(a["name"] for a in rows)))
+    now = time.time()
+    with _crm_bd_lock:
+        hit = _crm_bd_cache.get(key)
+    if hit and now - hit["at"] < _CRM_BD_TTL:
+        by, meta = hit["by"], dict(hit["meta"], cached=True)
+    else:
+        by, meta = None, {"cached": False}
+        try:
+            users = _zoho.list_users()                       # id -> full name
+            if not users:
+                meta["error"] = "CRM users could not be read, so nothing can be attributed"
+            else:
+                id_by_name = {_norm_name(full): uid for uid, full in users.items()}
+                wanted = {a["name"]: id_by_name.get(_norm_name(a["name"])) for a in rows}
+                ids = sorted({uid for uid in wanted.values() if uid})
+                raw = _zoho.activity_breakdown(start_iso, end_iso, ids,
+                                               start_date=start_iso[:10], end_date=end_iso[:10])
+                by = {}
+                for name, uid in wanted.items():
+                    if uid:
+                        by[name] = raw.get(uid) or {
+                            "calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0},
+                            "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}}
+                meta["attribution"] = "id"
+                meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
+                with _crm_bd_lock:
+                    _crm_bd_cache[key] = {"at": time.time(), "by": by, "meta": meta}
+        except Exception as e:  # noqa: BLE001
+            by, meta = None, {"error": "CRM read failed: %s" % str(e)[:160]}
     for a in rows:
-        a["crm_created"] = (by or {}).get(_norm_name(a["name"])) if by else None
+        a["crm"] = (by or {}).get(a["name"]) if by else None
+        # kept for anything still reading the single number
+        a["crm_created"] = (a["crm"]["calls"]["created"] + a["crm"]["tasks"]["created"]) if a["crm"] else None
     report["crm_meta"] = {k: v for k, v in (meta or {}).items()
-                          if k in ("cached", "error", "attribution", "attributed", "unattributed")}
+                          if k in ("cached", "error", "attribution", "not_crm_users")}
 
 
 def _v5_activities_created(start_iso, end_iso, agent_names=None):
