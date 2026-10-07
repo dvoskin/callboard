@@ -4240,6 +4240,41 @@ def api_v5_ingest():
                              "a RingEX fetch was made recently; this day already has "
                              "a snapshot and the board refreshes it on its own clock"}
 
+    # Every cached report whose window covers a day just rewritten is dropped,
+
+    # for EVERY team. The caches are per team and ingest never touched them, so
+
+    # two boards reading the same people -- /scheduling and the Surgical
+
+    # Coordinator table -- could be served from caches filled on either side
+
+    # of a delivery and disagree by a whole report for up to 150 seconds. The
+
+    # figures are identical when built from the same file; only the moment
+
+    # differed. Seen live on 2026-10-07.
+
+    if written:
+
+        _days = {w["day"] for w in written}
+
+        with _v6_lock:
+
+            _stale = [k for k in _v6_cache
+
+                      if any(k[0] <= d <= k[1] for d in _days)]
+
+            for k in _stale:
+
+                _v6_cache.pop(k, None)
+
+        if _stale:
+
+            log.info("v5 ingest: dropped %d cached v6 report(s) covering %s",
+
+                     len(_stale), sorted(_days))
+
+
     log.info("v5 ingest: %d rows (%s) -> %s written, %s skipped",
              len(rows), unit, [w["day"] for w in written], [k["day"] for k in skipped])
     return jsonify({"status": "ok", "total_rows": len(rows), "unit": unit,

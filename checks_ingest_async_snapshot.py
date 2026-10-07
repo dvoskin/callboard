@@ -65,6 +65,11 @@ _real = (A._snapshot_ringex, A._ringex_may_spend)
 A._snapshot_ringex = _slow_snapshot
 A._ringex_may_spend = lambda: True
 A.app.config["TESTING"] = True
+# Cached reports: two cover the day being written (one per team), one does not.
+A._v6_cache.clear()
+A._v6_cache[("2026-10-07", "2026-10-07", 240, "scheduling")] = {"at": time.time(), "report": {}}
+A._v6_cache[("2026-10-01", "2026-10-07", 240, "surgical")] = {"at": time.time(), "report": {}}
+A._v6_cache[("2026-10-01", "2026-10-06", 240, "surgical")] = {"at": time.time(), "report": {}}
 try:
     t0 = time.time()
     r = A.app.test_client().post(
@@ -81,6 +86,15 @@ try:
        j.get("ringex_snapshots"))
     ck("the snapshot has not run yet while the request is already answered",
        not ran.is_set(), ran.is_set())
+    # Every board that covers the rewritten day must rebuild from the new file,
+    # whichever team it belongs to; a window that ends before it is untouched.
+    left = set(A._v6_cache)
+    ck("a cached report covering the day is dropped (its own team)",
+       ("2026-10-07", "2026-10-07", 240, "scheduling") not in left, sorted(left))
+    ck("a cached report covering the day is dropped (another team)",
+       ("2026-10-01", "2026-10-07", 240, "surgical") not in left, sorted(left))
+    ck("a cached report NOT covering the day is kept",
+       ("2026-10-01", "2026-10-06", 240, "surgical") in left, sorted(left))
     gate.set()
     ck("the snapshot DOES run, in the background", ran.wait(5), "snapshot never ran")
     ck("for the day that was written, with the request's tz",
