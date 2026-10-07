@@ -68,7 +68,8 @@ ck("and is judged on the queue bar, not billing's",
    by_name(surg, "Alex Morales")["targets"]["talk_minutes"]["target"] == 133,
    by_name(surg, "Alex Morales").get("targets"))
 ck("scheduling is untouched", len(sched) == 4, sched)
-ck("customer service is untouched", len(inb) == 6, inb)
+ck("customer service is 5 seats (Ana Salazar is billing-only since 2026-10-07)", len(inb) == 5, inb)
+ck("Ana Salazar is NOT on the surgical table", "Ana Salazar" not in names, names)
 ck("it is read from RingCX like its parts", A._TEAM_SOURCES["surgical"] == "ringcx",
    A._TEAM_SOURCES.get("surgical"))
 ck("it has the name Danny gave it", A.TEAM_LABELS["surgical"] == "Surgical Coordinator KPI",
@@ -176,7 +177,7 @@ finally:
 ck("nobody on the surgical table is asked of RingEX", asked_ex == [], asked_ex)
 ck("everyone is asked of RingCX, in one read",
    set(asked_cx) == set(sched) | set(inb) | EXTRA, asked_cx)
-ck("every seat reaches the report", len(_got.get("rows", {})) == 13, len(_got.get("rows", {})))
+ck("every seat reaches the report", len(_got.get("rows", {})) == 12, len(_got.get("rows", {})))
 
 # ---- SMS for a seat with no extension is unknown, not zero ----
 _sv_day = A._v6_fetch_sms_day
@@ -249,9 +250,9 @@ try:
        jj.get("team_label"))
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
-    ck("with every seat present", len(all_rows) == 13, len(all_rows))
+    ck("with every seat present", len(all_rows) == 12, len(all_rows))
     ck("and every one of them in the ranked table, none in a footnote",
-       len(jj.get("ranked", [])) == 13, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
+       len(jj.get("ranked", [])) == 12, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
 finally:
     A._v6_fetch_sms = _real_sms
     if _real_cfg is not None:
@@ -281,7 +282,7 @@ try:
     m = b.get("roster_match_today", {}).get("surgical", {})
     ck("/api/build counts surgical seats seen today", m.get("seats_seen_today") == 1, m)
     ck("and the rows they account for", m.get("rows_matched_today") == 2, m)
-    ck("and knows the roster size", m.get("seats") == 13, m)
+    ck("and knows the roster size", m.get("seats") == 12, m)
     ck("a name on no roster is counted, not named",
        b.get("today_agents_on_no_roster") == 1, b.get("today_agents_on_no_roster"))
     # Blank-agent rows are dropped by the parser before this point, so there is

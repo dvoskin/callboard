@@ -959,12 +959,11 @@ def scoreboard_v5_board():
 BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
 # Three teams, one board. Confirmed by Danny 2026-08-24/25 from the roster sheet.
 #
-# Ana Salazar sits on BOTH: inbound, where her calls are, and billing, where her
-# collections are. Her billing line went quiet after 2026-08-11, which read like
-# a departure until the roster showed she had moved to Preop WFP. A seat going
+# Ana Salazar is a BILLING seat only (Danny, 2026-10-07). Her billing line went
+# quiet after 2026-08-11, which read like a departure until the roster showed she
+# had moved to Preop WFP; she sat on inbound as well for a while. A seat going
 # silent on one team is worth checking against the org chart before it is read as
-# a person stopping work. The same calls appearing on two boards is intended --
-# two views of one person, not two people.
+# a person stopping work.
 _TEAM_ROSTERS = {
     "billing": [
         {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
@@ -1008,7 +1007,10 @@ _TEAM_ROSTERS = {
         {"name": "Antonio Hernandez",  "ext_id": 1140749035, "ext": "149"},
         {"name": "Kevin Altamirano",   "ext_id": 431144034,  "ext": "213"},
         {"name": "Angi Fuentes",       "ext_id": 1209615035, "ext": "159"},
-        {"name": "Ana Salazar",        "ext_id": 436846034,  "ext": "271"},
+        # Ana Salazar was here (ext 271) until 2026-10-07. Danny: "ana salazar
+        # should only be in the billing one". She is a billing seat read from
+        # RingEX; taking her off inbound also takes her off the Surgical
+        # Coordinator table, which is built from this roster.
     ],
 }
 # Surgical Coordinator is Scheduling and Customer Service read as ONE table,
