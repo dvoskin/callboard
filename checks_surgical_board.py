@@ -402,12 +402,14 @@ ck("and is named in the meta so the gap is visible", "Jorge Mier" in (jc.get("cr
 ck("only the board's CRM ids are queried", _seen_window.get("ids") == ["u-judith", "u-oscar"], _seen_window.get("ids"))
 ck("tasks due uses DATE bounds, calls use datetimes",
    _seen_window.get("sd") == "2026-07-29" and _seen_window.get("ed") == "2026-07-29", _seen_window)
-ck("the row chip shows what got DONE", "CRM <b>' + c.completed + '</b> calls" in html, "chip not on completed counts")
+ck("the row chip (when shown) reads completed counts", "CRM <b>' + c.completed + '</b> calls" in html, "chip not on completed counts")
+ck("but the chip is hidden in the collapsed row for now", "var SHOW_CRM_CHIP = false;" in html and "if (!SHOW_CRM_CHIP || !D.crm_enabled) return '';" in html,
+   "CRM chip not gated off")
 ck("the panel's CRM lines are present but switched off for now",
    "var SHOW_CRM_PANEL = false;" in html and "line('CRM calls'" in html, "CRM panel lines missing or not gated")
 ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_created" not in (jb2.get("ranked") or [{}])[0],
    (jb2.get("crm_enabled"), sorted((jb2.get("ranked") or [{}])[0])))
-ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "if (!D.crm_enabled) return ''" in html,
+ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "!D.crm_enabled) return ''" in html,
    "crmChip missing or ungated")
 
 ck("a table of only quiet seats is not an empty board",

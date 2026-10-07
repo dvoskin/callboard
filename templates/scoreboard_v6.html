@@ -415,9 +415,14 @@
   // Activities the person created in Zoho CRM inside the window shown. Shown
   // only on boards that carry it; "not read" when the count could not be
   // attributed, never 0 -- a board of zeros reads as nobody logging anything.
+  // Danny, 2026-10-07: "hide CRM 18 calls · 1 tasks in the collapsed state".
+  // The count is still fetched and still on the row's data (a.crm), so the
+  // chip comes back by flipping this; nothing else changes.
+  var SHOW_CRM_CHIP = false;
+
   function crmChip(a) {
     var D = LAST[CUR_SLOT] || {};
-    if (!D.crm_enabled) return '';
+    if (!SHOW_CRM_CHIP || !D.crm_enabled) return '';
     if (!a.crm) {
       var why = (D.crm_meta && D.crm_meta.error) ? D.crm_meta.error : 'not a CRM user by this name';
       return '<span class="sms sms-na" title="Zoho CRM, this window: ' + esc(why) + '">CRM not read</span>';
