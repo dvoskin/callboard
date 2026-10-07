@@ -643,6 +643,7 @@ def api_build():
         inbox["error"] = str(e)[:200]
     return jsonify({
         "ringcx_inbox": inbox,
+        "boots": _recent_boots(),
         # Render injects this at build time; absent in local dev.
         "commit": os.environ.get("RENDER_GIT_COMMIT") or "unknown",
         "branch": os.environ.get("RENDER_GIT_BRANCH") or "unknown",
@@ -3282,6 +3283,37 @@ def scoreboard_v6_board():
 # CDR pull becomes the fallback. A forwarder (Gmail Apps Script, Zapier, anything
 # that can POST) drops the attachment here.
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
+# Every boot of this process is appended here, with the commit it ran. Two
+# boots on the same commit is a worker that died and was restarted -- a request
+# that outlived gunicorn's 90s timeout, an OOM, a crash -- and from outside that
+# is indistinguishable from a deploy, which is why the Apps Script forwarder's
+# "Address unavailable" failures went unexplained. /api/build shows the last ten.
+_BOOT_LOG = _data_dir / "boots.log"
+try:
+    with open(_BOOT_LOG, "a", encoding="utf-8") as _bf:
+        _bf.write("%s %s\n" % (datetime.now(timezone.utc).isoformat(),
+                                (os.environ.get("RENDER_GIT_COMMIT") or "local")[:7]))
+except Exception as _e:  # noqa: BLE001
+    log.warning("boot log not written: %s", _e)
+
+
+def _recent_boots(n=10):
+    """Last n boots, newest first, as {at, commit, same_commit_as_previous}."""
+    try:
+        lines = _BOOT_LOG.read_text(encoding="utf-8").strip().splitlines()[-n:]
+    except Exception:  # noqa: BLE001
+        return []
+    out, prev = [], None
+    for ln in lines:
+        parts = ln.split()
+        if len(parts) != 2:
+            continue
+        out.append({"at": parts[0], "commit": parts[1],
+                    "restart_without_deploy": prev is not None and prev == parts[1]})
+        prev = parts[1]
+    return list(reversed(out))
+
+
 RINGCX_INBOX_DIR = _data_dir / "ringcx_inbox"
 try:
     RINGCX_INBOX_DIR.mkdir(parents=True, exist_ok=True)
