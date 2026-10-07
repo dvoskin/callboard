@@ -478,6 +478,24 @@ ck("the pills carry a disclaimer about lag and lunch, under the live strip",
    'class="disc">Status pills trail the phones by up to ~2 minutes.' in html and "not lunch, break, wrap-up or offline" in html,
    "disclaimer missing")
 
+# ---- the framed distribution board ----
+_real_embed = A.DISTRIBUTION_BOARD_URL
+A.DISTRIBUTION_BOARD_URL = ""
+try:
+    ck("no embed URL -> no frame on the page", 'class="embed"' in c.get("/v6").get_data(as_text=True)
+       and "var EMBED_URL = \"\"" in c.get("/v6").get_data(as_text=True), "frame markup gated on EMBED_URL")
+    A.DISTRIBUTION_BOARD_URL = "https://example.test/board/x?k=SECRET"
+    hx = c.get("/v6").get_data(as_text=True)
+    ck("with an embed URL the landing page carries it", 'var EMBED_URL = "https://example.test/board/x?k=SECRET"' in hx, "embed url not passed")
+    ck("the single-board pages do not", "example.test" not in c.get("/surgical-coordinator").get_data(as_text=True), "embed leaked to a team page")
+finally:
+    A.DISTRIBUTION_BOARD_URL = _real_embed
+import glob as _glob
+_me = os.path.basename(__file__)
+_leak = [f for f in _glob.glob("*.py") + _glob.glob("templates/*.html")
+         if f != _me and "backoffice-app" in open(f, encoding="utf-8").read()]
+ck("the back-office share token is NOT in the repository (it is public)", _leak == [], _leak)
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

@@ -1149,6 +1149,16 @@ BOARD_TEAMS = ["billing", "surgical"]
 # name of the link to something like Billing & Surgical Coordinator Dashboard".
 LANDING_TITLE = "Billing & Surgical Coordinator Dashboard"
 
+# A third panel on the landing page: another app's board, framed. Danny,
+# 2026-10-07: "embed this as like an iframe somewhere and match our style",
+# with the back-office distribution board's share link. The URL carries that
+# board's share TOKEN and this repository is public, so it lives in the
+# environment, never here: set DISTRIBUTION_BOARD_URL on Render. Unset means
+# no panel. The remote page sends no X-Frame-Options / frame-ancestors, so it
+# can be framed (checked 2026-10-07).
+DISTRIBUTION_BOARD_URL = os.environ.get("DISTRIBUTION_BOARD_URL", "").strip()
+DISTRIBUTION_BOARD_TITLE = os.environ.get("DISTRIBUTION_BOARD_TITLE", "Distribution").strip() or "Distribution"
+
 # Which phone platform a team actually WORKS on. This is not cosmetic: measured
 # over 2026-05-26..08-23, billing dials from RingEX (Vivian: 5,881 outbound,
 # 84% connected) while scheduling and inbound are 100% INBOUND on RingEX with
@@ -3469,7 +3479,9 @@ def scoreboard_v6():
                                # BOARD_TEAMS; an explicit ?team= still wins in
                                # the page script and renders one.
                                board_teams=BOARD_TEAMS,
-                               landing_title=LANDING_TITLE)
+                               landing_title=LANDING_TITLE,
+                               embed_url=DISTRIBUTION_BOARD_URL,
+                               embed_title=DISTRIBUTION_BOARD_TITLE)
     if not V5_PASSWORDS:
         return redirect("/login")
     # Danny, 2026-10-07: "the sign in page -- change the sales floor scoreboard
@@ -3629,7 +3641,9 @@ def board_billing_surgical_share():
     return render_template("scoreboard_v6.html", current_user={},
                            share_mode=True, share_token=request.args.get("k", ""),
                            fixed_team=None, board_teams=BOARD_TEAMS,
-                           landing_title=LANDING_TITLE)
+                           landing_title=LANDING_TITLE,
+                           embed_url=DISTRIBUTION_BOARD_URL,
+                           embed_title=DISTRIBUTION_BOARD_TITLE)
 
 
 @app.route("/sales")

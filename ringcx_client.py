@@ -336,6 +336,27 @@ class RingCXClient:
                 ("/agentStates", {}),
                 ("/realtime/agents", {}),
             ]
+            # Account-scoped shapes all answered 404 on 2026-10-07. The agent list
+            # may be scoped to an AGENT GROUP instead, so the groups are listed
+            # once and each is tried under the two obvious shapes. The group
+            # listing's own status is reported too, so "no groups readable" is
+            # visible rather than silent.
+            try:
+                g = requests.get(base + "/agentGroups", headers=self._cx_headers(), timeout=15)
+                meta["tried"].append({"path": "/agentGroups", "http": g.status_code})
+                groups = []
+                if g.ok:
+                    gd = g.json()
+                    groups = gd if isinstance(gd, list) else (gd.get("agentGroups") or gd.get("records") or [])
+                for grp in groups[:12]:
+                    gid = grp.get("agentGroupId") or grp.get("id")
+                    if not gid:
+                        continue
+                    candidates.append(("/agentGroups/%s/activeAgents" % gid, {}))
+                    candidates.append(("/activeAgents/list", {"product": "AGENT_GROUP", "productId": gid,
+                                                              "maxRows": 500, "page": 1}))
+            except Exception as e:  # noqa: BLE001
+                meta["tried"].append({"path": "/agentGroups", "http": "error: %s" % str(e)[:60]})
             if getattr(self, "_cx_agent_state_path", None):
                 candidates = [c for c in candidates if c[0] == self._cx_agent_state_path] + candidates
             resp = None
