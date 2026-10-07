@@ -403,8 +403,10 @@ ck("tasks due uses DATE bounds, calls use datetimes",
 ck("the row chip (when shown) reads completed counts", "CRM <b>' + c.completed + '</b> calls" in html, "chip not on completed counts")
 ck("but the chip is hidden in the collapsed row for now", "var SHOW_CRM_CHIP = false;" in html and "if (!SHOW_CRM_CHIP || !D.crm_enabled) return '';" in html,
    "CRM chip not gated off")
-ck("the panel's CRM lines are present but switched off for now",
-   "var SHOW_CRM_PANEL = false;" in html and "line('CRM calls'" in html, "CRM panel lines missing or not gated")
+ck("the panel shows CRM as done-of-due with overdue and logged (Danny, evening 2026-10-07)",
+   "var SHOW_CRM_PANEL = true;" in html and "' of ' + cc.due + ' due done'" in html and "overdue</b>" in html
+   and "grp('CRM')" in html, "CRM performance lines missing")
+ck("and says not read, with the reason, for a non-CRM name", "line('CRM', 'not read'" in html, "no not-read line")
 ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_created" not in (jb2.get("ranked") or [{}])[0],
    (jb2.get("crm_enabled"), sorted((jb2.get("ranked") or [{}])[0])))
 ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "!D.crm_enabled) return ''" in html,

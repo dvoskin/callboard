@@ -1030,18 +1030,29 @@
                         (pdx.inbound_answered == null ? '' : pdx.inbound_answered + ' answered per day')) +
                    line('Outbound', (pdx.outbound == null ? '\u2014' : pdx.outbound) + ' per day', '');
       }
-      // Zoho CRM, spelled out: calls and tasks, each created / due / completed.
-      // Hidden in the panel for now (Danny, 2026-10-07: "hide the CRM data in
-      // the expanded view for now"); the row's chip still carries completed
-      // counts with the rest in its tooltip. Flip SHOW_CRM_PANEL to bring back.
-      var SHOW_CRM_PANEL = false;
+      // Zoho CRM in the panel, as performance: what was DUE in the window and
+      // how much of it got done, with what was logged beside it. Danny,
+      // 2026-10-07 (evening): "add the task and call crm analytics in the
+      // expanded pane ... whatever you feel is applicable to see performance".
+      // The row chip stays off; this is the only place CRM shows.
+      var SHOW_CRM_PANEL = true;
       var crmLines = '';
-      if (SHOW_CRM_PANEL && (LAST[CUR_SLOT] || {}).crm_enabled && a.crm) {
-        var cc = a.crm.calls, tt = a.crm.tasks;
-        crmLines = line('CRM calls', cc.completed + ' completed',
-                        cc.created + ' created \u00b7 ' + cc.due + ' due' + (cc.overdue ? ' \u00b7 ' + cc.overdue + ' overdue' : '')) +
-                   line('CRM tasks', tt.completed + ' completed',
-                        tt.created + ' created \u00b7 ' + tt.due + ' due' + (tt.open ? ' \u00b7 ' + tt.open + ' open' : ''));
+      var crmOn = (LAST[CUR_SLOT] || {}).crm_enabled;
+      if (SHOW_CRM_PANEL && crmOn) {
+        if (a.crm) {
+          var cc = a.crm.calls, tt = a.crm.tasks;
+          var rate = function (done, due) { return due ? Math.round(100 * done / due) + '%' : '\u2014'; };
+          crmLines = grp('CRM') +
+            line('Calls', cc.completed + ' of ' + cc.due + ' due done',
+                 rate(cc.completed, cc.due) + (cc.overdue ? ' \u00b7 <b>' + cc.overdue + ' overdue</b>' : '') +
+                 ' \u00b7 ' + cc.created + ' logged', cc.due && cc.overdue ? 'below' : '') +
+            line('Tasks', tt.completed + ' of ' + tt.due + ' due done',
+                 rate(tt.completed, tt.due) + (tt.open ? ' \u00b7 ' + tt.open + ' still open' : '') +
+                 ' \u00b7 ' + tt.created + ' created', '');
+        } else {
+          var cm = (LAST[CUR_SLOT] || {}).crm_meta || {};
+          crmLines = grp('CRM') + line('CRM', 'not read', cm.error ? esc(cm.error) : 'not a CRM user by this name', '');
+        }
       }
       var smsLine = '';
       if (a.sms && a.sms.unknown) {
