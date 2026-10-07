@@ -1029,8 +1029,10 @@
       }
       var smsLine = '';
       if (a.sms && a.sms.unknown) {
+        // the fetch's own reason -- a budget left for the next refresh, a
+        // cooldown, an HTTP status -- never a guessed "refused"
         smsLine = line('SMS', 'not read',
-                       'RingEX refused the message store for this window');
+                       a.sms.note ? esc(a.sms.note) : 'not read this refresh; the next one continues');
       } else if (a.sms) {
         smsLine = line('SMS', a.sms.sent + ' sent / ' + a.sms.received + ' received',
                        a.sms.sent_per_day + ' sent per working day &middot; texted on ' +

@@ -204,6 +204,31 @@ ck("no extension -> SMS not read", sms.get("Alex Morales", {}).get("complete") i
    sms.get("Alex Morales"))
 ck("and the reason is stated", "extension" in (sms.get("Alex Morales", {}).get("note") or ""),
    sms.get("Alex Morales"))
+# ---- a seat past this refresh's budget is "not read YET", with that reason -- never "refused" ----
+_sv_day, _sv_budget = A._v6_fetch_sms_day, A._V6_SMS_BUDGET
+A._v6_fetch_sms_day = lambda eid, day, tz: ([], True, "sms", None)
+A._V6_SMS_BUDGET = 1
+try:
+    sms, _ = A._v6_fetch_sms([{"name": "Judith Merlo", "source": "ringcx", "ext": "185", "ext_id": 1076638035},
+                              {"name": "Ana Castro", "source": "ringcx", "ext": "180", "ext_id": 695481035}],
+                             ["2026-10-05"], "2026-10-05", 240)
+    ck("the seat inside the budget is read", sms["Judith Merlo"]["complete"] is True and sms["Judith Merlo"]["note"] is None, sms["Judith Merlo"])
+    ck("the seat past it is not read YET, and says the budget is why",
+       sms["Ana Castro"]["complete"] is False and "budget" in (sms["Ana Castro"]["note"] or "") and "next refresh" in sms["Ana Castro"]["note"], sms["Ana Castro"])
+    A._v6_sms_today_cache.clear()
+    A._V6_SMS_BUDGET = 5
+    A._v6_fetch_sms_day = lambda eid, day, tz: ([], False, "sms", "RingEX is rate limiting the message store (HTTP 429); this seat's SMS figures are incomplete for the window.")
+    sms, _ = A._v6_fetch_sms([{"name": "Ana Castro", "source": "ringcx", "ext": "180", "ext_id": 695481035}], ["2026-10-05"], "2026-10-05", 240)
+    ck("a real failure carries the store's own words", "429" in (sms["Ana Castro"]["note"] or ""), sms["Ana Castro"])
+    rep_ = build_report({"Ana Castro": {"rows": [], "ext": "180", "ext_id": 695481035, "complete": True, "missing_days": []}},
+                        tz_offset_minutes=240, window={"start": "2026-10-05", "end": "2026-10-05"}, sms_by_agent=sms)
+    a_ = next(x for x in rep_["ranked"] + rep_["silent"] + rep_["stalled"] + rep_["unknown"] if x["name"] == "Ana Castro")
+    ck("and the report hands that reason to the page", "429" in ((a_.get("sms") or {}).get("note") or ""), a_.get("sms"))
+finally:
+    A._v6_fetch_sms_day, A._V6_SMS_BUDGET = _sv_day, _sv_budget
+    A._v6_sms_today_cache.clear()
+_tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the page never says 'refused' on its own", "refused the message store" not in _tpl and "a.sms.note ? esc(a.sms.note)" in _tpl, "guessed wording still in the template")
 
 # ---- presence is a RingEX fact; withheld for a RingCX team ----
 A.app.config["TESTING"] = True

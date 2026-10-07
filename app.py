@@ -1497,7 +1497,7 @@ def _v6_fetch_sms_day(ext_id, day_iso, tz_offset_minutes):
         ext_id, start_dt, end_dt, max_pages=4, max_wait=0.0,
         timeout=_V6_SMS_HTTP_TIMEOUT)
     ok = not meta.get("note") and not meta.get("truncated")
-    return rows, ok, meta.get("rate_group")
+    return rows, ok, meta.get("rate_group"), meta.get("note")
 
 
 def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
@@ -1523,7 +1523,7 @@ def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
                                           "missing_days": list(days),
                                           "note": "no RingEX extension on this seat"}
             continue
-        rows, missing, fails = [], [], 0
+        rows, missing, fails, note = [], [], 0, None
         for day in days:
             is_today = day >= local_today
             if is_today:
@@ -1536,15 +1536,30 @@ def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
                 if got is not None:
                     rows.extend(got); stats["cached"] += 1
                     continue
+            # Say WHY a day was not read. Danny, 2026-10-07 evening, on Ana
+            # Castro: the panel said "RingEX refused the message store" when
+            # nothing was refused -- she was the 13th seat and this request's
+            # budget is 12 seat-days, so her day was simply left for the next
+            # refresh (today's reads are cached 150s; the poll is 45s, so the
+            # roster is read in full within two or three polls).
+            if budget <= 0:
+                note = note or ("not read yet: this refresh's message-store budget (%d seat-days) "
+                                "ran out before this seat; the next refresh reads it" % _V6_SMS_BUDGET)
+            elif fails >= _V6_SMS_MAX_FAILS:
+                note = note or "not read: an earlier day of this seat failed, the rest were skipped"
+            elif time.time() > deadline:
+                note = note or ("not read yet: the %.0fs reading deadline passed before this seat; "
+                                "the next refresh continues" % _V6_SMS_DEADLINE)
             if budget <= 0 or fails >= _V6_SMS_MAX_FAILS or time.time() > deadline:
                 missing.append(day); stats["missing"] += 1
                 continue
             budget -= 1
-            got, ok, group = _v6_fetch_sms_day(eid, day, tz_offset_minutes)
+            got, ok, group, why = _v6_fetch_sms_day(eid, day, tz_offset_minutes)
             if group:
                 stats["rate_group"] = group
             if not ok:
                 fails += 1
+                note = why or note or "not read: the message store returned an incomplete page"
                 missing.append(day); stats["missing"] += 1
                 continue
             stats["fetched"] += 1
@@ -1554,7 +1569,7 @@ def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
             else:
                 _v6_sms_save_day(eid, day, got)
         out[seat["name"]] = {"rows": rows, "complete": not missing,
-                             "missing_days": missing}
+                             "missing_days": missing, "note": note if missing else None}
     return out, stats
 
 
@@ -2518,7 +2533,7 @@ def _v6_warm_loop():
                     for seat in roster:
                         c = _v6_sms_today_cache.get((seat["ext_id"], tstr))
                         if not (c and time.time() - c["at"] < _V6_TODAY_WARM_TTL):
-                            rows, ok, grp = _v6_fetch_sms_day(seat["ext_id"], tstr, tz_off)
+                            rows, ok, grp, _why = _v6_fetch_sms_day(seat["ext_id"], tstr, tz_off)
                             if grp:
                                 _v6_warm_state["sms_rate_group"] = grp
                             if ok:

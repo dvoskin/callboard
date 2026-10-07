@@ -499,6 +499,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 "complete": scomplete, "missing_days": smissing,
                 # Nothing read AND the window was not fully covered: unknown, not zero.
                 "unknown": stot["total"] == 0 and not scomplete,
+                # The fetch's own reason, shown on the panel instead of a guess.
+                "note": (smeta.get("note") if isinstance(smeta, dict) else None),
             }
 
         daily_talk = sorted(b["talk_seconds"] / 60.0 for b in worked.values())
