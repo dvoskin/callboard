@@ -495,6 +495,9 @@ _me = os.path.basename(__file__)
 _leak = [f for f in _glob.glob("*.py") + _glob.glob("templates/*.html")
          if f != _me and "backoffice-app" in open(f, encoding="utf-8").read()]
 ck("the back-office share token is NOT in the repository (it is public)", _leak == [], _leak)
+ck("the framed board is a live preview card that opens a new tab",
+   '<a class="pv" href="' in html and 'target="_blank" rel="noopener"' in html and "pointer-events:none" in html
+   and 'class="pv-live">Live</span>' in html, "preview card markup/CSS missing")
 
 print("%d passed" % passed)
 for e in errors:
