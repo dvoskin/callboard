@@ -184,7 +184,20 @@ function forwardRingCXReports_() {
 
       let allOk = true;
       csvs.forEach(function (att) {
-        const res = post_(att, msg.getSubject());
+        // UrlFetchApp THROWS on a connection failure ("Address unavailable") and
+        // on Google's own bandwidth quota; it does not return a response code.
+        // Uncaught, one such throw ended the whole run with the other subjects'
+        // reports unposted and unmarked -- the failure digest of 2026-10-06/07
+        // was nine of those. Caught here, the message stays unseen and is simply
+        // tried again on the next run, and the rest of the run goes on.
+        let res;
+        try {
+          res = post_(att, msg.getSubject());
+        } catch (e) {
+          console.error('ingest POST threw for ' + att.getName() + ': ' + e);
+          allOk = false; failed++;
+          return;
+        }
         const code = res.getResponseCode();
         if (code === 200) {
           console.log('ingested ' + att.getName() + ' -> ' + res.getContentText());

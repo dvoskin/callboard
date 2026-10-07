@@ -4218,8 +4218,21 @@ def api_v5_ingest():
     if written:
         newest = max(w["day"] for w in written)
         if not _ringex_snap_path(newest).exists() or _ringex_may_spend():
-            snaps[newest] = _snapshot_ringex(newest, request.args.get("tz") and
-                                             int(request.args["tz"]) or None)
+            # OFF the request path. _fetch_ringex_agent_calls is the account-wide
+            # call log: up to ten pages and a Retry-After wait of up to a minute on
+            # a 429 -- run inside this request, on a single gunicorn worker with a
+            # 90-second timeout, it could outlive the worker. gunicorn then kills
+            # and restarts it, every open request dies with it, and the forwarder
+            # that posted the report sees 'Address unavailable' for a server that
+            # was busy answering it. Prod restarted on the same commit at 14:59:47
+            # UTC on 2026-10-07, minutes after an ingest. The budget slot is still
+            # claimed here, synchronously, so two reports cannot both spend it.
+            _tz_arg = request.args.get("tz") and int(request.args["tz"]) or None
+            threading.Thread(target=_snapshot_ringex, args=(newest, _tz_arg),
+                             name="ingest-ringex-snapshot", daemon=True).start()
+            snaps[newest] = {"stored": None, "queued": True,
+                             "reason": "RingEX snapshot runs in the background; "
+                                       "this request does not wait for it"}
         else:
             snaps[newest] = {"stored": False, "reason":
                              "a RingEX fetch was made recently; this day already has "
