@@ -138,6 +138,28 @@ def build_pace_curve(day_hour_totals):
     return curve
 
 
+def shift_fraction(now_local, shift):
+    """How much of THIS seat's shift is done at now_local: 0 before it starts,
+    1 after it ends, linear in between.
+
+    A team pace curve says when the team as a whole does its work; it cannot
+    know that Alex Morales starts at 1pm. Judged on the inbound curve at 11am he
+    reads as 0% of expected -- a failing morning for a man who is not yet in
+    the building. A seat with a declared shift is paced on that shift instead.
+    """
+    try:
+        sh, sm = (int(x) for x in shift["start"].split(":"))
+        eh, em = (int(x) for x in shift["end"].split(":"))
+    except (KeyError, ValueError, AttributeError, TypeError):
+        return None
+    start = sh * 60 + sm
+    end = eh * 60 + em
+    if end <= start:
+        return None
+    now = now_local.hour * 60 + now_local.minute
+    return max(0.0, min(1.0, (now - start) / float(end - start)))
+
+
 def pace_fraction(curve, hour, minute=0):
     """How much of a normal day is done at hour:minute, interpolated inside the
     hour so the expectation creeps rather than jumping on the hour."""
@@ -395,7 +417,10 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             # started before 10. Measured over 160 and 174 working agent-days,
             # inbound is 4.7% done by 9am where billing's curve says 0.5% -- so
             # judging them against billing's morning read as ~8x expected.
-            frac = pace_fraction(own or seat_curve, now_local.hour, now_local.minute)
+            shift = meta.get("shift") if isinstance(meta, dict) else None
+            sfrac = shift_fraction(now_local, shift) if shift else None
+            frac = (sfrac if sfrac is not None
+                    else pace_fraction(own or seat_curve, now_local.hour, now_local.minute))
             today_b = by_day.get(now_local.date().isoformat()) or _blank_bucket()
             actual = {
                 "talk_minutes": round(today_b["talk_seconds"] / 60.0, 1),
@@ -404,7 +429,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 "long_calls": today_b[f"over_{long_call_seconds}s"],
             }
             pace = {"fraction": round(frac, 3),
-                    "curve": "own" if own else "team",
+                    "curve": "shift" if sfrac is not None else ("own" if own else "team"),
                     "as_of": now_local.strftime("%-I:%M %p"),
                     "actual": actual, "expected": {}, "projected": {}, "ratio": {},
                     "grades": {}}
@@ -470,6 +495,9 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             # Which bar this row was judged against, and which job it belongs to.
             # On a mixed table a grade is unreadable without them.
             "targets": seat_targets, "group": seat_group,
+            # The declared shift, when there is one: shown on the row and used
+            # for pacing instead of the team curve.
+            "shift": (meta.get("shift") if isinstance(meta, dict) else None) or None,
             "totals": total, "worked": wtot,
             "worked_days": len(worked), "idle_days": len(idle), "idle_day_list": idle,
             "per_day": per_day, "scored": scored, "grades": grades, "band": band,

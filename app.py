@@ -1109,9 +1109,26 @@ def _combined_roster(team):
     return seats
 
 
+# Sales, declared. Until 2026-10-07 the sales floor was only INFERRED (whoever
+# dials a campaign, see _sales_roster for /v5). Danny: "make sure we have
+# access to all these agent analytics from existing ingests". These are the
+# fifteen names the 15-minute call-performance report carried that day, as
+# RingCX prints them. RingCX seats matched by name; no RingEX extension needed.
+# Targets are NOT measured for this floor: the board default applies and reads
+# as a placeholder until Danny gives sales its own numbers.
+_TEAM_ROSTERS["sales"] = [
+    {"name": n, "source": "ringcx", "ext": "", "ext_id": None, "always_rank": True}
+    for n in ("Maia Pasifae Palma", "Maisah Brandon", "Gabriel Johnson",
+              "Alicia Mckenzie", "Adelita Flowers", "Magen Fermin", "Mabel Alvarez",
+              "Wellington Santiago", "Cristina Cots", "Charlotte McKay",
+              "Adriana Gentry", "Sandra Rivas", "Maria Carvajal",
+              "Claudia Villalobo", "Gregory Beltran")
+]
+
 TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
                "inbound": "Customer Service",
-               "surgical": "Surgical Coordinator KPI"}
+               "surgical": "Surgical Coordinator KPI",
+               "sales": "Sales"}
 # Which teams the one link shows, in order. "The same link as the biller one"
 # means one page, two tables -- not a switcher.
 BOARD_TEAMS = ["billing", "surgical"]
@@ -1129,7 +1146,8 @@ BOARD_TEAMS = ["billing", "surgical"]
 # those two boards say what is missing instead of showing a leaderboard of
 # voicemail. They light up on their own once either the CDR is enabled or a
 # RingCX Interaction Report is delivered to /api/v5/ingest.
-_TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx"}
+_TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx",
+                 "sales": "ringcx"}
 # Which boards read and show SMS at all. Off for the Surgical Coordinator table
 # at Danny's request (2026-10-07, "dont show sms performance for surgical
 # coordinators"): its seats work queues in RingCX, most have no RingEX
@@ -1137,7 +1155,7 @@ _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx
 # half-empty column beside eleven "not read" pills. Off means not read AND not
 # shown -- the chip, the panel line and the notes all go -- not read-and-hidden,
 # so no message-store budget is spent on a board that will not display it.
-_TEAM_SMS = {"surgical": False}
+_TEAM_SMS = {"surgical": False, "sales": False}
 
 
 def _team_sms_enabled(team) -> bool:
@@ -1801,6 +1819,25 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
                       data_as_of=data_as_of, sms_by_agent=sms_by_agent)
 
 
+# Declared shifts, from the schedule sheet Danny shared on 2026-10-06. Keyed by
+# the name as the rosters spell it. A seat with a shift is paced on it rather
+# than on its team's curve, and the shift is shown on its row. Someone not here
+# is paced on the team curve as before -- no shift is not a 24-hour shift.
+SHIFTS = {
+    "Ana Castro":         {"start": "08:00", "end": "17:00", "off": ["sat", "sun"]},
+    "Vivian Martinez":    {"start": "08:00", "end": "18:00", "off": ["sun"]},
+    "Ana Salazar":        {"start": "10:00", "end": "19:00", "off": ["sat"]},
+    "Yareth Pavon":       {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
+    "Ariel Ramirez":      {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
+    "Judith Merlo":       {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
+    "Oscar Caballero":    {"start": "10:00", "end": "19:00", "off": ["sun", "mon"]},
+    "Johana Duron":       {"start": "10:00", "end": "19:00", "off": ["sat", "mon"]},
+    "Jorge Mier":         {"start": "12:00", "end": "21:00", "off": ["sat", "sun"]},
+    "Alex Morales":       {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]},
+    "Gabriela Maldonado": {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]},
+}
+
+
 def _seat_meta(seat):
     """The per-seat fields a row carries beyond its calls.
 
@@ -1812,6 +1849,9 @@ def _seat_meta(seat):
     for k in ("group", "targets", "default_curve", "always_rank"):
         if seat.get(k):
             out[k] = seat[k]
+    shift = seat.get("shift") or SHIFTS.get(seat.get("name") or "")
+    if shift:
+        out["shift"] = shift
     return out
 
 
@@ -3249,7 +3289,8 @@ def hub_v7_logout():
 # people bookmark, put on a wall, and send a link to; a query string is none of
 # those. /v6?team= still works so existing links do not break.
 _TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
-               "inbound": "customer-service", "surgical": "surgical-coordinator"}
+               "inbound": "customer-service", "surgical": "surgical-coordinator",
+               "sales": "sales"}
 
 
 def _render_team_board(team):
@@ -3287,6 +3328,11 @@ def board_customer_service():
 @app.route("/surgical-coordinator")
 def board_surgical_coordinator():
     return _render_team_board("surgical")
+
+
+@app.route("/sales")
+def board_sales():
+    return _render_team_board("sales")
 
 
 @app.route("/v6/board")

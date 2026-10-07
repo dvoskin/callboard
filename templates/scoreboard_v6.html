@@ -746,6 +746,13 @@
       var bits = ['Ext ' + esc(a.ext || a.ext_id),
                   'avg call ' + a.avg_call_seconds + 's',
                   'longest ' + hm(tot.longest_seconds)];
+      // The declared shift, when there is one. It is also what the live day is
+      // paced on for this seat, instead of the team curve.
+      if (a.shift && a.shift.start) {
+        bits.push('Shift ' + esc(a.shift.start) + '\u2013' + esc(a.shift.end) +
+                  ((a.shift.off || []).length ? ' \u00b7 off ' + esc((a.shift.off || []).map(function (d) {
+                    return d.charAt(0).toUpperCase() + d.slice(1); }).join('/')) : ''));
+      }
       if (!pace) bits.push('median day ' + a.median_talk_minutes + 'm');
       if (!pace && a.idle_days) bits.push(a.idle_days + ' idle days not averaged');
       if (pace && !pace.projectable) bits.push('too early to project');
