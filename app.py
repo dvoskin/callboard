@@ -1016,18 +1016,19 @@ _TEAM_ROSTERS = {
         {"name": "Ana Salazar",        "ext_id": 436846034,  "ext": "271",
          "always_rank": True},
     ],
+    # Alanis Castillo (225), Sarahi Rivera (153), Antonio Hernandez (149),
+    # Kevin Altamirano (213) and Angi Fuentes (159) were dropped on 2026-10-07
+    # at Danny's word ("drop the 5 ghosts from the board"): their RingEX
+    # extension ids answer 404 (deleted), none is a RingCX agent and none is
+    # an active Zoho user. A seat in none of the three systems can only ever
+    # read No Activity. Every seat left below was confirmed in all three.
     "scheduling": [
-        {"name": "Alanis Castillo",    "ext_id": 1154698035, "ext": "225"},
         {"name": "Jorge Mier",         "ext_id": 436843034,  "ext": "221"},
-        {"name": "Sarahi Rivera",      "ext_id": 1204292035, "ext": "153"},
         {"name": "Oscar Caballero",    "ext_id": 1140753035, "ext": "167"},
     ],
     "inbound": [
         {"name": "Johana Duron",       "ext_id": 486295034,  "ext": "207"},
         {"name": "Ariel Ramirez",      "ext_id": 1140748035, "ext": "145"},
-        {"name": "Antonio Hernandez",  "ext_id": 1140749035, "ext": "149"},
-        {"name": "Kevin Altamirano",   "ext_id": 431144034,  "ext": "213"},
-        {"name": "Angi Fuentes",       "ext_id": 1209615035, "ext": "159"},
         # Ana Salazar was here (ext 271) until 2026-10-07. Danny: "ana salazar
         # should only be in the billing one". She is a billing seat read from
         # RingEX; taking her off inbound also takes her off the Surgical

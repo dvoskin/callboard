@@ -292,16 +292,16 @@ try:
     j = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"},
                  {"agent_name": "Judith Merlo", "state": "AVAILABLE"},
                  {"agent_name": "Oscar Caballero", "state": "ON-BREAK"},
-                 {"agent_name": "Kevin Altamirano", "state": "WRAP"},
-                 {"agent_name": "Angi Fuentes", "state": "SOME_NEW_STATE"}])
+                 {"agent_name": "Jorge Mier", "state": "WRAP"},
+                 {"agent_name": "Chery Marroquin", "state": "SOME_NEW_STATE"}])
     by = {x["name"]: x for x in j.get("seats", [])}
     ck("at lunch reads On Lunch, not Available", by.get("Ana Castro", {}).get("label") == "On Lunch", by.get("Ana Castro"))
     ck("AVAILABLE with rows today reads Available", by.get("Judith Merlo", {}).get("label") == "Available", by.get("Judith Merlo"))
     ck("ON-BREAK reads On Break", by.get("Oscar Caballero", {}).get("label") == "On Break", by.get("Oscar Caballero"))
-    ck("WRAP reads Wrap-Up", by.get("Kevin Altamirano", {}).get("label") == "Wrap-Up", by.get("Kevin Altamirano"))
+    ck("WRAP reads Wrap-Up", by.get("Jorge Mier", {}).get("label") == "Wrap-Up", by.get("Jorge Mier"))
     ck("an unknown state is shown as itself, Title Case, not guessed",
-       by.get("Angi Fuentes", {}).get("label") == "Some New State" and by.get("Angi Fuentes", {}).get("state") == "other",
-       by.get("Angi Fuentes"))
+       by.get("Chery Marroquin", {}).get("label") == "Some New State" and by.get("Chery Marroquin", {}).get("state") == "other",
+       by.get("Chery Marroquin"))
     # an active call still wins over the agent state
     j2 = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"}],
                  calls=[{"agent_name": "Ana Castro", "call_state": "ACTIVE"}])
