@@ -94,7 +94,8 @@
      declarations to get wrong. The name cell exists in all of them. */
   .bd+.bd{margin-top:34px;padding-top:22px;border-top:1px solid var(--rule)}
   /* Plain, by request: black on white, nothing else. */
-  .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:0;color:#000;background:#fff;padding:0}
+  .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:0;color:#000;background:#fff;padding:0;
+      text-transform:none}
   .bd .sub{margin:0 0 10px}
   .pz{margin-left:7px;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;
       border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
@@ -322,14 +323,16 @@
     if (SLOTS_READY) return;
     if (!MULTI_BOARD) { SLOTS_READY = true; return; }
     var html = '';
-    BOARDS.forEach(function (t) {
+    BOARDS.forEach(function (t, i) {
+      // The first board is the page, as it always was: it owns the h1 and the
+      // summary line under it, and gets no second heading. Boards after it get
+      // the plain h2 and their own summary line.
       html += '<section class="bd">' +
-              '<h2 class="bt" id="bt_' + slotId(t) + '">\u2026</h2>' +
-              '<p class="sub" id="sub_' + slotId(t) + '"></p>' +
+              (i ? '<h2 class="bt" id="bt_' + slotId(t) + '">\u2026</h2>' +
+                   '<p class="sub" id="sub_' + slotId(t) + '"></p>' : '') +
               '<div id="' + slotId(t) + '"></div></section>';
     });
     document.getElementById('out').innerHTML = html;
-    document.getElementById('sub').textContent = '';
     SLOTS_READY = true;
   }
 
@@ -449,7 +452,9 @@
     var longKey = 'over_' + LONG + 's';
     var multi = (d.window || {}).start !== (d.window || {}).end;
 
-    if (d.team_label && !MULTI_BOARD) {
+    // The page title follows the FIRST board, which is what the billing link
+    // showed before a second board joined it.
+    if (d.team_label && (!MULTI_BOARD || slot === slotId(BOARDS[0]))) {
       $('title').textContent = d.team_label + ' KPI Board';
       document.title = d.team_label + ' KPI Board';
     }
@@ -776,8 +781,9 @@
     if (silent.length) {
       h += '<h2>No calls logged</h2>';
       silent.forEach(function (a) {
-        h += '<div class="warn bad"><b>' + esc(a.name) + '</b> (ext ' + esc(a.ext || a.ext_id) +
-             ') &mdash; no calls at all. An empty seat, a wrong extension, or the wrong ' +
+        var ext = (a.ext || a.ext_id) ? ' (ext ' + esc(a.ext || a.ext_id) + ')' : '';
+        h += '<div class="warn bad"><b>' + esc(a.name) + '</b>' + ext +
+             ' &mdash; no calls at all. An empty seat, a wrong extension, or the wrong ' +
              'platform &mdash; not a zero score.' + collNote(a) + '</div>';
       });
     }
@@ -894,8 +900,8 @@
   }
 
   function loadPresence() {
-    BOARDS.forEach(function (t) {
-      if (MULTI_BOARD) loadPresenceFor(t, slotId(t), 'sub_' + slotId(t));
+    BOARDS.forEach(function (t, i) {
+      if (MULTI_BOARD) loadPresenceFor(t, slotId(t), subFor(t, i));
       else loadPresenceFor(t, 'out', 'sub');
     });
   }
@@ -978,10 +984,12 @@
       });
   }
 
+  function subFor(t, i) { return (MULTI_BOARD && i) ? 'sub_' + slotId(t) : 'sub'; }
+
   function load() {
     ensureSlots();
-    BOARDS.forEach(function (t) {
-      if (MULTI_BOARD) loadBoard(t, slotId(t), 'sub_' + slotId(t));
+    BOARDS.forEach(function (t, i) {
+      if (MULTI_BOARD) loadBoard(t, slotId(t), subFor(t, i));
       else loadBoard(t, 'out', 'sub');
     });
   }

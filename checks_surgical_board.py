@@ -230,6 +230,9 @@ one = c.get("/surgical-coordinator").get_data(as_text=True)
 ck("that page pins ONE board", 'var FIXED = "surgical"' in one, "FIXED not pinned")
 ck("rows carry NO job label (removed at Danny's request)",
    "groupChip" not in html and "GROUP_LABELS" not in html, "job-label code still in the page")
+ck("the first board keeps the page's own heading (billing looks as it did)",
+   "slot === slotId(BOARDS[0])" in html and "(i ? '<h2 class=\"bt\"" in html,
+   "first board no longer owns the h1 / gets a second heading")
 ck("row ids are scoped to the board, so two boards do not collide",
    "var id = slot + '_d' + i;" in html and "var id = 'd' + i;" not in html,
    "row ids not scoped by slot")

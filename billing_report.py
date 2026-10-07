@@ -582,7 +582,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
     for a in silent:
         warnings.append({
             "kind": "no_activity",
-            "message": (f"{a['name']} (ext {a['ext']}) logged no calls at all in this window. "
+            "message": (f"{a['name']}{' (ext ' + a['ext'] + ')' if a['ext'] else ''} logged no calls at all in this window. "
                         f"That is an empty seat, a wrong extension, or someone who does not "
                         f"dial from RingEX -- not a zero score."),
         })
