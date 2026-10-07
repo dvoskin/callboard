@@ -809,8 +809,12 @@
                    line('Outbound', (pdx.outbound == null ? '\u2014' : pdx.outbound) + ' per day', '');
       }
       // Zoho CRM, spelled out: calls and tasks, each created / due / completed.
+      // Hidden in the panel for now (Danny, 2026-10-07: "hide the CRM data in
+      // the expanded view for now"); the row's chip still carries completed
+      // counts with the rest in its tooltip. Flip SHOW_CRM_PANEL to bring back.
+      var SHOW_CRM_PANEL = false;
       var crmLines = '';
-      if ((LAST[CUR_SLOT] || {}).crm_enabled && a.crm) {
+      if (SHOW_CRM_PANEL && (LAST[CUR_SLOT] || {}).crm_enabled && a.crm) {
         var cc = a.crm.calls, tt = a.crm.tasks;
         crmLines = line('CRM calls', cc.completed + ' completed',
                         cc.created + ' created \u00b7 ' + cc.due + ' due' + (cc.overdue ? ' \u00b7 ' + cc.overdue + ' overdue' : '')) +
