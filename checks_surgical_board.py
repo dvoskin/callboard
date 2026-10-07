@@ -390,6 +390,11 @@ ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_create
 ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "if (!D.crm_enabled) return ''" in html,
    "crmChip missing or ungated")
 
+ck("a table of only quiet seats is not an empty board",
+   "&& !unknown.length && !quietSeats.length) {" in html, "empty-state check ignores quiet seats")
+ck("quiet seats count in the headline seat total",
+   "unknown.length + quietSeats.length;" in html, "seatsAll excludes quiet seats")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

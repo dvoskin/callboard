@@ -532,7 +532,10 @@
     // seats still unfetched and one ranked, "1 seat" said the team had shrunk to
     // one person. The count a reader checks against the roster must not move
     // because of how far a rate-limited fetch has got.
-    var seatsAll = ranked.length + silent.length + stalled.length + unknown.length;
+    // Quiet seats were filtered OUT of `ranked` above but are still seats: a
+    // surgical table where nobody has called yet read "0 seats" and fell into
+    // the empty state, and its thirteen quiet lines never rendered.
+    var seatsAll = ranked.length + silent.length + stalled.length + unknown.length + quietSeats.length;
     var sub = '<b>' + seatsAll + '</b> seat' + (seatsAll === 1 ? '' : 's') +
       ' &middot; <b>' + (team.agent_days || 0) + '</b> working day' +
       ((team.agent_days || 0) === 1 ? '' : 's');
@@ -642,7 +645,7 @@
              esc(C.payments.reason) + '</div>';
     }
 
-    if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {
+    if (!ranked.length && !silent.length && !stalled.length && !unknown.length && !quietSeats.length) {
       $(slot).innerHTML = h + '<div class="empty">No seats on the roster.</div>';
       return;
     }
