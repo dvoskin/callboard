@@ -952,8 +952,43 @@ _TEAM_ROSTERS = {
         {"name": "Ana Salazar",        "ext_id": 436846034,  "ext": "271"},
     ],
 }
+# Surgical Coordinator is Scheduling and Customer Service read as ONE table,
+# asked for by Danny on 2026-10-06. It is a VIEW over the two rosters, not a
+# third roster: /v6?team=scheduling and ?team=inbound still work and still mean
+# what they did, and a person added to either appears here without being added
+# twice. Each seat keeps its own team's targets and pace curve -- see `group` --
+# because scheduling's median day is 94 talk minutes and customer service's is
+# 133, which is above scheduling's stretch. One bar across both would mark one
+# group down and the other up for doing their own job properly.
+_COMBINED_TEAMS = {"surgical": ("scheduling", "inbound")}
+
+
+def _combined_roster(team):
+    """Seats of a combined team, each tagged with the bar it is judged against.
+
+    Deduped on name: somebody on both rosters is one person with one row, and
+    the first roster listed wins their targets.
+    """
+    seats, seen = [], set()
+    for part in _COMBINED_TEAMS[team]:
+        for seat in _TEAM_ROSTERS[part]:
+            if seat["name"] in seen:
+                continue
+            seen.add(seat["name"])
+            s = dict(seat)
+            s["group"] = part
+            s["targets"] = TEAM_TARGETS.get(part)
+            s["default_curve"] = TEAM_PACE_CURVES.get(part)
+            seats.append(s)
+    return seats
+
+
 TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
-               "inbound": "Inbound Customer Service"}
+               "inbound": "Customer Service",
+               "surgical": "Surgical Coordinator KPI"}
+# Which teams the one link shows, in order. "The same link as the biller one"
+# means one page, two tables -- not a switcher.
+BOARD_TEAMS = ["billing", "surgical"]
 
 # Which phone platform a team actually WORKS on. This is not cosmetic: measured
 # over 2026-05-26..08-23, billing dials from RingEX (Vivian: 5,881 outbound,
@@ -1042,6 +1077,21 @@ TEAM_PACE_CURVES = {
     ],
 }
 
+# Built HERE, not beside the roster: _combined_roster reads TEAM_TARGETS and
+# TEAM_PACE_CURVES, which are defined above this line and below the roster.
+for _ct, _parts in _COMBINED_TEAMS.items():
+    _TEAM_ROSTERS[_ct] = _combined_roster(_ct)
+    # Every part is RingCX today. Asserted rather than assumed: a combined team
+    # spanning two sources would need the per-seat override, and silently picking
+    # one would read the wrong platform for half the table.
+    _sources = {_TEAM_SOURCES[p] for p in _parts}
+    if len(_sources) != 1:
+        raise RuntimeError(
+            "combined team %r spans sources %s; give its seats an explicit "
+            "per-seat source instead of inheriting one" % (_ct, sorted(_sources)))
+    _TEAM_SOURCES[_ct] = _sources.pop()
+
+
 BILLING_TOKEN = os.environ.get("BILLING_TOKEN", "")
 if not BILLING_TOKEN:
     print("[v6] BILLING_TOKEN is not set — /v6/board returns 404 for every request. "
@@ -1093,7 +1143,8 @@ def _billing_roster(team=DEFAULT_TEAM):
         # which would silently turn a RingCX-sourced seat back into a RingEX one
         # and score it on a dead handset. Optional keys are carried only when
         # present, so a plain seat stays exactly the three-key shape it was.
-        for k in ("source", "source_team", "always_rank"):
+        for k in ("source", "source_team", "always_rank",
+                  "group", "targets", "default_curve"):
             if r.get(k):
                 seat[k] = r[k]
         clean.append(seat)
@@ -1516,6 +1567,7 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
         missing_days = [] if cx_days >= len(days) else ["%d day(s)" % (len(days) - cx_days)]
         rows_by_agent = {
             seat["name"]: {
+                **_seat_meta(seat),
                 "rows": cx_by_agent.get(seat["name"], []),
                 "ext": seat["ext"], "ext_id": seat["ext_id"],
                 # No delivered report for a day is NOT "they made no calls" --
@@ -1551,6 +1603,7 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
                 seat.get("source_team") or "", []))
             short = len(days) - len(covered)
             rows_by_agent[seat["name"]] = {
+                **_seat_meta(seat),
                 "rows": seat_rows,
                 "ext": seat["ext"], "ext_id": seat["ext_id"],
                 "complete": short <= 0,
@@ -1569,6 +1622,20 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
     return _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                       date_start, date_end, tz_offset_minutes, local_today, days,
                       data_as_of=data_as_of, sms_by_agent=sms_by_agent)
+
+
+def _seat_meta(seat):
+    """The per-seat fields a row carries beyond its calls.
+
+    Factored out because three call sites build these dicts -- the RingEX fetch,
+    the RingCX branch and the per-seat override -- and a seat whose targets reach
+    only two of them is graded against the board's bar in the third, silently.
+    """
+    out = {}
+    for k in ("group", "targets", "default_curve", "always_rank"):
+        if seat.get(k):
+            out[k] = seat[k]
+    return out
 
 
 def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
@@ -1616,6 +1683,7 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
             else:
                 _v6_save_day(eid, day, got)   # a finished day never changes
         rows_by_agent[seat["name"]] = {
+            **_seat_meta(seat),
             "rows": rows, "ext": seat["ext"], "ext_id": eid,
             "complete": not missing, "missing_days": missing,
         }
@@ -2365,6 +2433,18 @@ def api_v6_presence():
         return jsonify({"error": "unauthorized"}), 401
     team = _team_key(request.args.get("team"))
     roster, _ = _billing_roster(team)
+    # Presence here is RingEX presence. Scheduling and Customer Service work in
+    # RingCX; their RingEX extensions are unanswered overflow rolling to
+    # voicemail, so RingEX would report them "Available" all day while they are
+    # on back-to-back queue calls. That is not a weaker reading, it is a wrong
+    # one, so for a RingCX team nothing is shown and the reason is stated.
+    if _TEAM_SOURCES.get(team) == "ringcx":
+        return jsonify({
+            "team": team, "seats": [], "withheld": True, "stale": False,
+            "as_of_age_seconds": None, "agents_seen": 0,
+            "note": ("this team takes its calls in RingCX; RingEX presence would "
+                     "describe their overflow line, not them"),
+        })
     agents, pmeta = _ringcx.agent_statuses_with_age()
 
     by_id = {str(a.get("ext_id")): a for a in agents}
@@ -2894,7 +2974,11 @@ def scoreboard_v6():
         return render_template("scoreboard_v6.html",
                                current_user=session.get("user") or {},
                                share_mode=False, share_token="",
-                               fixed_team=None)
+                               fixed_team=None,
+                               # The landing link shows every board in
+                               # BOARD_TEAMS; an explicit ?team= still wins in
+                               # the page script and renders one.
+                               board_teams=BOARD_TEAMS)
     if not V5_PASSWORDS:
         return redirect("/login")
     return render_template("v5_password.html", error=error), (401 if error else 200)
@@ -2982,7 +3066,7 @@ def hub_v7_logout():
 # people bookmark, put on a wall, and send a link to; a query string is none of
 # those. /v6?team= still works so existing links do not break.
 _TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
-               "inbound": "customer-service"}
+               "inbound": "customer-service", "surgical": "surgical-coordinator"}
 
 
 def _render_team_board(team):
@@ -3015,6 +3099,11 @@ def board_scheduling():
 @app.route("/customer-service")
 def board_customer_service():
     return _render_team_board("inbound")
+
+
+@app.route("/surgical-coordinator")
+def board_surgical_coordinator():
+    return _render_team_board("surgical")
 
 
 @app.route("/v6/board")

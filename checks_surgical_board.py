@@ -1,0 +1,198 @@
+"""Surgical Coordinator KPI: Scheduling and Customer Service as ONE table, with
+each row still graded against its own job's bar.
+
+Danny, 2026-10-06: "put the customer service and scheduling KPI trackers on the
+same link as the biller one, combine those under one shared table we can call
+surgical coordinator KPI".
+
+The trap is the bar. Scheduling's median day is 94 talk minutes; customer
+service's is 133, which is above scheduling's STRETCH. One target across both
+would mark every scheduler down and every customer-service agent up for doing
+their own job properly -- the same defect as pacing a team on another team's
+curve. So the combined team is a VIEW over the two rosters, each seat carrying
+its own targets and pace curve, and the header names both bars instead of
+printing one.
+
+Run with no arguments. Reads nothing from the network.
+"""
+import os
+import sys
+
+os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+errors, passed = [], 0
+
+
+def ck(label, cond, got=None):
+    global passed
+    if cond:
+        passed += 1
+    else:
+        errors.append("%s -- got %r" % (label, got))
+
+
+import app as A  # noqa: E402
+from billing_report import build_report  # noqa: E402
+
+# ---- the combined roster is a view, not a third roster ----
+surg = A._TEAM_ROSTERS["surgical"]
+names = [x["name"] for x in surg]
+sched = [x["name"] for x in A._TEAM_ROSTERS["scheduling"]]
+inb = [x["name"] for x in A._TEAM_ROSTERS["inbound"]]
+ck("every scheduling seat is on it", all(n in names for n in sched), names)
+ck("every customer-service seat is on it", all(n in names for n in inb), names)
+ck("nobody is on it twice", len(names) == len(set(names)), names)
+ck("and nobody else", set(names) == set(sched) | set(inb), names)
+ck("scheduling is untouched", len(sched) == 4, sched)
+ck("customer service is untouched", len(inb) == 6, inb)
+ck("it is read from RingCX like its parts", A._TEAM_SOURCES["surgical"] == "ringcx",
+   A._TEAM_SOURCES.get("surgical"))
+ck("it has the name Danny gave it", A.TEAM_LABELS["surgical"] == "Surgical Coordinator KPI",
+   A.TEAM_LABELS.get("surgical"))
+ck("the landing link shows billing then surgical",
+   A.BOARD_TEAMS == ["billing", "surgical"], A.BOARD_TEAMS)
+
+by = {x["name"]: x for x in surg}
+ck("a scheduler carries scheduling's bar",
+   by["Jorge Mier"]["targets"]["talk_minutes"]["target"] == 94, by["Jorge Mier"].get("targets"))
+ck("a customer-service seat carries its own bar",
+   by["Ariel Ramirez"]["targets"]["talk_minutes"]["target"] == 133,
+   by["Ariel Ramirez"].get("targets"))
+ck("each seat knows its group", by["Jorge Mier"]["group"] == "scheduling"
+   and by["Ariel Ramirez"]["group"] == "inbound", (by["Jorge Mier"].get("group"),
+                                                   by["Ariel Ramirez"].get("group")))
+ck("each seat carries its own pace curve",
+   by["Jorge Mier"]["default_curve"] is A.TEAM_PACE_CURVES["scheduling"]
+   and by["Ariel Ramirez"]["default_curve"] is A.TEAM_PACE_CURVES["inbound"],
+   "curves not per group")
+
+# The dedupe cannot be trusted on the real rosters: nobody is on both today, so a
+# missing dedupe would pass silently. Put one person on both and rebuild.
+_saved_inb = A._TEAM_ROSTERS["inbound"]
+A._TEAM_ROSTERS["inbound"] = _saved_inb + [dict(A._TEAM_ROSTERS["scheduling"][0])]
+try:
+    _dup = A._combined_roster("surgical")
+    _n = [x["name"] for x in _dup]
+    ck("a person on both rosters appears ONCE", len(_n) == len(set(_n)), _n)
+    ck("and keeps the first roster's bar (scheduling)",
+       next(x for x in _dup if x["name"] == A._TEAM_ROSTERS["scheduling"][0]["name"])["group"]
+       == "scheduling", "group not from first roster")
+finally:
+    A._TEAM_ROSTERS["inbound"] = _saved_inb
+
+# ---- the roster rebuild keeps the per-seat fields ----
+r, _ = A._billing_roster("surgical")
+rb = {x["name"]: x for x in r}
+ck("_billing_roster keeps group", rb["Jorge Mier"].get("group") == "scheduling", rb["Jorge Mier"])
+ck("_billing_roster keeps targets", bool(rb["Jorge Mier"].get("targets")), rb["Jorge Mier"])
+ck("_billing_roster keeps the curve", bool(rb["Jorge Mier"].get("default_curve")),
+   sorted(rb["Jorge Mier"]))
+ck("_seat_meta carries all three",
+   set(A._seat_meta(rb["Jorge Mier"])) >= {"group", "targets", "default_curve"},
+   A._seat_meta(rb["Jorge Mier"]))
+
+# ---- the same minutes grade differently per job ----
+def day(mins):
+    return [{"direction": "Outbound", "result": "Call connected",
+             "duration": mins * 60, "start_time": "2026-10-05T14:00:00.000Z"}]
+
+rows = {}
+for nm in ("Jorge Mier", "Ariel Ramirez"):
+    s_ = rb[nm]
+    rows[nm] = {**A._seat_meta(s_), "rows": day(100), "ext": s_["ext"],
+                "ext_id": s_["ext_id"], "complete": True, "missing_days": []}
+rep = build_report(rows, tz_offset_minutes=240,
+                   window={"start": "2026-10-05", "end": "2026-10-05"},
+                   targets=A.TEAM_TARGETS["scheduling"])
+g = {a["name"]: a for a in rep["ranked"]}
+ck("100 minutes is TARGET for a scheduler",
+   g["Jorge Mier"]["grades"]["talk_minutes"] == "target", g["Jorge Mier"]["grades"])
+ck("100 minutes is only FLOOR for customer service",
+   g["Ariel Ramirez"]["grades"]["talk_minutes"] == "floor", g["Ariel Ramirez"]["grades"])
+ck("each row carries the bar it was judged against",
+   g["Jorge Mier"]["targets"]["talk_minutes"]["target"] == 94
+   and g["Ariel Ramirez"]["targets"]["talk_minutes"]["target"] == 133,
+   (g["Jorge Mier"]["targets"]["talk_minutes"], g["Ariel Ramirez"]["targets"]["talk_minutes"]))
+ck("each row carries its group",
+   g["Jorge Mier"]["group"] == "scheduling" and g["Ariel Ramirez"]["group"] == "inbound",
+   (g["Jorge Mier"].get("group"), g["Ariel Ramirez"].get("group")))
+ck("the report says the targets are mixed", rep["mixed_targets"] is True, rep["mixed_targets"])
+ck("and names both bars",
+   sorted((x["group"], x["targets"]["talk_minutes"]["target"]) for x in rep["target_groups"])
+   == [("inbound", 133), ("scheduling", 94)], rep["target_groups"])
+
+# An ordinary board must NOT start reading as mixed.
+rep1 = build_report({"Jorge Mier": {"rows": day(100), "ext": "221", "ext_id": 1,
+                                    "complete": True}},
+                    tz_offset_minutes=240,
+                    window={"start": "2026-10-05", "end": "2026-10-05"},
+                    targets=A.TEAM_TARGETS["scheduling"])
+ck("a single-job board is not mixed", rep1["mixed_targets"] is False, rep1["mixed_targets"])
+ck("and has one target group", len(rep1["target_groups"]) == 1, rep1["target_groups"])
+ck("a seat with no bar of its own uses the board's",
+   rep1["ranked"][0]["targets"]["talk_minutes"]["target"] == 94, rep1["ranked"][0]["targets"])
+
+# ---- presence is a RingEX fact; withheld for a RingCX team ----
+A.app.config["TESTING"] = True
+c = A.app.test_client()
+_real = A._ringcx.agent_statuses_with_age
+A._ringcx.agent_statuses_with_age = lambda: ([], {"age_seconds": 1.0, "stale": False,
+                                                  "never_read": False, "note": None,
+                                                  "ttl_seconds": 60})
+try:
+    j = c.get("/api/v6/presence?team=surgical").get_json()
+    ck("presence is withheld for the RingCX team", j.get("withheld") is True, j)
+    ck("with no seats shown as anything", j.get("seats") == [], j.get("seats"))
+    ck("and the reason names RingCX", "RingCX" in (j.get("note") or ""), j.get("note"))
+    jb = c.get("/api/v6/presence?team=billing").get_json()
+    ck("billing presence is not withheld on that ground",
+       "RingCX" not in (jb.get("note") or ""), jb.get("note"))
+finally:
+    A._ringcx.agent_statuses_with_age = _real
+
+# ---- the pages ----
+html = c.get("/v6").get_data(as_text=True)
+ck("the landing page carries the board list",
+   'var BOARD_TEAMS = ["billing", "surgical"]' in html, "BOARD_TEAMS not in /v6")
+ck("the combined team has its own page",
+   c.get("/surgical-coordinator").status_code == 200,
+   c.get("/surgical-coordinator").status_code)
+one = c.get("/surgical-coordinator").get_data(as_text=True)
+ck("that page pins ONE board", 'var FIXED = "surgical"' in one, "FIXED not pinned")
+ck("the header names each bar on a mixed table", "d.mixed_targets" in html
+   and "target_groups" in html, "no mixed-target header path")
+ck("rows carry a group chip on a mixed table", "function groupChip" in html, "no groupChip")
+
+# ---- the report endpoint serves it ----
+# /api/v6/report answers 503 before anything else when RingCentral is not
+# configured, and it is not configured on this machine. The combined team is
+# read from delivered RingCX files and never touches RingCentral, so the gate is
+# lifted for this one call. `configured` is a read-only property, hence the
+# class-level override; it is restored whatever happens.
+_cls = type(A._ringcx)
+_real_cfg = _cls.__dict__.get("configured")
+_real_sms = A._v6_fetch_sms
+_cls.configured = property(lambda self: True)
+A._v6_fetch_sms = lambda roster_, days_, lt, tz: ({}, {})
+try:
+    rr = c.get("/api/v6/report?team=surgical&start=2026-07-29&end=2026-07-29&tz=240")
+    jj = rr.get_json() or {}
+    ck("/api/v6/report serves the combined team", rr.status_code == 200, rr.status_code)
+    ck("under its own label", jj.get("team_label") == "Surgical Coordinator KPI",
+       jj.get("team_label"))
+    all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
+                + jj.get("unknown", []))
+    ck("with every seat present", len(all_rows) == 10, len(all_rows))
+finally:
+    A._v6_fetch_sms = _real_sms
+    if _real_cfg is not None:
+        _cls.configured = _real_cfg
+    else:
+        delattr(_cls, "configured")
+
+print("%d passed" % passed)
+for e in errors:
+    print("  FAIL", e)
+print("\n%d failed" % len(errors))
+sys.exit(1 if errors else 0)

@@ -252,6 +252,24 @@ def grade(value, spec):
     return "below"
 
 
+def _target_groups(agents):
+    """[{group, targets, seats}] -- the distinct bars in play, in seat order.
+
+    Returns one entry for an ordinary single-job board, which is what makes the
+    "are these mixed?" question answerable without the caller knowing anything
+    about teams.
+    """
+    out, seen = [], {}
+    for a in agents:
+        g = a.get("group") or ""
+        if g in seen:
+            seen[g]["seats"] += 1
+            continue
+        seen[g] = {"group": g or None, "targets": a.get("targets"), "seats": 1}
+        out.append(seen[g])
+    return out
+
+
 def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, window=None,
                  targets=None, long_call_seconds=LONG_CALL_SECONDS,
                  roster_meta=None, now_local=None, curves=None, sms_by_agent=None):
@@ -346,7 +364,24 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "long_calls": per_day["long_calls"],
             "answer_rate_pct": answer_rate,
         }
-        grades = {k: grade(v, targets[k]) for k, v in scored.items()}
+        # A seat may be measured against its OWN bar rather than the board's.
+        # One table can hold two jobs -- Surgical Coordinator merges Scheduling
+        # with Customer Service -- and their days are not the same size: measured
+        # over 177 and 191 working agent-days, scheduling's median is 94 talk
+        # minutes and customer service's is 133, which is above scheduling's
+        # STRETCH. Grading them on one bar would mark one group down and the
+        # other up for doing their own job properly, which is the same defect as
+        # pacing a team on another team's curve.
+        seat_targets = targets
+        seat_curve = default_curve
+        seat_group = None
+        if isinstance(meta, dict):
+            if meta.get("targets"):
+                seat_targets = dict(DEFAULT_TARGETS, **meta["targets"])
+            if meta.get("default_curve"):
+                seat_curve = meta["default_curve"]
+            seat_group = meta.get("group") or None
+        grades = {k: grade(v, seat_targets[k]) for k, v in scored.items()}
         # Headline band = how the person is doing on the metric the KPI leads
         # with. Talk time is the one Danny named first.
         band = grades["talk_minutes"]
@@ -360,7 +395,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             # started before 10. Measured over 160 and 174 working agent-days,
             # inbound is 4.7% done by 9am where billing's curve says 0.5% -- so
             # judging them against billing's morning read as ~8x expected.
-            frac = pace_fraction(own or default_curve, now_local.hour, now_local.minute)
+            frac = pace_fraction(own or seat_curve, now_local.hour, now_local.minute)
             today_b = by_day.get(now_local.date().isoformat()) or _blank_bucket()
             actual = {
                 "talk_minutes": round(today_b["talk_seconds"] / 60.0, 1),
@@ -374,7 +409,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                     "actual": actual, "expected": {}, "projected": {}, "ratio": {},
                     "grades": {}}
             for k, v in actual.items():
-                tgt_full = targets[k]["target"]
+                tgt_full = seat_targets[k]["target"]
                 exp = tgt_full * frac
                 pace["expected"][k] = round(exp, 1)
                 # Projecting from a sliver of the day is arithmetic, not insight:
@@ -386,7 +421,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 pace["ratio"][k] = round(v / exp, 2) if (judge and exp > 0) else None
                 # Colour the live day by where it is HEADED, not by the fraction
                 # of a target a half-finished day has reached.
-                pace["grades"][k] = grade(proj, targets[k]) if proj is not None else None
+                pace["grades"][k] = grade(proj, seat_targets[k]) if proj is not None else None
             pace["projectable"] = frac >= MIN_FRAC_TO_JUDGE
 
         # ── SMS ───────────────────────────────────────────────────────────
@@ -432,6 +467,9 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "pace": pace,
             "name": name, "ext": ext, "ext_id": ext_id,
             "call_source": call_source, "always_rank": always_rank,
+            # Which bar this row was judged against, and which job it belongs to.
+            # On a mixed table a grade is unreadable without them.
+            "targets": seat_targets, "group": seat_group,
             "totals": total, "worked": wtot,
             "worked_days": len(worked), "idle_days": len(idle), "idle_day_list": idle,
             "per_day": per_day, "scored": scored, "grades": grades, "band": band,
@@ -608,6 +646,11 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         "unknown": unknown,
         "team": team_summary,
         "targets": targets,
+        # One headline target line is a lie on a table holding two jobs. These say
+        # whether that is the case and what each group's bar actually is, so the
+        # header can name them instead of printing one and hoping.
+        "target_groups": _target_groups(ranked + silent + stalled + unknown),
+        "mixed_targets": len(_target_groups(ranked + silent + stalled + unknown)) > 1,
         "long_call_seconds": long_call_seconds,
         "conv_marks": list(CONV_MARKS),
         "window": window or {},

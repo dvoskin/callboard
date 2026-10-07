@@ -92,6 +92,9 @@
      explicit areas -- a missing one silently printed two numbers on top of each
      other once. A third binary would mean eight desktop and eight phone
      declarations to get wrong. The name cell exists in all of them. */
+  .bd+.bd{margin-top:34px;padding-top:22px;border-top:1px solid var(--rule)}
+  .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:-.01em}
+  .bd .sub{margin:0 0 10px}
   .pz{margin-left:7px;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;
       border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
   .pz-on_call{color:#166534;background:#dcfce7}
@@ -300,7 +303,34 @@
   var $ = function (id) { return document.getElementById(id); };
   // A team page knows which team it is; only /v6 falls back to the query string.
   var FIXED = {{ (fixed_team or '')|tojson }};
+  // Which boards this link shows. An explicit ?team= or a share link pinned to
+  // one team still renders exactly one, unchanged -- MULTI_BOARD is only the
+  // default landing page, where Billing and Surgical Coordinator sit together.
+  var BOARD_TEAMS = {{ (board_teams or [])|tojson }};
   var TEAM = FIXED || (new URLSearchParams(location.search).get('team') || '').toLowerCase();
+  var BOARDS = TEAM ? [TEAM] : (BOARD_TEAMS.length ? BOARD_TEAMS : ['']);
+  var MULTI_BOARD = BOARDS.length > 1;
+  var SLOTS_READY = false;
+
+  function slotId(t) { return 'slot_' + (t || 'main'); }
+
+  // Built once. render() only ever writes its own slot div, so the sections have
+  // to exist before the first report lands or the second board would overwrite
+  // the first.
+  function ensureSlots() {
+    if (SLOTS_READY) return;
+    if (!MULTI_BOARD) { SLOTS_READY = true; return; }
+    var html = '';
+    BOARDS.forEach(function (t) {
+      html += '<section class="bd">' +
+              '<h2 class="bt" id="bt_' + slotId(t) + '">\u2026</h2>' +
+              '<p class="sub" id="sub_' + slotId(t) + '"></p>' +
+              '<div id="' + slotId(t) + '"></div></section>';
+    });
+    document.getElementById('out').innerHTML = html;
+    document.getElementById('sub').textContent = '';
+    SLOTS_READY = true;
+  }
 
   function hm(s) {
     s = Math.round(s || 0);
@@ -322,6 +352,18 @@
   // board's own. Without it, Ana Salazar's RingCX zero is indistinguishable from
   // a billing seat that dialled nothing -- the same confusion that read her dead
   // RingEX handset as a failing agent for eleven working days.
+  var GROUP_LABELS = {scheduling: 'Scheduling', inbound: 'Customer Service'};
+
+  // Which job this row is graded as, shown only on a table that holds more than
+  // one. On a single-job board it is the board's name and would be noise.
+  function groupChip(a) {
+    if (!a || !a.group || !(LAST[CUR_SLOT] || {}).mixed_targets) return '';
+    var t = a.targets && a.targets.talk_minutes ? a.targets.talk_minutes.target : '';
+    return '<span class="sms" title="Graded against the ' +
+      esc(GROUP_LABELS[a.group] || a.group) + ' bar' + (t ? ' (' + t + 'm talk)' : '') +
+      '">' + esc(GROUP_LABELS[a.group] || a.group) + '</span>';
+  }
+
   function srcChip(a) {
     if (!a || !a.call_source) return '';
     return '<span class="sms" title="Calls for this seat are read from ' +
@@ -332,15 +374,17 @@
   // Presence arrives on its own fetch and its own clock, so a row renders before
   // it lands and re-renders when it does. PRESENCE is empty until then, and an
   // empty map means "not read yet" -- never "nobody is on a call".
-  var PRESENCE = null;
+  var PRESENCE = {};          // slot -> {name -> seat}
+  var CUR_SLOT = 'out';       // the slot render() is currently drawing
 
   function presenceChip(a) {
-    if (!PRESENCE) return '';
-    var p = PRESENCE[a.name];
+    var P = PRESENCE[CUR_SLOT];
+    if (!P) return '';
+    var p = P[a.name];
     if (!p) return '';
     var t = p.label;
     if (p.ext_mismatch) t += ' \u2014 ' + p.ext_mismatch;
-    else if (p.state === 'unknown' && PRESENCE.__note) t += ' \u2014 ' + PRESENCE.__note;
+    else if (p.state === 'unknown' && P.__note) t += ' \u2014 ' + P.__note;
     return '<span class="pz pz-' + esc(p.state) + '" title="' + esc(t) + '">' +
            esc(p.label) + '</span>';
   }
@@ -399,10 +443,16 @@
     return t[k] ? (t[k].floor + ' / ' + t[k].target + ' / ' + t[k].stretch) : '';
   }
 
-  var LAST = null;
+  // One page can now hold more than one board, so the last report is kept per
+  // SLOT. Presence re-renders from these, and a single shared LAST would have
+  // redrawn every board with whichever report landed last.
+  var LAST = {};
 
-  function render(d) {
-    LAST = d;
+  function render(d, slot, subId) {
+    slot = slot || 'out';
+    subId = subId || 'sub';
+    CUR_SLOT = slot;
+    LAST[slot] = d;
     var ranked = d.ranked || [], silent = d.silent || [], stalled = d.stalled || [],
         unknown = d.unknown || [], team = d.team || {};
     var T = d.targets || {}, LONG = d.long_call_seconds || 120;
@@ -410,9 +460,12 @@
     var longKey = 'over_' + LONG + 's';
     var multi = (d.window || {}).start !== (d.window || {}).end;
 
-    if (d.team_label) {
+    if (d.team_label && !MULTI_BOARD) {
       $('title').textContent = d.team_label + ' KPI Board';
       document.title = d.team_label + ' KPI Board';
+    }
+    if (MULTI_BOARD && d.team_label && $('bt_' + slot)) {
+      $('bt_' + slot).textContent = d.team_label;
     }
 
     // Two facts and, on a live day, the one that changes how every number below
@@ -457,22 +510,40 @@
     if (d.meta && d.meta.complete === false) {
       sub += ' &middot; <b>still fetching</b>';
     }
-    $('sub').innerHTML = sub;
+    $(subId).innerHTML = sub;
 
     var h = '';
     // The TARGET only. Floor and stretch were on this line too -- twelve numbers
     // to read before the first agent, to explain a scale that is now one colour.
     // Both still sit in the expand panel, next to the figure they qualify.
-    var one = function (k) { return T[k] ? T[k].target : ''; };
-    h += '<div class="key">' +
-      '<span>Daily target</span>' +
-      '<span>' + esc(one('talk_minutes')) + 'm talk</span>' +
-      '<span>' + esc(one('calls')) + ' calls</span>' +
-      '<span>' + esc(one('connected')) + ' conn</span>' +
-      '<span>' + esc(one('long_calls')) + ' ' + longLbl + '</span>' +
-      '<span><i class="b-below">red is under ' + esc(
-         (T.talk_minutes || {}).floor || '') + 'm</i></span>' +
-      '</div>';
+    var one = function (k, TT) { TT = TT || T; return TT[k] ? TT[k].target : ''; };
+    if (d.mixed_targets && (d.target_groups || []).length > 1) {
+      // Two jobs on one table. One "Daily target" line here would be true for
+      // half the rows and wrong for the other half, so each group's bar is
+      // named, and every row is graded against its own (see a.group).
+      (d.target_groups || []).forEach(function (g) {
+        var TT = g.targets || {};
+        h += '<div class="key">' +
+          '<span>' + esc(GROUP_LABELS[g.group] || g.group || 'Target') + '</span>' +
+          '<span>' + esc(one('talk_minutes', TT)) + 'm talk</span>' +
+          '<span>' + esc(one('calls', TT)) + ' calls</span>' +
+          '<span>' + esc(one('connected', TT)) + ' conn</span>' +
+          '<span>' + esc(one('long_calls', TT)) + ' ' + longLbl + '</span>' +
+          '<span><i class="b-below">red is under ' + esc(
+             (TT.talk_minutes || {}).floor || '') + 'm</i></span>' +
+          '</div>';
+      });
+    } else {
+      h += '<div class="key">' +
+        '<span>Daily target</span>' +
+        '<span>' + esc(one('talk_minutes')) + 'm talk</span>' +
+        '<span>' + esc(one('calls')) + ' calls</span>' +
+        '<span>' + esc(one('connected')) + ' conn</span>' +
+        '<span>' + esc(one('long_calls')) + ' ' + longLbl + '</span>' +
+        '<span><i class="b-below">red is under ' + esc(
+           (T.talk_minutes || {}).floor || '') + 'm</i></span>' +
+        '</div>';
+    }
 
     // Collections context: one line, and deliberately no "today vs a full day"
     // ratio. Today is a part-day and collections are logged in batches, not
@@ -525,7 +596,7 @@
     }
 
     if (!ranked.length && !silent.length && !stalled.length && !unknown.length) {
-      $('out').innerHTML = h + '<div class="empty">No seats on the roster.</div>';
+      $(slot).innerHTML = h + '<div class="empty">No seats on the roster.</div>';
       return;
     }
 
@@ -581,7 +652,7 @@
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + groupChip(a) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -788,15 +859,15 @@
          '<span class="sep">&middot;</span>talk time, wrap excluded' +
          '</div>';
 
-    $('out').innerHTML = h;
+    $(slot).innerHTML = h;
 
-    $('out').querySelectorAll('.r[data-det]').forEach(function (row) {
+    $(slot).querySelectorAll('.r[data-det]').forEach(function (row) {
       var toggle = function () {
         var panel = document.getElementById(row.getAttribute('data-det'));
         if (!panel) return;
         var wasOpen = panel.classList.contains('on');
-        $('out').querySelectorAll('.det.on').forEach(function (o) { o.classList.remove('on'); });
-        $('out').querySelectorAll('.r[aria-expanded="true"]').forEach(function (r) {
+        $(slot).querySelectorAll('.det.on').forEach(function (o) { o.classList.remove('on'); });
+        $(slot).querySelectorAll('.r[aria-expanded="true"]').forEach(function (r) {
           r.setAttribute('aria-expanded', 'false');
         });
         if (!wasOpen) {
@@ -816,53 +887,75 @@
   // a stale pill behind. A board that loses its call figures because presence
   // 429'd would be a worse board than one with no presence at all -- and they
   // share a rate budget, so that is a live possibility rather than a hypothetical.
-  function loadPresence() {
+  function loadPresenceFor(team, slot, subId) {
     var q = new URLSearchParams();
-    if (TEAM) q.set('team', TEAM);
+    if (team) q.set('team', team);
     if (SHARE && TOKEN) q.set('k', TOKEN);
+    var redraw = function () { if (LAST[slot]) render(LAST[slot], slot, subId); };
     fetch('/api/v6/presence?' + q.toString(), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
         if (!j || !j.seats) {
           // Withhold rather than keep showing the last reading: presence is only
           // worth anything while it is current.
-          if (PRESENCE) { PRESENCE = null; if (LAST) render(LAST); }
+          if (PRESENCE[slot]) { delete PRESENCE[slot]; redraw(); }
           return;
         }
         var m = {};
         (j.seats || []).forEach(function (sx) { m[sx.name] = sx; });
         m.__note = j.note || '';
-        PRESENCE = m;
-        if (LAST) render(LAST);
+        PRESENCE[slot] = m;
+        redraw();
       })
       .catch(function () {
-        if (PRESENCE) { PRESENCE = null; if (LAST) render(LAST); }
+        if (PRESENCE[slot]) { delete PRESENCE[slot]; redraw(); }
       });
   }
 
-  function load() {
+  function loadPresence() {
+    BOARDS.forEach(function (t) {
+      if (MULTI_BOARD) loadPresenceFor(t, slotId(t), 'sub_' + slotId(t));
+      else loadPresenceFor(t, 'out', 'sub');
+    });
+  }
+
+  var INFLIGHT = 0;
+
+  function loadBoard(team, slot, subId) {
+    INFLIGHT += 1;
     $('spin').textContent = 'loading…';
     // A page that sits on "Loading…" forever tells the viewer nothing. If the
     // server drops the connection -- a killed gunicorn worker does exactly that
     // -- fetch() never settles, so the page needs its own deadline.
     var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var bailed = false;
+    var done = function () {
+      INFLIGHT = Math.max(0, INFLIGHT - 1);
+      if (!INFLIGHT) $('spin').textContent = '';
+    };
+    var fail = function (html) {
+      // In single-board mode the error replaces the page, as it always has. With
+      // two boards it replaces only its own, so a billing fetch that hits the
+      // RingEX limit does not blank the RingCX board beside it, which is read
+      // from files and cannot have failed the same way.
+      $(slot).innerHTML = html;
+      $(subId).textContent = '';
+    };
     var bail = setTimeout(function () {
       bailed = true;
       if (ctl) { try { ctl.abort(); } catch (e) {} }
-      $('spin').textContent = '';
-      $('sub').textContent = '';
-      $('out').innerHTML = '<div class="err"><b>The server did not answer in 45 seconds.</b>' +
+      done();
+      fail('<div class="err"><b>The server did not answer in 45 seconds.</b>' +
         '<br>RingCentral only allows 10 call-log requests a minute for the whole account, ' +
         'and this board shares that budget with the sales dashboard. Days already fetched ' +
         'are cached, so reloading usually works. If it keeps timing out, check the service logs.' +
-        '</div>';
+        '</div>');
     }, 45000);
     var q = new URLSearchParams();
     if ($('start').value) q.set('start', $('start').value);
     if ($('end').value) q.set('end', $('end').value || $('start').value);
     q.set('tz', String(new Date().getTimezoneOffset()));
-    if (TEAM) q.set('team', TEAM);
+    if (team) q.set('team', team);
     if (SHARE && TOKEN) q.set('k', TOKEN);
 
     fetch('/api/v6/report?' + q.toString(),
@@ -883,15 +976,14 @@
       .then(function (res) {
         if (bailed) return;
         clearTimeout(bail);
-        $('spin').textContent = '';
+        done();
         if (!res.ok) {
           var j = res.j || {};
-          $('out').innerHTML = '<div class="err"><b>' + esc(j.error || 'Request failed') +
-            '</b><br>' + esc(j.detail || '') + '</div>';
-          $('sub').textContent = '';
+          fail('<div class="err"><b>' + esc(j.error || 'Request failed') +
+            '</b><br>' + esc(j.detail || '') + '</div>');
           return;
         }
-        render(res.j);
+        render(res.j, slot, subId);
         var w = res.j.window || {};
         if (w.start && !$('start').value) { $('start').value = w.start; $('end').value = w.end; }
         syncChips();
@@ -899,10 +991,18 @@
       .catch(function (err) {
         if (bailed) return;
         clearTimeout(bail);
-        $('spin').textContent = '';
-        $('out').innerHTML = '<div class="err">Could not reach the server: ' +
-          esc(err && err.message ? err.message : err) + '</div>';
+        done();
+        fail('<div class="err">Could not reach the server: ' +
+          esc(err && err.message ? err.message : err) + '</div>');
       });
+  }
+
+  function load() {
+    ensureSlots();
+    BOARDS.forEach(function (t) {
+      if (MULTI_BOARD) loadBoard(t, slotId(t), 'sub_' + slotId(t));
+      else loadBoard(t, 'out', 'sub');
+    });
   }
 
   // LOCAL date, not UTC. The presets used d.toISOString(), which is UTC, so
