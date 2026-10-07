@@ -171,6 +171,8 @@ try:
     ck("the call's queue and length ride along", (by.get("Judith Merlo", {}).get("call") or {}).get("queue") == "Scheduling",
        by.get("Judith Merlo", {}).get("call"))
     ck("HOLD is on hold, not on a call", by.get("Oscar Caballero", {}).get("state") == "on_hold", by.get("Oscar Caballero"))
+    ck("an after-call-work call state reads Wrap-Up", A._cx_call_state({"call_state": "ACW"}) == ("wrap", "Wrap-Up"),
+       A._cx_call_state({"call_state": "ACW"}))
     # Absence from the list is "Available" only for a seat that has worked
     # today; with no rows today it is Offline -- a seat not at work is also
     # absent from the active-calls list, and calling that Available overclaims.

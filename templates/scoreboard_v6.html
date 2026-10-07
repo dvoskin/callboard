@@ -729,8 +729,9 @@
       // shown -- a RingCX agent between calls with activity today reads
       // Available.
       h += '<div class="disc">Status pills trail the phones by up to ~2 minutes. ' +
-           'Lunch and break are not reported by RingCX\u2019s API, so an agent between ' +
-           'calls with activity today reads <b>Available</b>.</div>';
+           'For RingCX seats only calls in progress are reported \u2014 not lunch, break, wrap-up or offline \u2014 ' +
+           'so an agent between calls with activity today reads <b>Available</b>, and one with none reads ' +
+           '<b>No Activity</b>. RingEX seats (billing) do report Offline.</div>';
       h += '<details class="notes subfold"><summary>Summary</summary>' +
            '<p class="sub">' + sub + '</p></details>';
     }

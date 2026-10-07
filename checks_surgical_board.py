@@ -475,7 +475,7 @@ ck("the phone strip puts its caption on its own line", ".now .cap{grid-column:1 
 ck("the preset row scrolls instead of wrapping on phones", ".ctl{flex-wrap:nowrap;overflow-x:auto;" in html, "presets still wrap")
 
 ck("the pills carry a disclaimer about lag and lunch, under the live strip",
-   'class="disc">Status pills trail the phones by up to ~2 minutes.' in html and "Lunch and break are not reported" in html,
+   'class="disc">Status pills trail the phones by up to ~2 minutes.' in html and "not lunch, break, wrap-up or offline" in html,
    "disclaimer missing")
 
 print("%d passed" % passed)

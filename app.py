@@ -648,6 +648,9 @@ def api_build():
         # Whether RingCX's agent-state list answered on this account. Counts
         # only. A 403/404 here means lunch/break cannot be seen and the pills
         # fall back to active calls + today's rows.
+        # Which callState words the active-calls list has actually used, so a
+        # wrap-up / after-call state is found rather than assumed. Counts only.
+        "ringcx_call_states_seen": dict(sorted(_cx_states_seen.items(), key=lambda kv: -kv[1])[:12]),
         "ringcx_agent_states": {"ok": _ag_meta.get("ok"), "http_error": _ag_meta.get("http_error"),
                                 "note": _ag_meta.get("note") or _ag_meta.get("last_note"),
                                 "path": _ag_meta.get("path"), "tried": _ag_meta.get("tried"),
@@ -2771,11 +2774,19 @@ def _cx_agent_state(raw):
     return "other", " ".join(w.capitalize() for w in st.lower().split("_"))
 
 
+# Every distinct callState string RingCX has sent us since boot, counted. The
+# vocabulary is undocumented here; this is how we find out whether an
+# after-call-work state ever appears in the active-calls list at all.
+_cx_states_seen: dict = {}
+
+
 def _cx_call_state(call):
     """(state, label) for one RingCX active call. The callState vocabulary is
     not documented here; HOLD and RING are matched by substring and everything
     else that is an active call with this agent on it is a call in progress."""
     st = (call.get("call_state") or "").upper()
+    if "WRAP" in st or "ACW" in st or "DISPO" in st or "AFTER" in st:
+        return "wrap", "Wrap-Up"
     if "HOLD" in st or "PARK" in st:
         return "on_hold", "On Hold"
     if "RING" in st or "QUEUE" in st or "OFFER" in st:
@@ -2819,6 +2830,8 @@ def api_v6_presence():
         cx_ok = bool(cx_meta and cx_meta.get("ok")) and cx_age is not None and cx_age < _CX_ACTIVE_TTL * 3
         by_name = {}
         for cl in calls:
+            _k = (cl.get("call_state") or "").strip() or "(blank)"
+            _cx_states_seen[_k] = _cx_states_seen.get(_k, 0) + 1
             nm = " ".join((cl.get("agent_name") or "").split()).lower()
             if nm:
                 by_name.setdefault(nm, cl)
