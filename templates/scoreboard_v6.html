@@ -619,7 +619,10 @@
       // make the panel disagree with the row above it.
       var g = a.grades || {}, p = a.per_day || {}, tot = a.worked || a.totals || {};
       var all = a.totals || {};
-      var id = 'd' + i;
+      // Scoped to the slot: two boards on one page each numbered their rows
+      // d0, d1... and getElementById found the FIRST, so expanding a row on the
+      // second board opened the first board's panel for a different person.
+      var id = slot + '_d' + i;
       // On a live day the numbers ARE the part-day so far, and the colour comes
       // from where the day is HEADED -- colouring a half-finished day against a
       // whole-day target just paints everyone red until the evening.

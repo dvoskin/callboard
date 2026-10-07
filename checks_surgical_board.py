@@ -230,6 +230,9 @@ one = c.get("/surgical-coordinator").get_data(as_text=True)
 ck("that page pins ONE board", 'var FIXED = "surgical"' in one, "FIXED not pinned")
 ck("rows carry NO job label (removed at Danny's request)",
    "groupChip" not in html and "GROUP_LABELS" not in html, "job-label code still in the page")
+ck("row ids are scoped to the board, so two boards do not collide",
+   "var id = slot + '_d' + i;" in html and "var id = 'd' + i;" not in html,
+   "row ids not scoped by slot")
 ck("a mixed table prints no single headline target",
    "if (d.mixed_targets" in html, "mixed-target guard missing")
 
