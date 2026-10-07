@@ -417,6 +417,17 @@ ck("quiet seats count in the headline seat total",
 
 ck("a quiet seat with no shift on file says so", "'no shift on file'" in html, "quiet line silent about a missing shift")
 
+ck("on the live day unread seats fold into the quiet lines",
+   "unknown.forEach(function (a) { quietSeats.push(a); });" in html and "unknown = [];" in html,
+   "unread seats still a paragraph each on the live day")
+
+ck("the SMS chip is off the collapsed row for now (panel line stays)",
+   "var SHOW_SMS_CHIP = false;" in html and "if (!SHOW_SMS_CHIP) return '';" in html and "smsLine = line('SMS'" in html,
+   "SMS chip not gated / panel line missing")
+ck("the live strip exists and agrees with the table's quiet count",
+   "class=\"now\"" in html and "nQuiet = quietSeats.length" in html, "live strip missing")
+ck("the panel is grouped", "grp('Quality')" in html and "grp('Schedule &amp; line')" in html, "panel not grouped")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

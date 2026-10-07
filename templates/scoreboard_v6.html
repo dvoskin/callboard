@@ -125,6 +125,21 @@
   .r.r-quiet .rk{width:22px;flex:none}
   .r.r-quiet .nm{flex:1 1 auto;color:var(--ink-2)}
   .r.r-quiet .qn{font-size:12px;font-style:italic;white-space:nowrap}
+  /* The live strip: four counts a supervisor glances at before anything else,
+     and the one caption that says how fresh each half is. */
+  .now{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 22px;margin:4px 0 10px;
+       padding:8px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  .now .nw{font-size:12.5px;color:var(--muted);white-space:nowrap}
+  .now .nw b{font-size:17px;color:var(--ink);margin-right:5px;font-variant-numeric:tabular-nums}
+  .now .nw.on b{color:#166534}
+  .now .cap{margin-left:auto;font-size:11.5px;color:var(--muted);white-space:nowrap}
+  /* Quiet seats sit under their own faint heading, after the ranked rows. */
+  .qhd{margin:14px 0 2px;font-size:10.5px;font-weight:700;letter-spacing:.08em;
+       text-transform:uppercase;color:var(--muted)}
+  /* The expand panel in three short groups rather than one list. */
+  .det .grp{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+            color:var(--muted);margin:10px 0 3px}
+  .det .lns .grp:first-child{margin-top:0}
   /* Data notes fold behind one line; the table is what the page is for. */
   details.notes{margin:12px 0 4px}
   details.notes>summary{cursor:pointer;font-size:11.5px;font-weight:700;letter-spacing:.06em;
@@ -437,7 +452,14 @@
            t.completed + '</b> tasks</span>';
   }
 
+  // Danny, 2026-10-07: "show the SMS data in collapsed state for now until we
+  // get data available for all agents" -- the row chip is off (half the
+  // surgical seats have no RingEX extension yet, so it read "SMS not read"
+  // down the column); the panel's SMS line stays. Flip to bring the chip back.
+  var SHOW_SMS_CHIP = false;
+
   function smsChip(a) {
+    if (!SHOW_SMS_CHIP) return '';
     // A board with SMS switched off shows nothing at all -- not "not read".
     // The server sends no SMS for such a board, so this is belt and braces
     // against a future default that would render a null as unknown.
@@ -517,13 +539,19 @@
     // status pill (Starts 1:00 PM / No Activity / Offline) -- with no rank and
     // no numbers. Danny, 2026-10-07: "users who havent started their shift
     // could be cleanly denoted, and users without any activity recorded".
-    var quietSeats = [], notShown = 0;
+    var quietSeats = [], notShown = 0, extraNotes = [];
     if (d.live) {
       ranked = ranked.filter(function (a) {
         var quietToday = !((a.totals || {}).calls) && !a.crm_created;
         if (quietToday) { quietSeats.push(a); notShown++; }
         return !quietToday;
       });
+      // Danny, 2026-10-07: "collapse users not active yet today, not started
+      // shift yet, or with no stats or analytics available yet". A seat whose
+      // window is not read yet is the third kind: one quiet line with its
+      // "Not Read" pill, not a paragraph in a NOT KNOWN YET block.
+      unknown.forEach(function (a) { quietSeats.push(a); });
+      unknown = [];
     }
     var T = d.targets || {}, LONG = d.long_call_seconds || 120;
     var longLbl = '≥' + Math.round(LONG / 60) + 'm';
@@ -564,6 +592,9 @@
     if (notShown) {
       sub += ' &middot; <b>' + notShown + '</b> quiet today';
     }
+    // On the live day the freshness caption moves into the strip below the
+    // heading, next to the counts it qualifies; the summary line stays short.
+    var freshCap = '';
     if (d.live && ranked.length && ranked[0].pace) {
       var pc = ranked[0].pace;
       // For a RingCX team these are the SAME instant -- the pace clock is pulled
@@ -571,12 +602,13 @@
       // once, and only its provenance changes. RingCX arrives by email, and
       // saying how far behind stops "they are quiet this hour" being read off a
       // report that simply has not landed yet.
-      sub += d.data_as_of
-        ? ' &middot; report to <b>' + esc(d.data_as_of.as_of) + '</b> (' +
-          d.data_as_of.lag_minutes + ' min behind)'
-        : ' &middot; <b>' + esc(pc.as_of) + '</b>';
-      sub += ', day <b>' + Math.round(pc.fraction * 100) +
-             '%</b> through &mdash; targets pro-rated';
+      freshCap = (d.data_as_of
+        ? 'report to <b>' + esc(d.data_as_of.as_of) + '</b> (' + d.data_as_of.lag_minutes + ' min behind)'
+        : 'figures to <b>' + esc(pc.as_of) + '</b>') +
+        ' &middot; day <b>' + Math.round(pc.fraction * 100) + '%</b> through, targets pro-rated' +
+        ' &middot; status live';
+    } else if (d.live) {
+      freshCap = 'status live';
     } else {
       // isoLocal, not toISOString: in the evening the UTC date is already
       // tomorrow, so a finished day stopped being called "in progress" hours
@@ -591,6 +623,35 @@
     $(subId).innerHTML = sub;
 
     var h = '';
+    // The glance strip (live day only): who is on a call, who is free, who is
+    // quiet, who could not be read -- from the same presence map the pills use,
+    // so it re-renders when presence lands. Danny, 2026-10-07: "redistribute
+    // it to be easier to use and oversee these teams daily and live".
+    if (d.live) {
+      var P = PRESENCE[slot];
+      if (!P) {
+        h += '<div class="now"><span class="nw">status loading&hellip;</span>' +
+             (freshCap ? '<span class="cap">' + freshCap + '</span>' : '') + '</div>';
+      } else {
+        // "Quiet" is the table's own definition -- no calls and no CRM activity
+        // today -- so the strip and the summary line agree. Presence states
+        // only split the rest: on a call, free, or not read.
+        var nOn = 0, nFree = 0, nQuiet = quietSeats.length, nUnread = 0;
+        ranked.concat(silent, stalled, unknown).forEach(function (a) {
+          var st = (P[a.name] || {}).state || 'unknown';
+          if (st === 'on_call' || st === 'ringing' || st === 'on_hold') nOn++;
+          else if (st === 'idle' || st === 'busy') nFree++;
+          else if (st === 'unknown') nUnread++;
+        });
+        h += '<div class="now">' +
+          '<span class="nw on"><b>' + nOn + '</b>On a Call</span>' +
+          '<span class="nw"><b>' + nFree + '</b>Available</span>' +
+          '<span class="nw"><b>' + nQuiet + '</b>Quiet</span>' +
+          (nUnread ? '<span class="nw"><b>' + nUnread + '</b>Not Read</span>' : '') +
+          (freshCap ? '<span class="cap">' + freshCap + '</span>' : '') +
+          '</div>';
+      }
+    }
     // The TARGET only. Floor and stretch were on this line too -- twelve numbers
     // to read before the first agent, to explain a scale that is now one colour.
     // Both still sit in the expand panel, next to the figure they qualify.
@@ -658,8 +719,8 @@
     // Why the payments half is missing, when it is. An absent number that never
     // explains itself is how the collections column spent a day reading zero.
     if (C && C.payments && !C.payments.available && C.total) {
-        h += '<div class="warn">Payments from Books are not being counted: ' +
-             esc(C.payments.reason) + '</div>';
+        extraNotes.push({kind: 'books_payments',
+                         message: 'Payments from Books are not being counted: ' + C.payments.reason});
     }
 
     if (!ranked.length && !silent.length && !stalled.length && !unknown.length && !quietSeats.length) {
@@ -725,14 +786,14 @@
       if (quiet) {
         h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
           '<div class="rk">' + (i + 1) + '</div>' +
-          '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
           '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
           '</div>';
       } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -740,8 +801,8 @@
         // that a surgical coordinator's day is mostly inbound. The colour
         // still grades the KPI (handled calls), which is what has a target.
         (d.split_direction
-          ? cell('c', (show.inbound == null ? '\u2014' : show.inbound) + ' / ' +
-                      (show.outbound == null ? '\u2014' : show.outbound),
+          ? cell('c', (show.inbound == null ? '\u2014' : show.inbound) + ' in \u00b7 ' +
+                      (show.outbound == null ? '\u2014' : show.outbound) + ' out',
                  pg.calls || 'below', 'In / Out')
           : cell('c', show.calls, pg.calls || 'below', 'Calls')) +
         // Connected and the long-call count left the row on 2026-10-07 (Danny:
@@ -754,8 +815,11 @@
       var days = (a.days || []);
       var worked = days.filter(function (x) { return x.worked; });
       var peak = Math.max.apply(null, days.map(function (x) { return x.talk_minutes; }).concat([1]));
-      var METRICS = [['talk_minutes', 'Talk', 'm'], ['calls', 'Calls', ''],
-                     ['connected', 'Connected', ''], ['long_calls', longLbl, '']];
+      // Two groups, not one list: what the day is adding up to, then how good
+      // the calls are. The schedule and the line are the footer's own group.
+      var TODAY_M = [['talk_minutes', 'Talk', 'm'], ['calls', 'Calls', '']];
+      var QUAL_M = [['connected', 'Connected', ''], ['long_calls', longLbl, '']];
+      var grp = function (t) { return '<div class="grp">' + t + '</div>'; };
 
       // One table, not a wall of tiles. A live day answers "where are they, where
       // should they be, where will they land"; a finished range answers "per day
@@ -837,9 +901,9 @@
                        (a.sms.complete ? '' : ' &middot; <b>partial read</b>'));
       }
 
-      var body;
+      var body, mline;
       if (pace) {
-        body = '<div class="lns">' + METRICS.map(function (m) {
+        mline = function (m) {
           var k = m[0], u = m[2], pj = pace.projected[k];
           var t = (T[k] || {}).target;
           return line(m[1], pace.actual[k] + u,
@@ -847,17 +911,21 @@
                                   : 'on track for <b>' + pj + u + '</b>') +
                       (t != null ? ' &middot; target ' + t + u : ''),
                       pace.grades[k] || 'below');
-        }).join('') + wrapLine + dirLines + crmLines + smsLine + collLine + '</div>';
+        };
       } else {
         var totals = {talk_minutes: hm(tot.talk_seconds), calls: tot.handled_calls,
                       connected: tot.connected, long_calls: tot[longKey]};
-        body = '<div class="lns">' + METRICS.map(function (m) {
+        mline = function (m) {
           var k = m[0], u = m[2], t = (T[k] || {}).target;
           return line(m[1], p[k] + u + '/day',
                       totals[k] + ' total' + (t != null ? ' &middot; target ' + t + u : ''),
                       g[k] || 'below');
-        }).join('') + wrapLine + dirLines + crmLines + smsLine + collLine + '</div>';
+        };
       }
+      body = '<div class="lns">' +
+        grp(pace ? 'Today' : 'This range') + TODAY_M.map(mline).join('') + wrapLine + dirLines + collLine +
+        grp('Quality') + QUAL_M.map(mline).join('') + crmLines + smsLine +
+        '</div>';
 
       // One line, and only facts that are not already on the row or in the
       // table above it. The share of connected calls running over two minutes
@@ -878,7 +946,7 @@
       if (pace && !pace.projectable) bits.push('too early to project');
       var foot = bits.join(' &middot; ');
 
-      h += '<div class="det" id="' + id + '">' + body +
+      h += '<div class="det" id="' + id + '">' + body + grp('Schedule &amp; line') +
         (multi && days.length ?
           '<div class="spark"><div class="cap">Talk per day</div>' +
           '<div class="bars">' + days.map(function (x) {
@@ -903,11 +971,12 @@
 
     // The quiet seats, after the ranked rows: one line each, no rank, no
     // numbers -- the pill is the whole message.
+    if (quietSeats.length) h += '<div class="qhd">Quiet today</div>';
     quietSeats.forEach(function (a, qi) {
       var qid = slot + '_q' + qi;
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">&ndash;</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
         // Danny, 2026-10-07, on six quiet seats reading only "No Activity":
         // "not showing any shift sched". They have no shift on file -- the
         // schedule sheet named eleven people -- and the line now says so,
@@ -970,6 +1039,7 @@
       return x.kind !== 'no_activity' && x.kind !== 'no_connections' &&
              x.kind !== 'unknown_seat';
     });
+    warns = warns.concat(extraNotes);
     if (warns.length) {
       // Danny, 2026-10-07: "collapse data notes sections slightly". Folded
       // behind one line with the count; the table is what the page is for.
