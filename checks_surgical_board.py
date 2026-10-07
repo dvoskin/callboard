@@ -469,6 +469,11 @@ ck("a single-board page is titled by its board, without a doubled KPI",
 ck("billing's single page reads Billing KPI Board",
    "<title>Billing KPI Board</title>" in c.get("/billing").get_data(as_text=True), "billing <title> wrong")
 
+ck("the phone layout wraps the name cell instead of clipping pills",
+   ".nm{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}" in html, "phone .nm still nowrap")
+ck("the phone strip puts its caption on its own line", ".now .cap{grid-column:1 / -1;" in html, "phone caption not on its own line")
+ck("the preset row scrolls instead of wrapping on phones", ".ctl{flex-wrap:nowrap;overflow-x:auto;" in html, "presets still wrap")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

@@ -312,6 +312,59 @@
     .warn{font-size:11px;padding:8px 10px;margin:5px 0}
     .blocked{font-size:12.5px;padding:11px 12px}
     h2{margin:16px 0 5px;font-size:11px}
+
+    /* ── compact phone pass, 2026-10-07 ──────────────────────────
+       Danny: "make the mobile optimized view clean and compacted and super
+       user friendly minimal and compact". Everything that arrived after the
+       phone layout was written -- pills, the live strip, quiet lines, the
+       dashboard heading -- is sized here for a 375px screen. The rules of
+       thumb: nothing truncates mid-word, nothing scrolls sideways except the
+       preset row, and a row is two short lines. */
+    h1{font-size:16px;margin-bottom:0}
+    .bt{font-size:15px;margin:0}
+    .bd+.bd{margin-top:18px;padding-top:12px}
+    .bd:first-child{margin-top:2px}
+    /* presets: one row that scrolls, not two that wrap */
+    .ctl{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
+         gap:6px;margin-bottom:6px;padding-bottom:2px;scrollbar-width:none}
+    .ctl::-webkit-scrollbar{display:none}
+    .day{flex:none;padding:5px 9px;font-size:12px}
+    .ctl input{flex:1 1 42%;padding:5px 6px}
+    /* the live strip: four tight counts, the caption on its own line */
+    .now{display:grid;grid-template-columns:repeat(4,auto);justify-content:start;
+         gap:3px 12px;padding:6px 0;margin:2px 0 6px}
+    .now .nw{font-size:11px}
+    .now .nw b{font-size:15px;margin-right:4px}
+    .now .cap{grid-column:1 / -1;margin-left:0;white-space:normal;font-size:10.5px;
+              line-height:1.35}
+    /* name + pills wrap; nothing is clipped mid-word */
+    .nm{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
+    .pz{font-size:10px;padding:1px 6px;margin-left:5px;vertical-align:0}
+    .sms{display:none}
+    .r{padding:6px 0}
+    .tk{font-size:13.5px}
+    .c,.co{font-size:10.5px}
+    /* quiet lines: the note drops under the name when it is long */
+    .r.r-quiet{flex-wrap:wrap;gap:2px 8px;padding:5px 0}
+    .r.r-quiet .rk{display:none}
+    .r.r-quiet .nm{flex:1 1 55%;font-size:13px}
+    /* the note stays on the name's line when it fits, and only wraps under it
+       when it does not -- "not read yet" alone does not need a line of its own */
+    .r.r-quiet .qn{white-space:normal;font-size:10.5px;flex:1 1 auto;min-width:0;
+                   text-align:right;line-height:1.35}
+    .qhd{margin:10px 0 1px;font-size:10px}
+    .key{font-size:10px;gap:1px 8px;padding-bottom:5px}
+    .key.coll{padding-top:4px;font-size:10.5px}
+    details.notes{margin:8px 0 2px}
+    details.notes>summary{font-size:10.5px}
+    details.subfold{margin:-2px 0 6px}
+    details.subfold .sub{font-size:11px}
+    .floor{font-size:10.5px;padding:6px 0;line-height:1.45}
+    .blocked{font-size:11.5px;padding:8px 10px;margin-bottom:8px}
+    .blocked .bd{margin-top:5px}
+    .det{padding:6px 0 8px 8px}
+    .det .grp{font-size:9.5px;margin:7px 0 2px}
+    .ln{gap:8px}
   }
   /* very narrow: the pace column drops, the rest keeps its shape */
   @media(max-width:340px){
