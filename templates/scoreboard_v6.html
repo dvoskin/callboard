@@ -136,6 +136,9 @@
   .now .nw b{font-size:17px;color:var(--ink);margin-right:5px;font-variant-numeric:tabular-nums}
   .now .nw.on b{color:#166534}
   .now .cap{margin-left:auto;font-size:11.5px;color:var(--muted);white-space:nowrap}
+  /* The pills' two honest limits, under the strip they qualify. */
+  .disc{font-size:10.5px;color:var(--muted);margin:-4px 0 8px;line-height:1.4}
+  .disc b{color:var(--ink-2);font-weight:600}
   /* Quiet seats sit under their own faint heading, after the ranked rows. */
   .qhd{margin:14px 0 2px;font-size:10.5px;font-weight:700;letter-spacing:.08em;
        text-transform:uppercase;color:var(--muted)}
@@ -364,6 +367,7 @@
     .blocked .bd{margin-top:5px}
     .det{padding:6px 0 8px 8px}
     .det .grp{font-size:9.5px;margin:7px 0 2px}
+    .disc{font-size:10px;margin:-2px 0 6px}
     .ln{gap:8px}
   }
   /* very narrow: the pace column drops, the rest keeps its shape */
@@ -716,6 +720,17 @@
           (freshCap ? '<span class="cap">' + freshCap + '</span>' : '') +
           '</div>';
       }
+      // Danny, 2026-10-07: "Add a disclaimer about the agent status pills
+      // with lag and then statuses like lunch". Two honest limits of the pills,
+      // stated where they are read: they trail the phones by up to a couple of
+      // minutes (the page asks every 70s; the server caches RingEX presence
+      // 60s and RingCX active calls 30s), and RingCX does not expose agent
+      // state through the API this board has, so lunch and break cannot be
+      // shown -- a RingCX agent between calls with activity today reads
+      // Available.
+      h += '<div class="disc">Status pills trail the phones by up to ~2 minutes. ' +
+           'Lunch and break are not reported by RingCX\u2019s API, so an agent between ' +
+           'calls with activity today reads <b>Available</b>.</div>';
       h += '<details class="notes subfold"><summary>Summary</summary>' +
            '<p class="sub">' + sub + '</p></details>';
     }
