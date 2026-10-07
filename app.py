@@ -1156,6 +1156,11 @@ _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx
 # shown -- the chip, the panel line and the notes all go -- not read-and-hidden,
 # so no message-store budget is spent on a board that will not display it.
 _TEAM_SMS = {"surgical": False, "sales": False}
+# Which boards carry a Zoho CRM count on each row: activities the person
+# CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
+# created in Zoho CRM by each user for the time range shown"). Reuses the
+# counter /v5 has had since August, with its 5-minute cache.
+_TEAM_CRM = {"surgical": True}
 
 
 def _team_sms_enabled(team) -> bool:
@@ -2273,6 +2278,16 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # work is mostly inbound; one handled-calls number hides that. RingEX
     # billing keeps a single Calls column: it dials.
     report["split_direction"] = _TEAM_SOURCES.get(team) == "ringcx"
+    report["crm_enabled"] = bool(_TEAM_CRM.get(team))
+    if report["crm_enabled"]:
+        # COQL compares Created_Time as a DATETIME; a bare date is HTTP 400
+        # INVALID_QUERY. The window is the board's local days, edge to edge.
+        _east = -(tz_offset_minutes if tz_offset_minutes is not None
+                  else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
+        _sign = "+" if _east >= 0 else "-"
+        _tz = "%s%02d:%02d" % (_sign, abs(_east) // 60, abs(_east) % 60)
+        _attach_crm_created(report, "%sT00:00:00%s" % (date_start, _tz),
+                            "%sT23:59:59%s" % (date_end, _tz))
     if as_of_note:
         report["data_as_of"] = as_of_note
     # The board used to print "Source: RingEX per-extension call log" on every
@@ -2725,6 +2740,17 @@ def api_v6_presence():
             nm = " ".join((cl.get("agent_name") or "").split()).lower()
             if nm:
                 by_name.setdefault(nm, cl)
+        # Danny, 2026-10-07: "not sure why they all displaying available". The
+        # active-calls list cannot tell a logged-in idle agent from one who is
+        # not at work: both are simply absent from it. Today's delivered rows
+        # are the evidence of being online -- a seat with rows today and no
+        # active call is Available; one with no rows today is Offline.
+        _tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        _today = (datetime.now(timezone.utc) - timedelta(minutes=_tz_off)).date().isoformat()
+        try:
+            worked_today = {n for n, rows_ in _v6_cx_rows_for_team(team, [_today], cx_roster)[0].items() if rows_}
+        except Exception:  # noqa: BLE001
+            worked_today = None     # unknown, not "nobody"
         for seat in cx_roster:
             key = " ".join((seat["name"] or "").split()).lower()
             cl = by_name.get(key)
@@ -2735,8 +2761,12 @@ def api_v6_presence():
             elif cl:
                 state, label = _cx_call_state(cl)
                 note = None
+            elif worked_today is not None and seat["name"] not in worked_today:
+                state, label = "offline", "Offline"
+                note = "no RingCX activity today, so not known to be online"
             else:
-                # The list is complete, so absence IS the fact here.
+                # The list is complete, so absence IS the fact here -- and the
+                # seat has worked today, so it is online and between calls.
                 state, label = _LABEL_IDLE
                 note = None
             cx_seats_out.append({
@@ -3727,6 +3757,23 @@ def _other_team_names() -> set:
 _V5_CRM_TTL = 300.0
 _v5_crm_cache: dict = {}
 _v5_crm_lock = threading.Lock()
+
+
+def _attach_crm_created(report, start_iso, end_iso):
+    """Put each row's CRM activities-created count on it, for the report's
+    window. None on a row means "could not tell" and renders as not read; a
+    failed read leaves every row None rather than a board of zeros."""
+    rows = (report.get("ranked", []) + report.get("silent", [])
+            + report.get("stalled", []) + report.get("unknown", []))
+    names = [a["name"] for a in rows]
+    try:
+        by, meta = _v5_activities_created(start_iso, end_iso, names)
+    except Exception as e:  # noqa: BLE001
+        by, meta = None, {"error": "CRM read failed: %s" % str(e)[:160]}
+    for a in rows:
+        a["crm_created"] = (by or {}).get(_norm_name(a["name"])) if by else None
+    report["crm_meta"] = {k: v for k, v in (meta or {}).items()
+                          if k in ("cached", "error", "attribution", "attributed", "unattributed")}
 
 
 def _v5_activities_created(start_iso, end_iso, agent_names=None):

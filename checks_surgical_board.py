@@ -354,6 +354,42 @@ ck("but still in the expand panel", "['connected', 'Connected', '']" in html and
    "panel lost Connected / long calls")
 ck("no grid area still names the removed columns", " cn lg" not in html and '"c  cn lg"' not in html, "stale grid areas")
 
+# ---- Zoho CRM activities created, on each surgical row ----
+_real_crm = A._v5_activities_created
+_seen_window = {}
+def _stub_crm(s_, e_, names=None):
+    _seen_window["start"], _seen_window["end"] = s_, e_
+    return {A._norm_name("Judith Merlo"): 7, A._norm_name("Alex Morales"): None}, {"cached": False, "attribution": "id"}
+A._v5_activities_created = _stub_crm
+A._v6_cache.clear()          # the earlier request cached rows without CRM on them
+try:
+    _cls.configured = property(lambda self: True)
+    A._v6_fetch_sms = lambda r_, d_, lt, tz: ({}, {})
+    jc = c.get("/api/v6/report?team=surgical&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+    jb2 = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+finally:
+    A._v5_activities_created = _real_crm
+    if _real_cfg is not None: _cls.configured = _real_cfg
+    else: delattr(_cls, "configured")
+    A._v6_fetch_sms = _real_sms
+rows_c = {a["name"]: a for k in ("ranked", "silent", "stalled", "unknown") for a in jc.get(k, [])}
+ck("the surgical report carries CRM", jc.get("crm_enabled") is True, jc.get("crm_enabled"))
+ck("the CRM window is passed as local-day DATETIMES (COQL rejects bare dates)",
+   _seen_window.get("start", "").startswith("2026-07-29T00:00:00") and _seen_window.get("end", "").startswith("2026-07-29T23:59:59"),
+   _seen_window)
+ck("live-day seats with no calls and no CRM activity are not tabulated",
+   "not shown (no calls or activity today)" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created;" in html,
+   "no live-day filter")
+ck("a counted person has her number", rows_c.get("Judith Merlo", {}).get("crm_created") == 7, rows_c.get("Judith Merlo", {}).get("crm_created"))
+ck("an unattributable person is None, not 0", "crm_created" in rows_c.get("Alex Morales", {}) and rows_c["Alex Morales"]["crm_created"] is None,
+   rows_c.get("Alex Morales", {}).get("crm_created", "missing"))
+ck("someone the counter never mentioned is None, not 0", rows_c.get("Jorge Mier", {}).get("crm_created") is None,
+   rows_c.get("Jorge Mier", {}).get("crm_created"))
+ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_created" not in (jb2.get("ranked") or [{}])[0],
+   (jb2.get("crm_enabled"), sorted((jb2.get("ranked") or [{}])[0])))
+ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "if (!D.crm_enabled) return ''" in html,
+   "crmChip missing or ungated")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

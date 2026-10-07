@@ -53,7 +53,11 @@ finally:
     A._cx_active_cache.update(at=0.0, calls=[], meta=None)
 by = {x["name"]: x for x in j.get("seats", [])}
 ck("sales seats get RingCX call status", by.get("Maia Pasifae Palma", {}).get("on_call") is True, by.get("Maia Pasifae Palma"))
-ck("the rest have no active call", by.get("Gregory Beltran", {}).get("state") == "idle", by.get("Gregory Beltran"))
+# No rows today and not on a call: not known to be online, so Offline -- not
+# Available, which is what every absent seat used to read as.
+ck("the rest, with no activity today, are Offline not Available",
+   by.get("Gregory Beltran", {}).get("state") == "offline" and by.get("Gregory Beltran", {}).get("label") == "Offline",
+   by.get("Gregory Beltran"))
 
 print("%d passed" % passed)
 for e in errors:

@@ -171,10 +171,21 @@ try:
     ck("the call's queue and length ride along", (by.get("Judith Merlo", {}).get("call") or {}).get("queue") == "Scheduling",
        by.get("Judith Merlo", {}).get("call"))
     ck("HOLD is on hold, not on a call", by.get("Oscar Caballero", {}).get("state") == "on_hold", by.get("Oscar Caballero"))
-    ck("a seat absent from a READ list has no active call (a real negative)",
-       by.get("Johana Duron", {}).get("state") == "idle" and by.get("Johana Duron", {}).get("label") == "Available",
+    # Absence from the list is "Available" only for a seat that has worked
+    # today; with no rows today it is Offline -- a seat not at work is also
+    # absent from the active-calls list, and calling that Available overclaims.
+    ck("absent from the list, no rows today -> Offline, not Available",
+       by.get("Johana Duron", {}).get("state") == "offline" and by.get("Johana Duron", {}).get("label") == "Offline",
        by.get("Johana Duron"))
     ck("and is not on a call", by.get("Johana Duron", {}).get("on_call") is False, by.get("Johana Duron"))
+    _rt = A._v6_cx_rows_for_team
+    A._v6_cx_rows_for_team = lambda t, d_, seats: ({"Johana Duron": [{"x": 1}]}, 1, {})
+    try:
+        j2 = cxprobe([])
+    finally:
+        A._v6_cx_rows_for_team = _rt
+    jd = {x["name"]: x for x in j2.get("seats", [])}.get("Johana Duron", {})
+    ck("absent from the list WITH rows today -> Available", jd.get("state") == "idle" and jd.get("label") == "Available", jd)
     ck("the surgical table is no longer withheld", j.get("withheld") is False, j.get("withheld"))
     ck("every surgical seat is reported", len(by) == len(A._billing_roster("surgical")[0]), sorted(by))
 

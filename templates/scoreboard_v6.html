@@ -401,6 +401,20 @@
            esc(p.label) + '</span>';
   }
 
+  // Activities the person created in Zoho CRM inside the window shown. Shown
+  // only on boards that carry it; "not read" when the count could not be
+  // attributed, never 0 -- a board of zeros reads as nobody logging anything.
+  function crmChip(a) {
+    var D = LAST[CUR_SLOT] || {};
+    if (!D.crm_enabled) return '';
+    if (a.crm_created == null) {
+      var why = (D.crm_meta && D.crm_meta.error) ? D.crm_meta.error : 'could not be attributed to this person';
+      return '<span class="sms sms-na" title="Zoho CRM activities created in this window: ' + esc(why) + '">CRM not read</span>';
+    }
+    return '<span class="sms" title="Calls and tasks this person created in Zoho CRM in the window shown">' +
+           '<b>' + esc(a.crm_created) + '</b> CRM</span>';
+  }
+
   function smsChip(a) {
     // A board with SMS switched off shows nothing at all -- not "not read".
     // The server sends no SMS for such a board, so this is belt and braces
@@ -471,6 +485,19 @@
     LAST[slot] = d;
     var ranked = d.ranked || [], silent = d.silent || [], stalled = d.stalled || [],
         unknown = d.unknown || [], team = d.team || {};
+    // Danny, 2026-10-07: "dont tabulate users who have no calls or activity
+    // logged today on the surgical coordinator board". On the LIVE day a seat
+    // with no calls and no CRM activity is left off the table and counted in a
+    // footer line, so the omission is visible. A finished range still lists
+    // everyone, which was the earlier ask.
+    var notShown = 0;
+    if (d.live) {
+      ranked = ranked.filter(function (a) {
+        var quietToday = !((a.totals || {}).calls) && !a.crm_created;
+        if (quietToday) notShown++;
+        return !quietToday;
+      });
+    }
     var T = d.targets || {}, LONG = d.long_call_seconds || 120;
     var longLbl = '≥' + Math.round(LONG / 60) + 'm';
     var longKey = 'over_' + LONG + 's';
@@ -503,6 +530,9 @@
     // is missing seats is provisional, and the order can still change.
     if (unknown.length) {
       sub += ' &middot; <b>' + unknown.length + '</b> not read yet';
+    }
+    if (notShown) {
+      sub += ' &middot; <b>' + notShown + '</b> not shown (no calls or activity today)';
     }
     if (d.live && ranked.length && ranked[0].pace) {
       var pc = ranked[0].pace;
@@ -665,14 +695,14 @@
       if (quiet) {
         h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
           '<div class="rk">' + (i + 1) + '</div>' +
-          '<div class="nm">' + esc(a.name) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
           '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
           '</div>';
       } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
