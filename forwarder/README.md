@@ -21,7 +21,11 @@ page when it fell back. `?source=api` forces the live pull so the two can be com
 
 Any long random string works for both — different values.
 
-**Then** paste `gmail_to_ingest.gs` into script.google.com (delete the `myFunction` placeholder first — pasting inside it hides every function from the Run and Trigger dropdowns), set `INGEST_KEY`, run `testOnce`, and add an hourly time-driven trigger on `forwardRingCXReports`.
+`PASTE_THIS_INTO_CODE_GS.js` is a byte-for-byte copy of `gmail_to_ingest.gs`, kept
+only because a `.js` opens in editors and file panes that refuse a `.gs`. Edit the
+`.gs`, then `cp` it over the `.js`; if they ever differ, the `.gs` is the truth.
+
+**Then** paste `gmail_to_ingest.gs` (or the identical `.js`) into script.google.com (delete the `myFunction` placeholder first — pasting inside it hides every function from the Run and Trigger dropdowns), set `INGEST_KEY`, run `testOnce`, and add an hourly time-driven trigger on `forwardRingCXReports`.
 settings at the top, run `testOnce` to confirm the search matches your report
 emails, and add an hourly time-driven trigger on `forwardRingCXReports`.
 
