@@ -17,6 +17,8 @@ Run with no arguments. Reads nothing from the network.
 """
 import os
 import sys
+import json
+import pathlib
 
 os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -256,6 +258,41 @@ finally:
         _cls.configured = _real_cfg
     else:
         delattr(_cls, "configured")
+
+# ---- /api/build says whether today's report names match the rosters ----
+import tempfile, datetime  # noqa: E402
+_inbox = pathlib.Path(tempfile.mkdtemp()) / "inbox"; _inbox.mkdir()
+_real_inbox = A.RINGCX_INBOX_DIR
+A.RINGCX_INBOX_DIR = _inbox
+A._inbox_parse_cache.clear()
+_tz = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+_today = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=_tz)).date().isoformat()
+HEAD = ("Date,Agent Full Name,Interaction Start Time,Channel Type,Channel,"
+        "Talk Time (min),Sum of Interaction Duration,Call Type,Call Result,"
+        "Lead Phone,Caller ID,Agent Disposition,Wrap Time (min)\n")
+def _row(name, minute):
+    return ("%s,%s,09:%02d:00,,Inbound,2.0,120,Outbound,Call connected,"
+            "5551112222,5553334444,,0\n" % (_today, name, minute))
+(_inbox / ("interactions_%s__inbound.csv" % _today)).write_text(
+    HEAD + _row("Alex Morales", 1) + _row("Alex Morales", 2)
+    + _row("Nobody Known", 3) + _row("", 4))
+try:
+    b = c.get("/api/build").get_json().get("ringcx_inbox", {})
+    m = b.get("roster_match_today", {}).get("surgical", {})
+    ck("/api/build counts surgical seats seen today", m.get("seats_seen_today") == 1, m)
+    ck("and the rows they account for", m.get("rows_matched_today") == 2, m)
+    ck("and knows the roster size", m.get("seats") == 13, m)
+    ck("a name on no roster is counted, not named",
+       b.get("today_agents_on_no_roster") == 1, b.get("today_agents_on_no_roster"))
+    # Blank-agent rows are dropped by the parser before this point, so there is
+    # deliberately NO "rows with no agent" figure: it could only ever be 0.
+    ck("no always-zero queue-traffic figure is published",
+       "today_rows_with_no_agent" not in b, sorted(b))
+    ck("no agent NAME leaks through the open endpoint",
+       "Alex Morales" not in json.dumps(b) and "Nobody Known" not in json.dumps(b), b)
+finally:
+    A.RINGCX_INBOX_DIR = _real_inbox
+    A._inbox_parse_cache.clear()
 
 print("%d passed" % passed)
 for e in errors:

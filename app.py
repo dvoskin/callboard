@@ -608,6 +608,37 @@ def api_build():
                 "age_minutes": round((time.time() - q.stat().st_mtime) / 60, 1),
             }
         inbox["today_date"] = _today
+        # Do the names in today's files match the rosters at all? Counts only.
+        # A report can be arriving every quarter hour and still feed no board,
+        # if the agent names in it are not the ones the rosters carry -- and
+        # from the boards that is indistinguishable from no report at all.
+        # Rows with no agent name never get this far: parse_interaction_csv
+        # drops them, so they cannot be counted here and are not pretended to
+        # be. A permanent 0 labelled "queue traffic" would read as a finding.
+        seen_rows = {}
+        keys = set()
+        for q in _inbox_paths_all_scopes(_today):
+            for r in (_parse_inbox_cached(q) or []):
+                nm = (r.get("agent_name") or "").strip().lower()
+                k = (nm, (r.get("start_time") or "").strip(),
+                     (r.get("ani") or "").strip(), (r.get("dnis") or "").strip())
+                if k in keys:
+                    continue
+                keys.add(k)
+                if not nm or nm == "n/a":
+                    continue
+                seen_rows[nm] = seen_rows.get(nm, 0) + 1
+        match = {}
+        rostered = set()
+        for tk, seats in _TEAM_ROSTERS.items():
+            names = {(x.get("name") or "").strip().lower() for x in seats}
+            rostered |= names
+            hit = {n: seen_rows[n] for n in names if n in seen_rows}
+            match[tk] = {"seats": len(names), "seats_seen_today": len(hit),
+                         "rows_matched_today": sum(hit.values())}
+        inbox["roster_match_today"] = match
+        inbox["today_agents_named"] = len(seen_rows)
+        inbox["today_agents_on_no_roster"] = len(set(seen_rows) - rostered)
     except Exception as e:  # noqa: BLE001
         inbox["error"] = str(e)[:200]
     return jsonify({
