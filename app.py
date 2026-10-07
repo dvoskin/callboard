@@ -1149,15 +1149,15 @@ BOARD_TEAMS = ["billing", "surgical"]
 # name of the link to something like Billing & Surgical Coordinator Dashboard".
 LANDING_TITLE = "Billing & Surgical Coordinator Dashboard"
 
-# A third panel on the landing page: another app's board, framed. Danny,
-# 2026-10-07: "embed this as like an iframe somewhere and match our style",
-# with the back-office distribution board's share link. The URL carries that
-# board's share TOKEN and this repository is public, so it lives in the
-# environment, never here: set DISTRIBUTION_BOARD_URL on Render. Unset means
-# no panel. The remote page sends no X-Frame-Options / frame-ancestors, so it
-# can be framed (checked 2026-10-07).
+# A third section on the landing page: a LINK to the back-office lead
+# distribution board (it was framed for a day; Danny, 2026-10-07: "make the
+# Distribution chart a linked thing, not an iframe, it's adding clutter").
+# The URL carries that board's share TOKEN and this repository is public, so
+# it lives in the environment, never here: set DISTRIBUTION_BOARD_URL on
+# Render. Unset means no section.
 DISTRIBUTION_BOARD_URL = os.environ.get("DISTRIBUTION_BOARD_URL", "").strip()
-DISTRIBUTION_BOARD_TITLE = os.environ.get("DISTRIBUTION_BOARD_TITLE", "Distribution").strip() or "Distribution"
+DISTRIBUTION_BOARD_TITLE = (os.environ.get("DISTRIBUTION_BOARD_TITLE", "Lead Distribution").strip()
+                            or "Lead Distribution")
 
 # Which phone platform a team actually WORKS on. This is not cosmetic: measured
 # over 2026-05-26..08-23, billing dials from RingEX (Vivian: 5,881 outbound,

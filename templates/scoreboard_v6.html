@@ -138,30 +138,14 @@
   .now .cap{margin-left:auto;font-size:11.5px;color:var(--muted);white-space:nowrap}
   /* A framed board from another app: full width, tall enough to use, no
      chrome of its own beyond the hairline every section has. */
-  /* The preview card. The frame is the real page at half size, inert
-     (pointer-events off), under a link that covers the whole card. */
-  /* Flush with the tables -- same width, hairlines above and below, no box of
-     its own -- and no scrollbar: the frame is taller than the card and told
-     not to scroll, so the card simply crops it. Danny, 2026-10-07: "get rid
-     of the scroll bar of its own and make it fuller width to match other
-     tables". The page renders at two-thirds, which fills the width rather
-     than sitting centred in a wide viewport at half size. */
-  .pv{position:relative;display:block;width:100%;height:440px;overflow:hidden;
-      border:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-      background:var(--bg);text-decoration:none;color:inherit}
-  .pv:hover .pv-open{color:var(--up);border-color:var(--up)}
-  .pv .embed{position:absolute;top:0;left:0;width:150%;height:150%;border:0;
-             transform:scale(.6667);transform-origin:top left;pointer-events:none;
-             overflow:hidden;background:var(--bg)}
-  .pv-live{position:absolute;top:8px;left:10px;z-index:2;font-size:10px;font-weight:700;
-           letter-spacing:.08em;text-transform:uppercase;color:#166534;background:#dcfce7;
-           border:1px solid #86efac;border-radius:999px;padding:2px 7px}
-  .pv-live::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;
-                   background:#16a34a;margin-right:5px;vertical-align:1px}
-  .pv-open{position:absolute;right:10px;bottom:8px;z-index:2;font-size:11px;font-weight:600;
-           color:var(--ink);background:var(--bg);border:1px solid var(--rule);
-           border-radius:999px;padding:3px 9px;opacity:.9}
-  .pv:hover .pv-open{color:var(--up);border-color:var(--up)}
+  /* The other app's board is a LINK, not a frame. Danny, 2026-10-07: "make
+     the Distribution chart a linked thing, not an iframe, it's adding
+     clutter". One line, in the section's own style, opens it in a new tab. */
+  .lnkrow{margin:0;font-size:13px}
+  .lnkrow a{color:var(--ink);font-weight:600;text-decoration:none;
+            border-bottom:1px solid var(--rule)}
+  .lnkrow a:hover,.lnkrow a:focus-visible{color:var(--up);border-color:var(--up)}
+  .lnkrow .arr{color:var(--muted);font-weight:400;margin-left:4px}
   /* The pills' two honest limits, under the strip they qualify. */
   .disc{font-size:10.5px;color:var(--muted);margin:-4px 0 8px;line-height:1.4}
   .disc b{color:var(--ink-2);font-weight:600}
@@ -398,9 +382,6 @@
     .det{padding:6px 0 8px 8px}
     .det .grp{font-size:9.5px;margin:7px 0 2px}
     .disc{font-size:10px;margin:-2px 0 6px}
-    /* a phone preview: the page at 40%, a shorter card */
-    .pv{height:300px}
-    .pv .embed{width:250%;height:250%;transform:scale(.4)}
     .ln{gap:8px}
   }
   /* very narrow: the pace column drops, the rest keeps its shape */
@@ -453,7 +434,7 @@
     try { if (v !== undefined) localStorage.setItem('v6_monitor_number', v); return localStorage.getItem('v6_monitor_number') || ''; }
     catch (e) { return ''; }
   }
-  var EMBED_TITLE = {{ (embed_title or 'Distribution')|tojson }};
+  var EMBED_TITLE = {{ (embed_title or 'Lead Distribution')|tojson }};
   var TEAM = FIXED || (new URLSearchParams(location.search).get('team') || '').toLowerCase();
   var BOARDS = TEAM ? [TEAM] : (BOARD_TEAMS.length ? BOARD_TEAMS : ['']);
   var MULTI_BOARD = BOARDS.length > 1;
@@ -476,21 +457,13 @@
               '<p class="sub" id="sub_' + slotId(t) + '"></p>' +
               '<div id="' + slotId(t) + '"></div></section>';
     });
-    // A framed board from another app, as a third section in the same style:
-    // plain heading, one muted line with a way out to the full page, the frame.
-    // A live PREVIEW, not a working copy: the other board renders at half size
-    // inside a card, cannot be interacted with, and the whole card opens the
-    // real page in a new tab. Danny, 2026-10-07: "make the iframe look more
-    // like a live preview that opens the new tab".
+    // The back-office board, as a third section in the same style: plain
+    // heading and ONE link that opens it in a new tab. No frame -- the
+    // preview card was clutter (Danny, 2026-10-07).
     if (EMBED_URL) {
       html += '<section class="bd"><h2 class="bt">' + esc(EMBED_TITLE) + '</h2>' +
-              '<p class="sub">Live preview \u00b7 click to open in a new tab</p>' +
-              '<a class="pv" href="' + esc(EMBED_URL) + '" target="_blank" rel="noopener" ' +
-              'aria-label="Open ' + esc(EMBED_TITLE) + ' in a new tab">' +
-              '<span class="pv-live">Live</span>' +
-              '<iframe class="embed" src="' + esc(EMBED_URL) + '" title="' + esc(EMBED_TITLE) + ' preview" ' +
-              'loading="lazy" referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true" scrolling="no"></iframe>' +
-              '<span class="pv-open">Open \u2197</span></a></section>';
+              '<p class="lnkrow"><a href="' + esc(EMBED_URL) + '" target="_blank" rel="noopener">' +
+              'Open ' + esc(EMBED_TITLE) + '<span class="arr">\u2197</span></a></p></section>';
     }
     document.getElementById('out').innerHTML = html;
     if (LANDING_TITLE) {
