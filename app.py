@@ -586,7 +586,32 @@ def api_build():
     time in an unrelated diagnostic. One endpoint, asked directly.
     """
     up = time.time() - _BOOT_AT
+    # RingCX data reaches the boards only as emailed Interaction Reports dropped
+    # into the inbox, so "is CX data coming through" is answered by the inbox,
+    # not by the boards. Dates, counts and ages only: this endpoint is open so
+    # a deploy can be checked without a login, and it must stay safe to be.
+    inbox = {"newest_day": None, "newest_file_age_minutes": None, "today": {}}
+    try:
+        files = sorted(RINGCX_INBOX_DIR.glob("interactions_*.csv"))
+        if files:
+            newest = max(files, key=lambda q: q.stat().st_mtime)
+            inbox["newest_day"] = max(q.name[13:23] for q in files)
+            inbox["newest_file_age_minutes"] = round((time.time() - newest.stat().st_mtime) / 60, 1)
+        _tz = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        _today = (datetime.now(timezone.utc) - timedelta(minutes=_tz)).date().isoformat()
+        for q in _inbox_paths_all_scopes(_today):
+            rows = _parse_inbox_cached(q)
+            inbox["today"][q.name[24:-4] or "default"] = {
+                "rows": len(rows) if rows is not None else None,
+                "agents": len({(r.get("agent_name") or "").strip().lower()
+                               for r in (rows or []) if (r.get("agent_name") or "").strip()}),
+                "age_minutes": round((time.time() - q.stat().st_mtime) / 60, 1),
+            }
+        inbox["today_date"] = _today
+    except Exception as e:  # noqa: BLE001
+        inbox["error"] = str(e)[:200]
     return jsonify({
+        "ringcx_inbox": inbox,
         # Render injects this at build time; absent in local dev.
         "commit": os.environ.get("RENDER_GIT_COMMIT") or "unknown",
         "branch": os.environ.get("RENDER_GIT_BRANCH") or "unknown",
@@ -966,10 +991,17 @@ _COMBINED_TEAMS = {
     "surgical": {
         # Whole rosters, as they are. Someone added to either appears here.
         "parts": ("scheduling", "inbound"),
-        # Borrowed from another roster BY NAME, so an ext_id is never typed a
-        # second time -- a roster rebuilt from memory is how a wrong id gets in.
-        # They keep their own team's bar and curve and are read from RingEX.
-        "borrow": {"billing": ("Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado")},
+        # Vivian Martinez, Yareth Pavon and Gabriela Maldonado were borrowed from
+        # billing here on 2026-10-06 and taken off again on 2026-10-07 at Danny's
+        # request: seeing the three of them on both boards read as duplication.
+        # The borrow mechanism stays -- it is how a seat joins a second table
+        # without its ext_id being typed twice.
+        "borrow": {},
+        # Every seat on this table is listed even at zero. Danny, 2026-10-07:
+        # "all the users should be listed on the board". A seat with no rows
+        # ranks at 0.0 and still raises its own warning saying whether the day
+        # was read or not, rather than dropping to a footnote.
+        "rank_all": True,
         # On no other roster. A RingCX seat is matched by NAME in the delivered
         # Interaction Report and needs no RingEX extension; the names are the
         # report's own spelling (Judith Merlo 65 rows, Alex Morales 2,563 rows,
@@ -1018,6 +1050,8 @@ def _combined_roster(team):
         s["targets"], s["default_curve"] = _group_bar(group)
         if source:
             s["source"] = source
+        if spec.get("rank_all"):
+            s["always_rank"] = True
         seats.append(s)
 
     for part in spec["parts"]:

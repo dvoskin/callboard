@@ -49,20 +49,15 @@ ck("every customer-service seat is on it", all(n in names for n in inb), names)
 ck("nobody is on it twice", len(names) == len(set(names)), names)
 BORROWED = {"Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado"}
 EXTRA = {"Judith Merlo", "Alex Morales", "Chery Marroquin"}
-ck("the three billers Danny listed are borrowed onto it", BORROWED <= set(names), names)
+ck("the three billers are OFF it again (Danny, 2026-10-07)", not (BORROWED & set(names)), names)
 ck("the RingCX-only people Danny listed are on it", EXTRA <= set(names), names)
-ck("and nobody else", set(names) == set(sched) | set(inb) | BORROWED | EXTRA, names)
+ck("and nobody else", set(names) == set(sched) | set(inb) | EXTRA, names)
+ck("every surgical seat is listed even at zero",
+   all(x.get("always_rank") is True for x in surg), [x["name"] for x in surg if not x.get("always_rank")])
 ck("billing itself is untouched by the borrow",
    [x["name"] for x in A._TEAM_ROSTERS["billing"]]
    == ["Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado", "Ana Salazar"],
    [x["name"] for x in A._TEAM_ROSTERS["billing"]])
-ck("a borrowed biller keeps billing's bar",
-   by_name(surg, "Vivian Martinez")["targets"]["talk_minutes"]["target"]
-   == A._BILLING_TARGETS["talk_minutes"]["target"], by_name(surg, "Vivian Martinez").get("targets"))
-ck("and is read from RingEX", by_name(surg, "Vivian Martinez").get("source") == "ringex",
-   by_name(surg, "Vivian Martinez"))
-ck("and keeps billing's ext_id, not a retyped one",
-   by_name(surg, "Vivian Martinez")["ext_id"] == 405657034, by_name(surg, "Vivian Martinez"))
 ck("a RingCX-only newcomer is read from RingCX",
    by_name(surg, "Alex Morales").get("source") == "ringcx", by_name(surg, "Alex Morales"))
 ck("and needs no ext_id", by_name(surg, "Alex Morales").get("ext_id") is None,
@@ -176,13 +171,10 @@ try:
     A._v6_build("2026-10-05", "2026-10-05", 240, "2026-10-05", team="surgical")
 finally:
     A._v6_fetch_ringex, A._v6_cx_rows_for_team, A._v6_fetch_sms, A._v6_finish = _sv
-ck("the borrowed billers are asked of RingEX", set(asked_ex) == BORROWED, asked_ex)
-ck("everyone else is asked of RingCX, in one read",
+ck("nobody on the surgical table is asked of RingEX", asked_ex == [], asked_ex)
+ck("everyone is asked of RingCX, in one read",
    set(asked_cx) == set(sched) | set(inb) | EXTRA, asked_cx)
-ck("every seat reaches the report", len(_got.get("rows", {})) == 16, len(_got.get("rows", {})))
-ck("a borrowed biller's row says it is on RingEX",
-   _got.get("rows", {}).get("Vivian Martinez", {}).get("call_source") == "RingEX",
-   _got.get("rows", {}).get("Vivian Martinez"))
+ck("every seat reaches the report", len(_got.get("rows", {})) == 13, len(_got.get("rows", {})))
 
 # ---- SMS for a seat with no extension is unknown, not zero ----
 _sv_day = A._v6_fetch_sms_day
@@ -205,11 +197,8 @@ A._ringcx.agent_statuses_with_age = lambda: ([], {"age_seconds": 1.0, "stale": F
                                                   "ttl_seconds": 60})
 try:
     j = c.get("/api/v6/presence?team=surgical").get_json()
-    pn = [x["name"] for x in j.get("seats", [])]
-    ck("presence covers the RingEX seats on the surgical table",
-       set(pn) == {"Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado"}, pn)
-    ck("and shows nothing for the RingCX seats", "Alex Morales" not in pn and
-       "Jorge Mier" not in pn, pn)
+    ck("presence is withheld for the all-RingCX surgical table",
+       j.get("withheld") is True and j.get("seats") == [], j)
     ja = c.get("/api/v6/presence?team=scheduling").get_json()
     ck("an all-RingCX team is withheld with the reason",
        ja.get("withheld") is True and "RingCX" in (ja.get("note") or ""), ja)
@@ -258,7 +247,9 @@ try:
        jj.get("team_label"))
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
-    ck("with every seat present", len(all_rows) == 16, len(all_rows))
+    ck("with every seat present", len(all_rows) == 13, len(all_rows))
+    ck("and every one of them in the ranked table, none in a footnote",
+       len(jj.get("ranked", [])) == 13, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
 finally:
     A._v6_fetch_sms = _real_sms
     if _real_cfg is not None:
