@@ -3295,6 +3295,13 @@ def _billing_allowed() -> bool:
         return True
     if _v6_token_ok():
         return True
+    # ONE login. Danny, 2026-10-07: "Make it just one login screen". A viewer
+    # who has passed the dashboard's own gate -- the word password or a Google
+    # session -- is not asked a second time for billing. BILLING_PASSWORDS now
+    # only matters to a request that passed neither, which _v6_allowed()
+    # already refuses; it is kept so an existing billing_pw session still works.
+    if session.get("user") or _word_authed():
+        return True
     return bool(session.get("billing_pw"))
 
 
