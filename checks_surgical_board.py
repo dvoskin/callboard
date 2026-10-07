@@ -348,6 +348,12 @@ ck("zero-call seats collapse on the live day", "r r-quiet" in html and "no calls
 ck("the In / Out cell, header and panel lines exist", "'In / Out' : 'Calls'" in html and "line('Inbound'" in html, "direction UI missing")
 ck("data notes fold behind one line", '<details class="notes"><summary>' in html, "notes not folded")
 
+ck("Conn and the long-call column are off the row", "cell('cn'" not in html and "cell('lg'" not in html
+   and 'class="a-cn"' not in html, "Conn/long-call cells still on the row")
+ck("but still in the expand panel", "['connected', 'Connected', '']" in html and "['long_calls', longLbl, '']" in html,
+   "panel lost Connected / long calls")
+ck("no grid area still names the removed columns", " cn lg" not in html and '"c  cn lg"' not in html, "stale grid areas")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

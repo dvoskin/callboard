@@ -77,15 +77,15 @@
      the two numbers printed on top of each other. That was true on the desktop
      grid as well as the phone one. Most specific last, always. */
   .hd,.r{display:grid;align-items:center;
-         grid-template-columns:22px minmax(0,1fr) 86px 62px 62px 60px;
-         grid-template-areas:"rk nm tk c cn lg"}
-  .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 76px 82px 52px 52px 46px;
-         grid-template-areas:"rk nm tk pc c cn lg"}
-  .hascoll .hd,.hascoll .r{grid-template-columns:22px minmax(0,1fr) 80px 54px 54px 50px 84px;
-         grid-template-areas:"rk nm tk c cn lg co"}
+         grid-template-columns:22px minmax(0,1fr) 86px 62px;
+         grid-template-areas:"rk nm tk c"}
+  .live .hd,.live .r{grid-template-columns:20px minmax(0,1fr) 76px 82px 52px;
+         grid-template-areas:"rk nm tk pc c"}
+  .hascoll .hd,.hascoll .r{grid-template-columns:22px minmax(0,1fr) 80px 54px 84px;
+         grid-template-areas:"rk nm tk c co"}
   .live.hascoll .hd,.live.hascoll .r{
-         grid-template-columns:20px minmax(0,1fr) 68px 74px 44px 44px 40px 76px;
-         grid-template-areas:"rk nm tk pc c cn lg co"}
+         grid-template-columns:20px minmax(0,1fr) 68px 74px 44px 76px;
+         grid-template-areas:"rk nm tk pc c co"}
   .a-co{grid-area:co} .co{grid-area:co}
   /* SMS rides in the NAME cell, not a column of its own. The grid already has
      two optional columns (pace, collected) and every combination needs its own
@@ -247,10 +247,10 @@
       grid-template-columns:minmax(0,1fr) 60px 56px;
       row-gap:1px;
     }
-    .r{grid-template-areas:"nm tk tk" "c  cn lg"}
-    .live .r{grid-template-areas:"nm tk pc" "c  cn lg"}
-    .hascoll .r{grid-template-areas:"nm tk tk" "c  cn lg" "co co co"}
-    .live.hascoll .r{grid-template-areas:"nm tk pc" "c  cn lg" "co co co"}
+    .r{grid-template-areas:"nm tk tk" "c  c  c"}
+    .live .r{grid-template-areas:"nm tk pc" "c  c  c"}
+    .hascoll .r{grid-template-areas:"nm tk tk" "c  c  c" "co co co"}
+    .live.hascoll .r{grid-template-areas:"nm tk pc" "c  c  c" "co co co"}
     .r .rk{display:none}
     .co{text-align:left}
     /* "exp 104m" on every row is the same number the expand panel spells out in
@@ -289,9 +289,9 @@
   }
   /* very narrow: the pace column drops, the rest keeps its shape */
   @media(max-width:340px){
-    .r,.live .r{grid-template-areas:"nm tk tk" "c cn lg"}
+    .r,.live .r{grid-template-areas:"nm tk tk" "c c c"}
     .hascoll .r,.live.hascoll .r{
-      grid-template-areas:"nm tk tk" "c cn lg" "co co co"}
+      grid-template-areas:"nm tk tk" "c c c" "co co co"}
     .r,.live .r,.hascoll .r,.live.hascoll .r{
       grid-template-columns:minmax(0,1fr) 54px 50px}
     .pc{display:none}
@@ -639,7 +639,7 @@
       '<div class="a-tk">' + (live ? 'So far' : 'Talk/day') + '</div>' +
       (live ? '<div class="a-pc">vs expected</div>' : '') +
       '<div class="a-c">' + (d.split_direction ? 'In / Out' : 'Calls') + '</div>' +
-      '<div class="a-cn">Conn</div><div class="a-lg">' + longLbl + '</div>' +
+
       (hasColl ? '<div class="a-co">Collected</div>' : '') + '</div>';
 
     ranked.forEach(function (a, i) {
@@ -684,8 +684,9 @@
                       (show.outbound == null ? '\u2014' : show.outbound),
                  pg.calls || 'below', 'In / Out')
           : cell('c', show.calls, pg.calls || 'below', 'Calls')) +
-        cell('cn', show.connected, pg.connected || 'below', 'Conn') +
-        cell('lg', show.long_calls, pg.long_calls || 'below', longLbl) +
+        // Connected and the long-call count left the row on 2026-10-07 (Danny:
+        // "remove Conn ≥2m and put those away into the collapsed state"); both
+        // are still lines in the expand panel, with their bars.
         (hasColl ? '<div class="co"><span class="lbl">Collected </span><b>' +
                    money(a.collected_total) + '</b></div>' : '') +
         '</div>';
