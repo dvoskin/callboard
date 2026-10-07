@@ -202,6 +202,31 @@ try:
     jdm = {x["name"]: x for x in jm.get("seats", [])}.get("Johana Duron", {})
     ck("in her shift with no rows and no call: No Activity -- not Offline, not Available",
        jdm.get("state") == "no_activity" and jdm.get("label") == "No Activity", jdm)
+    # The page's own offset wins over the server's fixed one: at 18:00 UTC a
+    # viewer on US Eastern daylight time (tz=240) is at 14:00, past a 13:00
+    # start. With a stale fixed offset the server would still have said
+    # "Starts 1:00 PM" at 2pm.
+    import datetime as _dt2
+    _real_dt = A.datetime
+    class _FixedNow(_dt2.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _dt2.datetime(2026, 10, 7, 18, 0, tzinfo=_dt2.timezone.utc) if tz else _dt2.datetime(2026, 10, 7, 18, 0)
+    A.datetime = _FixedNow
+    try:
+        A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+        A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
+        A._ringcx.active_calls_with_status = lambda: ([], {"ok": True, "note": None, "read_at": time.time(), "http_error": None})
+        rtz = CLIENT.get("/api/v6/presence?team=surgical&tz=240").get_json()
+        jtz = {x["name"]: x for x in rtz.get("seats", [])}.get("Alex Morales", {})   # 13:00-22:00
+        ck("with the page's tz, 2pm Eastern is INSIDE a 1pm shift (No Activity, not Starts 1:00 PM)",
+           jtz.get("state") == "no_activity", jtz)
+        rtz2 = CLIENT.get("/api/v6/presence?team=surgical&tz=-60").get_json()   # a viewer at UTC+1: 19:00
+        jtz2 = {x["name"]: x for x in rtz2.get("seats", [])}.get("Jorge Mier", {})   # 12:00-21:00
+        ck("a different viewer offset moves the clock", jtz2.get("state") == "no_activity", jtz2)
+    finally:
+        A.datetime = _real_dt
+        A._ringcx.active_calls_with_status = _real_cx
     ck("a seat with NO declared shift and no rows is No Activity",
        {x["name"]: x for x in jm.get("seats", [])}.get("Chery Marroquin", {}).get("state") == "no_activity",
        {x["name"]: x for x in jm.get("seats", [])}.get("Chery Marroquin"))

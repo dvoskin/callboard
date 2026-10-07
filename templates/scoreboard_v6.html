@@ -1181,6 +1181,9 @@
   function loadPresenceFor(team, slot, subId) {
     var q = new URLSearchParams();
     if (team) q.set('team', team);
+    // The viewer's clock, for the shift states -- the same offset the figures
+    // are built with, so "Starts 1:00 PM" and the day's percentage agree.
+    q.set('tz', String(new Date().getTimezoneOffset()));
     if (SHARE && TOKEN) q.set('k', TOKEN);
     var redraw = function () { if (LAST[slot]) render(LAST[slot], slot, subId); };
     fetch('/api/v6/presence?' + q.toString(), { credentials: 'same-origin' })

@@ -2818,6 +2818,17 @@ def api_v6_presence():
     # one, so for a RingCX team nothing is shown and the reason is stated.
     team_src = _TEAM_SOURCES.get(team, "ringex")
     full_roster = roster
+    # The shift clock. The page sends its own UTC offset (the same `tz` the
+    # figures use), so a seat is judged by the viewer's wall clock -- which
+    # follows daylight saving on its own. The fixed TZ_OFFSET_HOURS is only
+    # the fallback. Danny, 2026-10-07: "Gabriela still says starts 1pm when
+    # it's 2pm" -- her 13:00 start judged on a clock that was behind.
+    now_local = _presence_now_local()
+    try:
+        if request.args.get("tz") not in (None, ""):
+            now_local = datetime.now(timezone.utc) - timedelta(minutes=int(request.args["tz"]))
+    except (TypeError, ValueError):
+        pass
     # RingCX seats get their call status from RingCX's own active-calls list --
     # the same source the live call board uses -- matched by agent name. Danny,
     # 2026-10-07: "add their call statuses here for RingCX agents using the
@@ -2878,7 +2889,7 @@ def api_v6_presence():
                 # Three different facts, three different words: not due yet,
                 # shift finished, or due and silent. None of them is "Offline",
                 # which RingCX cannot tell us.
-                ph = _shift_phase(seat["name"], _presence_now_local())
+                ph = _shift_phase(seat["name"], now_local)
                 if ph and ph[0] == "before":
                     state, label, note = "before_shift", ph[1], "shift has not started"
                 elif ph and ph[0] == "after":
@@ -2939,7 +2950,7 @@ def api_v6_presence():
         # Only when the platform WAS read: a seat we could not read stays
         # "Not Read", and is not relabelled from the schedule.
         if state in ("offline", "idle"):
-            ph = _shift_phase(seat["name"], _presence_now_local())
+            ph = _shift_phase(seat["name"], now_local)
             if ph and ph[0] == "before":
                 state, label = "before_shift", ph[1]
             elif ph and ph[0] == "after" and state == "offline":
