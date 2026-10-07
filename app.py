@@ -1151,14 +1151,15 @@ LANDING_TITLE = "Billing & Surgical Coordinator Dashboard"
 # RingCX Interaction Report is delivered to /api/v5/ingest.
 _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx",
                  "sales": "ringcx"}
-# Which boards read and show SMS at all. Off for the Surgical Coordinator table
-# at Danny's request (2026-10-07, "dont show sms performance for surgical
-# coordinators"): its seats work queues in RingCX, most have no RingEX
-# extension to read a message store from, and the few that do would show a
-# half-empty column beside eleven "not read" pills. Off means not read AND not
-# shown -- the chip, the panel line and the notes all go -- not read-and-hidden,
-# so no message-store budget is spent on a board that will not display it.
-_TEAM_SMS = {"surgical": False, "sales": False}
+# Which boards read and show SMS at all. Off means not read AND not shown --
+# the chip, the panel line and the notes all go -- not read-and-hidden, so no
+# message-store budget is spent on a board that will not display it.
+# Surgical was switched off here in the morning of 2026-10-07 and back on in
+# the evening ("show inbound outbound sms for the surgical coordinators as
+# well, sending from ringex"). Seats with a RingEX extension are read from the
+# message store; the RingCX-only seats (no extension) read "SMS not read" with
+# the reason, never zero.
+_TEAM_SMS = {"sales": False}
 # Which boards carry a Zoho CRM count on each row: activities the person
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
 # created in Zoho CRM by each user for the time range shown"). Reuses the

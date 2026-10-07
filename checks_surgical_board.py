@@ -181,7 +181,9 @@ ck("everyone is asked of RingCX, in one read",
 ck("every seat reaches the report", len(_got.get("rows", {})) == 13, len(_got.get("rows", {})))
 # Danny, 2026-10-07: "dont show sms performance for surgical coordinators".
 # Off means not READ either: no message-store budget for a board that hides it.
-ck("the surgical build never reads SMS", _sms_calls == [], _sms_calls)
+# Danny, 2026-10-07 evening: SMS is back ON for surgical ("show inbound
+# outbound sms for the surgical coordinators as well, sending from ringex").
+ck("the surgical build reads SMS for its roster", _sms_calls == [13], _sms_calls)
 
 # ---- SMS for a seat with no extension is unknown, not zero ----
 _sv_day = A._v6_fetch_sms_day
@@ -269,12 +271,8 @@ try:
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
     ck("with every seat present", len(all_rows) == 13, len(all_rows))
-    ck("the surgical report says SMS is off", jj.get("sms_enabled") is False, jj.get("sms_enabled"))
-    ck("no surgical row carries SMS", all(not a.get("sms") for a in all_rows),
-       [a["name"] for a in all_rows if a.get("sms")])
-    ck("no SMS note on the surgical board",
-       not [w for w in jj.get("warnings", []) if "sms" in (w.get("kind") or "")],
-       [w.get("kind") for w in jj.get("warnings", [])])
+    ck("the surgical report says SMS is on", jj.get("sms_enabled") is True, jj.get("sms_enabled"))
+    ck("sales stays off", A._team_sms_enabled("sales") is False, A._team_sms_enabled("sales"))
     jb = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
     ck("billing still has SMS on", jb.get("sms_enabled") is True, jb.get("sms_enabled"))
     ck("the page hides the chip when a board has SMS off",
