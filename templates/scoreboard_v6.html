@@ -106,6 +106,8 @@
   .pz-busy{color:#9a3412;background:#ffedd5}
   .pz-dnd{color:#9a3412;background:#ffedd5}
   .pz-offline{color:var(--muted);background:transparent}
+  /* No active call on RingCX: a real reading, shown quietly. */
+  .pz-idle{color:var(--muted);background:transparent;font-weight:600}
   /* Not read is deliberately the dullest thing on the row: it is the absence of
      a fact, and it must not compete with the states that ARE facts. */
   .pz-unknown{color:var(--muted);background:transparent;font-weight:400;font-style:italic}
@@ -376,7 +378,9 @@
     if (!p) return '';
     var t = p.label;
     if (p.ext_mismatch) t += ' \u2014 ' + p.ext_mismatch;
-    else if (p.state === 'unknown' && P.__note) t += ' \u2014 ' + P.__note;
+    else if (p.state === 'unknown' && (p.note || P.__note)) t += ' \u2014 ' + (p.note || P.__note);
+    else if (p.call && p.call.seconds != null) t += ' \u2014 ' + Math.round(p.call.seconds / 60) + ' min' +
+      (p.call.queue ? ' on ' + p.call.queue : '');
     return '<span class="pz pz-' + esc(p.state) + '" title="' + esc(t) + '">' +
            esc(p.label) + '</span>';
   }

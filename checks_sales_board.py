@@ -43,8 +43,17 @@ A.app.config["TESTING"] = True
 c = A.app.test_client()
 ck("/sales serves the board", c.get("/sales").status_code == 200, c.get("/sales").status_code)
 ck("pinned to one board", 'var FIXED = "sales"' in c.get("/sales").get_data(as_text=True), "FIXED not sales")
-j = c.get("/api/v6/presence?team=sales").get_json() or {}
-ck("presence is withheld (RingCX seats, no RingEX line)", j.get("withheld") is True, j)
+_rc = A._ringcx.active_calls_with_status
+A._ringcx.active_calls_with_status = lambda: ([{"agent_name": "Maia Pasifae Palma", "call_state": "ACTIVE"}], {"ok": True, "note": None, "read_at": 0, "http_error": None})
+A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+try:
+    j = c.get("/api/v6/presence?team=sales").get_json() or {}
+finally:
+    A._ringcx.active_calls_with_status = _rc
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+by = {x["name"]: x for x in j.get("seats", [])}
+ck("sales seats get RingCX call status", by.get("Maia Pasifae Palma", {}).get("on_call") is True, by.get("Maia Pasifae Palma"))
+ck("the rest have no active call", by.get("Gregory Beltran", {}).get("state") == "idle", by.get("Gregory Beltran"))
 
 print("%d passed" % passed)
 for e in errors:

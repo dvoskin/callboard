@@ -203,9 +203,18 @@ A._ringcx.agent_statuses_with_age = lambda: ([], {"age_seconds": 1.0, "stale": F
                                                   "never_read": False, "note": None,
                                                   "ttl_seconds": 60})
 try:
-    j = c.get("/api/v6/presence?team=surgical").get_json()
-    ck("presence is withheld for the all-RingCX surgical table",
-       j.get("withheld") is True and j.get("seats") == [], j)
+    _rc = A._ringcx.active_calls_with_status
+    A._ringcx.active_calls_with_status = lambda: ([], {"ok": False, "note": "no RingCX creds here", "read_at": 0, "http_error": None})
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+    try:
+        j = c.get("/api/v6/presence?team=surgical").get_json()
+    finally:
+        A._ringcx.active_calls_with_status = _rc
+        A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+    ck("every surgical seat is reported, from RingCX, not withheld as a team",
+       len(j.get("seats", [])) == 13 and all(x.get("source") == "ringcx" for x in j["seats"]), j)
+    ck("when RingCX cannot be read each seat is NOT READ, never idle",
+       all(x.get("state") == "unknown" for x in j["seats"]) and j.get("withheld") is True, j)
     ja = c.get("/api/v6/presence?team=scheduling").get_json()
     ck("an all-RingCX team is withheld with the reason",
        ja.get("withheld") is True and "RingCX" in (ja.get("note") or ""), ja)

@@ -278,13 +278,47 @@ class RingCXClient:
     # RingCX — Active Calls (Engage Voice API)
     # ══════════════════════════════════════════════════════════════
 
+    def active_calls_with_status(self) -> tuple[list[dict], dict]:
+        """(calls, meta) -- the active-calls list AND whether it was actually read.
+
+        get_active_calls() returns [] on any failure, and [] is also what a quiet
+        floor returns. For a live board that is the difference between "nobody
+        is on a call" and "we could not look", and the board must never print
+        the first when the truth is the second. meta carries ok, note, read_at.
+        """
+        meta = {"ok": False, "note": None, "read_at": time.time(), "http_error": None}
+        try:
+            calls = self._fetch_active_calls()
+            meta["ok"] = True
+            return calls, meta
+        except requests.exceptions.HTTPError as e:
+            meta["http_error"] = e.response.status_code if e.response is not None else None
+            meta["note"] = "RingCX returned HTTP %s reading active calls" % meta["http_error"]
+            log.error("RingCX active calls error: %s", e)
+            return [], meta
+        except Exception as e:  # noqa: BLE001
+            meta["note"] = "RingCX active calls could not be read: %s" % str(e)[:160]
+            log.error("RingCX active calls error: %s", e)
+            return [], meta
+
     def get_active_calls(self) -> list[dict]:
         """Fetch currently active calls from RingCX (Engage Voice).
 
         Returns a list of simplified call objects with agent info,
-        caller details, call state, and duration.
+        caller details, call state, and duration. [] on failure -- the live
+        board tolerates that; a board that names individuals should use
+        active_calls_with_status() and say when it could not look.
         """
         try:
+            return self._fetch_active_calls()
+        except Exception as e:  # noqa: BLE001
+            log.error("RingCX active calls error: %s", e)
+            return []
+
+    def _fetch_active_calls(self) -> list[dict]:
+        """The request itself. Raises on failure; the two callers decide what
+        a failure means to them."""
+        if True:
             token = self._ensure_cx_token()
             if not self._cx_account_id:
                 log.warning("RingCX account ID not set, cannot fetch active calls")
@@ -352,14 +386,6 @@ class RingCXClient:
 
             log.info("RingCX: %d active calls found", len(active))
             return active
-
-        except requests.exceptions.HTTPError as e:
-            log.error("RingCX active calls error: %s — %s",
-                      e, e.response.text[:300] if e.response is not None else "")
-            return []
-        except Exception as e:
-            log.error("RingCX active calls error: %s", e)
-            return []
 
     # ══════════════════════════════════════════════════════════════
     # RingCX — Call Monitoring (Engage Voice supervisor features)

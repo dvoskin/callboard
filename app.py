@@ -2636,6 +2636,45 @@ def _presence_for_seat(p):
                                     ("unknown", "Not read"))
 
 
+# RingCX active calls, one read per 30s however many boards are open. The
+# list is the complete set of calls in progress on the account, so a seat that
+# is NOT in a successfully read list genuinely has no active call -- a real
+# negative, unlike a seat missing from RingEX presence.
+_CX_ACTIVE_TTL = 30.0
+_cx_active_cache = {"at": 0.0, "calls": [], "meta": None}
+_cx_active_lock = threading.Lock()
+
+
+def _cx_active_calls():
+    """(calls, meta, age_seconds) from the cache, refreshed when older than TTL."""
+    with _cx_active_lock:
+        age = time.time() - _cx_active_cache["at"]
+        if _cx_active_cache["meta"] is not None and age < _CX_ACTIVE_TTL:
+            return _cx_active_cache["calls"], _cx_active_cache["meta"], age
+    calls, meta = _ringcx.active_calls_with_status()
+    with _cx_active_lock:
+        # A failed read does not overwrite a good recent one: keep the last good
+        # list and its age, so the board withholds on age rather than on a blip.
+        if meta.get("ok") or _cx_active_cache["meta"] is None:
+            _cx_active_cache.update(at=time.time(), calls=calls, meta=meta)
+        else:
+            _cx_active_cache["meta"] = dict(_cx_active_cache["meta"], last_note=meta.get("note"))
+        return (_cx_active_cache["calls"], _cx_active_cache["meta"],
+                time.time() - _cx_active_cache["at"])
+
+
+def _cx_call_state(call):
+    """(state, label) for one RingCX active call. The callState vocabulary is
+    not documented here; HOLD and RING are matched by substring and everything
+    else that is an active call with this agent on it is a call in progress."""
+    st = (call.get("call_state") or "").upper()
+    if "HOLD" in st or "PARK" in st:
+        return "on_hold", "On hold"
+    if "RING" in st or "QUEUE" in st or "OFFER" in st:
+        return "ringing", "Ringing"
+    return "on_call", "On a call"
+
+
 @app.route("/api/v6/presence")
 def api_v6_presence():
     """Who is on a call right now, per seat on the board.
@@ -2659,14 +2698,50 @@ def api_v6_presence():
     # on back-to-back queue calls. That is not a weaker reading, it is a wrong
     # one, so for a RingCX team nothing is shown and the reason is stated.
     team_src = _TEAM_SOURCES.get(team, "ringex")
-    cx_note = ("takes calls in RingCX; RingEX presence would describe the "
-               "overflow line, not the person")
-    roster = [x for x in roster if (x.get("source") or team_src) != "ringcx"]
+    full_roster = roster
+    # RingCX seats get their call status from RingCX's own active-calls list --
+    # the same source the live call board uses -- matched by agent name. Danny,
+    # 2026-10-07: "add their call statuses here for RingCX agents using the
+    # same connection or data source but for the applicable user".
+    cx_roster = [x for x in full_roster if (x.get("source") or team_src) == "ringcx"]
+    roster = [x for x in full_roster if (x.get("source") or team_src) != "ringcx"]
+    cx_seats_out, cx_meta, cx_age = [], None, None
+    if cx_roster:
+        calls, cx_meta, cx_age = _cx_active_calls()
+        cx_ok = bool(cx_meta and cx_meta.get("ok")) and cx_age is not None and cx_age < _CX_ACTIVE_TTL * 3
+        by_name = {}
+        for cl in calls:
+            nm = " ".join((cl.get("agent_name") or "").split()).lower()
+            if nm:
+                by_name.setdefault(nm, cl)
+        for seat in cx_roster:
+            key = " ".join((seat["name"] or "").split()).lower()
+            cl = by_name.get(key)
+            if not cx_ok:
+                state, label = "unknown", "Not read"
+                note = (cx_meta or {}).get("note") or (cx_meta or {}).get("last_note") or \
+                       "RingCX active calls have not been read"
+            elif cl:
+                state, label = _cx_call_state(cl)
+                note = None
+            else:
+                # The list is complete, so absence IS the fact here.
+                state, label, note = "idle", "No active call", None
+            cx_seats_out.append({
+                "name": seat["name"], "ext": seat.get("ext"), "ext_id": seat.get("ext_id"),
+                "state": state, "label": label, "on_call": state == "on_call",
+                "matched": bool(cl), "source": "ringcx", "note": note,
+                "call": ({"direction": cl.get("direction"), "queue": cl.get("queue_name"),
+                          "seconds": cl.get("duration_sec")} if cl else None),
+            })
     if not roster:
         return jsonify({
-            "team": team, "seats": [], "withheld": True, "stale": False,
-            "as_of_age_seconds": None, "agents_seen": 0,
-            "note": "every seat on this team " + cx_note,
+            "team": team, "seats": cx_seats_out,
+            "withheld": not (cx_meta and cx_meta.get("ok")),
+            "stale": bool(cx_age is not None and cx_age > _CX_ACTIVE_TTL * 3),
+            "as_of_age_seconds": round(cx_age, 1) if cx_age is not None else None,
+            "agents_seen": 0, "ringcx_active_calls": len(_cx_active_cache["calls"]),
+            "note": (cx_meta or {}).get("note") or (cx_meta or {}).get("last_note"),
         })
     agents, pmeta = _ringcx.agent_statuses_with_age()
 
@@ -2713,7 +2788,7 @@ def api_v6_presence():
 
     return jsonify({
         "team": team,
-        "seats": seats,
+        "seats": seats + cx_seats_out,
         "as_of_age_seconds": pmeta["age_seconds"],
         "stale": pmeta["stale"],
         "withheld": not usable,

@@ -145,6 +145,54 @@ try:
 finally:
     A._ringcx.agent_statuses_with_age = _real
 
+# ---- RingCX seats: call status from the active-calls list ----
+# Danny, 2026-10-07: "add their call statuses here for RingCX agents using the
+# same connection or data source". Three facts have to stay apart: on a call
+# (in the list), no active call (absent from a list that WAS read -- the list
+# is complete, so that is a real negative), and not read (the fetch failed).
+def cxprobe(calls, ok=True, note=None, team="surgical"):
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+    A._ringcx.active_calls_with_status = lambda: (calls, {"ok": ok, "note": note,
+                                                          "read_at": time.time(), "http_error": None})
+    r = CLIENT.get("/api/v6/presence?team=%s" % team)
+    return r.get_json() if r.status_code == 200 else {"_http": r.status_code}
+
+_real_cx = A._ringcx.active_calls_with_status
+try:
+    j = cxprobe([{"agent_name": "Judith  Merlo", "call_state": "ACTIVE", "direction": "INBOUND",
+                  "queue_name": "Scheduling", "duration_sec": 125},
+                 {"agent_name": "Oscar Caballero", "call_state": "ON_HOLD", "duration_sec": 30}])
+    by = {x["name"]: x for x in j.get("seats", [])}
+    ck("a RingCX seat on an active call is ON CALL", by.get("Judith Merlo", {}).get("on_call") is True,
+       by.get("Judith Merlo"))
+    ck("matched despite doubled spaces in the report's name", by.get("Judith Merlo", {}).get("matched") is True,
+       by.get("Judith Merlo"))
+    ck("the call's queue and length ride along", (by.get("Judith Merlo", {}).get("call") or {}).get("queue") == "Scheduling",
+       by.get("Judith Merlo", {}).get("call"))
+    ck("HOLD is on hold, not on a call", by.get("Oscar Caballero", {}).get("state") == "on_hold", by.get("Oscar Caballero"))
+    ck("a seat absent from a READ list has no active call (a real negative)",
+       by.get("Johana Duron", {}).get("state") == "idle" and by.get("Johana Duron", {}).get("label") == "No active call",
+       by.get("Johana Duron"))
+    ck("and is not on a call", by.get("Johana Duron", {}).get("on_call") is False, by.get("Johana Duron"))
+    ck("the surgical table is no longer withheld", j.get("withheld") is False, j.get("withheld"))
+    ck("every surgical seat is reported", len(by) == len(A._billing_roster("surgical")[0]), sorted(by))
+
+    j = cxprobe([], ok=False, note="RingCX returned HTTP 401 reading active calls")
+    by = {x["name"]: x for x in j.get("seats", [])}
+    ck("a FAILED read is NOT 'no active call'", by.get("Judith Merlo", {}).get("state") == "unknown", by.get("Judith Merlo"))
+    ck("and says why", "401" in (by.get("Judith Merlo", {}).get("note") or ""), by.get("Judith Merlo"))
+    ck("the board is withheld when nothing could be read", j.get("withheld") is True, j.get("withheld"))
+
+    # one RingCX read serves many boards
+    calls_made = []
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+    A._ringcx.active_calls_with_status = lambda: (calls_made.append(1), ([], {"ok": True, "note": None, "read_at": time.time(), "http_error": None}))[1]
+    CLIENT.get("/api/v6/presence?team=surgical"); CLIENT.get("/api/v6/presence?team=sales"); CLIENT.get("/api/v6/presence?team=scheduling")
+    ck("three boards within 30s cost ONE RingCX read", len(calls_made) == 1, len(calls_made))
+finally:
+    A._ringcx.active_calls_with_status = _real_cx
+    A._cx_active_cache.update(at=0.0, calls=[], meta=None)
+
 # ---- presence must not be able to take the board down ----
 called = []
 _saved = (A._ringcx.agent_statuses_with_age, A._ringcx.get_agent_statuses,
