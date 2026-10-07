@@ -140,13 +140,19 @@
      chrome of its own beyond the hairline every section has. */
   /* The preview card. The frame is the real page at half size, inert
      (pointer-events off), under a link that covers the whole card. */
-  .pv{position:relative;display:block;width:100%;height:420px;overflow:hidden;
-      border:1px solid var(--rule);border-radius:8px;background:var(--bg);
-      text-decoration:none;color:inherit;transition:border-color .15s,box-shadow .15s}
-  .pv:hover{border-color:var(--up);box-shadow:0 1px 10px rgba(0,0,0,.06)}
-  .pv .embed{position:absolute;top:0;left:0;width:200%;height:200%;border:0;
-             transform:scale(.5);transform-origin:top left;pointer-events:none;
-             background:var(--bg)}
+  /* Flush with the tables -- same width, hairlines above and below, no box of
+     its own -- and no scrollbar: the frame is taller than the card and told
+     not to scroll, so the card simply crops it. Danny, 2026-10-07: "get rid
+     of the scroll bar of its own and make it fuller width to match other
+     tables". The page renders at two-thirds, which fills the width rather
+     than sitting centred in a wide viewport at half size. */
+  .pv{position:relative;display:block;width:100%;height:440px;overflow:hidden;
+      border:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
+      background:var(--bg);text-decoration:none;color:inherit}
+  .pv:hover .pv-open{color:var(--up);border-color:var(--up)}
+  .pv .embed{position:absolute;top:0;left:0;width:150%;height:150%;border:0;
+             transform:scale(.6667);transform-origin:top left;pointer-events:none;
+             overflow:hidden;background:var(--bg)}
   .pv-live{position:absolute;top:8px;left:10px;z-index:2;font-size:10px;font-weight:700;
            letter-spacing:.08em;text-transform:uppercase;color:#166534;background:#dcfce7;
            border:1px solid #86efac;border-radius:999px;padding:2px 7px}
@@ -393,7 +399,7 @@
     .det .grp{font-size:9.5px;margin:7px 0 2px}
     .disc{font-size:10px;margin:-2px 0 6px}
     /* a phone preview: the page at 40%, a shorter card */
-    .pv{height:300px;border-radius:6px}
+    .pv{height:300px}
     .pv .embed{width:250%;height:250%;transform:scale(.4)}
     .ln{gap:8px}
   }
@@ -483,7 +489,7 @@
               'aria-label="Open ' + esc(EMBED_TITLE) + ' in a new tab">' +
               '<span class="pv-live">Live</span>' +
               '<iframe class="embed" src="' + esc(EMBED_URL) + '" title="' + esc(EMBED_TITLE) + ' preview" ' +
-              'loading="lazy" referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true"></iframe>' +
+              'loading="lazy" referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true" scrolling="no"></iframe>' +
               '<span class="pv-open">Open \u2197</span></a></section>';
     }
     document.getElementById('out').innerHTML = html;
