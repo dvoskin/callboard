@@ -315,6 +315,43 @@ finally:
     A._cx_active_cache.update(at=0.0, calls=[], meta=None)
     A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
 
+# ---- Listen / Whisper on a live RingCX call ----
+# Danny, 2026-10-07: "add the monitor/whisper to the surgical rows" -- "keep it
+# super clean". Supervisors only (a Google session), two verbs, the call id
+# rides on presence and is never shown.
+j = cxprobe([{"agent_name": "Judith Merlo", "call_state": "ACTIVE", "uii": "UII-123", "duration_sec": 40}])
+ck("the live call's id rides on presence for the row", {x["name"]: x for x in j["seats"]}["Judith Merlo"]["call"].get("uii") == "UII-123",
+   {x["name"]: x for x in j["seats"]}["Judith Merlo"].get("call"))
+_calls = []
+_real_mon = A._ringcx.monitor_call
+A._ringcx.monitor_call = lambda uii, dest, st: (_calls.append((uii, dest, st)) or {"ok": True})
+_cfg_cls = type(A._ringcx); _cfg_real = _cfg_cls.__dict__.get("configured"); _cfg_cls.configured = property(lambda self: True)
+try:
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "7865551234", "verb": "listen"})
+    ck("without a Google session the action is refused", r.status_code == 401, r.status_code)
+    with CLIENT.session_transaction() as sess:
+        sess["user"] = {"email": "danny@example.test"}
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "(786) 555-1234", "verb": "listen"})
+    ck("listen -> MONITOR with the digits of the number", r.status_code == 200 and _calls[-1] == ("UII-123", "7865551234", "MONITOR"), (r.status_code, _calls[-1:]))
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "7865551234", "verb": "whisper"})
+    ck("whisper -> COACHING", r.status_code == 200 and _calls[-1][2] == "COACHING", (r.status_code, _calls[-1:]))
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "7865551234", "verb": "barge"})
+    ck("barge-in is not offered", r.status_code == 400, r.status_code)
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "", "destination": "7865551234", "verb": "listen"})
+    ck("no live call -> refused", r.status_code == 400, r.status_code)
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "12", "verb": "listen"})
+    ck("a short number -> refused, asked again", r.status_code == 400 and "number" in r.get_json().get("error", ""), r.get_json())
+finally:
+    A._ringcx.monitor_call = _real_mon
+    if _cfg_real is not None: _cfg_cls.configured = _cfg_real
+    else: delattr(_cfg_cls, "configured")
+    with CLIENT.session_transaction() as sess:
+        sess.pop("user", None)
+_html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html")).read()
+ck("the page shows the two words only to a signed-in viewer on a live RingCX call",
+   "if (!CAN_MONITOR) return '';" in _html and "p.source !== 'ringcx' || !p.call || !p.call.uii" in _html, "monitor links ungated")
+ck("the call id is never in the tooltip", "p.call.uii" not in _html.split("function presenceChip")[1].split("function ")[0], "uii leaks into the tooltip")
+
 # ---- presence must not be able to take the board down ----
 called = []
 _saved = (A._ringcx.agent_statuses_with_age, A._ringcx.get_agent_statuses,

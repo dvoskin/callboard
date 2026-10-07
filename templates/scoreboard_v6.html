@@ -162,6 +162,10 @@
   details.notes .warn{font-size:12px;padding:6px 9px;margin:6px 0}
   details.subfold{margin:-4px 0 8px}
   details.subfold .sub{margin:6px 0 0;font-size:12px}
+  /* Listen · Whisper: two muted words after the pill, underlined on hover. */
+  .mon{margin-left:8px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .mon a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--hair)}
+  .mon a:hover{color:var(--up);border-color:var(--up)}
   .sms{margin-left:7px;font-size:11px;font-weight:600;color:var(--muted);
        white-space:nowrap}
   .sms b{font-weight:700;color:var(--ink-2)}
@@ -419,6 +423,14 @@
   var BOARD_TEAMS = {{ (board_teams or [])|tojson }};
   var LANDING_TITLE = {{ (landing_title or '')|tojson }};
   var EMBED_URL = {{ (embed_url or '')|tojson }};
+  // Listen / whisper on a live RingCX call: signed-in supervisors only. The
+  // number to ring them on is remembered in this browser (a convenience, not
+  // state), and every read or write of it is guarded.
+  var CAN_MONITOR = {{ (can_monitor or false)|tojson }};
+  function myNumber(v) {
+    try { if (v !== undefined) localStorage.setItem('v6_monitor_number', v); return localStorage.getItem('v6_monitor_number') || ''; }
+    catch (e) { return ''; }
+  }
   var EMBED_TITLE = {{ (embed_title or 'Distribution')|tojson }};
   var TEAM = FIXED || (new URLSearchParams(location.search).get('team') || '').toLowerCase();
   var BOARDS = TEAM ? [TEAM] : (BOARD_TEAMS.length ? BOARD_TEAMS : ['']);
@@ -537,6 +549,17 @@
   // surgical seats have no RingEX extension yet, so it read "SMS not read"
   // down the column); the panel's SMS line stays. Flip to bring the chip back.
   var SHOW_SMS_CHIP = false;
+
+  // "Listen · Whisper" on a row that is on a RingCX call, for a supervisor
+  // who is signed in. Two words, no icons, no buttons; the result replaces
+  // the words for a moment and then they come back.
+  function monitorLinks(a) {
+    if (!CAN_MONITOR) return '';
+    var p = (PRESENCE[CUR_SLOT] || {})[a.name];
+    if (!p || p.source !== 'ringcx' || !p.call || !p.call.uii) return '';
+    return '<span class="mon" data-uii="' + esc(p.call.uii) + '">' +
+           '<a href="#" data-verb="listen">Listen</a> \u00b7 <a href="#" data-verb="whisper">Whisper</a></span>';
+  }
 
   function smsChip(a) {
     if (!SHOW_SMS_CHIP) return '';
@@ -887,14 +910,14 @@
       if (quiet) {
         h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
           '<div class="rk">' + (i + 1) + '</div>' +
-          '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
           '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
           '</div>';
       } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -1077,7 +1100,7 @@
       var qid = slot + '_q' + qi;
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">&ndash;</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
         // Danny, 2026-10-07, on six quiet seats reading only "No Activity":
         // "not showing any shift sched". They have no shift on file -- the
         // schedule sheet named eleven people -- and the line now says so,
@@ -1413,6 +1436,33 @@
       if (e.key === 'Enter') { syncChips(); load(); }
     });
   });
+  // One listener for every Listen / Whisper link, present or future. The
+  // number is asked for once and remembered; a request's outcome shows in
+  // place of the two words for a few seconds.
+  document.addEventListener('click', function (ev) {
+    var a = ev.target.closest && ev.target.closest('.mon a[data-verb]');
+    if (!a) return;
+    ev.preventDefault(); ev.stopPropagation();
+    var box = a.closest('.mon'), uii = box.getAttribute('data-uii'), verb = a.getAttribute('data-verb');
+    var num = myNumber();
+    if (!num) {
+      num = window.prompt('Number to ring you on (once; remembered in this browser)', '') || '';
+      num = num.trim(); if (!num) return; myNumber(num);
+    }
+    var was = box.innerHTML;
+    box.textContent = verb === 'listen' ? 'Ringing you\u2026' : 'Whispering\u2026';
+    fetch('/api/v6/monitor', {method: 'POST', credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({uii: uii, destination: num, verb: verb})})
+      .then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+      .then(function (res) {
+        box.textContent = res.ok ? 'Connected' : (res.j && res.j.error ? res.j.error : 'Failed');
+        if (!res.ok && res.j && /number/.test(res.j.error || '')) myNumber('');
+        setTimeout(function () { box.innerHTML = was; }, res.ok ? 4000 : 6000);
+      })
+      .catch(function () { box.textContent = 'Failed'; setTimeout(function () { box.innerHTML = was; }, 6000); });
+  });
+
   load();
   loadPresence();
   // Today's numbers move; a board left open on a wall should not go stale.

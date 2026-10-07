@@ -2917,7 +2917,7 @@ def api_v6_presence():
                 "state": state, "label": label, "on_call": state == "on_call",
                 "matched": bool(cl), "source": "ringcx", "note": note,
                 "call": ({"direction": cl.get("direction"), "queue": cl.get("queue_name"),
-                          "seconds": cl.get("duration_sec")} if cl else None),
+                          "seconds": cl.get("duration_sec"), "uii": cl.get("uii") or None} if cl else None),
             })
     if not roster:
         return jsonify({
@@ -2994,6 +2994,39 @@ def api_v6_presence():
             "than shown as current" % (pmeta["ttl_seconds"] * 3) if too_old else None),
         "agents_seen": len(agents),
     })
+
+
+@app.route("/api/v6/monitor", methods=["POST"])
+def api_v6_monitor():
+    """Listen to, or whisper on, a live RingCX call from a surgical row.
+
+    Danny, 2026-10-07: "add the monitor/whisper to the surgical rows" -- "keep
+    it super clean". Same RingCX addSessionToCall the original live board
+    uses, two verbs only: MONITOR (listen) and COACHING (whisper to the agent).
+    Barge-in is deliberately not offered here.
+
+    A Google session is required, not the word password: the word is handed
+    round the floor, and joining someone's call is a supervisor's action.
+    """
+    if not session.get("user"):
+        return jsonify({"error": "sign in with Google to listen or whisper"}), 401
+    if not _ringcx.configured:
+        return jsonify({"error": "RingCX not configured"}), 503
+    body = request.get_json(silent=True) or {}
+    uii = (body.get("uii") or "").strip()
+    destination = "".join(ch for ch in (body.get("destination") or "") if ch.isdigit() or ch == "+")
+    verb = (body.get("verb") or "listen").strip().lower()
+    session_type = {"listen": "MONITOR", "whisper": "COACHING"}.get(verb)
+    if not session_type:
+        return jsonify({"error": "verb must be listen or whisper"}), 400
+    if not uii:
+        return jsonify({"error": "no live call on this seat"}), 400
+    if len(destination) < 10:
+        return jsonify({"error": "enter the number to ring you on"}), 400
+    result = _ringcx.monitor_call(uii, destination, session_type)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(dict(result, verb=verb))
 
 
 @app.route("/api/v6/ext-probe")
@@ -3481,7 +3514,8 @@ def scoreboard_v6():
                                board_teams=BOARD_TEAMS,
                                landing_title=LANDING_TITLE,
                                embed_url=DISTRIBUTION_BOARD_URL,
-                               embed_title=DISTRIBUTION_BOARD_TITLE)
+                               embed_title=DISTRIBUTION_BOARD_TITLE,
+                               can_monitor=bool(session.get("user")))
     if not V5_PASSWORDS:
         return redirect("/login")
     # Danny, 2026-10-07: "the sign in page -- change the sales floor scoreboard
