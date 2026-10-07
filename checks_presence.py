@@ -174,9 +174,35 @@ try:
     # Absence from the list is "Available" only for a seat that has worked
     # today; with no rows today it is Offline -- a seat not at work is also
     # absent from the active-calls list, and calling that Available overclaims.
-    ck("absent from the list, no rows today -> Offline, not Available",
-       by.get("Johana Duron", {}).get("state") == "offline" and by.get("Johana Duron", {}).get("label") == "Offline",
-       by.get("Johana Duron"))
+    # Johana's shift is 10:00-19:00. Hold the clock at 09:00: not due yet.
+    import datetime as _dt
+    _real_now = A._presence_now_local
+    A._presence_now_local = lambda: _dt.datetime(2026, 10, 7, 9, 0)
+    try:
+        jb = cxprobe([])
+    finally:
+        A._presence_now_local = _real_now
+    jdb = {x["name"]: x for x in jb.get("seats", [])}.get("Johana Duron", {})
+    ck("before her shift, a quiet seat reads Starts 10:00 AM, not Offline",
+       jdb.get("state") == "before_shift" and jdb.get("label") == "Starts 10:00 AM", jdb)
+    A._presence_now_local = lambda: _dt.datetime(2026, 10, 7, 20, 30)
+    try:
+        ja = cxprobe([])
+    finally:
+        A._presence_now_local = _real_now
+    jda = {x["name"]: x for x in ja.get("seats", [])}.get("Johana Duron", {})
+    ck("after her shift, Shift Over", jda.get("state") == "after_shift" and jda.get("label") == "Shift Over", jda)
+    A._presence_now_local = lambda: _dt.datetime(2026, 10, 7, 14, 0)
+    try:
+        jm = cxprobe([])
+    finally:
+        A._presence_now_local = _real_now
+    jdm = {x["name"]: x for x in jm.get("seats", [])}.get("Johana Duron", {})
+    ck("in her shift with no rows and no call: No Activity -- not Offline, not Available",
+       jdm.get("state") == "no_activity" and jdm.get("label") == "No Activity", jdm)
+    ck("a seat with NO declared shift and no rows is No Activity",
+       {x["name"]: x for x in jm.get("seats", [])}.get("Chery Marroquin", {}).get("state") == "no_activity",
+       {x["name"]: x for x in jm.get("seats", [])}.get("Chery Marroquin"))
     ck("and is not on a call", by.get("Johana Duron", {}).get("on_call") is False, by.get("Johana Duron"))
     _rt = A._v6_cx_rows_for_team
     A._v6_cx_rows_for_team = lambda t, d_, seats: ({"Johana Duron": [{"x": 1}]}, 1, {})
@@ -206,12 +232,14 @@ finally:
     A._cx_active_cache.update(at=0.0, calls=[], meta=None)
 
 # ---- every label is Title Case, and both platforms share the words ----
-_MINOR = {"a", "on", "of", "the", "to"}
+_MINOR = {"a", "on", "of", "the", "to", "am", "pm"}
 def _title_ok(lbl):
-    return all((w.lower() in _MINOR and i) or w[:1].isupper() for i, w in enumerate(lbl.split()))
+    # a clock reading ("1:00") is neither a word to capitalise nor a minor word
+    return all((w.lower() in _MINOR and i) or w[:1].isupper() or w[:1].isdigit() for i, w in enumerate(lbl.split()))
 _labels = {v[1] for v in A._PRESENCE_LABELS.values()} | {v[1] for v in A._AVAILABILITY_LABELS.values()} | \
           {A._LABEL_UNKNOWN[1], A._LABEL_IDLE[1], "Do Not Disturb"} | \
-          {A._cx_call_state({"call_state": k})[1] for k in ("ON_HOLD", "ACTIVE", "RINGING")}
+          {A._cx_call_state({"call_state": k})[1] for k in ("ON_HOLD", "ACTIVE", "RINGING")} | \
+          {"No Activity", "Shift Over", A._shift_phase("Alex Morales", __import__("datetime").datetime(2026, 10, 7, 9, 0))[1]}
 ck("every pill label is Title Case", all(_title_ok(l) for l in _labels), sorted(l for l in _labels if not _title_ok(l)))
 ck("a free phone is 'Available' on both platforms", A._AVAILABILITY_LABELS["Available"] == A._LABEL_IDLE == ("idle", "Available"),
    (A._AVAILABILITY_LABELS["Available"], A._LABEL_IDLE))

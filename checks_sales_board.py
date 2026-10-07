@@ -55,8 +55,8 @@ by = {x["name"]: x for x in j.get("seats", [])}
 ck("sales seats get RingCX call status", by.get("Maia Pasifae Palma", {}).get("on_call") is True, by.get("Maia Pasifae Palma"))
 # No rows today and not on a call: not known to be online, so Offline -- not
 # Available, which is what every absent seat used to read as.
-ck("the rest, with no activity today, are Offline not Available",
-   by.get("Gregory Beltran", {}).get("state") == "offline" and by.get("Gregory Beltran", {}).get("label") == "Offline",
+ck("the rest, with no activity today and no shift on file, read No Activity",
+   by.get("Gregory Beltran", {}).get("state") == "no_activity" and by.get("Gregory Beltran", {}).get("label") == "No Activity",
    by.get("Gregory Beltran"))
 
 print("%d passed" % passed)

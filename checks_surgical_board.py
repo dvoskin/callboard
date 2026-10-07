@@ -377,9 +377,9 @@ ck("the surgical report carries CRM", jc.get("crm_enabled") is True, jc.get("crm
 ck("the CRM window is passed as local-day DATETIMES (COQL rejects bare dates)",
    _seen_window.get("start", "").startswith("2026-07-29T00:00:00") and _seen_window.get("end", "").startswith("2026-07-29T23:59:59"),
    _seen_window)
-ck("live-day seats with no calls and no CRM activity are not tabulated",
-   "not shown (no calls or activity today)" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created;" in html,
-   "no live-day filter")
+ck("live-day seats with no calls and no CRM activity are not tabulated but denoted",
+   "quiet today" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created;" in html
+   and "quietSeats.forEach" in html, "no live-day quiet handling")
 ck("a counted person has her number", rows_c.get("Judith Merlo", {}).get("crm_created") == 7, rows_c.get("Judith Merlo", {}).get("crm_created"))
 ck("an unattributable person is None, not 0", "crm_created" in rows_c.get("Alex Morales", {}) and rows_c["Alex Morales"]["crm_created"] is None,
    rows_c.get("Alex Morales", {}).get("crm_created", "missing"))

@@ -2641,6 +2641,32 @@ _AVAILABILITY_LABELS = {
 }
 
 
+def _presence_now_local():
+    """Local wall-clock for the presence endpoint; a hook so a check can hold it."""
+    return datetime.now(timezone.utc) + timedelta(
+        minutes=int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
+
+
+def _shift_phase(name, now_local):
+    """("before", "Starts 1:00 PM") / ("after", "Shift Over") / None for a seat with a
+    declared shift, judged at now_local. None also when there is no shift."""
+    sh = SHIFTS.get(name or "")
+    if not sh:
+        return None
+    try:
+        s_h, s_m = (int(x) for x in sh["start"].split(":"))
+        e_h, e_m = (int(x) for x in sh["end"].split(":"))
+    except (KeyError, ValueError, AttributeError):
+        return None
+    now = now_local.hour * 60 + now_local.minute
+    if now < s_h * 60 + s_m:
+        t = datetime(2000, 1, 1, s_h, s_m)
+        return "before", "Starts " + t.strftime("%-I:%M %p")
+    if now >= e_h * 60 + e_m:
+        return "after", "Shift Over"
+    return None
+
+
 def _presence_for_seat(p):
     """(state, label) for one presence record, or the unknown pair when absent.
 
@@ -2762,8 +2788,19 @@ def api_v6_presence():
                 state, label = _cx_call_state(cl)
                 note = None
             elif worked_today is not None and seat["name"] not in worked_today:
-                state, label = "offline", "Offline"
-                note = "no RingCX activity today, so not known to be online"
+                # Danny, 2026-10-07: "users who havent started their shift could
+                # be cleanly denoted, and users without any activity recorded".
+                # Three different facts, three different words: not due yet,
+                # shift finished, or due and silent. None of them is "Offline",
+                # which RingCX cannot tell us.
+                ph = _shift_phase(seat["name"], _presence_now_local())
+                if ph and ph[0] == "before":
+                    state, label, note = "before_shift", ph[1], "shift has not started"
+                elif ph and ph[0] == "after":
+                    state, label, note = "after_shift", ph[1], "shift has ended"
+                else:
+                    state, label = "no_activity", "No Activity"
+                    note = "no RingCX activity today and no active call"
             else:
                 # The list is complete, so absence IS the fact here -- and the
                 # seat has worked today, so it is online and between calls.
@@ -2812,6 +2849,16 @@ def api_v6_presence():
                                p.get("name") or "unnamed"))
         by_number = by_num.get(str(seat.get("ext") or ""))
         state, label = _presence_for_seat(p if usable else None)
+        # A seat that is not due yet reads as "Starts 1:00 PM" rather than
+        # Offline or Available: the fact a lead wants is when, not that.
+        # Only when the platform WAS read: a seat we could not read stays
+        # "Not Read", and is not relabelled from the schedule.
+        if state in ("offline", "idle"):
+            ph = _shift_phase(seat["name"], _presence_now_local())
+            if ph and ph[0] == "before":
+                state, label = "before_shift", ph[1]
+            elif ph and ph[0] == "after" and state == "offline":
+                state, label = "after_shift", ph[1]
         seats.append({
             "name": seat["name"],
             "ext": seat["ext"],

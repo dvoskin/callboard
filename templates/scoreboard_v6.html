@@ -109,6 +109,11 @@
   .pz-busy{color:#9a3412;background:#ffedd5;border-color:#fdba74}
   .pz-dnd{color:#9a3412;background:#ffedd5;border-color:#fdba74}
   .pz-offline{color:var(--muted);background:transparent}
+  /* The quiet states: not due yet, finished, or due and silent. Muted, not
+     alarming -- none of them is a problem by itself. */
+  .pz-before_shift{color:var(--muted);background:transparent;border-style:dashed}
+  .pz-after_shift{color:var(--muted);background:transparent;border-style:dashed}
+  .pz-no_activity{color:#9a3412;background:transparent;border-style:dashed}
   /* Not Read is deliberately the dullest thing on the row: it is the absence of
      a fact, and it must not compete with the states that ARE facts. */
   .pz-unknown{color:var(--muted);background:transparent;font-weight:400;font-style:italic}
@@ -490,11 +495,16 @@
     // with no calls and no CRM activity is left off the table and counted in a
     // footer line, so the omission is visible. A finished range still lists
     // everyone, which was the earlier ask.
-    var notShown = 0;
+    // On the live day a seat with no calls and no CRM activity is not
+    // tabulated: it is moved to the end as one quiet line -- name and its
+    // status pill (Starts 1:00 PM / No Activity / Offline) -- with no rank and
+    // no numbers. Danny, 2026-10-07: "users who havent started their shift
+    // could be cleanly denoted, and users without any activity recorded".
+    var quietSeats = [], notShown = 0;
     if (d.live) {
       ranked = ranked.filter(function (a) {
         var quietToday = !((a.totals || {}).calls) && !a.crm_created;
-        if (quietToday) notShown++;
+        if (quietToday) { quietSeats.push(a); notShown++; }
         return !quietToday;
       });
     }
@@ -532,7 +542,7 @@
       sub += ' &middot; <b>' + unknown.length + '</b> not read yet';
     }
     if (notShown) {
-      sub += ' &middot; <b>' + notShown + '</b> not shown (no calls or activity today)';
+      sub += ' &middot; <b>' + notShown + '</b> quiet today';
     }
     if (d.live && ranked.length && ranked[0].pace) {
       var pc = ranked[0].pace;
@@ -857,6 +867,17 @@
              'never connects is broken, not last.' + collNote(a) + '</div>';
       });
     }
+
+    // The quiet seats, after the ranked rows: one line each, no rank, no
+    // numbers -- the pill is the whole message.
+    quietSeats.forEach(function (a, qi) {
+      var qid = slot + '_q' + qi;
+      h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
+        '<div class="rk">&ndash;</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + crmChip(a) + srcChip(a) + smsChip(a) + '</div>' +
+        '<div class="qn">' + (a.complete ? '' : 'not read yet') + '</div>' +
+        '</div>';
+    });
 
     if (unknown.length) {
       h += '<h2>Not known yet</h2>';
