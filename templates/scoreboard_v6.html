@@ -544,7 +544,7 @@
     var quietSeats = [], notShown = 0, extraNotes = [];
     if (d.live) {
       ranked = ranked.filter(function (a) {
-        var quietToday = !((a.totals || {}).calls) && !a.crm_created;
+        var quietToday = !((a.totals || {}).calls) && !a.crm_created && !a.collected_total;
         if (quietToday) { quietSeats.push(a); notShown++; }
         return !quietToday;
       });
@@ -592,7 +592,7 @@
       sub += ' &middot; <b>' + unknown.length + '</b> not read yet';
     }
     if (notShown) {
-      sub += ' &middot; <b>' + notShown + '</b> quiet today';
+      sub += ' &middot; <b>' + notShown + '</b> not active today';
     }
     // On the live day the freshness caption moves into the strip below the
     // heading, next to the counts it qualifies; the summary line stays short.
@@ -652,7 +652,7 @@
         h += '<div class="now">' +
           '<span class="nw on"><b>' + nOn + '</b>On a Call</span>' +
           '<span class="nw"><b>' + nFree + '</b>Available</span>' +
-          '<span class="nw"><b>' + nQuiet + '</b>Quiet</span>' +
+          '<span class="nw"><b>' + nQuiet + '</b>Not Active</span>' +
           (nUnread ? '<span class="nw"><b>' + nUnread + '</b>Not Read</span>' : '') +
           (freshCap ? '<span class="cap">' + freshCap + '</span>' : '') +
           '</div>';
@@ -758,7 +758,7 @@
     // column disappeared with them, while a 7- or 30-day view of the same
     // sheet showed it fine. Collections come from the sheet; whether a seat
     // dialled has nothing to do with whether they banked money.
-    var hasColl = [].concat(ranked, silent, stalled, unknown)
+    var hasColl = [].concat(ranked, silent, stalled, unknown, quietSeats)
       .some(function (a) { return a && a.collected_total != null; });
     h += '<div class="' + (live ? 'live' : '') + (hasColl ? ' hascoll' : '') + '">';
     // No column headings over an empty list. When nothing ranks, the seats
@@ -979,7 +979,7 @@
 
     // The quiet seats, after the ranked rows: one line each, no rank, no
     // numbers -- the pill is the whole message.
-    if (quietSeats.length) h += '<div class="qhd">Quiet today</div>';
+    if (quietSeats.length) h += '<div class="qhd">Not active today</div>';
     quietSeats.forEach(function (a, qi) {
       var qid = slot + '_q' + qi;
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
@@ -989,7 +989,8 @@
         // "not showing any shift sched". They have no shift on file -- the
         // schedule sheet named eleven people -- and the line now says so,
         // because a bare "No Activity" reads as a verdict on the person.
-        '<div class="qn">' + (!a.complete ? 'not read yet' : (a.shift ? '' : 'no shift on file')) + '</div>' +
+        '<div class="qn">' + (!a.complete ? 'not read yet' : (a.shift ? '' : 'no shift on file')) +
+          (a.collected_total ? ' &middot; collected <b>' + money(a.collected_total) + '</b>' : '') + '</div>' +
         '</div>';
     });
 

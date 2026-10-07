@@ -385,7 +385,7 @@ ck("the CRM window is passed as local-day DATETIMES (COQL rejects bare dates)",
    _seen_window.get("start", "").startswith("2026-07-29T00:00:00") and _seen_window.get("end", "").startswith("2026-07-29T23:59:59"),
    _seen_window)
 ck("live-day seats with no calls and no CRM activity are not tabulated but denoted",
-   "quiet today" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created;" in html
+   "not active today" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created && !a.collected_total;" in html
    and "quietSeats.forEach" in html, "no live-day quiet handling")
 jcrm = rows_c.get("Judith Merlo", {}).get("crm")
 ck("a CRM user has the full breakdown on her row",
@@ -431,6 +431,13 @@ ck("the panel is grouped", "grp('Quality')" in html and "grp('Schedule &amp; lin
 ck("on the live day the summary line folds under the strip",
    "$(subId).innerHTML = d.live ? '' : sub;" in html and '<details class="notes subfold"><summary>Summary</summary>' in html,
    "summary line not folded on the live day")
+
+ck("a seat that collected money today is not folded away as inactive",
+   "&& !a.collected_total;" in html, "collections ignored by the fold")
+ck("the Collected column survives when the money sits on folded seats",
+   "concat(ranked, silent, stalled, unknown, quietSeats)" in html, "hasColl ignores folded seats")
+ck("the strip and heading say Not Active, not Quiet",
+   "</b>Not Active</span>" in html and "Not active today</div>" in html and "</b>Quiet</span>" not in html, "still says Quiet")
 
 print("%d passed" % passed)
 for e in errors:
