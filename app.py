@@ -1126,6 +1126,18 @@ BOARD_TEAMS = ["billing", "surgical"]
 # voicemail. They light up on their own once either the CDR is enabled or a
 # RingCX Interaction Report is delivered to /api/v5/ingest.
 _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx"}
+# Which boards read and show SMS at all. Off for the Surgical Coordinator table
+# at Danny's request (2026-10-07, "dont show sms performance for surgical
+# coordinators"): its seats work queues in RingCX, most have no RingEX
+# extension to read a message store from, and the few that do would show a
+# half-empty column beside eleven "not read" pills. Off means not read AND not
+# shown -- the chip, the panel line and the notes all go -- not read-and-hidden,
+# so no message-store budget is spent on a board that will not display it.
+_TEAM_SMS = {"surgical": False}
+
+
+def _team_sms_enabled(team) -> bool:
+    return _TEAM_SMS.get(team, True)
 DEFAULT_TEAM = "billing"
 
 
@@ -1774,7 +1786,10 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
     # SMS is read for every team, including the RingCX ones: a seat's texting
     # happens on its RingEX extension whatever platform carries its calls, so
     # "no usable RingEX CALL data" does not imply no usable message data.
-    sms_by_agent, sms_stats = _v6_fetch_sms(roster, days, local_today, tz_offset_minutes)
+    if _team_sms_enabled(team):
+        sms_by_agent, sms_stats = _v6_fetch_sms(roster, days, local_today, tz_offset_minutes)
+    else:
+        sms_by_agent, sms_stats = None, {"disabled": True}
     stats = dict(stats, sms=sms_stats)
 
     return _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
@@ -2206,6 +2221,9 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # while the rows underneath showed real figures.
     report["team_key"] = team
     report["team_label"] = TEAM_LABELS[team]
+    # False means the board neither reads nor shows SMS; the page hides every
+    # SMS element on it rather than rendering "not read" for each seat.
+    report["sms_enabled"] = _team_sms_enabled(team)
     if as_of_note:
         report["data_as_of"] = as_of_note
     # The board used to print "Source: RingEX per-extension call log" on every

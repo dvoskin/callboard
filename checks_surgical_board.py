@@ -167,7 +167,8 @@ A._v6_fetch_ringex = lambda seats, d_, lt, tz: (asked_ex.extend(x["name"] for x 
                   "missing_days": []} for x in seats}, {"cached": 0, "fetched": 0, "missing": 0}))
 A._v6_cx_rows_for_team = lambda t, d_, seats: (asked_cx.extend(x["name"] for x in seats) or
     ({x["name"]: [] for x in seats}, len(d_), {}))
-A._v6_fetch_sms = lambda r_, d_, lt, tz: ({}, {})
+_sms_calls = []
+A._v6_fetch_sms = lambda r_, d_, lt, tz: (_sms_calls.append(len(r_)), ({}, {}))[1]
 _got = {}
 A._v6_finish = lambda rows_by_agent, *a, **k: _got.setdefault("rows", rows_by_agent)
 try:
@@ -178,6 +179,9 @@ ck("nobody on the surgical table is asked of RingEX", asked_ex == [], asked_ex)
 ck("everyone is asked of RingCX, in one read",
    set(asked_cx) == set(sched) | set(inb) | EXTRA, asked_cx)
 ck("every seat reaches the report", len(_got.get("rows", {})) == 12, len(_got.get("rows", {})))
+# Danny, 2026-10-07: "dont show sms performance for surgical coordinators".
+# Off means not READ either: no message-store budget for a board that hides it.
+ck("the surgical build never reads SMS", _sms_calls == [], _sms_calls)
 
 # ---- SMS for a seat with no extension is unknown, not zero ----
 _sv_day = A._v6_fetch_sms_day
@@ -251,6 +255,16 @@ try:
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
     ck("with every seat present", len(all_rows) == 12, len(all_rows))
+    ck("the surgical report says SMS is off", jj.get("sms_enabled") is False, jj.get("sms_enabled"))
+    ck("no surgical row carries SMS", all(not a.get("sms") for a in all_rows),
+       [a["name"] for a in all_rows if a.get("sms")])
+    ck("no SMS note on the surgical board",
+       not [w for w in jj.get("warnings", []) if "sms" in (w.get("kind") or "")],
+       [w.get("kind") for w in jj.get("warnings", [])])
+    jb = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+    ck("billing still has SMS on", jb.get("sms_enabled") is True, jb.get("sms_enabled"))
+    ck("the page hides the chip when a board has SMS off",
+       "sms_enabled === false) return ''" in html, "smsChip not gated on sms_enabled")
     ck("and every one of them in the ranked table, none in a footnote",
        len(jj.get("ranked", [])) == 12, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
 finally:

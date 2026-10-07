@@ -382,6 +382,10 @@
   }
 
   function smsChip(a) {
+    // A board with SMS switched off shows nothing at all -- not "not read".
+    // The server sends no SMS for such a board, so this is belt and braces
+    // against a future default that would render a null as unknown.
+    if ((LAST[CUR_SLOT] || {}).sms_enabled === false) return '';
     var s = a && a.sms;
     if (!s) return '';
     if (s.unknown) return '<span class="sms sms-na" title="The message store could ' +
