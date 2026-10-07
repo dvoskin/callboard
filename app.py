@@ -1185,6 +1185,11 @@ DISTRIBUTION_BOARD_TITLE = (os.environ.get("DISTRIBUTION_BOARD_TITLE", "Lead Dis
 # those two boards say what is missing instead of showing a leaderboard of
 # voicemail. They light up on their own once either the CDR is enabled or a
 # RingCX Interaction Report is delivered to /api/v5/ingest.
+# Which boards show the '% vs expected' pace column on the live day. Danny,
+# 2026-10-07 evening: "remove % vs expected column for surgical coordinators".
+# The pace is still computed (the colour of the talk cell comes from it);
+# only the column goes.
+_TEAM_PACE_COLUMN = {"surgical": False}
 _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx",
                  "sales": "ringcx"}
 # Which boards read and show SMS at all. Off means not read AND not shown --
@@ -2333,6 +2338,7 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
     # work is mostly inbound; one handled-calls number hides that. RingEX
     # billing keeps a single Calls column: it dials.
     report["split_direction"] = _TEAM_SOURCES.get(team) == "ringcx"
+    report["pace_column"] = _TEAM_PACE_COLUMN.get(team, True)
     report["crm_enabled"] = bool(_TEAM_CRM.get(team))
     if report["crm_enabled"]:
         # COQL compares Created_Time as a DATETIME; a bare date is HTTP 400
@@ -2938,7 +2944,12 @@ def api_v6_presence():
             else:
                 # The list is complete, so absence IS the fact here -- and the
                 # seat has worked today, so it is online and between calls.
-                state, label = _LABEL_IDLE
+                # No pill for that. Danny, 2026-10-07 evening: "only show on a
+                # call for ringcx users on a call, dont show agent status
+                # available if they not on a call". RingCX cannot tell
+                # Available from lunch or wrap-up, so the word overclaimed; the
+                # state stays "idle" for the strip, the label is empty.
+                state, label = _LABEL_IDLE[0], None
                 note = None
             cx_seats_out.append({
                 "name": seat["name"], "ext": seat.get("ext"), "ext_id": seat.get("ext_id"),
@@ -4024,6 +4035,11 @@ _v5_crm_cache: dict = {}
 _v5_crm_lock = threading.Lock()
 
 
+# A seat whose Zoho user is not spelled like the roster. Judith Merlo's CRM
+# user is just "Judith" (judithm@, id 5212466000454324769; the only active
+# Judith) -- matching by full name read her as "not a CRM user by this
+# name" (Danny, 2026-10-07 evening). Roster name -> Zoho full_name.
+_CRM_NAME_ALIASES = {"Judith Merlo": "Judith"}
 _CRM_BD_TTL = 300.0
 _crm_bd_cache: dict = {}
 _crm_bd_lock = threading.Lock()
@@ -4049,7 +4065,7 @@ def _crm_breakdown_read(key, names, start_iso, end_iso):
             meta["error"] = "CRM users could not be read, so nothing can be attributed"
         else:
             id_by_name = {_norm_name(full): uid for uid, full in users.items()}
-            wanted = {n: id_by_name.get(_norm_name(n)) for n in names}
+            wanted = {n: id_by_name.get(_norm_name(_CRM_NAME_ALIASES.get(n, n))) for n in names}
             ids = sorted({uid for uid in wanted.values() if uid})
             raw = _zoho.activity_breakdown(start_iso, end_iso, ids,
                                            start_date=start_iso[:10], end_date=end_iso[:10])

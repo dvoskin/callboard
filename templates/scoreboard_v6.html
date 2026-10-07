@@ -86,6 +86,12 @@
   .live.hascoll .hd,.live.hascoll .r{
          grid-template-columns:20px minmax(0,1fr) 68px 74px 44px 76px;
          grid-template-areas:"rk nm tk pc c co"}
+  /* a live board without the pace column: the plain four-column grid */
+  .live.nopace .hd,.live.nopace .r{grid-template-columns:20px minmax(0,1fr) 86px 62px;
+         grid-template-areas:"rk nm tk c"}
+  .live.nopace.hascoll .hd,.live.nopace.hascoll .r{
+         grid-template-columns:20px minmax(0,1fr) 80px 54px 84px;
+         grid-template-areas:"rk nm tk c co"}
   .a-co{grid-area:co} .co{grid-area:co}
   /* SMS rides in the NAME cell, not a column of its own. The grid already has
      two optional columns (pace, collected) and every combination needs its own
@@ -294,6 +300,8 @@
     .live .r{grid-template-areas:"nm tk pc" "c  c  c"}
     .hascoll .r{grid-template-areas:"nm tk tk" "c  c  c" "co co co"}
     .live.hascoll .r{grid-template-areas:"nm tk pc" "c  c  c" "co co co"}
+    .live.nopace .r{grid-template-areas:"nm tk tk" "c  c  c"}
+    .live.nopace.hascoll .r{grid-template-areas:"nm tk tk" "c  c  c" "co co co"}
     .r .rk{display:none}
     .co{text-align:left}
     /* "exp 104m" on every row is the same number the expand panel spells out in
@@ -511,7 +519,7 @@
     var P = PRESENCE[CUR_SLOT];
     if (!P) return '';
     var p = P[a.name];
-    if (!p) return '';
+    if (!p || !p.label) return '';   // a RingCX seat between calls: no pill at all
     var t = p.label;
     if (p.ext_mismatch) t += ' \u2014 ' + p.ext_mismatch;
     else if (p.state === 'unknown' && (p.note || P.__note)) t += ' \u2014 ' + (p.note || P.__note);
@@ -550,7 +558,9 @@
   // get data available for all agents" -- the row chip is off (half the
   // surgical seats have no RingEX extension yet, so it read "SMS not read"
   // down the column); the panel's SMS line stays. Flip to bring the chip back.
-  var SHOW_SMS_CHIP = false;
+  // Danny, 2026-10-07 evening: "add back the subtle inbound outbound sms we
+  // had for both coordinators and billers" -- every seat has its extension now.
+  var SHOW_SMS_CHIP = true;
 
   // "Listen · Whisper" on a row that is on a RingCX call, for a supervisor
   // who is signed in. Two words, no icons, no buttons; the result replaces
@@ -746,9 +756,10 @@
         // "Quiet" is the table's own definition -- no calls and no CRM activity
         // today -- so the strip and the summary line agree. Presence states
         // only split the rest: on a call, free, or not read.
-        var nOn = 0, nFree = 0, nQuiet = quietSeats.length, nUnread = 0, nAway = 0;
+        var nOn = 0, nFree = 0, nQuiet = quietSeats.length, nUnread = 0, nAway = 0, hasEx = false;
         ranked.concat(silent, stalled, unknown).forEach(function (a) {
           var st = (P[a.name] || {}).state || 'unknown';
+          if ((P[a.name] || {}).source && P[a.name].source !== 'ringcx') hasEx = true;
           if (st === 'on_call' || st === 'ringing' || st === 'on_hold' || st === 'wrap') nOn++;
           else if (st === 'idle' || st === 'busy') nFree++;
           else if (st === 'unknown') nUnread++;
@@ -756,7 +767,9 @@
         });
         h += '<div class="now">' +
           '<span class="nw on"><b>' + nOn + '</b>On a Call</span>' +
-          '<span class="nw"><b>' + nFree + '</b>Available</span>' +
+          // RingCX cannot say Available (lunch and wrap-up look the same), so a
+          // board of RingCX seats counts On a Call and Not Active only.
+          (hasEx ? '<span class="nw"><b>' + nFree + '</b>Available</span>' : '') +
           (nAway ? '<span class="nw"><b>' + nAway + '</b>On Break</span>' : '') +
           '<span class="nw"><b>' + nQuiet + '</b>Not Active</span>' +
           (nUnread ? '<span class="nw"><b>' + nUnread + '</b>Not Read</span>' : '') +
@@ -773,8 +786,8 @@
       // Available.
       h += '<div class="disc">Status pills trail the phones by up to ~2 minutes. ' +
            'For RingCX seats only calls in progress are reported \u2014 not lunch, break, wrap-up or offline \u2014 ' +
-           'so an agent between calls with activity today reads <b>Available</b>, and one with none reads ' +
-           '<b>No Activity</b>. RingEX seats (billing) do report Offline.</div>';
+           'so an agent between calls shows <b>no pill</b>, and one with no activity today reads ' +
+           '<b>No Activity</b>. RingEX seats (billing) do report Available and Offline.</div>';
       h += '<details class="notes subfold"><summary>Summary</summary>' +
            '<p class="sub">' + sub + '</p></details>';
     }
@@ -878,13 +891,16 @@
     // dialled has nothing to do with whether they banked money.
     var hasColl = [].concat(ranked, silent, stalled, unknown, quietSeats)
       .some(function (a) { return a && a.collected_total != null; });
-    h += '<div class="' + (live ? 'live' : '') + (hasColl ? ' hascoll' : '') + '">';
+    // Danny, 2026-10-07 evening: "remove % vs expected column for surgical
+    // coordinators". The pace still colours the talk cell; the column goes.
+    var paceCol = live && d.pace_column !== false;
+    h += '<div class="' + (live ? 'live' : '') + (live && !paceCol ? ' nopace' : '') + (hasColl ? ' hascoll' : '') + '">';
     // No column headings over an empty list. When nothing ranks, the seats
     // render as notices below and a bare header row sits over nothing.
     if (ranked.length) h += '<div class="hd">' +
       '<div class="a-rk"></div><div class="a-nm">Agent</div>' +
       '<div class="a-tk">' + (live ? 'So far' : 'Talk/day') + '</div>' +
-      (live ? '<div class="a-pc">vs expected</div>' : '') +
+      (paceCol ? '<div class="a-pc">vs expected</div>' : '') +
       '<div class="a-c">' + (d.split_direction ? 'In / Out' : 'Calls') + '</div>' +
 
       (hasColl ? '<div class="a-co">Collected</div>' : '') + '</div>';
@@ -922,7 +938,7 @@
         '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
-        (live ? paceCell(pace, 'talk_minutes', 'm') : '') +
+        (paceCol ? paceCell(pace, 'talk_minutes', 'm') : '') +
         // Queue teams show the two directions; one handled-calls number hid
         // that a surgical coordinator's day is mostly inbound. The colour
         // still grades the KPI (handled calls), which is what has a target.

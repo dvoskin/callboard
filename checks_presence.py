@@ -238,7 +238,8 @@ try:
     finally:
         A._v6_cx_rows_for_team = _rt
     jd = {x["name"]: x for x in j2.get("seats", [])}.get("Johana Duron", {})
-    ck("absent from the list WITH rows today -> Available", jd.get("state") == "idle" and jd.get("label") == "Available", jd)
+    ck("absent from the list WITH rows today -> idle with NO pill (Danny: no Available for RingCX)",
+       jd.get("state") == "idle" and jd.get("label") is None, jd)
     ck("the surgical table is no longer withheld", j.get("withheld") is False, j.get("withheld"))
     ck("every surgical seat is reported", len(by) == len(A._billing_roster("surgical")[0]), sorted(by))
 
@@ -309,7 +310,7 @@ try:
     # the endpoint not being available on the account is NOT "everyone available"
     j3 = stprobe([], ok=False, http_error=403, note="RingCX returned HTTP 403 reading agent states")
     ck("a 403 on agent states falls back to the calls+rows reading",
-       {x["name"]: x for x in j3["seats"]}["Ana Castro"]["label"] == "Available", {x["name"]: x for x in j3["seats"]}["Ana Castro"])
+       {x["name"]: x for x in j3["seats"]}["Ana Castro"]["label"] is None, {x["name"]: x for x in j3["seats"]}["Ana Castro"])
 finally:
     A._ringcx.active_calls_with_status, A._ringcx.active_agents_with_status, A._v6_cx_rows_for_team = _real_cx2
     A._cx_active_cache.update(at=0.0, calls=[], meta=None)
@@ -392,3 +393,10 @@ for e in errors:
     print("  FAIL", e)
 print("\n%d failed" % len(errors))
 sys.exit(1 if errors else 0)
+
+# ---- Danny, 2026-10-07 evening: no Available for RingCX, no Available count on an all-RingCX strip ----
+_h2 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("a label-less seat renders no pill", "if (!p || !p.label) return '';" in _h2, "presenceChip still renders empty labels")
+ck("the strip counts Available only where a RingEX phone could be", "(hasEx ? '<span class=\"nw\"><b>' + nFree + '</b>Available</span>' : '')" in _h2, "Available count ungated")
+ck("the disclaimer no longer promises Available for RingCX", "reads <b>Available</b>" not in _h2 and "shows <b>no pill</b>" in _h2, "disclaimer stale")
+print("%d passed" % passed) if False else None

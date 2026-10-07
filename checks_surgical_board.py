@@ -393,7 +393,7 @@ ck("no grid area still names the removed columns", " cn lg" not in html and '"c 
 # ---- Zoho CRM activities created, on each surgical row ----
 _seen_window = {}
 _real_users, _real_bd = A._zoho.list_users, A._zoho.activity_breakdown
-A._zoho.list_users = lambda: {"u-judith": "Judith Merlo", "u-oscar": "Oscar Caballero"}
+A._zoho.list_users = lambda: {"u-judith": "Judith", "u-oscar": "Oscar Caballero"}
 def _stub_bd(s_, e_, ids, start_date=None, end_date=None):
     _seen_window.update(start=s_, end=e_, ids=sorted(ids), sd=start_date, ed=end_date)
     return {"u-judith": {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
@@ -423,6 +423,8 @@ ck("live-day seats with no calls and no CRM activity are not tabulated but denot
    "not active today" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created && !a.collected_total;" in html
    and "quietSeats.forEach" in html, "no live-day quiet handling")
 jcrm = rows_c.get("Judith Merlo", {}).get("crm")
+ck("Judith Merlo is attributed through her Zoho name 'Judith' (the alias)",
+   A._CRM_NAME_ALIASES.get("Judith Merlo") == "Judith" and jcrm is not None, jcrm)
 ck("a CRM user has the full breakdown on her row",
    jcrm == {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
             "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}, jcrm)
@@ -458,9 +460,8 @@ ck("on the live day unread seats fold into the quiet lines",
    "unknown.forEach(function (a) { quietSeats.push(a); });" in html and "unknown = [];" in html,
    "unread seats still a paragraph each on the live day")
 
-ck("the SMS chip is off the collapsed row for now (panel line stays)",
-   "var SHOW_SMS_CHIP = false;" in html and "if (!SHOW_SMS_CHIP) return '';" in html and "smsLine = line('SMS'" in html,
-   "SMS chip not gated / panel line missing")
+ck("the SMS chip is back on the collapsed row (Danny, 2026-10-07 evening) and the panel line stays",
+   "var SHOW_SMS_CHIP = true;" in html and "smsLine = line('SMS'" in html, "SMS chip off / panel line missing")
 ck("the live strip exists and agrees with the table's quiet count",
    "class=\"now\"" in html and "nQuiet = quietSeats.length" in html, "live strip missing")
 ck("the panel is grouped", "grp('Quality')" in html and "grp('Schedule &amp; line')" in html, "panel not grouped")
@@ -543,7 +544,7 @@ import threading as _th
 _gate = _th.Event(); _ran = _th.Event()
 def _slow_bd(s_, e_, ids, start_date=None, end_date=None):
     _gate.wait(5); _ran.set(); return {}
-A._zoho.list_users = lambda: {"u-judith": "Judith Merlo"}
+A._zoho.list_users = lambda: {"u-judith": "Judith"}
 A._zoho.activity_breakdown = _slow_bd
 A._crm_bd_cache.clear(); A._crm_bd_inflight.clear(); A._CRM_ASYNC = True
 try:
@@ -563,3 +564,14 @@ for e in errors:
     print("  FAIL", e)
 print("\n%d failed" % len(errors))
 sys.exit(1 if errors else 0)
+
+# ---- Danny, 2026-10-07 evening: no pace column on surgical; the SMS chip is back on both boards ----
+_tpl2 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("surgical reports pace_column off, billing on", A._TEAM_PACE_COLUMN.get("surgical") is False and A._TEAM_PACE_COLUMN.get("billing", True) is True, A._TEAM_PACE_COLUMN)
+_rj = c.get("/api/v6/report?team=surgical&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+_rb = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+ck("and the report JSON carries it", _rj.get("pace_column") is False and _rb.get("pace_column") is True, (_rj.get("pace_column"), _rb.get("pace_column")))
+ck("the page drops the column and its heading where pace_column is false",
+   "var paceCol = live && d.pace_column !== false;" in _tpl2 and "(paceCol ? '<div class=\"a-pc\">vs expected</div>' : '')" in _tpl2
+   and "(paceCol ? paceCell(pace, 'talk_minutes', 'm') : '')" in _tpl2 and ".live.nopace .hd,.live.nopace .r{" in _tpl2 and ".live.nopace .r{grid-template-areas:\"nm tk tk\"" in _tpl2, "pace column not gated")
+ck("the subtle SMS chip is back", "var SHOW_SMS_CHIP = true;" in _tpl2, "SMS chip still off")
