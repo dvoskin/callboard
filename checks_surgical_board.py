@@ -457,6 +457,18 @@ try:
 finally:
     A._v6_token_ok = _tok
 
+# ---- the page's meta title ----
+ck("the dashboard pages carry the dashboard name in <title>",
+   "<title>Billing &amp; Surgical Coordinator Dashboard</title>" in h1
+   and "<title>Billing &amp; Surgical Coordinator Dashboard</title>" in c.get("/v6").get_data(as_text=True), "landing <title> wrong")
+ck("and in the h1 before any script runs",
+   '<h1 id="title">Billing &amp; Surgical Coordinator Dashboard</h1>' in h1, "landing h1 wrong")
+_sc = c.get("/surgical-coordinator").get_data(as_text=True)
+ck("a single-board page is titled by its board, without a doubled KPI",
+   "<title>Surgical Coordinator KPI</title>" in _sc, "surgical <title> wrong")
+ck("billing's single page reads Billing KPI Board",
+   "<title>Billing KPI Board</title>" in c.get("/billing").get_data(as_text=True), "billing <title> wrong")
+
 print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Billing Team KPI Board</title>
+<title>{{ landing_title or page_title or 'Team KPI Board' }}</title>
 <style>
   :root{
     --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
@@ -324,7 +324,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1 id="title">Team KPI Board</h1>
+  <h1 id="title">{{ landing_title or page_title or 'Team KPI Board' }}</h1>
   <p class="sub" id="sub">Loading&hellip;</p>
 
   <div class="ctl" id="days"></div>
@@ -563,8 +563,9 @@
     // A single-board page is titled by its board; the landing page keeps the
     // dashboard name set when its sections were built.
     if (d.team_label && !MULTI_BOARD) {
-      $('title').textContent = d.team_label + ' KPI Board';
-      document.title = d.team_label + ' KPI Board';
+      var pt = /KPI$/.test(d.team_label) ? d.team_label : d.team_label + ' KPI Board';
+      $('title').textContent = pt;
+      document.title = pt;
     }
     if (MULTI_BOARD && d.team_label && $('bt_' + slot)) {
       $('bt_' + slot).textContent = d.team_label;

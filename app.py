@@ -3373,7 +3373,12 @@ def scoreboard_v6():
                                landing_title=LANDING_TITLE)
     if not V5_PASSWORDS:
         return redirect("/login")
-    return render_template("v5_password.html", error=error), (401 if error else 200)
+    # Danny, 2026-10-07: "the sign in page -- change the sales floor scoreboard
+    # to make more sense". This gate fronts the dashboard, so it says so.
+    return render_template("v5_password.html", error=error,
+                           page_title=LANDING_TITLE,
+                           page_sub="Billing and Surgical Coordinator boards. "
+                                    "Enter the password to continue."), (401 if error else 200)
 
 
 # What each KPI tile says on the hub. Names and links only -- the hub does not
@@ -3462,6 +3467,13 @@ _TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
                "sales": "sales"}
 
 
+def _page_title(team):
+    """The <title> for a single-board page. A label that already ends in KPI
+    ("Surgical Coordinator KPI") is not given a second one."""
+    label = TEAM_LABELS.get(team, "Team")
+    return label if label.endswith("KPI") else label + " KPI Board"
+
+
 def _render_team_board(team):
     if not _v6_allowed():
         if not V5_PASSWORDS and not V7_PASSWORDS:
@@ -3476,7 +3488,8 @@ def _render_team_board(team):
     return render_template("scoreboard_v6.html",
                            current_user=session.get("user") or {},
                            share_mode=False, share_token="",
-                           fixed_team=team)
+                           fixed_team=team,
+                           page_title=_page_title(team))
 
 
 @app.route("/billing", methods=["GET", "POST"])
@@ -3533,7 +3546,8 @@ def scoreboard_v6_board():
         return ("Not Found", 404)
     return render_template("scoreboard_v6.html", current_user={},
                            share_mode=True, share_token=request.args.get("k", ""),
-                           fixed_team=_team_key(request.args.get("team")))
+                           fixed_team=_team_key(request.args.get("team")),
+                           page_title=_page_title(_team_key(request.args.get("team"))))
 
 
 # ── RingCX Interaction Report inbox ────────────────────────────

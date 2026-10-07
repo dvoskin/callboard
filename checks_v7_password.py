@@ -55,7 +55,7 @@ def case_hub_word_opens_every_dashboard():
         ("no second-door note", "hub password" in hub, False),
         ("/v3 tracker opens", c.get("/v3").status_code, 200),
         ("/v5 talk time opens", "Sales Floor Scoreboard" in v5 or "id=\"out\"" in v5, True),
-        ("/v6 board opens", "Team KPI Board" in v6, True),
+        ("/v6 board opens", "Surgical Coordinator Dashboard" in v6, True),
         ("v6 API authorised", c.get("/api/v6/report").status_code != 401, True),
     ]:
         ok = got == want
@@ -98,7 +98,7 @@ def case_board_word_opens_everything():
         ("hub renders", HUB_MARKER in hub, True),
         ("hub NOT limited", "hub password" in hub, False),
         ("/v5 board opens", "Sales Floor Scoreboard" in v5, True),
-        ("/v6 board opens", "Team KPI Board" in v6, True),
+        ("/v6 board opens", "Surgical Coordinator Dashboard" in v6, True),
     ]:
         ok = got == want
         print("  %-24s want %-8s got %-8s %s" % (label, want, got, "OK" if ok else "<<< FAIL"))
