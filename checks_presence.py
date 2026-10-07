@@ -317,7 +317,7 @@ finally:
 
 # ---- Listen / Whisper on a live RingCX call ----
 # Danny, 2026-10-07: "add the monitor/whisper to the surgical rows" -- "keep it
-# super clean". Supervisors only (a Google session), two verbs, the call id
+# super clean". Any signed-in viewer (one login), two verbs, the call id
 # rides on presence and is never shown.
 j = cxprobe([{"agent_name": "Judith Merlo", "call_state": "ACTIVE", "uii": "UII-123", "duration_sec": 40}])
 ck("the live call's id rides on presence for the row", {x["name"]: x for x in j["seats"]}["Judith Merlo"]["call"].get("uii") == "UII-123",
@@ -327,9 +327,25 @@ _real_mon = A._ringcx.monitor_call
 A._ringcx.monitor_call = lambda uii, dest, st: (_calls.append((uii, dest, st)) or {"ok": True})
 _cfg_cls = type(A._ringcx); _cfg_real = _cfg_cls.__dict__.get("configured"); _cfg_cls.configured = property(lambda self: True)
 try:
-    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "7865551234", "verb": "listen"})
-    ck("without a Google session the action is refused", r.status_code == 401, r.status_code)
     with CLIENT.session_transaction() as sess:
+        sess.clear()                          # whatever an earlier check signed in as
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "7865551234", "verb": "listen"})
+    ck("without a sign-in the action is refused", r.status_code == 401, r.status_code)
+    _tok_real = getattr(A, "BILLING_TOKEN", None)
+    if _tok_real is not None:
+        A.BILLING_TOKEN = "wall-display-token"
+        r = CLIENT.post("/api/v6/monitor?k=wall-display-token", json={"uii": "UII-123", "destination": "7865551234", "verb": "listen"})
+        ck("a share token (wall display) is not a sign-in: refused", r.status_code == 401, r.status_code)
+        A.BILLING_TOKEN = _tok_real
+    with CLIENT.session_transaction() as sess:
+        sess["billing_pw"] = True            # the word password: the dashboard's one login
+    r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "7865551234", "verb": "listen"})
+    ck("the word-password sign-in may listen too (one login; Google-only hid the words from Danny)",
+       r.status_code == 200 and _calls[-1] == ("UII-123", "7865551234", "MONITOR"), (r.status_code, _calls[-1:]))
+    pg = CLIENT.get("/billing-surgical").get_data(as_text=True)
+    ck("and the page hands that viewer the two words", "var CAN_MONITOR = true" in pg, "CAN_MONITOR false for a password session")
+    with CLIENT.session_transaction() as sess:
+        sess.pop("billing_pw", None)
         sess["user"] = {"email": "danny@example.test"}
     r = CLIENT.post("/api/v6/monitor", json={"uii": "UII-123", "destination": "(786) 555-1234", "verb": "listen"})
     ck("listen -> MONITOR with the digits of the number", r.status_code == 200 and _calls[-1] == ("UII-123", "7865551234", "MONITOR"), (r.status_code, _calls[-1:]))

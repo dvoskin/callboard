@@ -115,6 +115,14 @@ def _word_authed() -> bool:
     return bool(session.get("v5_pw")) or bool(session.get("v7_pw"))
 
 
+def _viewer_signed_in() -> bool:
+    """A person who typed a password or signed in with Google -- NOT a share
+    token. The one-login gate (_billing_allowed) also opens for /board?k= and
+    for an unconfigured deployment; an action that joins a live call must not.
+    Listen/Whisper hang on this."""
+    return bool(session.get("user") or _word_authed() or session.get("billing_pw"))
+
+
 def login_required(f):
     """Redirect to /login if not authenticated.
 
@@ -1055,18 +1063,22 @@ _COMBINED_TEAMS = {
         # "Chery Marroquin" with one r for the Cherry Danny named -- all seen in
         # the May-July extract). Their bar is the team default below.
         #
-        # Danny's 2026-10-06 list also names Luisa. She is in no RingCX report
-        # (not among the 20 agents on 2026-10-07) and has no known RingEX
-        # extension, so she is NOT here: a seat with a guessed source reads as a
-        # quiet phone, and that is worse than a seat that is visibly missing.
+        # Resolved 2026-10-07 evening against all three directories at once --
+        # the RingCX admin API (agentGroups/{id}/agents, whose rcUserId IS the
+        # RingEX extension id), the RingEX extension directory and Zoho's
+        # active users. Every seat below is an active RingCX agent, an enabled
+        # RingEX user and an active CRM user. RingCX stays the SOURCE (it is
+        # where the coordinators dial out); the extension is there so the
+        # message store can be read for SMS and the id never has to be typed
+        # from memory again. Luisa is Luisa Perez: RingCX agent 15585 in the
+        # Customer Service group, RingEX 126, Zoho "Luisa Perez" -- she was
+        # left off while that was unknown.
         "extra": [
-            {"name": "Judith Merlo",    "source": "ringcx", "ext": "", "ext_id": None},
-            {"name": "Alex Morales",    "source": "ringcx", "ext": "", "ext_id": None},
-            {"name": "Chery Marroquin", "source": "ringcx", "ext": "", "ext_id": None},
-            # Confirmed 2026-10-07 from /api/v6/cx-agents on prod: "Ana Castro",
-            # 40 interactions that day, on no roster. Newer than the July extract
-            # this machine holds, which is why she looked absent from here.
-            {"name": "Ana Castro",      "source": "ringcx", "ext": "", "ext_id": None},
+            {"name": "Judith Merlo",    "source": "ringcx", "ext": "185", "ext_id": 1076638035},
+            {"name": "Alex Morales",    "source": "ringcx", "ext": "208", "ext_id": 431142034},
+            {"name": "Chery Marroquin", "source": "ringcx", "ext": "173", "ext_id": 1022794035},
+            {"name": "Ana Castro",      "source": "ringcx", "ext": "180", "ext_id": 695481035},
+            {"name": "Luisa Perez",     "source": "ringcx", "ext": "126", "ext_id": 1106915035},
         ],
     },
 }
@@ -3005,11 +3017,14 @@ def api_v6_monitor():
     uses, two verbs only: MONITOR (listen) and COACHING (whisper to the agent).
     Barge-in is deliberately not offered here.
 
-    A Google session is required, not the word password: the word is handed
-    round the floor, and joining someone's call is a supervisor's action.
+    Any signed-in viewer may do it -- the dashboard has one login (Danny,
+    2026-10-07: "Make it just one login screen"), and with the Google-only
+    gate the two words never appeared for him at all ("Never got to see the
+    monitor whisper options either"). A share token (/board?k=) is not a
+    sign-in and gets neither the words nor this endpoint.
     """
-    if not session.get("user"):
-        return jsonify({"error": "sign in with Google to listen or whisper"}), 401
+    if not _viewer_signed_in():
+        return jsonify({"error": "sign in to listen or whisper"}), 401
     if not _ringcx.configured:
         return jsonify({"error": "RingCX not configured"}), 503
     body = request.get_json(silent=True) or {}
@@ -3515,7 +3530,7 @@ def scoreboard_v6():
                                landing_title=LANDING_TITLE,
                                embed_url=DISTRIBUTION_BOARD_URL,
                                embed_title=DISTRIBUTION_BOARD_TITLE,
-                               can_monitor=bool(session.get("user")))
+                               can_monitor=_viewer_signed_in())
     if not V5_PASSWORDS:
         return redirect("/login")
     # Danny, 2026-10-07: "the sign in page -- change the sales floor scoreboard

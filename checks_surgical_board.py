@@ -51,7 +51,7 @@ ck("every scheduling seat is on it", all(n in names for n in sched), names)
 ck("every customer-service seat is on it", all(n in names for n in inb), names)
 ck("nobody is on it twice", len(names) == len(set(names)), names)
 BORROWED = {"Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado"}
-EXTRA = {"Judith Merlo", "Alex Morales", "Chery Marroquin", "Ana Castro"}
+EXTRA = {"Judith Merlo", "Alex Morales", "Chery Marroquin", "Ana Castro", "Luisa Perez"}
 ck("the three billers are OFF it again (Danny, 2026-10-07)", not (BORROWED & set(names)), names)
 ck("the RingCX-only people Danny listed are on it", EXTRA <= set(names), names)
 ck("and nobody else", set(names) == set(sched) | set(inb) | EXTRA, names)
@@ -63,8 +63,12 @@ ck("billing itself is untouched by the borrow",
    [x["name"] for x in A._TEAM_ROSTERS["billing"]])
 ck("a RingCX-only newcomer is read from RingCX",
    by_name(surg, "Alex Morales").get("source") == "ringcx", by_name(surg, "Alex Morales"))
-ck("and needs no ext_id", by_name(surg, "Alex Morales").get("ext_id") is None,
+ck("and carries the RingEX extension the RingCX agent record names (rcUserId), for SMS",
+   str(by_name(surg, "Alex Morales").get("ext_id")) == "431142034" and by_name(surg, "Alex Morales").get("ext") == "208",
    by_name(surg, "Alex Morales"))
+ck("Luisa Perez is on it, resolved against RingCX 15585 / RingEX 126 / Zoho",
+   by_name(surg, "Luisa Perez") is not None and str(by_name(surg, "Luisa Perez").get("ext_id")) == "1106915035"
+   and by_name(surg, "Luisa Perez").get("source") == "ringcx", by_name(surg, "Luisa Perez"))
 ck("and is judged on the queue bar, not billing's",
    by_name(surg, "Alex Morales")["targets"]["talk_minutes"]["target"] == 133,
    by_name(surg, "Alex Morales").get("targets"))
@@ -179,18 +183,21 @@ finally:
 ck("nobody on the surgical table is asked of RingEX", asked_ex == [], asked_ex)
 ck("everyone is asked of RingCX, in one read",
    set(asked_cx) == set(sched) | set(inb) | EXTRA, asked_cx)
-ck("every seat reaches the report", len(_got.get("rows", {})) == 13, len(_got.get("rows", {})))
+ck("every seat reaches the report", len(_got.get("rows", {})) == 14, len(_got.get("rows", {})))
 # Danny, 2026-10-07: "dont show sms performance for surgical coordinators".
 # Off means not READ either: no message-store budget for a board that hides it.
 # Danny, 2026-10-07 evening: SMS is back ON for surgical ("show inbound
 # outbound sms for the surgical coordinators as well, sending from ringex").
-ck("the surgical build reads SMS for its roster", _sms_calls == [13], _sms_calls)
+ck("the surgical build reads SMS for its roster", _sms_calls == [14], _sms_calls)
 
 # ---- SMS for a seat with no extension is unknown, not zero ----
 _sv_day = A._v6_fetch_sms_day
 A._v6_fetch_sms_day = lambda eid, day, tz: ([], True, "sms")
 try:
-    sms, _ = A._v6_fetch_sms(A._billing_roster("surgical")[0], ["2026-10-05"], "2026-10-05", 240)
+    # every real surgical seat now has its extension (resolved 2026-10-07), so
+    # the ext-less case is a synthetic seat -- the mechanism is what is checked
+    sms, _ = A._v6_fetch_sms([{"name": "Alex Morales", "source": "ringcx", "ext": "", "ext_id": None}],
+                             ["2026-10-05"], "2026-10-05", 240)
 finally:
     A._v6_fetch_sms_day = _sv_day
 ck("no extension -> SMS not read", sms.get("Alex Morales", {}).get("complete") is False,
@@ -215,7 +222,7 @@ try:
         A._ringcx.active_calls_with_status = _rc
         A._cx_active_cache.update(at=0.0, calls=[], meta=None)
     ck("every surgical seat is reported, from RingCX, not withheld as a team",
-       len(j.get("seats", [])) == 13 and all(x.get("source") == "ringcx" for x in j["seats"]), j)
+       len(j.get("seats", [])) == 14 and all(x.get("source") == "ringcx" for x in j["seats"]), j)
     ck("when RingCX cannot be read each seat is NOT READ, never idle",
        all(x.get("state") == "unknown" for x in j["seats"]) and j.get("withheld") is True, j)
     ja = c.get("/api/v6/presence?team=scheduling").get_json()
@@ -271,7 +278,7 @@ try:
        jj.get("team_label"))
     all_rows = (jj.get("ranked", []) + jj.get("silent", []) + jj.get("stalled", [])
                 + jj.get("unknown", []))
-    ck("with every seat present", len(all_rows) == 13, len(all_rows))
+    ck("with every seat present", len(all_rows) == 14, len(all_rows))
     ck("the surgical report says SMS is on", jj.get("sms_enabled") is True, jj.get("sms_enabled"))
     ck("sales stays off", A._team_sms_enabled("sales") is False, A._team_sms_enabled("sales"))
     jb = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
@@ -279,7 +286,7 @@ try:
     ck("the page hides the chip when a board has SMS off",
        "sms_enabled === false) return ''" in html, "smsChip not gated on sms_enabled")
     ck("and every one of them in the ranked table, none in a footnote",
-       len(jj.get("ranked", [])) == 13, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
+       len(jj.get("ranked", [])) == 14, (len(jj.get("ranked", [])), [a["name"] for a in jj.get("silent", [])]))
 finally:
     A._v6_fetch_sms = _real_sms
     if _real_cfg is not None:
@@ -309,7 +316,7 @@ try:
     m = b.get("roster_match_today", {}).get("surgical", {})
     ck("/api/build counts surgical seats seen today", m.get("seats_seen_today") == 1, m)
     ck("and the rows they account for", m.get("rows_matched_today") == 2, m)
-    ck("and knows the roster size", m.get("seats") == 13, m)
+    ck("and knows the roster size", m.get("seats") == 14, m)
     ck("a name on no roster is counted, not named",
        b.get("today_agents_on_no_roster") == 1, b.get("today_agents_on_no_roster"))
     # Blank-agent rows are dropped by the parser before this point, so there is
