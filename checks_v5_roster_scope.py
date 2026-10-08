@@ -53,8 +53,17 @@ def run():
     names, meta = _roster_from([SALES, INBOUND, SCHED, BILLING])
     names = names or set()
 
+    declared = [x["name"] for x in appmod._TEAM_ROSTERS.get("sales", [])]
+    names2, _ = _roster_from(declared + [INBOUND, SCHED])
+    names2 = names2 or set()
     cases = [
         ("sales rep admitted", appmod._norm_name(SALES) in names, True),
+        # 2026-10-08: the roster declared for /sales must not count as "another
+        # team's board" -- it emptied /v5 down to the diallers on no roster
+        ("every DECLARED sales rep who dials campaigns is admitted",
+         all(appmod._norm_name(n) in names2 for n in declared), True),
+        ("and the declared roster is not empty (the case above is not vacuous)", len(declared) >= 10, True),
+        ("the inbound agent is still excluded beside them", appmod._norm_name(INBOUND) in names2, False),
         ("inbound agent excluded", appmod._norm_name(INBOUND) in names, False),
         ("scheduler excluded", appmod._norm_name(SCHED) in names, False),
         ("billing agent excluded", appmod._norm_name(BILLING) in names, False),

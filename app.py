@@ -4213,6 +4213,13 @@ def _other_team_names() -> set:
     """
     out = set()
     for team in _TEAM_ROSTERS:
+        # The sales roster declared for /sales (2026-10-07) is not "another
+        # team": counting it here excluded every declared sales rep from /v5 and
+        # left the Sales Floor Scoreboard with the two diallers on no roster at
+        # all (Danny, 2026-10-08: "my sales call liveboard got thrown off ...
+        # only 1 person showing").
+        if team == "sales":
+            continue
         try:
             seats = _billing_roster(team)[0]
         except Exception:  # noqa: BLE001
