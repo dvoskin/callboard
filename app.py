@@ -669,6 +669,9 @@ def api_build():
         # Render injects this at build time; absent in local dev.
         "commit": os.environ.get("RENDER_GIT_COMMIT") or "unknown",
         "branch": os.environ.get("RENDER_GIT_BRANCH") or "unknown",
+        # whether the per-coordinator links can exist here (the secret itself
+        # never leaves the environment)
+        "coordinator_links_configured": bool(COORD_LINK_SECRET),
         "started_at": datetime.fromtimestamp(_BOOT_AT, timezone.utc).isoformat(),
         "uptime_seconds": round(up),
         "uptime_human": "%dh %dm" % (up // 3600, (up % 3600) // 60),
