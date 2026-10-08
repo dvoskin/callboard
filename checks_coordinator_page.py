@@ -124,7 +124,7 @@ ck("a coordinator's page opens with What to fix now, linked, and says All clear 
    and "line('All clear'" in html_tpl and "if (AGENT) {\n        var zl" in html_tpl, "fix list missing or not agent-only")
 
 ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
-   "<div class=\"agentnotes\"><div class=\"grp\"" in html_tpl and "d.data_as_of.lag_minutes + ' min</b> behind'" in html_tpl
+   "<div class=\"agentnotes\"><div class=\"grp\"" in html_tpl and "lagV = d.data_as_of.lag_minutes + ' min behind'" in html_tpl and "line('Late start', fo.late_minutes + ' min'" in html_tpl
    and "emailed every ~30 min" in html_tpl and "nl('On track for', 'a projection'" in html_tpl and "(AGENT ? fixBlk : '')" in html_tpl and html_tpl.index("if (AGENT) {\n      var nl = function") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
 
 print("%d passed" % passed)

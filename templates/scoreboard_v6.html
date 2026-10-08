@@ -160,7 +160,9 @@
   /* the notes share the panel's line style; the single row needs no column
      headings, no rank, no left rule under it */
   .agentnotes{margin:4px 0 14px;max-width:980px}
-  .agentnotes .grp{margin:0 0 3px}
+  .agentnotes .grp{margin:0 0 3px;font-size:10.5px;font-weight:700;letter-spacing:.08em;
+                   text-transform:uppercase;color:var(--muted);cursor:help}
+  .agent .lb{flex-basis:118px}   /* "Clearance pending", "Unanswered texts" on one line */
   .agentnotes .ln{margin-bottom:2px}
   .agent .hd{display:none}
   .agent .r{border-bottom:0;padding-bottom:2px}
@@ -366,6 +368,7 @@
 
     .ln{font-size:11px}
     .ln .lb{flex-basis:72px;white-space:normal}
+    .agent .lb{flex-basis:96px}
     .ln .vl{min-width:44px}
     .rd{padding-left:0}
     .foot{font-size:10px;line-height:1.5}
@@ -834,17 +837,20 @@
         return '<div class="ln"><span class="lb">' + label + '</span><span class="vl">' + value + '</span>' +
                (tail ? '<span class="tl">' + tail + '</span>' : '') + '</div>';
       };
-      var fresh = d.live
-        ? (d.data_as_of
-            ? 'report to <b>' + esc(d.data_as_of.as_of) + '</b> &middot; <b>' + d.data_as_of.lag_minutes + ' min</b> behind'
-            : (ranked.length && ranked[0].pace ? 'figures to <b>' + esc(ranked[0].pace.as_of) + '</b>' : 'no report for today yet'))
-        : 'finished range &middot; every report for these days has arrived';
+      var lagV, lagT;
+      if (d.live && d.data_as_of) {
+        lagV = d.data_as_of.lag_minutes + ' min behind'; lagT = 'RingCX report, emailed every ~30 min &middot; this one reaches <b>' + esc(d.data_as_of.as_of) + '</b>';
+      } else if (d.live) {
+        lagV = 'up to 40 min behind'; lagT = 'RingCX report, emailed every ~30 min' + (ranked.length && ranked[0].pace ? ' &middot; figures to <b>' + esc(ranked[0].pace.as_of) + '</b>' : ' &middot; no report for today yet');
+      } else {
+        lagV = 'complete'; lagT = 'a finished range &middot; every report for these days has arrived';
+      }
       h += '<div class="agentnotes"><div class="grp" title="How fresh each figure on this page is">About these numbers</div>' +
-           nl('Talk &amp; calls', 'up to 40 min behind', 'RingCX report, emailed every ~30 min &middot; ' + fresh) +
+           nl('Talk &amp; calls', lagV, lagT) +
            nl('On track for', 'a projection', 'where the day lands if the rest of your shift goes like the part reported') +
            nl('Green dot', 'live', 'about 2 min behind &middot; no dot between calls is normal') +
            nl('Texts', 'a few min behind', 'read from RingEX every few minutes') +
-           nl('CRM &amp; readiness', 'every 5 min', 'Journeys, planner calls and tasks &middot; the page itself refreshes every 45 s') +
+           nl('CRM', 'every 5 min', 'Journeys, planner calls, tasks and readiness &middot; the page itself refreshes every 45 s') +
            '</div>';
     }
     if (d.live && !AGENT) {   // one person needs no team strip
@@ -1309,18 +1315,20 @@
       if (AGENT) {
         var zl = function (url, label) { return '<a class="zl" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + ' \u2197</a>'; };
         var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, so2 = jn2.soon || {}, tt2 = (a.crm || {}).tasks || {};
+        // one shape per line: the label says what, the value is the number,
+        // the tail is the view to open and the next step
         if (jc2.overdue) fixLines += line('Overdue calls', jc2.overdue, zl(ZOHO.myCalls, 'My Journey Calls') + ' &middot; mark Completed, even on no answer', 'below',
                                           'Planner calls whose start time has passed and are not Completed.');
-        if (so2.labs) fixLines += line('Labs', so2.labs + ' pending', zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; chase, then set Lab Status', 'below',
+        if (so2.labs) fixLines += line('Labs pending', so2.labs, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; chase, then set Lab Status', 'below',
                                        'Surgeries inside 14 days with Lab Status still pending.');
-        if (so2.mc) fixLines += line('Clearance', so2.mc + ' pending', zl(ZOHO.medical, 'Medical Action Needed') + ' &middot; get the letter, then set MC Status', 'below',
+        if (so2.mc) fixLines += line('Clearance pending', so2.mc, zl(ZOHO.medical, 'Medical Action Needed') + ' &middot; get the letter, then set MC Status', 'below',
                                      'Surgeries inside 14 days with medical clearance still pending.');
         if (so2.balance) fixLines += line('Balance due', so2.balance, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; collect, or hand to billing', 'below',
                                           'Surgeries inside 14 days with Journey Balance Due above zero.');
-        if (tt2.open) fixLines += line('Open tasks', tt2.open, zl(ZOHO.tasks, 'My Today + Overdue Tasks'), 'below', 'Tasks due in the window and not completed.');
-        if (rp && rp.unanswered) fixLines += line('Texts', rp.unanswered + ' unanswered', 'RingEX app &middot; reply within 15 minutes', 'below',
+        if (tt2.open) fixLines += line('Open tasks', tt2.open, zl(ZOHO.tasks, 'My Today + Overdue Tasks') + ' &middot; close or reschedule', 'below', 'Tasks due in the window and not completed.');
+        if (rp && rp.unanswered) fixLines += line('Unanswered texts', rp.unanswered, 'RingEX app &middot; reply within 15 min', 'below',
                                                   'Inbound texts with no reply yet.');
-        if (fo && fo.late_minutes > 5) fixLines += line('Start', fo.late_minutes + ' min late', 'first interaction after the ' + esc((dy.shift || {}).start || '') + ' start &middot; be on the phone at the start', 'below',
+        if (fo && fo.late_minutes > 5) fixLines += line('Late start', fo.late_minutes + ' min', 'first interaction at ' + esc(fo.first) + ' &middot; be on the phone at ' + esc((dy.shift || {}).start || 'the start'), 'below',
                                                         'Be on the phone at the shift start; the first interaction is what counts.');
         if (!fixLines) fixLines = line('All clear', '\u2713', 'nothing red right now', '', 'No overdue calls, nothing pending inside 14 days, no unanswered texts.');
       }
