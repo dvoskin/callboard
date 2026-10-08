@@ -1077,9 +1077,12 @@ _COMBINED_TEAMS = {
         "extra": [
             {"name": "Judith Merlo",    "source": "ringcx", "ext": "185", "ext_id": 1076638035},
             {"name": "Alex Morales",    "source": "ringcx", "ext": "208", "ext_id": 431142034},
-            {"name": "Chery Marroquin", "source": "ringcx", "ext": "173", "ext_id": 1022794035},
             {"name": "Ana Castro",      "source": "ringcx", "ext": "180", "ext_id": 695481035},
-            {"name": "Luisa Perez",     "source": "ringcx", "ext": "126", "ext_id": 1106915035},
+            # Chery Marroquin (RingCX 15583, RingEX 173 / 1022794035) and Luisa
+            # Perez (RingCX 15585, RingEX 126 / 1106915035) were taken off on
+            # 2026-10-08 at Danny's word ("remove Luisa and Cherry for now").
+            # Both are confirmed in all three systems; put the two lines back
+            # to restore them.
         ],
     },
 }

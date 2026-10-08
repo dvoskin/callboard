@@ -227,9 +227,15 @@ try:
     finally:
         A.datetime = _real_dt
         A._ringcx.active_calls_with_status = _real_cx
-    ck("a seat with NO declared shift and no rows is No Activity",
-       {x["name"]: x for x in jm.get("seats", [])}.get("Chery Marroquin", {}).get("state") == "no_activity",
-       {x["name"]: x for x in jm.get("seats", [])}.get("Chery Marroquin"))
+    # every surgical seat has a shift now (2026-10-08): take one off the sheet for the probe
+    _sv_sh = A.SHIFTS.pop("Johana Duron")
+    try:
+        jm2 = cxprobe([])
+        ck("a seat with NO declared shift and no rows is No Activity",
+           {x["name"]: x for x in jm2.get("seats", [])}.get("Johana Duron", {}).get("state") == "no_activity",
+           {x["name"]: x for x in jm2.get("seats", [])}.get("Johana Duron"))
+    finally:
+        A.SHIFTS["Johana Duron"] = _sv_sh
     ck("and is not on a call", by.get("Johana Duron", {}).get("on_call") is False, by.get("Johana Duron"))
     _rt = A._v6_cx_rows_for_team
     A._v6_cx_rows_for_team = lambda t, d_, seats: ({"Johana Duron": [{"x": 1}]}, 1, {})
@@ -294,15 +300,15 @@ try:
                  {"agent_name": "Judith Merlo", "state": "AVAILABLE"},
                  {"agent_name": "Oscar Caballero", "state": "ON-BREAK"},
                  {"agent_name": "Jorge Mier", "state": "WRAP"},
-                 {"agent_name": "Chery Marroquin", "state": "SOME_NEW_STATE"}])
+                 {"agent_name": "Johana Duron", "state": "SOME_NEW_STATE"}])
     by = {x["name"]: x for x in j.get("seats", [])}
     ck("at lunch reads On Lunch, not Available", by.get("Ana Castro", {}).get("label") == "On Lunch", by.get("Ana Castro"))
     ck("AVAILABLE with rows today reads Available", by.get("Judith Merlo", {}).get("label") == "Available", by.get("Judith Merlo"))
     ck("ON-BREAK reads On Break", by.get("Oscar Caballero", {}).get("label") == "On Break", by.get("Oscar Caballero"))
     ck("WRAP reads Wrap-Up", by.get("Jorge Mier", {}).get("label") == "Wrap-Up", by.get("Jorge Mier"))
     ck("an unknown state is shown as itself, Title Case, not guessed",
-       by.get("Chery Marroquin", {}).get("label") == "Some New State" and by.get("Chery Marroquin", {}).get("state") == "other",
-       by.get("Chery Marroquin"))
+       by.get("Johana Duron", {}).get("label") == "Some New State" and by.get("Johana Duron", {}).get("state") == "other",
+       by.get("Johana Duron"))
     # an active call still wins over the agent state
     j2 = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"}],
                  calls=[{"agent_name": "Ana Castro", "call_state": "ACTIVE"}])

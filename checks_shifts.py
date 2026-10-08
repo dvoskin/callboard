@@ -48,8 +48,15 @@ surg = {x["name"]: x for x in A._billing_roster("surgical")[0]}
 ck("a surgical seat carries its shift through _seat_meta",
    A._seat_meta(surg["Alex Morales"]).get("shift") == A.SHIFTS["Alex Morales"],
    A._seat_meta(surg["Alex Morales"]))
-ck("a seat not on the sheet carries no shift (not a 24-hour one)",
-   "shift" not in A._seat_meta(surg["Chery Marroquin"]), A._seat_meta(surg["Chery Marroquin"]))
+# every seat left on the surgical roster has a shift (2026-10-08), so the
+# shiftless case takes one off the sheet for a moment
+_sv_shift = A.SHIFTS.pop("Johana Duron")
+try:
+    _surg2 = {x["name"]: x for x in A._billing_roster("surgical")[0]}
+    ck("a seat not on the sheet carries no shift (not a 24-hour one)",
+       "shift" not in A._seat_meta(_surg2["Johana Duron"]), A._seat_meta(_surg2["Johana Duron"]))
+finally:
+    A.SHIFTS["Johana Duron"] = _sv_shift
 bill = {x["name"]: x for x in A._billing_roster("billing")[0]}
 ck("a billing seat carries its shift too",
    A._seat_meta(bill["Vivian Martinez"]).get("shift", {}).get("end") == "18:00",
