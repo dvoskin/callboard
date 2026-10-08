@@ -1208,7 +1208,10 @@ _TEAM_SMS = {"sales": False}
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
 # created in Zoho CRM by each user for the time range shown"). Reuses the
 # counter /v5 has had since August, with its 5-minute cache.
-_TEAM_CRM = {"surgical": True}
+# Billing joined on 2026-10-08 ("apply the same expanded view redesign to
+# the billing board"): billers own Zoho Calls too (the planner's "Billing
+# follow-up" cadence), so the CRM block has something to say for them.
+_TEAM_CRM = {"surgical": True, "billing": True}
 
 
 def _team_sms_enabled(team) -> bool:

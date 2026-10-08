@@ -1017,6 +1017,7 @@
         'Inbound': 'Inbound interactions and how many of them this agent answered.',
         'Outbound': 'Outbound dials, answered or not.',
         'Collected': 'Payments in Books attributed to this biller in the window.',
+        'Per day': 'Collected divided by the days that had a payment.',
         'Started': 'First interaction of the day, against the shift on file. Red when more than 5 minutes after the start.',
         'Last call': 'Last interaction of a finished day, against the shift end. Red when more than 15 minutes before it.',
         'Longest gap': 'Longest silence between the end of one interaction and the start of the next. Lunch is expected; red from 90 minutes.',
@@ -1060,6 +1061,9 @@
                         a.collected_per_connected
                           ? money(a.collected_per_connected) + ' per connected call'
                           : '');
+        if (!pace && a.collected_days)
+          collLine += line('Per day', money(a.collected_per_day || 0),
+                           'over ' + a.collected_days + ' day' + (a.collected_days === 1 ? '' : 's') + ' with payments', '');
       }
 
       // Wrap is a line of its own, not a scored metric: talk time is what the
@@ -1232,11 +1236,12 @@
       // it reached, how good the calls were. Right: the CRM -- what was due
       // and done, the caseload, surgery readiness, texts. Empty blocks vanish.
       body = '<div class="lns"><div class="col">' +
-        blk(pace ? 'Today' : 'This range', TODAY_M.map(mline).join('') + wrapLine + dirLines + collLine) +
+        blk(pace ? 'Today' : 'This range', TODAY_M.map(mline).join('') + wrapLine + dirLines) +
         blk('Day', dayLines, 'How the day was worked, against the shift on file') +
         blk('Reach', reachLines, 'People, not dials') +
         blk('Quality', QUAL_M.map(mline).join('')) +
         '</div><div class="col">' +
+        blk('Collections', collLine, 'Payments in Books attributed to this biller in the window') +
         blk('CRM', crmLines, 'Zoho CRM calls and tasks owned by this person, in the window shown') +
         blk('Journeys', journeyLines, 'The Journeys module: cases owned and the planner\u2019s calls') +
         blk('Surgery readiness', readyLines, 'Surgeries inside 14 days and what still stands in the way') +

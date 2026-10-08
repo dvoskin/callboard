@@ -395,6 +395,7 @@ _real_users, _real_bd = A._zoho.list_users, A._zoho.activity_breakdown
 A._zoho.list_users = lambda: {"u-judith": "Judith", "u-oscar": "Oscar Caballero"}
 def _stub_bd(s_, e_, ids, start_date=None, end_date=None):
     _seen_window.update(start=s_, end=e_, ids=sorted(ids), sd=start_date, ed=end_date)
+    _seen_window.setdefault("all", []).append(sorted(ids))
     return {"u-judith": {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
                          "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}}
 A._zoho.activity_breakdown = _stub_bd
@@ -438,7 +439,10 @@ ck("someone who is not a CRM user by name is None, not 0", "crm" in rows_c.get("
    rows_c.get("Jorge Mier", {}).get("crm", "missing"))
 ck("and is named in the meta so the gap is visible", "Jorge Mier" in (jc.get("crm_meta") or {}).get("not_crm_users", []),
    jc.get("crm_meta"))
-ck("only the board's CRM ids are queried", _seen_window.get("ids") == ["u-judith", "u-oscar"], _seen_window.get("ids"))
+# billing now reads CRM too, so the LAST call may be billing's (no stub users match it: []);
+# the surgical call must have asked for exactly its two CRM users and nobody else
+ck("only the board's CRM ids are queried", ["u-judith", "u-oscar"] in _seen_window.get("all", [])
+   and all(set(x) <= {"u-judith", "u-oscar"} for x in _seen_window.get("all", [])), _seen_window.get("all"))
 ck("tasks due uses DATE bounds, calls use datetimes",
    _seen_window.get("sd") == "2026-07-29" and _seen_window.get("ed") == "2026-07-29", _seen_window)
 ck("the row chip (when shown) reads completed counts", "CRM <b>' + c.completed + '</b> calls" in html, "chip not on completed counts")
@@ -448,8 +452,9 @@ ck("the panel shows CRM as done-of-due with overdue and logged (Danny, evening 2
    "line('CRM calls', cc.completed + ' of ' + cc.due + ' done'" in html and "' overdue</b>'" in html and "' logged'" in html
    and "blk('CRM', crmLines" in html, "CRM performance lines missing")
 ck("and says not read, with the reason, for a non-CRM name", "line('CRM', 'not read'" in html, "no not-read line")
-ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_created" not in (jb2.get("ranked") or [{}])[0],
-   (jb2.get("crm_enabled"), sorted((jb2.get("ranked") or [{}])[0])))
+ck("billing carries CRM too since 2026-10-08 (the planner's billing follow-up calls are theirs)", jb2.get("crm_enabled") is True, jb2.get("crm_enabled"))
+ck("sales does not", A._TEAM_CRM.get("sales") is None, A._TEAM_CRM)
+ck("collections sit in their own block on the right", "blk('Collections', collLine" in html, "collections block missing")
 ck("the page shows the CRM chip only on boards that carry it", "function crmChip" in html and "!D.crm_enabled) return ''" in html,
    "crmChip missing or ungated")
 
