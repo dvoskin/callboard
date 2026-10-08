@@ -161,7 +161,17 @@
   /* The expand panel in three short groups rather than one list. */
   .det .grp{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
             color:var(--muted);margin:10px 0 3px}
-  .det .lns .grp:first-child{margin-top:0}
+  .det .col > .g:first-child .grp{margin-top:0}
+  .det .grp[title]{cursor:help}
+  /* a label with a definition behind it: a dotted cue, nothing louder */
+  .ln .lb[title]{cursor:help;text-decoration:underline dotted;text-decoration-color:var(--rule);
+                 text-underline-offset:3px}
+  /* surgery readiness: the three reasons as small chips under the count */
+  .rd{display:flex;flex-wrap:wrap;gap:4px 6px;margin:1px 0 4px 0;padding-left:calc(92px + var(--gap-x))}
+  .rd .rc{font-size:11px;color:var(--muted);border:1px solid var(--rule);border-radius:999px;
+          padding:1px 8px;white-space:nowrap;cursor:help}
+  .rd .rc b{color:var(--ink);font-weight:700}
+  .rd .rc.hot{border-color:var(--dn);color:var(--dn)} .rd .rc.hot b{color:var(--dn)}
   /* Data notes fold behind one line; the table is what the page is for. */
   details.notes{margin:12px 0 4px}
   details.notes>summary{cursor:pointer;font-size:11.5px;font-weight:700;letter-spacing:.06em;
@@ -222,13 +232,21 @@
        padding:var(--row-y) 0 calc(var(--row-y) + 4px) var(--gap-x)}
   .det.on{display:block}
   /* expand panel: a line per metric, no table and so nothing to scroll */
-  .lns{display:flex;flex-direction:column;gap:3px;max-width:560px}
+  /* Two columns of short blocks on a wide screen -- the phone/calls side and
+     the CRM/texts side -- one column on a phone. Danny, 2026-10-08: "refine
+     the layout and design of the existing expanded view so it is more
+     digestible". */
+  .lns{display:grid;grid-template-columns:minmax(0,1fr);gap:2px 32px;max-width:980px}
+  .lns .col{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .lns .g{margin-bottom:4px}
+  @media(min-width:760px){.lns{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .ln{display:flex;align-items:baseline;gap:var(--gap-x);font-size:12.5px;
       font-variant-numeric:tabular-nums}
-  .ln .lb{flex:0 0 74px;color:var(--muted)}
+  .ln .lb{flex:0 0 92px;color:var(--muted);white-space:nowrap}
   .ln .vl{flex:0 0 auto;min-width:52px;font-weight:700}
-  .ln .tl{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;
-          white-space:nowrap}
+  /* the tail wraps: in two columns a clipped "on track for 154.6m · tar…"
+     loses the one number it exists to show */
+  .ln .tl{color:var(--muted);min-width:0;white-space:normal;line-height:1.35}
   .ln .tl b{color:var(--ink);font-weight:600}
   .foot{font-size:11px;color:var(--muted);padding-top:7px;margin-top:8px;
         line-height:1.5;max-width:520px}
@@ -328,8 +346,9 @@
     .lbl{display:inline;color:var(--muted);font-weight:400}
 
     .ln{font-size:11px}
-    .ln .lb{flex-basis:58px}
+    .ln .lb{flex-basis:72px;white-space:normal}
     .ln .vl{min-width:44px}
+    .rd{padding-left:0}
     .foot{font-size:10px;line-height:1.5}
 
     .ctl{gap:5px;margin-bottom:9px}
@@ -988,10 +1007,45 @@
       // the others are read against, fell off the right edge. One sentence each
       // says the same thing in the order it is asked: where they are, where that
       // lands, what the bar is.
-      var line = function (label, value, tail, band) {
-        return '<div class="ln"><span class="lb">' + label + '</span>' +
+      // What each line means, behind its label (hover). Danny, 2026-10-08:
+      // "add tooltips where needed". Keyed by the label text so every line
+      // gets one without each call site carrying it.
+      var TIP = {
+        'Talk': 'Minutes on connected calls (RingCX interaction time; wrap excluded). The target is the daily bar, pro-rated through the shift on a live day.',
+        'Calls': 'Outbound dials plus inbound calls answered. Unanswered inbound rolls to another agent and is not counted.',
+        'Wrap': 'After-call work minutes from the RingCX report. Handle = talk + wrap.',
+        'Inbound': 'Inbound interactions and how many of them this agent answered.',
+        'Outbound': 'Outbound dials, answered or not.',
+        'Collected': 'Payments in Books attributed to this biller in the window.',
+        'Started': 'First interaction of the day, against the shift on file. Red when more than 5 minutes after the start.',
+        'Last call': 'Last interaction of a finished day, against the shift end. Red when more than 15 minutes before it.',
+        'Longest gap': 'Longest silence between the end of one interaction and the start of the next. Lunch is expected; red from 90 minutes.',
+        'Started late': 'Days the first interaction came more than 5 minutes after the shift start.',
+        'Left early': 'Days the last interaction came more than 15 minutes before the shift end.',
+        'Connect rate': 'Answered dials divided by dials. Separates reaching people from dialing numbers.',
+        'Reached': 'Distinct numbers dialed; dials per person shows redial churn.',
+        'Answered': 'Inbound calls answered by this agent, of the inbound that reached them.',
+        'Connected': 'Calls that connected (outbound answered or inbound accepted).',
+        'CRM calls': 'Zoho Calls owned by this person with a start time in the window: completed and overdue; logged = created in the window.',
+        'Tasks': 'Zoho Tasks owned by this person: due in the window, completed, still open.',
+        'Journeys': 'Journeys (patient cases) owned by this coordinator with Case Status Active.',
+        'Planner calls': 'The cadence planner\u2019s \u201cJourney call \u2013 \u2026\u201d calls due in the window: done, overdue, still scheduled.',
+        'Surgeries': 'Active Journeys owned by this coordinator with a surgery date inside the next 14 days.',
+        'Not ready': 'Of those surgeries: labs pending, medical clearance pending, or a balance still due. A blank status is not counted as a finding.',
+        'SMS': 'Texts sent and received on this seat\u2019s RingEX extension in the window.',
+        'Text replies': 'Minutes from an inbound text to the next outbound to that number. Consecutive inbound texts before a reply count as one wait; unanswered = still waiting at the end of the window.'
+      };
+      // the long-call label is built from the threshold, so its tip is too
+      TIP[longLbl] = 'Connected calls that ran ' + longLbl + ' or longer -- a real conversation, not a pickup.';
+      var line = function (label, value, tail, band, tip) {
+        var t = tip !== undefined ? tip : TIP[label];
+        return '<div class="ln"><span class="lb"' + (t ? ' title="' + esc(t) + '"' : '') + '>' + label + '</span>' +
                '<span class="vl' + (band ? ' b-' + band : '') + '">' + value + '</span>' +
                (tail ? '<span class="tl">' + tail + '</span>' : '') + '</div>';
+      };
+      // A titled block of lines; nothing at all when there are no lines.
+      var blk = function (title, lines, tip) {
+        return lines ? '<div class="g"><div class="grp"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + title + '</div>' + lines + '</div>' : '';
       };
       // What a connected call was worth. The one collections figure the call
       // columns cannot express: a seat can sit bottom on talk time and top on
@@ -1030,9 +1084,15 @@
       var dirLines = '';
       if (d.split_direction) {
         var pdx = a.per_day || {};
-        dirLines = line('Inbound', (pdx.inbound == null ? '\u2014' : pdx.inbound) + ' per day',
-                        (pdx.inbound_answered == null ? '' : pdx.inbound_answered + ' answered per day')) +
-                   line('Outbound', (pdx.outbound == null ? '\u2014' : pdx.outbound) + ' per day', '');
+        if (pace) {
+          var tw = a.worked || a.totals || {};
+          dirLines = line('Inbound', (tw.inbound || 0) + ' today', (tw.inbound ? (tw.inbound_answered || 0) + ' answered' : '')) +
+                     line('Outbound', (tw.dials || 0) + ' today', '');
+        } else {
+          dirLines = line('Inbound', (pdx.inbound == null ? '\u2014' : pdx.inbound) + ' per day',
+                          (pdx.inbound_answered == null ? '' : pdx.inbound_answered + ' answered per day')) +
+                     line('Outbound', (pdx.outbound == null ? '\u2014' : pdx.outbound) + ' per day', '');
+        }
       }
       // Zoho CRM in the panel, as performance: what was DUE in the window and
       // how much of it got done, with what was logged beside it. Danny,
@@ -1040,19 +1100,23 @@
       // expanded pane ... whatever you feel is applicable to see performance".
       // The row chip stays off; this is the only place CRM shows.
       var SHOW_CRM_PANEL = true;
-      var crmLines = '';
+      var crmLines = '', journeyLines = '', readyLines = '';
       var crmOn = (LAST[CUR_SLOT] || {}).crm_enabled;
       if (SHOW_CRM_PANEL && crmOn) {
         if (a.crm) {
           var cc = a.crm.calls, tt = a.crm.tasks;
           var rate = function (done, due) { return due ? Math.round(100 * done / due) + '%' : '\u2014'; };
-          crmLines = grp('CRM') +
-            line('Calls', cc.completed + ' of ' + cc.due + ' due done',
-                 rate(cc.completed, cc.due) + (cc.overdue ? ' \u00b7 <b>' + cc.overdue + ' overdue</b>' : '') +
-                 ' \u00b7 ' + cc.created + ' logged', cc.due && cc.overdue ? 'below' : '') +
-            line('Tasks', tt.completed + ' of ' + tt.due + ' due done',
-                 rate(tt.completed, tt.due) + (tt.open ? ' \u00b7 ' + tt.open + ' still open' : '') +
-                 ' \u00b7 ' + tt.created + ' created', '');
+          crmLines =
+            (cc.due
+              ? line('CRM calls', cc.completed + ' of ' + cc.due + ' done',
+                     rate(cc.completed, cc.due) + (cc.overdue ? ' \u00b7 <b>' + cc.overdue + ' overdue</b>' : '') +
+                     ' \u00b7 ' + cc.created + ' logged', cc.overdue ? 'below' : '')
+              : line('CRM calls', cc.completed + ' done', 'none due \u00b7 ' + cc.created + ' logged', '')) +
+            (tt.due
+              ? line('Tasks', tt.completed + ' of ' + tt.due + ' done',
+                     rate(tt.completed, tt.due) + (tt.open ? ' \u00b7 <b>' + tt.open + ' still open</b>' : '') +
+                     ' \u00b7 ' + tt.created + ' created', tt.open ? 'below' : '')
+              : line('Tasks', tt.completed + ' done', 'none due \u00b7 ' + tt.created + ' created', ''));
           // The coordinator's caseload from the Journeys module (the planner
           // sets Journey Owner to the coordinator): cases owned, the planner's
           // own calls in the window, and surgeries inside 14 days that are
@@ -1060,21 +1124,33 @@
           var jn = a.crm.journeys;
           if (jn) {
             var jc = jn.journey_calls || {}, so = jn.soon || {};
-            crmLines += line('Journeys', jn.active + ' active', 'cases owned', '');
+            journeyLines += line('Journeys', jn.active + ' active', 'cases owned', '');
             if (jc.due)
-              crmLines += line('Journey calls', jc.completed + ' of ' + jc.due + ' done',
-                               (jc.overdue ? '<b>' + jc.overdue + ' overdue</b> &middot; ' : '') + jc.scheduled + ' scheduled',
-                               jc.overdue ? 'below' : '');
-            if (so.total)
-              crmLines += line('Surgeries in 14 days', so.total,
-                               so.not_ready ? '<b>' + so.not_ready + ' not ready</b>: ' +
-                                 [so.labs ? so.labs + ' labs' : '', so.mc ? so.mc + ' MC' : '', so.balance ? so.balance + ' balance due' : '']
-                                   .filter(Boolean).join(' &middot; ')
-                                 : 'all ready', so.not_ready ? 'below' : '');
+              journeyLines += line('Planner calls', jc.completed + ' of ' + jc.due + ' done',
+                                   (jc.overdue ? '<b>' + jc.overdue + ' overdue</b> &middot; ' : '') + jc.scheduled + ' scheduled',
+                                   jc.overdue ? 'below' : '');
+            // Surgery readiness, the block Danny asked for by name: the count
+            // inside 14 days, how many are not ready, and the three reasons as
+            // chips -- each reason with its definition behind it.
+            if (so.total) {
+              readyLines += line('Surgeries', so.total, 'inside the next 14 days', '');
+              readyLines += line('Not ready', so.not_ready, so.not_ready ? 'need labs, clearance or payment' : 'all cleared and paid',
+                                 so.not_ready ? 'below' : '');
+              if (so.not_ready) {
+                var chip = function (n, lbl, tip) {
+                  return n ? '<span class="rc' + (n ? ' hot' : '') + '" title="' + esc(tip) + '">' + lbl + ' <b>' + n + '</b></span>' : '';
+                };
+                readyLines += '<div class="rd">' +
+                  chip(so.labs, 'Labs pending', 'Lab Status is Not Received, In Review, Rejected, Further Review Needed or Incomplete.') +
+                  chip(so.mc, 'Clearance pending', 'MC Status is awaiting submission, pending review, needs more info, not approved or rejected.') +
+                  chip(so.balance, 'Balance due', 'Journey Balance Due is above zero.') +
+                  '</div>';
+              }
+            }
           }
         } else {
           var cm = (LAST[CUR_SLOT] || {}).crm_meta || {};
-          crmLines = grp('CRM') + line('CRM', 'not read', cm.error ? esc(cm.error) : 'not a CRM user by this name', '');
+          crmLines = line('CRM', 'not read', cm.error ? esc(cm.error) : 'not a CRM user by this name', '');
         }
       }
       var smsLine = '';
@@ -1140,11 +1216,11 @@
       if (re.dials) {
         reachLines += line('Connect rate', re.connect_rate_pct + '%', re.connected_dials + ' of ' + re.dials + ' dials answered', re.connect_rate_pct < 25 ? 'below' : '');
         if (re.numbers_known && re.unique_outbound)
-          reachLines += line('People reached', re.unique_outbound, re.dials_per_contact + ' dials per person' +
+          reachLines += line('Reached', re.unique_outbound, re.dials_per_contact + ' dials per person' +
                              (re.unique_contacts > re.unique_outbound ? ' &middot; ' + re.unique_contacts + ' incl. inbound' : ''), '');
       }
       if ((tot.inbound || 0) > 0)
-        reachLines += line('Inbound answered', tot.inbound_answered + ' of ' + tot.inbound, a.answer_rate_pct + '%', a.answer_rate_pct < 50 ? 'below' : '');
+        reachLines += line('Answered', tot.inbound_answered + ' of ' + tot.inbound + ' inbound', a.answer_rate_pct + '%', a.answer_rate_pct < 50 ? 'below' : '');
       var rp = a.sms && a.sms.replies;
       if (rp && rp.threads) {
         textLines += line('Text replies', rp.median_minutes != null ? 'median ' + rp.median_minutes + ' min' : 'none yet',
@@ -1152,12 +1228,20 @@
                           (rp.within_15_pct != null ? ' &middot; ' + rp.within_15_pct + '% within 15 min' : ''),
                           rp.unanswered ? 'below' : '');
       }
-      body = '<div class="lns">' +
-        grp(pace ? 'Today' : 'This range') + TODAY_M.map(mline).join('') + wrapLine + dirLines + collLine +
-        (dayLines ? grp('Day') + dayLines : '') +
-        (reachLines ? grp('Reach') + reachLines : '') +
-        grp('Quality') + QUAL_M.map(mline).join('') + crmLines + smsLine + textLines +
-        '</div>';
+      // Left: the phone -- what the day adds up to, how it was worked, who
+      // it reached, how good the calls were. Right: the CRM -- what was due
+      // and done, the caseload, surgery readiness, texts. Empty blocks vanish.
+      body = '<div class="lns"><div class="col">' +
+        blk(pace ? 'Today' : 'This range', TODAY_M.map(mline).join('') + wrapLine + dirLines + collLine) +
+        blk('Day', dayLines, 'How the day was worked, against the shift on file') +
+        blk('Reach', reachLines, 'People, not dials') +
+        blk('Quality', QUAL_M.map(mline).join('')) +
+        '</div><div class="col">' +
+        blk('CRM', crmLines, 'Zoho CRM calls and tasks owned by this person, in the window shown') +
+        blk('Journeys', journeyLines, 'The Journeys module: cases owned and the planner\u2019s calls') +
+        blk('Surgery readiness', readyLines, 'Surgeries inside 14 days and what still stands in the way') +
+        blk('Texts', smsLine + textLines, 'SMS on the RingEX extension') +
+        '</div></div>';
 
       // One line, and only facts that are not already on the row or in the
       // table above it. The share of connected calls running over two minutes

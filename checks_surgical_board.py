@@ -445,8 +445,8 @@ ck("the row chip (when shown) reads completed counts", "CRM <b>' + c.completed +
 ck("but the chip is hidden in the collapsed row for now", "var SHOW_CRM_CHIP = false;" in html and "if (!SHOW_CRM_CHIP || !D.crm_enabled) return '';" in html,
    "CRM chip not gated off")
 ck("the panel shows CRM as done-of-due with overdue and logged (Danny, evening 2026-10-07)",
-   "var SHOW_CRM_PANEL = true;" in html and "' of ' + cc.due + ' due done'" in html and "overdue</b>" in html
-   and "grp('CRM')" in html, "CRM performance lines missing")
+   "line('CRM calls', cc.completed + ' of ' + cc.due + ' done'" in html and "' overdue</b>'" in html and "' logged'" in html
+   and "blk('CRM', crmLines" in html, "CRM performance lines missing")
 ck("and says not read, with the reason, for a non-CRM name", "line('CRM', 'not read'" in html, "no not-read line")
 ck("billing does not carry CRM", jb2.get("crm_enabled") is False and "crm_created" not in (jb2.get("ranked") or [{}])[0],
    (jb2.get("crm_enabled"), sorted((jb2.get("ranked") or [{}])[0])))
@@ -468,7 +468,7 @@ ck("the SMS chip is back on the collapsed row (Danny, 2026-10-07 evening) and th
    "var SHOW_SMS_CHIP = true;" in html and "smsLine = line('SMS'" in html, "SMS chip off / panel line missing")
 ck("the live strip exists and agrees with the table's quiet count",
    "class=\"now\"" in html and "nQuiet = quietSeats.length" in html, "live strip missing")
-ck("the panel is grouped", "grp('Quality')" in html and "grp('Schedule &amp; line')" in html, "panel not grouped")
+ck("the panel is grouped", "blk('Quality'" in html and "grp('Schedule &amp; line')" in html, "panel not grouped")
 
 ck("on the live day the summary line folds under the strip",
    "$(subId).innerHTML = d.live ? '' : sub;" in html and '<details class="notes subfold"><summary>Summary</summary>' in html,
@@ -619,5 +619,11 @@ ck("no shift on file -> no lateness judged, start still shown", _rep8b["ranked"]
 ck("a RingCX row carries the other party's number for reach", any("number" in r for rs in _got.get("rows", {}).values() for r in rs), "number missing on CX rows")
 _tpl8 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
 ck("the panel carries Day, Reach, text replies and the Journeys lines -- the row does not",
-   "grp('Day')" in _tpl8 and "grp('Reach')" in _tpl8 and "'Text replies'" in _tpl8 and "'Surgeries in 14 days'" in _tpl8
-   and "'Journey calls'" in _tpl8 and "a.day" not in _tpl8.split("function presenceChip")[0].split("var SHOW_CRM_CHIP")[0], "panel lines missing or leaked to the row")
+   "blk('Day', dayLines" in _tpl8 and "blk('Reach', reachLines" in _tpl8 and "'Text replies'" in _tpl8 and "blk('Surgery readiness', readyLines" in _tpl8
+   and "'Planner calls'" in _tpl8 and "chip(so.labs, 'Labs pending'" in _tpl8 and "a.day" not in _tpl8.split("function presenceChip")[0].split("var SHOW_CRM_CHIP")[0], "panel lines missing or leaked to the row")
+ck("every panel label has a definition behind it (tooltips), and the two-column grid exists",
+   "var TIP = {" in _tpl8 and "title=\"' + esc(t) + '\"" in _tpl8 and "'Not ready':" in _tpl8 and "'Connect rate':" in _tpl8
+   and "@media(min-width:760px){.lns{grid-template-columns:repeat(2,minmax(0,1fr))}}" in _tpl8, "tooltips or grid missing")
+ck("nothing was due -> plain words, never '2 of 0 due done'", "' done', 'none due" in _tpl8, "zero-due wording missing")
+ck("the long-call tip is set AFTER the TIP map exists (it threw 'Cannot set properties of undefined' before)",
+   _tpl8.index("var TIP = {") < _tpl8.index("TIP[longLbl] = "), "TIP[longLbl] assigned before var TIP")
