@@ -294,15 +294,15 @@ def stprobe(states, ok=True, note=None, http_error=None, calls=None):
     return r.get_json() if r.status_code == 200 else {"_http": r.status_code}
 
 _real_cx2 = (A._ringcx.active_calls_with_status, A._ringcx.active_agents_with_status, A._v6_cx_rows_for_team)
-A._v6_cx_rows_for_team = lambda t, d_, seats: ({"Ana Castro": [{"x": 1}], "Judith Merlo": [{"x": 1}]}, 1, {})
+A._v6_cx_rows_for_team = lambda t, d_, seats: ({"Ariel Ramirez": [{"x": 1}], "Judith Merlo": [{"x": 1}]}, 1, {})
 try:
-    j = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"},
+    j = stprobe([{"agent_name": "Ariel Ramirez", "state": "LUNCH"},
                  {"agent_name": "Judith Merlo", "state": "AVAILABLE"},
                  {"agent_name": "Oscar Caballero", "state": "ON-BREAK"},
                  {"agent_name": "Jorge Mier", "state": "WRAP"},
                  {"agent_name": "Johana Duron", "state": "SOME_NEW_STATE"}])
     by = {x["name"]: x for x in j.get("seats", [])}
-    ck("at lunch reads On Lunch, not Available", by.get("Ana Castro", {}).get("label") == "On Lunch", by.get("Ana Castro"))
+    ck("at lunch reads On Lunch, not Available", by.get("Ariel Ramirez", {}).get("label") == "On Lunch", by.get("Ariel Ramirez"))
     ck("AVAILABLE with rows today reads Available", by.get("Judith Merlo", {}).get("label") == "Available", by.get("Judith Merlo"))
     ck("ON-BREAK reads On Break", by.get("Oscar Caballero", {}).get("label") == "On Break", by.get("Oscar Caballero"))
     ck("WRAP reads Wrap-Up", by.get("Jorge Mier", {}).get("label") == "Wrap-Up", by.get("Jorge Mier"))
@@ -310,13 +310,13 @@ try:
        by.get("Johana Duron", {}).get("label") == "Some New State" and by.get("Johana Duron", {}).get("state") == "other",
        by.get("Johana Duron"))
     # an active call still wins over the agent state
-    j2 = stprobe([{"agent_name": "Ana Castro", "state": "LUNCH"}],
-                 calls=[{"agent_name": "Ana Castro", "call_state": "ACTIVE"}])
-    ck("a call in progress outranks the agent state", {x["name"]: x for x in j2["seats"]}["Ana Castro"]["on_call"] is True, j2["seats"][:1])
+    j2 = stprobe([{"agent_name": "Ariel Ramirez", "state": "LUNCH"}],
+                 calls=[{"agent_name": "Ariel Ramirez", "call_state": "ACTIVE"}])
+    ck("a call in progress outranks the agent state", {x["name"]: x for x in j2["seats"]}["Ariel Ramirez"]["on_call"] is True, j2["seats"][:1])
     # the endpoint not being available on the account is NOT "everyone available"
     j3 = stprobe([], ok=False, http_error=403, note="RingCX returned HTTP 403 reading agent states")
     ck("a 403 on agent states falls back to the calls+rows reading",
-       {x["name"]: x for x in j3["seats"]}["Ana Castro"]["label"] is None, {x["name"]: x for x in j3["seats"]}["Ana Castro"])
+       {x["name"]: x for x in j3["seats"]}["Ariel Ramirez"]["label"] is None, {x["name"]: x for x in j3["seats"]}["Ariel Ramirez"])
 finally:
     A._ringcx.active_calls_with_status, A._ringcx.active_agents_with_status, A._v6_cx_rows_for_team = _real_cx2
     A._cx_active_cache.update(at=0.0, calls=[], meta=None)

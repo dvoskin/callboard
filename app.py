@@ -1,4 +1,5 @@
 from __future__ import annotations  # PEP 604 unions (str | None) on Python 3.9
+import hashlib
 
 import os
 import re
@@ -1077,7 +1078,9 @@ _COMBINED_TEAMS = {
         "extra": [
             {"name": "Judith Merlo",    "source": "ringcx", "ext": "185", "ext_id": 1076638035},
             {"name": "Alex Morales",    "source": "ringcx", "ext": "208", "ext_id": 431142034},
-            {"name": "Ana Castro",      "source": "ringcx", "ext": "180", "ext_id": 695481035},
+            # Ana Castro (RingCX 15580, RingEX 180 / 695481035) was taken off on
+            # 2026-10-08 ("remove ana castro from KPI tracker"); confirmed in all
+            # three systems, one line to restore.
             # Chery Marroquin (RingCX 15583, RingEX 173 / 1022794035) and Luisa
             # Perez (RingCX 15585, RingEX 126 / 1106915035) were taken off on
             # 2026-10-08 at Danny's word ("remove Luisa and Cherry for now").
@@ -1314,6 +1317,80 @@ for _ct, _parts in _COMBINED_TEAMS.items():
 
 
 BILLING_TOKEN = os.environ.get("BILLING_TOKEN", "")
+
+# A coordinator's own page. Danny, 2026-10-08: "a webpage where surgical
+# coordinators can view their own individual stats and performance
+# separately". Each coordinator gets a link bound to their seat --
+# /coordinator/<slug>?k=<token>, token = HMAC(secret, slug) -- that opens one
+# person's row and panel and nothing else; the report and presence calls behind
+# it are filtered to that seat on the server, so nobody else's figures reach
+# the browser. The secret is set on Render (COORD_LINK_SECRET); unset means
+# every coordinator link is a 404 (fail closed). /api/v6/coordinator-links
+# prints the links to a signed-in viewer.
+COORD_LINK_SECRET = os.environ.get("COORD_LINK_SECRET", "")
+_COORD_TEAM = "surgical"
+
+
+def _coord_slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+
+
+def _coord_token(slug: str) -> str:
+    if not COORD_LINK_SECRET:
+        return ""
+    return hmac.new(COORD_LINK_SECRET.encode(), slug.encode(), hashlib.sha256).hexdigest()[:24]
+
+
+def _coord_seat(slug: str):
+    """The surgical seat that slug names, or None."""
+    if not slug:
+        return None
+    for seat in _billing_roster(_COORD_TEAM)[0]:
+        if _coord_slug(seat["name"]) == slug:
+            return seat["name"]
+    return None
+
+
+def _coord_token_ok(slug: str = None) -> bool:
+    """True when the request carries a coordinator link's token for exactly
+    the seat it names (slug from the path, else ?agent=). Fails closed."""
+    slug = slug or request.args.get("agent", "")
+    if not COORD_LINK_SECRET or not slug or _coord_seat(slug) is None:
+        return False
+    supplied = request.args.get("k", "") or request.headers.get("X-Coordinator-Token", "")
+    return bool(supplied) and hmac.compare_digest(supplied, _coord_token(slug))
+
+
+def _only_agent_response(resp):
+    """Cut a report or presence response down to the one seat ?agent= names.
+    Applied to every such call, token or session: a page about one person
+    never carries the others."""
+    slug = request.args.get("agent", "")
+    if not slug:
+        return resp
+    name = _coord_seat(slug)
+    if name is None:
+        return jsonify({"error": "unknown_agent"}), 404
+    try:
+        body = resp.get_json() if hasattr(resp, "get_json") else None
+    except Exception:  # noqa: BLE001
+        body = None
+    if not isinstance(body, dict):
+        return resp
+    others = [x["name"] for x in _billing_roster(_COORD_TEAM)[0] if x["name"] != name]
+    for key in ("ranked", "silent", "stalled", "unknown", "seats"):
+        if isinstance(body.get(key), list):
+            body[key] = [a for a in body[key] if isinstance(a, dict) and a.get("name") == name]
+    if isinstance(body.get("warnings"), list):
+        body["warnings"] = [w for w in body["warnings"]
+                            if not any(o in json.dumps(w) for o in others)]
+    cm = body.get("crm_meta")
+    if isinstance(cm, dict) and isinstance(cm.get("not_crm_users"), list):
+        cm["not_crm_users"] = [n for n in cm["not_crm_users"] if n == name]
+    body["agent_only"] = name
+    out = jsonify(body)
+    out.status_code = resp.status_code
+    return out
 if not BILLING_TOKEN:
     print("[v6] BILLING_TOKEN is not set — /v6/board returns 404 for every request. "
           "/v6 still works behind the normal login.", flush=True)
@@ -2850,6 +2927,15 @@ def _cx_call_state(call):
 
 @app.route("/api/v6/presence")
 def api_v6_presence():
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if _coord_token_ok() and not (session.get("user") or _word_authed() or _v6_token_ok()):
+        if _team_key(request.args.get("team")) != _COORD_TEAM:
+            return jsonify({"error": "unauthorized"}), 401
+    return _only_agent_response(_api_v6_presence_impl())
+
+
+def _api_v6_presence_impl():
     """Who is on a call right now, per seat on the board.
 
     Deliberately NOT part of /api/v6/report. Presence with detailedTelephonyState
@@ -3366,7 +3452,20 @@ def api_v6_collections():
 
 @app.route("/api/v6/report")
 def api_v6_report():
-    """Billing KPI board for a window. Serves /v6 and /v6/board."""
+    """Billing KPI board for a window. Serves /v6, /v6/board and, cut down to
+    one seat, /coordinator/<slug>."""
+    # The gate sits HERE, in front of whatever builds the report, so a stand-in
+    # body in the checks cannot pass without it. A coordinator link unlocks
+    # the surgical board only, and only its own seat.
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if _coord_token_ok() and not (session.get("user") or _word_authed() or _v6_token_ok()):
+        if _team_key(request.args.get("team")) != _COORD_TEAM:
+            return jsonify({"error": "unauthorized"}), 401
+    return _only_agent_response(_api_v6_report_impl())
+
+
+def _api_v6_report_impl():
     if not (_v6_allowed()):
         return jsonify({"error": "unauthorized"}), 401
     # Before the configuration check, not after. Authorisation must not sit
@@ -3529,7 +3628,7 @@ def _v6_allowed() -> bool:
     board, so it does NOT accept SCOREBOARD_TOKEN."""
     if not GOOGLE_CLIENT_ID:
         return True
-    return bool(session.get("user")) or _word_authed() or _v6_token_ok()
+    return bool(session.get("user")) or _word_authed() or _v6_token_ok() or _coord_token_ok()
 
 
 @app.route("/v6", methods=["GET", "POST"])
@@ -3730,6 +3829,38 @@ def board_billing_surgical_share():
                            landing_title=LANDING_TITLE,
                            embed_url=DISTRIBUTION_BOARD_URL,
                            embed_title=DISTRIBUTION_BOARD_TITLE)
+
+
+@app.route("/coordinator/<slug>")
+def board_coordinator(slug):
+    """One coordinator's own board: their row, opened on their panel, nothing
+    else. 404 on a bad or missing token, like the other share links."""
+    if not _coord_token_ok(slug):
+        return ("Not Found", 404)
+    name = _coord_seat(slug)
+    return render_template("scoreboard_v6.html", current_user={},
+                           share_mode=True, share_token=request.args.get("k", ""),
+                           fixed_team=_COORD_TEAM, agent_only=name, agent_slug=slug,
+                           page_title="%s \u00b7 My Performance" % name)
+
+
+@app.route("/api/v6/coordinator-links")
+def api_v6_coordinator_links():
+    """Every coordinator's own link, for the person who hands them out. A
+    signed-in viewer only (password or Google); never a share token."""
+    if not _viewer_signed_in():
+        return jsonify({"error": "unauthorized"}), 401
+    if not COORD_LINK_SECRET:
+        return jsonify({"error": "not_configured",
+                        "detail": "Set COORD_LINK_SECRET on Render (any long random string); "
+                                  "the links are derived from it and change if it changes."}), 503
+    base = request.host_url.rstrip("/")
+    links = []
+    for seat in _billing_roster(_COORD_TEAM)[0]:
+        slug = _coord_slug(seat["name"])
+        links.append({"name": seat["name"], "slug": slug,
+                      "url": "%s/coordinator/%s?k=%s" % (base, slug, _coord_token(slug))})
+    return jsonify({"team": _COORD_TEAM, "links": links})
 
 
 @app.route("/sales")
