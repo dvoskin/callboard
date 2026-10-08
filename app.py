@@ -647,6 +647,13 @@ def api_build():
                 "rows": len(rows) if rows is not None else None,
                 "agents": len({(r.get("agent_name") or "").strip().lower()
                                for r in (rows or []) if (r.get("agent_name") or "").strip()}),
+                # The sales roster is DERIVED from campaign dialling: a scope
+                # whose rows carry no campaign name admits nobody to /v5. Seen
+                # 2026-10-08, when the sales export changed report type and the
+                # board shrank to two names.
+                "campaign_rows": sum(1 for r in (rows or []) if (r.get("campaign_name") or "").strip()),
+                "campaign_agents": len({(r.get("agent_name") or "").strip().lower() for r in (rows or [])
+                                        if (r.get("campaign_name") or "").strip() and (r.get("agent_name") or "").strip()}),
                 "age_minutes": round((time.time() - q.stat().st_mtime) / 60, 1),
             }
         inbox["today_date"] = _today
