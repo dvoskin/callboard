@@ -123,5 +123,9 @@ ck("a coordinator's page opens with What to fix now, linked, and says All clear 
    "blk('What to fix now', fixLines" in html_tpl and "zl(ZOHO.myCalls, 'open My Journey Calls')" in html_tpl
    and "line('All clear'" in html_tpl and "if (AGENT) {\n        var zl" in html_tpl, "fix list missing or not agent-only")
 
+ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
+   "class=\"disc agentnotes\"><b>About these numbers.</b>" in html_tpl and "d.data_as_of.lag_minutes + ' min behind)" in html_tpl
+   and "arrives by email about every 30 minutes" in html_tpl and "is a projection" in html_tpl and html_tpl.index("if (AGENT) {\n      var fresh") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
+
 print("%d passed" % passed)
 print("%d failed" % failed)
