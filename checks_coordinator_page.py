@@ -120,12 +120,12 @@ ck("the readiness chips link to the Zoho views (labs/balance -> Not Ready, clear
    "chip(so.mc, 'Clearance pending'" in html_tpl and ", ZOHO.medical)" in html_tpl and html_tpl.count(", ZOHO.notReady)") == 2
    and "custom-view/5212466001043166677/list" in html_tpl and "custom-view/5212466001043166701/list" in html_tpl, "chip links missing")
 ck("a coordinator's page opens with What to fix now, linked, and says All clear when nothing is red",
-   "blk('What to fix now', fixLines" in html_tpl and "zl(ZOHO.myCalls, 'open My Journey Calls')" in html_tpl
+   "blk('What to fix now', fixLines" in html_tpl and "zl(ZOHO.myCalls, 'My Journey Calls')" in html_tpl
    and "line('All clear'" in html_tpl and "if (AGENT) {\n        var zl" in html_tpl, "fix list missing or not agent-only")
 
 ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
-   "class=\"disc agentnotes\"><b>About these numbers.</b>" in html_tpl and "d.data_as_of.lag_minutes + ' min behind)" in html_tpl
-   and "arrives by email about every 30 minutes" in html_tpl and "is a projection" in html_tpl and html_tpl.index("if (AGENT) {\n      var fresh") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
+   "<div class=\"agentnotes\"><div class=\"grp\"" in html_tpl and "d.data_as_of.lag_minutes + ' min</b> behind'" in html_tpl
+   and "emailed every ~30 min" in html_tpl and "nl('On track for', 'a projection'" in html_tpl and "(AGENT ? fixBlk : '')" in html_tpl and html_tpl.index("if (AGENT) {\n      var nl = function") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
 
 print("%d passed" % passed)
 print("%d failed" % failed)
