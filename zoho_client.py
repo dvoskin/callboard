@@ -3250,6 +3250,102 @@ class ZohoClient:
             if _uid(r): _slot(_uid(r))["tasks"]["completed"] += 1
         return out
 
+    # Lab / medical-clearance values that mean "still open". A blank is NOT
+    # counted: on most Journeys MC Status was never set, and a blank cannot be
+    # told from "not needed". Only an explicit pending value is a finding.
+    _LABS_PENDING = {"Not Received", "In Review", "Rejected",
+                     "Further Review Needed (Add. Doc. Req.)", "Incomplete"}
+    _MC_PENDING = {"Awaiting Submission", "Received - Pending Review", "Additional Info Needed",
+                   "Not Approved", "Pending Review", "Rejected", "Further Review Needed",
+                   "Incomplete", "Not Recieved"}
+
+    def journey_breakdown(self, owner_ids: list, start_iso: str, end_iso: str,
+                          anchor_date: str) -> dict:
+        """The surgical coordinator's caseload from the Journeys module, per
+        owner (the planner now sets Journey Owner to the coordinator):
+
+          active                Journeys with Case Status = Active
+          soon.total            of those, surgery within 14 days of anchor_date
+          soon.not_ready        with labs pending, MC pending or a balance due
+          soon.labs/mc/balance  the three reasons, counted separately
+          journey_calls.*       the planner's "Journey call - ..." Calls with a
+                                start time in the window: due / scheduled /
+                                overdue / completed
+
+        COQL on this org rejects three bare AND conditions: nest in pairs
+        (verified 2026-10-08). Raises on an HTTP failure.
+        """
+        if not owner_ids:
+            return {}
+        ids = ",".join("'%s'" % str(i) for i in owner_ids)
+        try:
+            d1 = datetime.strptime(anchor_date[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            d1 = datetime.now(timezone.utc).date()
+        d2 = d1 + timedelta(days=14)
+        out = {}
+
+        def _slot(uid):
+            return out.setdefault(uid, {
+                "active": 0,
+                "soon": {"total": 0, "not_ready": 0, "labs": 0, "mc": 0, "balance": 0},
+                "journey_calls": {"due": 0, "scheduled": 0, "overdue": 0, "completed": 0},
+            })
+
+        def _rows(query):
+            offset = 0
+            while offset < 4000:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql", headers=self._headers(),
+                                     json={"select_query": query + " limit 200 offset %d" % offset},
+                                     timeout=25)
+                if resp.status_code == 204:
+                    return
+                if not resp.ok:
+                    raise RuntimeError("CRM COQL returned HTTP %d. %s"
+                                       % (resp.status_code, (resp.text or "")[:160]))
+                body = resp.json() or {}
+                for r in (body.get("data") or []):
+                    yield r
+                if not (body.get("info") or {}).get("more_records"):
+                    return
+                offset += 200
+
+        def _uid(r):
+            o = r.get("Owner") or {}
+            return str(o.get("id") or "") if isinstance(o, dict) else ""
+
+        for r in _rows(f"select Owner.id, COUNT(id) from Journeys where (Owner.id in ({ids}) "
+                       f"and Case_Status = 'Active') group by Owner.id"):
+            uid = str(r.get("Owner.id") or "")
+            if uid:
+                _slot(uid)["active"] = int(r.get("COUNT(id)") or 0)
+        for r in _rows(f"select id, Owner, Surgery_Date, Lab_Result_Status, Clearance_Status, "
+                       f"Journey_Balance_Due from Journeys where ((Owner.id in ({ids}) and "
+                       f"Case_Status = 'Active') and Surgery_Date between '{d1}' and '{d2}')"):
+            if not _uid(r):
+                continue
+            so = _slot(_uid(r))["soon"]; so["total"] += 1
+            labs = (r.get("Lab_Result_Status") or "") in self._LABS_PENDING
+            mc = (r.get("Clearance_Status") or "") in self._MC_PENDING
+            try:
+                bal = float(r.get("Journey_Balance_Due") or 0) > 0
+            except (TypeError, ValueError):
+                bal = False
+            if labs: so["labs"] += 1
+            if mc: so["mc"] += 1
+            if bal: so["balance"] += 1
+            if labs or mc or bal: so["not_ready"] += 1
+        for r in _rows(f"select id, Owner, Outgoing_Call_Status from Calls where ((Owner.id in ({ids}) "
+                       f"and Subject like 'Journey call -%') and Call_Start_Time between "
+                       f"'{start_iso}' and '{end_iso}')"):
+            if not _uid(r):
+                continue
+            c = _slot(_uid(r))["journey_calls"]; c["due"] += 1
+            st = (r.get("Outgoing_Call_Status") or "").strip().lower()
+            if st in ("scheduled", "overdue", "completed"):
+                c[st] += 1
+        return out
+
     def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
         """Return Zoho CRM Call records that look scheduled (no disposition yet) in [start_iso, end_iso].
 

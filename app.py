@@ -1768,6 +1768,10 @@ def _v6_cx_rows_for_team(team, days, roster):
                 # Handle Time column, which is talk + wrap.
                 "wrap_seconds": r.get("wrap_time") or 0,
                 "start_time": _cx_iso(r.get("start_time"), day),
+                # The other party's number, so the report can count PEOPLE
+                # reached and not just dials (an agent's own line is the
+                # other column). Digits only; the report keeps the last ten.
+                "number": (r.get("dnis") if outbound else r.get("ani")) or "",
                 "source": "ringcx",
             })
     return by_agent, found_days, covers_to
@@ -4072,12 +4076,20 @@ def _crm_breakdown_read(key, names, start_iso, end_iso):
             ids = sorted({uid for uid in wanted.values() if uid})
             raw = _zoho.activity_breakdown(start_iso, end_iso, ids,
                                            start_date=start_iso[:10], end_date=end_iso[:10])
+            # The Journeys caseload rides along; its failure is its own note,
+            # not a reason to lose calls and tasks.
+            jraw = {}
+            try:
+                jraw = _zoho.journey_breakdown(ids, start_iso, end_iso, end_iso[:10])
+            except Exception as e:  # noqa: BLE001
+                meta["journeys_error"] = "Journeys read failed: %s" % str(e)[:160]
             by = {}
             for name, uid in wanted.items():
                 if uid:
-                    by[name] = raw.get(uid) or {
+                    by[name] = dict(raw.get(uid) or {
                         "calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0},
-                        "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}}
+                        "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}})
+                    by[name]["journeys"] = jraw.get(uid)   # None: owns no Journeys
             meta["attribution"] = "id"
             meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
     except Exception as e:  # noqa: BLE001

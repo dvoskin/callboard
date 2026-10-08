@@ -259,6 +259,130 @@ def _fold_sms(bucket, row):
         bucket["received"] += 1
 
 
+def _hhmm(t):
+    return t.strftime("%-I:%M %p")
+
+
+def _shift_minutes(hhmm):
+    try:
+        h, m = str(hhmm).split(":")
+        return int(h) * 60 + int(m)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _day_shape(rows, tz_offset_minutes, shift, focus_day, live_day):
+    """How each day was WORKED, not how much: when it started against the
+    shift, when it ended, the longest silence inside it, and how many
+    different people the calls reached. Danny, 2026-10-08: the parameters a
+    supervisor cannot see anywhere today. Returns (punctuality, gaps, reach).
+
+    focus_day -- the one day the panel is about (a live day or a one-day
+                 window); its own figures are reported beside the averages.
+    live_day  -- today, if the window ends today: its end-of-day figures
+                 (left early, trailing gap) are not judged, the day is not over.
+    """
+    ev = []
+    for r in rows:
+        t = _ts(r.get("start_time") or r.get("startTime"), tz_offset_minutes)
+        if t is None:
+            continue
+        try:
+            dur = max(0, int(r.get("duration") or 0))
+        except (TypeError, ValueError):
+            dur = 0
+        out = r.get("direction") == "Outbound"
+        num = (r.get("number") or (r.get("to_number") if out else r.get("from_number")) or "")
+        num = "".join(ch for ch in str(num) if ch.isdigit())[-10:]
+        ev.append((t, dur, out, num, is_connected(r), r.get("result")))
+    by_day = {}
+    for e in ev:
+        by_day.setdefault(e[0].date().isoformat(), []).append(e)
+    s_start = _shift_minutes((shift or {}).get("start"))
+    s_end = _shift_minutes((shift or {}).get("end"))
+    off = set((shift or {}).get("off") or [])
+    late_list, early_list, gap_list = [], [], []
+    focus = None
+    for d, es in sorted(by_day.items()):
+        es.sort(key=lambda e: e[0])
+        first, last = es[0][0], es[-1][0]
+        finished = d != live_day
+        on_shift_day = s_start is not None and first.strftime("%a").lower()[:3] not in off
+        late = early = None
+        if on_shift_day:
+            late = max(0, (first.hour * 60 + first.minute) - s_start)
+            late_list.append(late)
+            if finished and s_end is not None:
+                early = max(0, s_end - (last.hour * 60 + last.minute))
+                early_list.append(early)
+        # the longest silence between two interactions (ring-to-ring)
+        gmax, gwin = 0, None
+        for a, b in zip(es, es[1:]):
+            g = (b[0] - a[0]).total_seconds() / 60.0 - a[1] / 60.0
+            if g > gmax:
+                gmax, gwin = g, (a[0] + timedelta(seconds=a[1]), b[0])
+        gap_list.append(gmax)
+        if d == focus_day:
+            focus = {"first": _hhmm(first), "last": _hhmm(last) if finished else None,
+                     "late_minutes": late, "early_minutes": early,
+                     "gap_minutes": int(round(gmax)),
+                     "gap_window": (_hhmm(gwin[0]) + "\u2013" + _hhmm(gwin[1])) if gwin else None,
+                     "interactions": len(es)}
+    punct = {
+        "shift_days": len(late_list),
+        "late_days": sum(1 for x in late_list if x > 5),
+        "avg_late_minutes": round(sum(late_list) / len(late_list)) if late_list else None,
+        "early_days": sum(1 for x in early_list if x > 15),
+        "avg_early_minutes": round(sum(early_list) / len(early_list)) if early_list else None,
+        "shift": {"start": shift.get("start"), "end": shift.get("end")} if s_start is not None else None,
+        "focus": focus,
+    }
+    gaps = {"avg_max_minutes": int(round(sum(gap_list) / len(gap_list))) if gap_list else None,
+            "focus": focus and {"minutes": focus["gap_minutes"], "window": focus["gap_window"]}}
+    dials = [e for e in ev if e[2]]
+    conn_dials = [e for e in dials if e[5] == "Call connected"]
+    out_nums = {e[3] for e in dials if e[3]}
+    in_nums = {e[3] for e in ev if not e[2] and e[3]}
+    reach = {
+        "dials": len(dials), "connected_dials": len(conn_dials),
+        "connect_rate_pct": _rate(len(conn_dials), len(dials)),
+        "unique_outbound": len(out_nums), "unique_contacts": len(out_nums | in_nums),
+        "dials_per_contact": round(len(dials) / len(out_nums), 1) if out_nums else None,
+        "numbers_known": bool(out_nums or in_nums) or not ev,
+    }
+    return punct, gaps, reach
+
+
+def _sms_replies(srows, tz_offset_minutes):
+    """How fast inbound texts were answered. A wait opens on an inbound
+    message from a number and closes on the agent's next outbound to that
+    number; consecutive inbounds before a reply are one wait. Returns None
+    when the rows carry no numbers (nothing can be paired)."""
+    ev = []
+    for r in srows:
+        t = _ts(r.get("start_time"), tz_offset_minutes)
+        d = r.get("direction")
+        if t is None or d not in ("Inbound", "Outbound"):
+            continue
+        num = r.get("from_number") if d == "Inbound" else r.get("to_number")
+        num = "".join(ch for ch in str(num or "") if ch.isdigit())[-10:]
+        if num:
+            ev.append((t, d, num))
+    if not ev:
+        return None
+    ev.sort(key=lambda e: e[0])
+    waiting, replies, threads = {}, [], set()
+    for t, d, num in ev:
+        if d == "Inbound":
+            threads.add(num)
+            waiting.setdefault(num, t)
+        elif num in waiting:
+            replies.append((t - waiting.pop(num)).total_seconds() / 60.0)
+    return {"threads": len(threads), "replied": len(replies), "unanswered": len(waiting),
+            "median_minutes": int(round(statistics.median(replies))) if replies else None,
+            "within_15_pct": _rate(sum(1 for m in replies if m <= 15), len(replies)) if replies else None}
+
+
 def _rate(num, den):
     return round(100.0 * num / den, 1) if den else 0.0
 
@@ -385,6 +509,11 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "talk_minutes": round(wtot["talk_seconds"] / 60.0 / n, 1),
         }
         answer_rate = _rate(wtot["inbound_answered"], wtot["inbound"])
+        seat_shift = (meta.get("shift") if isinstance(meta, dict) else None) or None
+        focus_day = (now_local.date().isoformat() if live else
+                     (win.get("start") if win.get("start") and win.get("start") == win.get("end") else None))
+        punct, gaps, reach = _day_shape(rows, tz_offset_minutes, seat_shift, focus_day,
+                                        now_local.date().isoformat() if live else None)
 
         scored = {
             "talk_minutes": per_day["talk_minutes"],
@@ -501,6 +630,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 "unknown": stot["total"] == 0 and not scomplete,
                 # The fetch's own reason, shown on the panel instead of a guess.
                 "note": (smeta.get("note") if isinstance(smeta, dict) else None),
+                # Inbound texts: how fast they were answered, how many were not.
+                "replies": _sms_replies(srows, tz_offset_minutes),
             }
 
         daily_talk = sorted(b["talk_seconds"] / 60.0 for b in worked.values())
@@ -518,6 +649,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "worked_days": len(worked), "idle_days": len(idle), "idle_day_list": idle,
             "per_day": per_day, "scored": scored, "grades": grades, "band": band,
             "answer_rate_pct": answer_rate,
+            # How the day was worked (panel only): start vs shift, silences, reach.
+            "day": punct, "gaps": gaps, "reach": reach,
             "wrap_minutes": round(wtot["wrap_seconds"] / 60.0, 1),
             "handle_minutes": round((wtot["talk_seconds"] + wtot["wrap_seconds"]) / 60.0, 1),
             "avg_call_seconds": round(wtot["talk_seconds"] / wtot["connected"])

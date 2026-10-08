@@ -398,6 +398,9 @@ def _stub_bd(s_, e_, ids, start_date=None, end_date=None):
     return {"u-judith": {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
                          "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}}
 A._zoho.activity_breakdown = _stub_bd
+_real_jbd = A._zoho.journey_breakdown
+A._zoho.journey_breakdown = lambda ids, s_, e_, anchor: {"u-judith": {"active": 207, "soon": {"total": 15, "not_ready": 6, "labs": 5, "mc": 1, "balance": 4},
+                                                                        "journey_calls": {"due": 14, "scheduled": 6, "overdue": 1, "completed": 7}}}
 A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
 A._CRM_ASYNC = False          # the checks read inline; production reads on a thread
 A._v6_cache.clear()          # the earlier request cached rows without CRM on them
@@ -422,10 +425,12 @@ ck("live-day seats with no calls and no CRM activity are not tabulated but denot
    "not active today" in html and "var quietToday = !((a.totals || {}).calls) && !a.crm_created && !a.collected_total;" in html
    and "quietSeats.forEach" in html, "no live-day quiet handling")
 jcrm = rows_c.get("Judith Merlo", {}).get("crm")
+ck("her Journeys caseload rides on the same read", (jcrm or {}).get("journeys", {}).get("active") == 207
+   and (jcrm or {}).get("journeys", {}).get("soon", {}).get("not_ready") == 6, (jcrm or {}).get("journeys"))
 ck("Judith Merlo is attributed through her Zoho name 'Judith' (the alias)",
    A._CRM_NAME_ALIASES.get("Judith Merlo") == "Judith" and jcrm is not None, jcrm)
 ck("a CRM user has the full breakdown on her row",
-   jcrm == {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
+   {k: v for k, v in (jcrm or {}).items() if k != 'journeys'} == {"calls": {"created": 3, "due": 5, "completed": 4, "overdue": 1},
             "tasks": {"created": 2, "due": 6, "completed": 5, "open": 1}}, jcrm)
 ck("a CRM user with nothing in the window has real zeros",
    rows_c.get("Oscar Caballero", {}).get("crm", {}).get("calls", {}).get("completed") == 0, rows_c.get("Oscar Caballero", {}).get("crm"))
@@ -556,6 +561,7 @@ try:
 finally:
     _gate.set()
     A._zoho.list_users, A._zoho.activity_breakdown = _real_users, _real_bd
+    A._zoho.journey_breakdown = _real_jbd
     A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
 
 print("%d passed" % passed)
@@ -582,3 +588,36 @@ ck("the phone column rule names the no-pace variants (or the name sits in the 20
 ck("on phones Listen/Whisper are hidden and On a Call is a green dot",
    ".mon{display:none}" in _ph and ".pz.pz-on_call{font-size:0" in _ph and "border-radius:50%;background:#16a34a" in _ph, "phone dot/monitor rules missing")
 ck("and the SMS arrows are NOT hidden on phones (every seat, both boards)", ".sms{display:none}" not in _ph and ".sms{font-size:10px" in _ph, "SMS chip hidden on phones")
+
+# ---- Danny, 2026-10-08: how the day was worked (panel only) ----
+def _r8(hhmm, dur, out=True, res=None, num="5551234567"):
+    h, m = hhmm.split(":")
+    return {"direction": "Outbound" if out else "Inbound", "result": res or ("Call connected" if out else "Accepted"),
+            "duration": dur, "start_time": "2026-10-07T%02d:%02d:00-04:00" % (int(h), int(m)), "number": num}
+_rows8 = [_r8("10:14", 300, num="1"), _r8("10:30", 60, res="No Answer", num="2"), _r8("10:40", 120, num="1"),
+          _r8("12:05", 600, num="3"), _r8("13:50", 200, out=False, num="4"), _r8("16:40", 100, num="2")]
+_sms8 = [{"direction": "Inbound", "start_time": "2026-10-07T14:00:00Z", "from_number": "+19998887777", "to_number": "+12125550100"},
+         {"direction": "Inbound", "start_time": "2026-10-07T14:03:00Z", "from_number": "+19998887777", "to_number": "+12125550100"},
+         {"direction": "Outbound", "start_time": "2026-10-07T14:12:00Z", "from_number": "+12125550100", "to_number": "+19998887777"},
+         {"direction": "Inbound", "start_time": "2026-10-07T18:00:00Z", "from_number": "+17776665555", "to_number": "+12125550100"}]
+_rep8 = build_report({"Judith Merlo": {"rows": _rows8, "ext": "185", "ext_id": 1, "complete": True,
+                                       "shift": {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]}}},
+                     tz_offset_minutes=-240, window={"start": "2026-10-07", "end": "2026-10-07"},
+                     sms_by_agent={"Judith Merlo": {"rows": _sms8, "complete": True, "missing_days": []}})
+_a8 = _rep8["ranked"][0]; _f8 = _a8["day"]["focus"]
+ck("started 14 min after a 10:00 shift", _f8["first"] == "10:14 AM" and _f8["late_minutes"] == 14, _f8)
+ck("a finished day knows the last call and how early it was", _f8["last"] == "4:40 PM" and _f8["early_minutes"] == 140, _f8)
+ck("the longest silence is ring-to-ring, after the previous call ended", _f8["gap_minutes"] == 167 and _f8["gap_window"].startswith("1:53 PM"), _f8)
+ck("connect rate is answered dials over dials", _a8["reach"]["connect_rate_pct"] == 80.0 and _a8["reach"]["dials"] == 5, _a8["reach"])
+ck("people reached counts numbers, not dials", _a8["reach"]["unique_outbound"] == 3 and _a8["reach"]["unique_contacts"] == 4 and _a8["reach"]["dials_per_contact"] == 1.7, _a8["reach"])
+_rp8 = _a8["sms"]["replies"]
+ck("two inbound texts before a reply are ONE wait; the reply took 12 min", _rp8["replied"] == 1 and _rp8["median_minutes"] == 12, _rp8)
+ck("an inbound with no reply is unanswered", _rp8["unanswered"] == 1 and _rp8["threads"] == 2, _rp8)
+_rep8b = build_report({"Judith Merlo": {"rows": _rows8, "ext": "185", "ext_id": 1, "complete": True}},
+                      tz_offset_minutes=-240, window={"start": "2026-10-07", "end": "2026-10-07"})
+ck("no shift on file -> no lateness judged, start still shown", _rep8b["ranked"][0]["day"]["shift_days"] == 0 and _rep8b["ranked"][0]["day"]["focus"]["late_minutes"] is None and _rep8b["ranked"][0]["day"]["focus"]["first"] == "10:14 AM", _rep8b["ranked"][0]["day"])
+ck("a RingCX row carries the other party's number for reach", any("number" in r for rs in _got.get("rows", {}).values() for r in rs), "number missing on CX rows")
+_tpl8 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the panel carries Day, Reach, text replies and the Journeys lines -- the row does not",
+   "grp('Day')" in _tpl8 and "grp('Reach')" in _tpl8 and "'Text replies'" in _tpl8 and "'Surgeries in 14 days'" in _tpl8
+   and "'Journey calls'" in _tpl8 and "a.day" not in _tpl8.split("function presenceChip")[0].split("var SHOW_CRM_CHIP")[0], "panel lines missing or leaked to the row")

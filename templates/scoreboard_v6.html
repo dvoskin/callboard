@@ -1053,6 +1053,25 @@
             line('Tasks', tt.completed + ' of ' + tt.due + ' due done',
                  rate(tt.completed, tt.due) + (tt.open ? ' \u00b7 ' + tt.open + ' still open' : '') +
                  ' \u00b7 ' + tt.created + ' created', '');
+          // The coordinator's caseload from the Journeys module (the planner
+          // sets Journey Owner to the coordinator): cases owned, the planner's
+          // own calls in the window, and surgeries inside 14 days that are
+          // not ready -- labs, medical clearance, balance. Danny, 2026-10-08.
+          var jn = a.crm.journeys;
+          if (jn) {
+            var jc = jn.journey_calls || {}, so = jn.soon || {};
+            crmLines += line('Journeys', jn.active + ' active', 'cases owned', '');
+            if (jc.due)
+              crmLines += line('Journey calls', jc.completed + ' of ' + jc.due + ' done',
+                               (jc.overdue ? '<b>' + jc.overdue + ' overdue</b> &middot; ' : '') + jc.scheduled + ' scheduled',
+                               jc.overdue ? 'below' : '');
+            if (so.total)
+              crmLines += line('Surgeries in 14 days', so.total,
+                               so.not_ready ? '<b>' + so.not_ready + ' not ready</b>: ' +
+                                 [so.labs ? so.labs + ' labs' : '', so.mc ? so.mc + ' MC' : '', so.balance ? so.balance + ' balance due' : '']
+                                   .filter(Boolean).join(' &middot; ')
+                                 : 'all ready', so.not_ready ? 'below' : '');
+          }
         } else {
           var cm = (LAST[CUR_SLOT] || {}).crm_meta || {};
           crmLines = grp('CRM') + line('CRM', 'not read', cm.error ? esc(cm.error) : 'not a CRM user by this name', '');
@@ -1092,9 +1111,52 @@
                       g[k] || 'below');
         };
       }
+      // How the day was WORKED -- the parameters a supervisor could not see
+      // anywhere (Danny, 2026-10-08): start against the shift, the longest
+      // silence, how many people the dials reached, how fast texts were
+      // answered. Panel only; the row stays as it is.
+      var dayLines = '', reachLines = '', textLines = '';
+      var dy = a.day || {}, fo = dy.focus, gp = a.gaps || {}, re = a.reach || {};
+      if (fo) {
+        var lateTail = dy.shift ? (fo.late_minutes > 5 ? '<b>' + fo.late_minutes + ' min after</b> the ' + esc(dy.shift.start) + ' start'
+                                   : 'shift starts ' + esc(dy.shift.start)) : 'no shift on file';
+        dayLines += line('Started', fo.first, lateTail, fo.late_minutes > 5 ? 'below' : '');
+        if (fo.last) {
+          var earlyTail = dy.shift ? (fo.early_minutes > 15 ? '<b>' + fo.early_minutes + ' min before</b> the ' + esc(dy.shift.end) + ' end'
+                                      : 'shift ends ' + esc(dy.shift.end)) : '';
+          dayLines += line('Last call', fo.last, earlyTail, fo.early_minutes > 15 ? 'below' : '');
+        }
+        if (fo.gap_minutes != null && fo.interactions > 1)
+          dayLines += line('Longest gap', fo.gap_minutes + ' min', fo.gap_window ? esc(fo.gap_window) : '', fo.gap_minutes >= 90 ? 'below' : '');
+      } else if (dy.shift_days) {
+        dayLines += line('Started late', dy.late_days + ' of ' + dy.shift_days + ' days',
+                         'more than 5 min after ' + esc(dy.shift.start) + (dy.avg_late_minutes != null ? ' &middot; avg ' + dy.avg_late_minutes + ' min' : ''),
+                         dy.late_days ? 'below' : '');
+        if (dy.early_days != null && dy.avg_early_minutes != null)
+          dayLines += line('Left early', dy.early_days + ' of ' + dy.shift_days + ' days',
+                           'last call more than 15 min before ' + esc(dy.shift.end), dy.early_days ? 'below' : '');
+        if (gp.avg_max_minutes != null) dayLines += line('Longest gap', gp.avg_max_minutes + ' min', 'average of each day\u2019s longest silence', '');
+      }
+      if (re.dials) {
+        reachLines += line('Connect rate', re.connect_rate_pct + '%', re.connected_dials + ' of ' + re.dials + ' dials answered', re.connect_rate_pct < 25 ? 'below' : '');
+        if (re.numbers_known && re.unique_outbound)
+          reachLines += line('People reached', re.unique_outbound, re.dials_per_contact + ' dials per person' +
+                             (re.unique_contacts > re.unique_outbound ? ' &middot; ' + re.unique_contacts + ' incl. inbound' : ''), '');
+      }
+      if ((tot.inbound || 0) > 0)
+        reachLines += line('Inbound answered', tot.inbound_answered + ' of ' + tot.inbound, a.answer_rate_pct + '%', a.answer_rate_pct < 50 ? 'below' : '');
+      var rp = a.sms && a.sms.replies;
+      if (rp && rp.threads) {
+        textLines += line('Text replies', rp.median_minutes != null ? 'median ' + rp.median_minutes + ' min' : 'none yet',
+                          rp.replied + ' answered' + (rp.unanswered ? ' &middot; <b>' + rp.unanswered + ' unanswered</b>' : '') +
+                          (rp.within_15_pct != null ? ' &middot; ' + rp.within_15_pct + '% within 15 min' : ''),
+                          rp.unanswered ? 'below' : '');
+      }
       body = '<div class="lns">' +
         grp(pace ? 'Today' : 'This range') + TODAY_M.map(mline).join('') + wrapLine + dirLines + collLine +
-        grp('Quality') + QUAL_M.map(mline).join('') + crmLines + smsLine +
+        (dayLines ? grp('Day') + dayLines : '') +
+        (reachLines ? grp('Reach') + reachLines : '') +
+        grp('Quality') + QUAL_M.map(mline).join('') + crmLines + smsLine + textLines +
         '</div>';
 
       // One line, and only facts that are not already on the row or in the
