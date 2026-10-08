@@ -177,6 +177,10 @@
           padding:1px 8px;white-space:nowrap;cursor:help}
   .rd .rc b{color:var(--ink);font-weight:700}
   .rd .rc.hot{border-color:var(--dn);color:var(--dn)} .rd .rc.hot b{color:var(--dn)}
+  .rd a.rc{text-decoration:none} .rd a.rc:hover{background:var(--tint)}
+  /* a link into Zoho, inside a line's tail */
+  .zl{color:var(--up);text-decoration:none;border-bottom:1px solid var(--hair);white-space:nowrap}
+  .zl:hover{border-color:var(--up)}
   /* Data notes fold behind one line; the table is what the page is for. */
   details.notes{margin:12px 0 4px}
   details.notes>summary{cursor:pointer;font-size:11.5px;font-weight:700;letter-spacing:.06em;
@@ -476,6 +480,19 @@
   // this seat on the server; the page hides the team strip and opens the
   // panel. Danny, 2026-10-08: "view their own individual stats and
   // performance separately".
+  // Where the work behind a red number lives in Zoho. View ids read off the
+  // CRM on 2026-10-08; the chips and the fix list link straight to them.
+  var ZB = 'https://crm.zoho.com/crm/goalsplasticsurgery/tab/';
+  var ZOHO = {
+    myCalls: ZB + 'Calls/custom-view/5212466001042325429/list',          // My Journey Calls
+    teamOverdue: ZB + 'Calls/custom-view/5212466001043166717/list',      // Team Journey Calls - Overdue
+    tasks: ZB + 'Tasks/custom-view/5212466000000331219/list',            // My Today + Overdue Tasks
+    notReady: ZB + 'CustomModule13/custom-view/5212466001043166677/list', // Within 14 Days - Not Ready
+    medical: ZB + 'CustomModule13/custom-view/5212466001043166701/list',  // Medical Action Needed
+    dateNeeded: ZB + 'CustomModule13/custom-view/5212466001043166685/list',
+    myActive: ZB + 'CustomModule13/custom-view/5212466001043166661/kanban',
+    upcoming: ZB + 'CustomModule13/custom-view/5212466001043166669/list'
+  };
   var AGENT = {{ (agent_only or '')|tojson }};
   var AGENT_SLUG = {{ (agent_slug or '')|tojson }};
   if (AGENT) document.documentElement.classList.add('agent');
@@ -1035,23 +1052,23 @@
         'Outbound': 'Outbound dials, answered or not.',
         'Collected': 'Payments in Books attributed to this biller in the window.',
         'Per day': 'Collected divided by the days that had a payment.',
-        'Started': 'First interaction of the day, against the shift on file. Red when more than 5 minutes after the start.',
+        'Started': 'First interaction of the day, against the shift on file. Red when more than 5 minutes after the start. To fix: be on the phone at the shift start -- the first interaction is what counts.',
         'Last call': 'Last interaction of a finished day, against the shift end. Red when more than 15 minutes before it.',
-        'Longest gap': 'Longest silence between the end of one interaction and the start of the next. Lunch is expected; red from 90 minutes.',
+        'Longest gap': 'Longest silence between the end of one interaction and the start of the next. Lunch is expected; red from 90 minutes. To fix: keep silences outside lunch under 90 minutes; between inbound calls work My Journey Calls.',
         'Started late': 'Days the first interaction came more than 5 minutes after the shift start.',
         'Left early': 'Days the last interaction came more than 15 minutes before the shift end.',
-        'Connect rate': 'Answered dials divided by dials. Separates reaching people from dialing numbers.',
-        'Reached': 'Distinct numbers dialed; dials per person shows redial churn.',
-        'Answered': 'Inbound calls answered by this agent, of the inbound that reached them.',
+        'Connect rate': 'Answered dials divided by dials. Separates reaching people from dialing numbers. To fix: dial when patients answer, leave a voicemail and a text, and set Next Coordinator Call on the Journey.',
+        'Reached': 'Distinct numbers dialed; dials per person shows redial churn. To fix: fewer redials of one number, more different patients.',
+        'Answered': 'Inbound calls answered by this agent, of the inbound that reached them. To fix: pick up queue calls; a missed inbound rolls to a teammate.',
         'Connected': 'Calls that connected (outbound answered or inbound accepted).',
-        'CRM calls': 'Zoho Calls owned by this person with a start time in the window: completed and overdue; logged = created in the window.',
-        'Tasks': 'Zoho Tasks owned by this person: due in the window, completed, still open.',
+        'CRM calls': 'Zoho Calls owned by this person with a start time in the window: completed and overdue; logged = created in the window. To fix: Calls > My Journey Calls, overdue first; mark Completed even on no answer.',
+        'Tasks': 'Zoho Tasks owned by this person: due in the window, completed, still open. To fix: Tasks > My Today + Overdue Tasks.',
         'Journeys': 'Journeys (patient cases) owned by this coordinator with Case Status Active.',
-        'Planner calls': 'The cadence planner\u2019s \u201cJourney call \u2013 \u2026\u201d calls due in the window: done, overdue, still scheduled.',
-        'Surgeries': 'Active Journeys owned by this coordinator with a surgery date inside the next 14 days.',
-        'Not ready': 'Of those surgeries: labs pending, medical clearance pending, or a balance still due. A blank status is not counted as a finding.',
+        'Planner calls': 'The cadence planner\u2019s \u201cJourney call \u2013 \u2026\u201d calls due in the window: done, overdue, still scheduled. To fix: Calls > My Journey Calls, overdue first; never leave one Overdue.',
+        'Surgeries': 'Active Journeys owned by this coordinator with a surgery date inside the next 14 days. Where: Journeys > My Upcoming Surgeries (30 Days).',
+        'Not ready': 'Of those surgeries: labs pending, medical clearance pending, or a balance still due. A blank status is not counted as a finding. Where: Journeys > Within 14 Days - Not Ready. Open each Journey: set Lab Status and MC Status as items arrive, or collect the balance.',
         'SMS': 'Texts sent and received on this seat\u2019s RingEX extension in the window.',
-        'Text replies': 'Minutes from an inbound text to the next outbound to that number. Consecutive inbound texts before a reply count as one wait; unanswered = still waiting at the end of the window.'
+        'Text replies': 'Minutes from an inbound text to the next outbound to that number. Consecutive inbound texts before a reply count as one wait; unanswered = still waiting at the end of the window. To fix: answer inbound texts within 15 minutes in the RingEX app; an unanswered text still counts the next day.'
       };
       // the long-call label is built from the threshold, so its tip is too
       TIP[longLbl] = 'Connected calls that ran ' + longLbl + ' or longer -- a real conversation, not a pickup.';
@@ -1158,13 +1175,14 @@
               readyLines += line('Not ready', so.not_ready, so.not_ready ? 'need labs, clearance or payment' : 'all cleared and paid',
                                  so.not_ready ? 'below' : '');
               if (so.not_ready) {
-                var chip = function (n, lbl, tip) {
-                  return n ? '<span class="rc' + (n ? ' hot' : '') + '" title="' + esc(tip) + '">' + lbl + ' <b>' + n + '</b></span>' : '';
+                // each chip opens the Zoho view where those cases sit
+                var chip = function (n, lbl, tip, url) {
+                  return n ? '<a class="rc hot" href="' + esc(url) + '" target="_blank" rel="noopener" title="' + esc(tip) + '">' + lbl + ' <b>' + n + '</b> \u2197</a>' : '';
                 };
                 readyLines += '<div class="rd">' +
-                  chip(so.labs, 'Labs pending', 'Lab Status is Not Received, In Review, Rejected, Further Review Needed or Incomplete.') +
-                  chip(so.mc, 'Clearance pending', 'MC Status is awaiting submission, pending review, needs more info, not approved or rejected.') +
-                  chip(so.balance, 'Balance due', 'Journey Balance Due is above zero.') +
+                  chip(so.labs, 'Labs pending', 'Lab Status is Not Received, In Review, Rejected, Further Review Needed or Incomplete. Where: Journeys > Within 14 Days - Not Ready, sort by Lab Status. Chase the patient; set Lab Status when the result is in.', ZOHO.notReady) +
+                  chip(so.mc, 'Clearance pending', 'MC Status is awaiting submission, pending review, needs more info, not approved or rejected. Where: Journeys > Medical Action Needed (and Within 14 Days - Not Ready). Get the clearance letter; set MC Status when received.', ZOHO.medical) +
+                  chip(so.balance, 'Balance due', 'Journey Balance Due is above zero. Where: Journeys > Within 14 Days - Not Ready. Collect it, or hand it to billing with a note on the Journey.', ZOHO.notReady) +
                   '</div>';
               }
             }
@@ -1252,12 +1270,35 @@
       // Left: the phone -- what the day adds up to, how it was worked, who
       // it reached, how good the calls were. Right: the CRM -- what was due
       // and done, the caseload, surgery readiness, texts. Empty blocks vanish.
+      // A coordinator's own page: the red items first, each with the Zoho
+      // view where the work is. Danny, 2026-10-08: "tooltips of how they can
+      // resolve the stat ... where to find those in Zoho".
+      var fixLines = '';
+      if (AGENT) {
+        var zl = function (url, label) { return '<a class="zl" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + ' \u2197</a>'; };
+        var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, so2 = jn2.soon || {}, tt2 = (a.crm || {}).tasks || {};
+        if (jc2.overdue) fixLines += line('Overdue calls', jc2.overdue, zl(ZOHO.myCalls, 'open My Journey Calls') + ' &middot; mark each Completed, even on no answer', 'below',
+                                          'Planner calls whose start time has passed and are not Completed.');
+        if (so2.labs) fixLines += line('Labs', so2.labs + ' pending', zl(ZOHO.notReady, 'open Within 14 Days - Not Ready') + ' &middot; chase, then set Lab Status', 'below',
+                                       'Surgeries inside 14 days with Lab Status still pending.');
+        if (so2.mc) fixLines += line('Clearance', so2.mc + ' pending', zl(ZOHO.medical, 'open Medical Action Needed') + ' &middot; get the letter, then set MC Status', 'below',
+                                     'Surgeries inside 14 days with medical clearance still pending.');
+        if (so2.balance) fixLines += line('Balance due', so2.balance, zl(ZOHO.notReady, 'open Within 14 Days - Not Ready') + ' &middot; collect, or hand to billing', 'below',
+                                          'Surgeries inside 14 days with Journey Balance Due above zero.');
+        if (tt2.open) fixLines += line('Open tasks', tt2.open, zl(ZOHO.tasks, 'open My Today + Overdue Tasks'), 'below', 'Tasks due in the window and not completed.');
+        if (rp && rp.unanswered) fixLines += line('Texts', rp.unanswered + ' unanswered', 'reply in the RingEX app &middot; within 15 minutes', 'below',
+                                                  'Inbound texts with no reply yet.');
+        if (fo && fo.late_minutes > 5) fixLines += line('Start', fo.late_minutes + ' min late', 'first interaction after the ' + esc((dy.shift || {}).start || '') + ' start', 'below',
+                                                        'Be on the phone at the shift start; the first interaction is what counts.');
+        if (!fixLines) fixLines = line('All clear', '\u2713', 'nothing red right now', '', 'No overdue calls, nothing pending inside 14 days, no unanswered texts.');
+      }
       body = '<div class="lns"><div class="col">' +
         blk(pace ? 'Today' : 'This range', TODAY_M.map(mline).join('') + wrapLine + dirLines) +
         blk('Day', dayLines, 'How the day was worked, against the shift on file') +
         blk('Reach', reachLines, 'People, not dials') +
         blk('Quality', QUAL_M.map(mline).join('')) +
         '</div><div class="col">' +
+        blk('What to fix now', fixLines, 'Your red items, each with the Zoho view where the work is') +
         blk('Collections', collLine, 'Payments in Books attributed to this biller in the window') +
         blk('CRM', crmLines, 'Zoho CRM calls and tasks owned by this person, in the window shown') +
         blk('Journeys', journeyLines, 'The Journeys module: cases owned and the planner\u2019s calls') +

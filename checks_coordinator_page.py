@@ -113,5 +113,15 @@ try:
 finally:
     A.COORD_LINK_SECRET = _sv
 
+ck("every tip says how to fix it or where to look",
+   all(("To fix:" in html_tpl.split(k, 1)[1].split("\n", 1)[0]) or ("Where:" in html_tpl.split(k, 1)[1].split("\n", 1)[0])
+       for k in ["'Started':", "'Longest gap':", "'Connect rate':", "'CRM calls':", "'Planner calls':", "'Not ready':", "'Text replies':"]), "a tip lacks its fix")
+ck("the readiness chips link to the Zoho views (labs/balance -> Not Ready, clearance -> Medical Action Needed)",
+   "chip(so.mc, 'Clearance pending'" in html_tpl and ", ZOHO.medical)" in html_tpl and html_tpl.count(", ZOHO.notReady)") == 2
+   and "custom-view/5212466001043166677/list" in html_tpl and "custom-view/5212466001043166701/list" in html_tpl, "chip links missing")
+ck("a coordinator's page opens with What to fix now, linked, and says All clear when nothing is red",
+   "blk('What to fix now', fixLines" in html_tpl and "zl(ZOHO.myCalls, 'open My Journey Calls')" in html_tpl
+   and "line('All clear'" in html_tpl and "if (AGENT) {\n        var zl" in html_tpl, "fix list missing or not agent-only")
+
 print("%d passed" % passed)
 print("%d failed" % failed)
