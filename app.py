@@ -578,6 +578,39 @@ def _background_loop():
 _BOOT_AT = time.time()
 
 
+def _live_feeds_diag():
+    try:
+        rc = _ringcx
+        now = time.time()
+        groups = {g: round(max(0.0, until - now)) for g, until in (getattr(rc, "_cool_until_groups", {}) or {}).items() if until > now}
+        at = getattr(rc, "_agents_cache_at", 0.0) or 0.0
+        cx = _cx_active_cache if "_cx_active_cache" in globals() else {}
+        cx_meta = (cx.get("meta") or {}) if isinstance(cx, dict) else {}
+        return {
+            "ringex_presence": {
+                "agents_cached": len(getattr(rc, "_agents_cache", None) or []),
+                "age_seconds": round(now - at) if at else None,
+                "note": getattr(rc, "last_presence_note", None),
+            },
+            "ringex_directory": {
+                "names_cached": len(getattr(rc, "_ext_names", None) or {}),
+                "expires_in_seconds": round(getattr(rc, "_ext_names_expiry", 0.0) - now),
+            },
+            "ringex_cooldown": {
+                "shared_seconds": round(max(0.0, getattr(rc, "_cool_until", 0.0) - now)),
+                "reason": getattr(rc, "_cool_reason", "") or None,
+                "groups": groups,
+            },
+            "ringcx_active_calls": {
+                "calls_cached": len((cx.get("calls") if isinstance(cx, dict) else None) or []),
+                "age_seconds": round(now - cx["at"]) if isinstance(cx, dict) and cx.get("at") else None,
+                "ok": cx_meta.get("ok"), "note": cx_meta.get("note") or cx_meta.get("last_note"),
+            },
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:160]}
+
+
 @app.route("/api/build")
 def api_build():
     """Which commit is actually RUNNING, and since when.
@@ -672,6 +705,13 @@ def api_build():
         # whether the per-coordinator links can exist here (the secret itself
         # never leaves the environment)
         "coordinator_links_configured": bool(COORD_LINK_SECRET),
+        # The live board's two feeds, as the process holds them right now --
+        # presence (RingEX) and active calls (RingCX) -- with their age and any
+        # cooldown. Counts and seconds only; no names, no numbers. Added when
+        # the sales live board showed one person and nothing outside a login
+        # could say whether presence, the name directory or RingCX had stood
+        # down (Danny, 2026-10-08: "my sales call liveboard got thrown off").
+        "live_feeds": _live_feeds_diag(),
         "started_at": datetime.fromtimestamp(_BOOT_AT, timezone.utc).isoformat(),
         "uptime_seconds": round(up),
         "uptime_human": "%dh %dm" % (up // 3600, (up % 3600) // 60),
