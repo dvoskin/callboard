@@ -104,5 +104,14 @@ ck("the page filters to its seat, hides the team strip and opens the panel",
 ck("both fetches carry the seat", html_tpl.count("if (AGENT_SLUG) q.set('agent', AGENT_SLUG);") == 2, html_tpl.count("q.set('agent', AGENT_SLUG)"))
 ck("the title is not overwritten by the team label", "if (d.team_label && !MULTI_BOARD && !AGENT) {" in html_tpl, "title override")
 
+_sv = A.COORD_LINK_SECRET
+try:
+    A.COORD_LINK_SECRET = ""
+    ck("/api/build says the links are NOT configured without the secret", c.get("/api/build").get_json().get("coordinator_links_configured") is False)
+    A.COORD_LINK_SECRET = "x"
+    ck("and that they are, with it (never the secret itself)", c.get("/api/build").get_json().get("coordinator_links_configured") is True and "x" != c.get("/api/build").get_json().get("coordinator_links_configured"))
+finally:
+    A.COORD_LINK_SECRET = _sv
+
 print("%d passed" % passed)
 print("%d failed" % failed)

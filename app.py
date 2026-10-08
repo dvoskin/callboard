@@ -691,6 +691,9 @@ def auth_debug():
         "env_override": env_val or "(not set)",
         "will_use": env_val or generated,
         "google_client_id_set": bool(GOOGLE_CLIENT_ID),
+        # whether the per-coordinator links can exist on this instance (the
+        # secret itself never leaves the environment)
+        "coordinator_links_configured": bool(COORD_LINK_SECRET),
     })
 
 
