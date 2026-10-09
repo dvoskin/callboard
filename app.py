@@ -2894,6 +2894,14 @@ def _presence_for_seat(p):
 # is NOT in a successfully read list genuinely has no active call -- a real
 # negative, unlike a seat missing from RingEX presence.
 _CX_ACTIVE_TTL = 30.0
+# The agent-state read has never succeeded on this account (every candidate
+# path 404s) and each attempt is ~20 requests with their timeouts, ON THE
+# REQUEST PATH of every cold presence read. A worker restart without a
+# deploy landed at 14:46:10 UTC on 2026-10-09 exactly while presence was
+# being read seat by seat; three earlier ones had no better explanation.
+# After a failed read the next attempt waits an hour; a success keeps the
+# 30s cadence.
+_CX_STATES_FAIL_TTL = 3600.0
 _cx_active_cache = {"at": 0.0, "calls": [], "meta": None}
 _cx_active_lock = threading.Lock()
 
@@ -2924,7 +2932,7 @@ def _cx_agent_states():
     a failed read keeps the last good list, as the calls cache does."""
     with _cx_active_lock:
         age = time.time() - _cx_agents_cache["at"]
-        if _cx_agents_cache["meta"] is not None and age < _CX_ACTIVE_TTL:
+        if _cx_agents_cache["meta"] is not None and age < (_CX_ACTIVE_TTL if (_cx_agents_cache["meta"] or {}).get("ok") else _CX_STATES_FAIL_TTL):
             return _cx_agents_cache["agents"], _cx_agents_cache["meta"], age
     agents, meta = _ringcx.active_agents_with_status()
     with _cx_active_lock:

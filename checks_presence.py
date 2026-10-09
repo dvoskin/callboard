@@ -406,3 +406,19 @@ ck("a label-less seat renders no pill", "if (!p || !p.label) return '';" in _h2,
 ck("the strip counts Available only where a RingEX phone could be", "(hasEx ? '<span class=\"nw\"><b>' + nFree + '</b>Available</span>' : '')" in _h2, "Available count ungated")
 ck("the disclaimer no longer promises Available for RingCX", "reads <b>Available</b>" not in _h2 and "shows <b>no pill</b>" in _h2, "disclaimer stale")
 print("%d passed" % passed) if False else None
+
+# ---- the agent-state probe (always 404 here) must not run on every cold presence read ----
+_calls_n = {"n": 0}
+_real_aa = A._ringcx.active_agents_with_status
+A._ringcx.active_agents_with_status = lambda: (_calls_n.__setitem__("n", _calls_n["n"] + 1) or ([], {"ok": False, "note": "404s"}))
+try:
+    A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
+    A._cx_agent_states(); A._cx_agent_states(); A._cx_agent_states()
+    ck("a failed agent-state read is not retried for an hour (one attempt, not three)", _calls_n["n"] == 1, _calls_n["n"])
+    A._cx_agents_cache.update(at=time.time() - 40, agents=[], meta={"ok": True})
+    A._cx_agent_states()
+    ck("a successful read keeps the 30s cadence", _calls_n["n"] == 2, _calls_n["n"])
+    ck("the back-off is an hour", A._CX_STATES_FAIL_TTL == 3600.0, A._CX_STATES_FAIL_TTL)
+finally:
+    A._ringcx.active_agents_with_status = _real_aa
+    A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
