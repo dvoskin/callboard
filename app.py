@@ -2980,7 +2980,10 @@ def _cx_call_state(call):
 
 @app.route("/api/v6/presence")
 def api_v6_presence():
-    if not _v6_allowed():
+    # A coordinator token counts HERE and on their page only -- not in
+    # _v6_allowed(), which would open the agent listing and the probes to it
+    # (found 2026-10-09 by using it that way myself).
+    if not (_v6_allowed() or _coord_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     if _coord_token_ok() and not (session.get("user") or _word_authed() or _v6_token_ok()):
         if _team_key(request.args.get("team")) != _COORD_TEAM:
@@ -3510,7 +3513,10 @@ def api_v6_report():
     # The gate sits HERE, in front of whatever builds the report, so a stand-in
     # body in the checks cannot pass without it. A coordinator link unlocks
     # the surgical board only, and only its own seat.
-    if not _v6_allowed():
+    # A coordinator token counts HERE and on their page only -- not in
+    # _v6_allowed(), which would open the agent listing and the probes to it
+    # (found 2026-10-09 by using it that way myself).
+    if not (_v6_allowed() or _coord_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     if _coord_token_ok() and not (session.get("user") or _word_authed() or _v6_token_ok()):
         if _team_key(request.args.get("team")) != _COORD_TEAM:
@@ -3681,7 +3687,7 @@ def _v6_allowed() -> bool:
     board, so it does NOT accept SCOREBOARD_TOKEN."""
     if not GOOGLE_CLIENT_ID:
         return True
-    return bool(session.get("user")) or _word_authed() or _v6_token_ok() or _coord_token_ok()
+    return bool(session.get("user")) or _word_authed() or _v6_token_ok()
 
 
 @app.route("/v6", methods=["GET", "POST"])

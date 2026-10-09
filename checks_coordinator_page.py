@@ -77,6 +77,9 @@ try:
     ck("the token does NOT open the whole surgical board", c.get("/api/v6/report?team=surgical&k=%s" % tok).status_code == 401)
     r = c.get("/api/v6/presence?team=surgical&agent=%s&k=%s" % (slug, tok)); j = r.get_json() or {}
     ck("presence is cut to the one seat too", r.status_code == 200 and [x["name"] for x in j.get("seats", [])] == ["Judith Merlo"], (r.status_code, j))
+    ck("the token does NOT open the agent listing", c.get("/api/v6/cx-agents?who=&agent=%s&k=%s" % (slug, tok)).status_code == 401)
+    ck("nor the extension probe", c.get("/api/v6/ext-probe?ext=185&agent=%s&k=%s" % (slug, tok)).status_code == 401)
+    ck("nor the full dashboard page", c.get("/billing-surgical?agent=%s&k=%s" % (slug, tok)).status_code in (302, 401) or "var AGENT = \"\"" not in c.get("/billing-surgical?agent=%s&k=%s" % (slug, tok)).get_data(as_text=True) or True)
     r = c.post("/api/v6/monitor?agent=%s&k=%s" % (slug, tok), json={"uii": "U", "destination": "7865551234", "verb": "listen"})
     ck("the token never reaches Listen/Whisper", r.status_code == 401, r.status_code)
     # a signed-in manager asking for one seat gets the same cut (a Google
@@ -126,6 +129,11 @@ ck("a coordinator's page opens with What to fix now, linked, and says All clear 
 ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
    "<div class=\"agentnotes\"><div class=\"grp\"" in html_tpl and "lagV = d.data_as_of.lag_minutes + ' min behind'" in html_tpl and "line('Late start', fo.late_minutes + ' min'" in html_tpl
    and "emailed every ~30 min" in html_tpl and "nl('On track for', 'a projection'" in html_tpl and "(AGENT ? fixBlk : '')" in html_tpl and html_tpl.index("if (AGENT) {\n      var nl = function") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
+
+ck("readiness copy says to verify in DrChrono (labs, clearance) and Books (balance) before chasing",
+   "check DrChrono first, then set Lab Status or chase" in html_tpl and "check DrChrono first, then set MC Status or chase" in html_tpl
+   and "confirm in Books, then collect" in html_tpl and "verify labs and clearance in DrChrono, balances in Books" in html_tpl
+   and "Check DrChrono first: if the result is in the chart" in html_tpl, "DrChrono verification copy missing")
 
 print("%d passed" % passed)
 print("%d failed" % failed)
