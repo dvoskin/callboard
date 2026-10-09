@@ -2940,6 +2940,10 @@ def _cx_agent_states():
             _cx_agents_cache.update(at=time.time(), agents=agents, meta=meta)
         else:
             _cx_agents_cache["meta"] = dict(_cx_agents_cache["meta"], last_note=meta.get("note"))
+            # no good list has ever been read: restart the hour, or the probe
+            # would run on every presence read once the first hour was up
+            if not _cx_agents_cache["meta"].get("ok"):
+                _cx_agents_cache["at"] = time.time()
         return (_cx_agents_cache["agents"], _cx_agents_cache["meta"],
                 time.time() - _cx_agents_cache["at"])
 

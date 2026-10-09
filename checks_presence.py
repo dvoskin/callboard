@@ -419,6 +419,10 @@ try:
     A._cx_agent_states()
     ck("a successful read keeps the 30s cadence", _calls_n["n"] == 2, _calls_n["n"])
     ck("the back-off is an hour", A._CX_STATES_FAIL_TTL == 3600.0, A._CX_STATES_FAIL_TTL)
+    # after the hour a retry that fails again starts a NEW hour -- not a probe per read
+    A._cx_agents_cache.update(at=time.time() - 4000, agents=[], meta={"ok": False, "note": "404s"})
+    A._cx_agent_states(); A._cx_agent_states(); A._cx_agent_states()
+    ck("a failed retry after the hour restarts the hour (one attempt, not three)", _calls_n["n"] == 3, _calls_n["n"])
 finally:
     A._ringcx.active_agents_with_status = _real_aa
     A._cx_agents_cache.update(at=0.0, agents=[], meta=None)
