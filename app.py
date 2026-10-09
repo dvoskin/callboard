@@ -3047,7 +3047,8 @@ def _api_v6_presence_impl():
     The underlying read is account-level and cached for 60s, so the cost is one
     request a minute no matter how many people have the board open.
     """
-    if not _v6_allowed():
+    # the same door as the wrapper: a coordinator token counts here too
+    if not (_v6_allowed() or _coord_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     team = _team_key(request.args.get("team"))
     roster, _ = _billing_roster(team)
@@ -3569,7 +3570,8 @@ def api_v6_report():
 
 
 def _api_v6_report_impl():
-    if not (_v6_allowed()):
+    # the same door as the wrapper: a coordinator token counts here too
+    if not (_v6_allowed() or _coord_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     # Before the configuration check, not after. Authorisation must not sit
     # behind "is RingCentral set up": on an instance where it is not, the gate

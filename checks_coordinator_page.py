@@ -75,6 +75,15 @@ try:
     ck("the token does NOT open the billing board", c.get("/api/v6/report?team=billing&agent=%s&k=%s" % (slug, tok)).status_code == 401)
     ck("the token does NOT open another seat", c.get("/api/v6/report?team=surgical&agent=oscar-caballero&k=%s" % tok).status_code == 401)
     ck("the token does NOT open the whole surgical board", c.get("/api/v6/report?team=surgical&k=%s" % tok).status_code == 401)
+    # the REAL builders, not the stand-ins: the token must get past their own
+    # inner gate too (on 2026-10-09 the wrapper let it in and the builder
+    # said 401 -- every coordinator page went blank while the checks were green)
+    A._api_v6_report_impl, A._api_v6_presence_impl = _real_rep, _real_pres
+    rr = c.get("/api/v6/report?team=surgical&agent=%s&k=%s&start=2026-07-29&end=2026-07-29&tz=240" % (slug, tok))
+    ck("the real report builder admits the token (any answer but 401)", rr.status_code != 401, (rr.status_code, (rr.get_json() or {}).get("error")))
+    rp_ = c.get("/api/v6/presence?team=surgical&agent=%s&k=%s&tz=240" % (slug, tok))
+    ck("the real presence builder admits the token (any answer but 401)", rp_.status_code != 401, (rp_.status_code, (rp_.get_json() or {}).get("error")))
+    A._api_v6_report_impl = fake_report; A._api_v6_presence_impl = fake_presence
     r = c.get("/api/v6/presence?team=surgical&agent=%s&k=%s" % (slug, tok)); j = r.get_json() or {}
     ck("presence is cut to the one seat too", r.status_code == 200 and [x["name"] for x in j.get("seats", [])] == ["Judith Merlo"], (r.status_code, j))
     ck("the token does NOT open the agent listing", c.get("/api/v6/cx-agents?who=&agent=%s&k=%s" % (slug, tok)).status_code == 401)
