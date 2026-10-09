@@ -578,6 +578,33 @@ def _background_loop():
 _BOOT_AT = time.time()
 
 
+def _inbox_file_shape(path, rows):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            header = fh.readline().strip().lstrip("\ufeff")
+        cols = [c.strip().strip('"') for c in header.split(",")]
+    except Exception as e:  # noqa: BLE001
+        cols = ["unreadable: %s" % str(e)[:60]]
+    rows = rows or []
+    named = [r for r in rows if (r.get("agent_name") or "").strip()]
+    blank = [r for r in rows if not (r.get("agent_name") or "").strip()]
+    def top(key, rs, n=6):
+        c = {}
+        for r in rs:
+            v = (r.get(key) or "").strip() or "(blank)"
+            c[v] = c.get(v, 0) + 1
+        return sorted(c.items(), key=lambda kv: -kv[1])[:n]
+    return {
+        "columns": cols,
+        "named_rows": len(named), "blank_name_rows": len(blank),
+        "blank_rows_by_call_type": top("call_type", blank),
+        "blank_rows_by_result": top("result", blank),
+        "blank_rows_by_direction": top("direction", blank),
+        "named_rows_by_call_type": top("call_type", named),
+        "latest_start_time": max([(r.get("start_time") or "") for r in rows] or [""]),
+    }
+
+
 def _live_feeds_diag():
     try:
         rc = _ringcx
@@ -652,6 +679,11 @@ def api_build():
                 # 2026-10-08, when the sales export changed report type and the
                 # board shrank to two names.
                 "campaign_rows": sum(1 for r in (rows or []) if (r.get("campaign_name") or "").strip()),
+                # Shape of the file, no names or numbers: how many rows carry an
+                # agent name at all, the CSV's own header, and what the nameless
+                # rows are (call type / result counts). Added 2026-10-09 when the
+                # surgical scope arrived with 367 rows and two names.
+                "shape": _inbox_file_shape(q, rows),
                 "campaign_agents": len({(r.get("agent_name") or "").strip().lower() for r in (rows or [])
                                         if (r.get("campaign_name") or "").strip() and (r.get("agent_name") or "").strip()}),
                 "age_minutes": round((time.time() - q.stat().st_mtime) / 60, 1),
