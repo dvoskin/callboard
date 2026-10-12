@@ -564,6 +564,15 @@ try:
     ck("and says the read is in progress, not 0", _rep["ranked"][0]["crm"] is None and "being read" in (_rep.get("crm_meta") or {}).get("error", ""), _rep.get("crm_meta"))
     _gate.set()
     ck("the read does run, on a thread", _ran.wait(5), "breakdown never ran")
+    # a read stuck in flight for longer than the guard is started again, not waited on forever
+    A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
+    _key = ("2026-07-29T00:00:00-04:00", "2026-07-29T23:59:59-04:00", ("Judith Merlo",))
+    A._crm_bd_inflight[_key] = time.time() - (A._CRM_BD_STUCK + 5)
+    _ran.clear(); _gate.set()
+    _rep2 = {"ranked": [{"name": "Judith Merlo"}], "silent": [], "stalled": [], "unknown": []}
+    A._attach_crm_created(_rep2, "2026-07-29T00:00:00-04:00", "2026-07-29T23:59:59-04:00")
+    ck("a stuck in-flight read older than the guard is restarted", _ran.wait(5), "no new read started")
+    ck("and /api/build shows the breakdown state", "crm_breakdown" in (c.get("/api/build").get_json() or {}), "diag missing")
 finally:
     _gate.set()
     A._zoho.list_users, A._zoho.activity_breakdown = _real_users, _real_bd

@@ -605,6 +605,25 @@ def _inbox_file_shape(path, rows):
     }
 
 
+def _crm_bd_diag():
+    """The background CRM read as it stands: what is in flight (and for how
+    long), what is cached (and whether it errored), and the newest outcome.
+    Windows and ages only."""
+    try:
+        now = time.time()
+        with _crm_bd_lock:
+            return {
+                "inflight": [{"window": list(k[:2]), "age_seconds": round(now - at)} for k, at in _crm_bd_inflight.items()],
+                "cache": [{"window": list(k[:2]), "age_seconds": round(now - v["at"]), "has_data": v.get("by") is not None,
+                           "error": (v.get("meta") or {}).get("error"), "journeys_error": (v.get("meta") or {}).get("journeys_error")}
+                          for k, v in _crm_bd_cache.items()],
+                "last": dict(_crm_bd_last, age_seconds=round(now - _crm_bd_last["at"])) if _crm_bd_last.get("at") else None,
+                "async": _CRM_ASYNC,
+            }
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:160]}
+
+
 def _live_feeds_diag():
     try:
         rc = _ringcx
@@ -751,6 +770,7 @@ def api_build():
         # could say whether presence, the name directory or RingCX had stood
         # down (Danny, 2026-10-08: "my sales call liveboard got thrown off").
         "live_feeds": _live_feeds_diag(),
+        "crm_breakdown": _crm_bd_diag(),
         "started_at": datetime.fromtimestamp(_BOOT_AT, timezone.utc).isoformat(),
         "uptime_seconds": round(up),
         "uptime_human": "%dh %dm" % (up // 3600, (up % 3600) // 60),
@@ -4296,7 +4316,9 @@ _CRM_NAME_ALIASES = {"Judith Merlo": "Judith"}
 _CRM_BD_TTL = 300.0
 _crm_bd_cache: dict = {}
 _crm_bd_lock = threading.Lock()
-_crm_bd_inflight: set = set()
+_crm_bd_inflight: dict = {}          # key -> started_at (epoch)
+_CRM_BD_STUCK = 180.0                 # a read older than this may be started again
+_crm_bd_last: dict = {}               # outcome of the newest read: ok/error/took/at
 # OFF the request path, like the ingest snapshot. The breakdown is up to six
 # Zoho calls in a row, each with a 25s timeout: cold, with Zoho slow, that
 # outlives gunicorn's 90s worker timeout and the worker is killed -- a
@@ -4312,6 +4334,7 @@ def _crm_breakdown_read(key, names, start_iso, end_iso):
     the checks run it inline. Never raises: a failure is cached briefly as an
     error so every row reads 'not read' with the reason rather than 0."""
     by, meta = None, {"cached": False}
+    t0 = time.time()
     try:
         users = _zoho.list_users()                       # id -> full name
         if not users:
@@ -4338,13 +4361,16 @@ def _crm_breakdown_read(key, names, start_iso, end_iso):
                     by[name]["journeys"] = jraw.get(uid)   # None: owns no Journeys
             meta["attribution"] = "id"
             meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
-    except Exception as e:  # noqa: BLE001
-        by, meta = None, {"error": "CRM read failed: %s" % str(e)[:160]}
-    with _crm_bd_lock:
-        # an error is kept only briefly, so the next poll tries again
-        _crm_bd_cache[key] = {"at": time.time() - (_CRM_BD_TTL - 60 if by is None else 0),
-                              "by": by, "meta": meta}
-        _crm_bd_inflight.discard(key)
+    except BaseException as e:  # noqa: BLE001  -- a thread must never die holding the in-flight key
+        by, meta = None, {"error": "CRM read failed: %s: %s" % (type(e).__name__, str(e)[:160])}
+    finally:
+        with _crm_bd_lock:
+            # an error is kept only briefly, so the next poll tries again
+            _crm_bd_cache[key] = {"at": time.time() - (_CRM_BD_TTL - 60 if by is None else 0),
+                                  "by": by, "meta": meta}
+            _crm_bd_inflight.pop(key, None)
+            _crm_bd_last.update(at=time.time(), took=round(time.time() - t0, 1),
+                                ok=by is not None, error=meta.get("error"), window=key[:2])
     return by, meta
 
 
@@ -4366,9 +4392,13 @@ def _attach_crm_created(report, start_iso, end_iso):
     with _crm_bd_lock:
         hit = _crm_bd_cache.get(key)
         fresh = bool(hit and now - hit["at"] < _CRM_BD_TTL)
-        start_read = not fresh and key not in _crm_bd_inflight
+        started = _crm_bd_inflight.get(key)
+        # a read that has been "in flight" longer than _CRM_BD_STUCK is lost
+        # (a thread that never came back); start another rather than answer
+        # "being read" forever -- seen on prod 2026-10-12 for 5+ minutes
+        start_read = not fresh and (started is None or now - started > _CRM_BD_STUCK)
         if start_read:
-            _crm_bd_inflight.add(key)
+            _crm_bd_inflight[key] = now
     names = [a["name"] for a in rows]
     if fresh:
         by, meta = hit["by"], dict(hit["meta"], cached=True)
