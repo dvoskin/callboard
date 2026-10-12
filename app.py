@@ -4360,18 +4360,25 @@ def _crm_breakdown_read(key, names, start_iso, end_iso):
                                            start_date=start_iso[:10], end_date=end_iso[:10])
             # The Journeys caseload rides along; its failure is its own note,
             # not a reason to lose calls and tasks.
+            # Journeys, the planner's calls and the scheduling queue belong to the
+            # surgical coordinators only. Billers don't schedule (Danny,
+            # 2026-10-12: "billers dont schedule shouldnt be there for them"), so
+            # their rows get no Journeys block and the read is not even made.
+            surg = {x["name"] for x in _billing_roster("surgical")[0]}
+            jids = sorted({uid for n, uid in wanted.items() if uid and n in surg})
             jraw = {}
-            try:
-                jraw = _zoho.journey_breakdown(ids, start_iso, end_iso, end_iso[:10])
-            except Exception as e:  # noqa: BLE001
-                meta["journeys_error"] = "Journeys read failed: %s" % str(e)[:160]
+            if jids:
+                try:
+                    jraw = _zoho.journey_breakdown(jids, start_iso, end_iso, end_iso[:10])
+                except Exception as e:  # noqa: BLE001
+                    meta["journeys_error"] = "Journeys read failed: %s" % str(e)[:160]
             by = {}
             for name, uid in wanted.items():
                 if uid:
                     by[name] = dict(raw.get(uid) or {
                         "calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0},
                         "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}})
-                    by[name]["journeys"] = jraw.get(uid)   # None: owns no Journeys
+                    by[name]["journeys"] = jraw.get(uid) if name in surg else None   # None: not a coordinator
             meta["attribution"] = "id"
             meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
     except BaseException as e:  # noqa: BLE001  -- a thread must never die holding the in-flight key

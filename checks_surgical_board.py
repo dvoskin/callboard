@@ -662,3 +662,21 @@ ck("to-schedule links to Deals and names the oldest wait", "zl(ZOHO.deals, 'Deal
 ck("the collapsed row carries the queue line on every row builder, hidden on a coordinator's own page",
    _tpl8.count("smsChip(a) + srcChip(a) + queueChip(a)") == 3 and "function queueChip(a)" in _tpl8 and "if (!qu || AGENT) return '';" in _tpl8
    and ".agent .pq{display:none}" in _tpl8 and "' to schedule \\u00b7 '" in _tpl8, "queue chip missing")
+
+# ---- billers don't schedule: no Journeys / Priorities for them, and no Journeys read on their behalf (Danny, 2026-10-12) ----
+_jcalls = []
+_real_users2, _real_bd2, _real_jbd2 = A._zoho.list_users, A._zoho.activity_breakdown, A._zoho.journey_breakdown
+A._zoho.list_users = lambda: {"u-viv": "Vivian Martinez", "u-judith": "Judith"}
+A._zoho.activity_breakdown = lambda s_, e_, ids, start_date=None, end_date=None: {u: {"calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0}, "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}} for u in ids}
+A._zoho.journey_breakdown = lambda ids, s_, e_, anchor: (_jcalls.append(list(ids)) or {u: {"active": 1, "soon": {}, "journey_calls": {}, "queue": {"to_schedule": 1}} for u in ids})
+A._CRM_ASYNC = False; A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
+try:
+    _repb = {"ranked": [{"name": "Vivian Martinez"}, {"name": "Judith Merlo"}], "silent": [], "stalled": [], "unknown": []}
+    A._attach_crm_created(_repb, "2026-07-29T00:00:00-04:00", "2026-07-29T23:59:59-04:00")
+    _rows_b = {a["name"]: a for a in _repb["ranked"]}
+    ck("billers get no Journeys block", (_rows_b["Vivian Martinez"].get("crm") or {}).get("journeys") is None, _rows_b["Vivian Martinez"].get("crm"))
+    ck("coordinators still do", ((_rows_b["Judith Merlo"].get("crm") or {}).get("journeys") or {}).get("queue", {}).get("to_schedule") == 1, _rows_b["Judith Merlo"].get("crm"))
+    ck("the Journeys read is made for coordinator ids only", _jcalls == [["u-judith"]], _jcalls)
+finally:
+    A._zoho.list_users, A._zoho.activity_breakdown, A._zoho.journey_breakdown = _real_users2, _real_bd2, _real_jbd2
+    A._CRM_ASYNC = True; A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
