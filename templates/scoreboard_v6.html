@@ -204,6 +204,11 @@
   details.subfold{margin:-4px 0 8px}
   details.subfold .sub{margin:6px 0 0;font-size:12px}
   /* Listen · Whisper: two muted words after the pill, underlined on hover. */
+  /* the work queue on a collapsed row: one muted line, red where there is work */
+  .pq{display:block;margin:2px 0 0;font-size:11px;color:var(--muted);white-space:nowrap;
+      font-weight:400;letter-spacing:0;cursor:help}
+  .pq b{font-weight:700;color:var(--ink)} .pq b.hot{color:var(--dn)}
+  .agent .pq{display:none}
   .mon{margin-left:8px;font-size:11px;color:var(--muted);white-space:nowrap}
   .mon a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--hair)}
   .mon a:hover{color:var(--up);border-color:var(--up)}
@@ -422,6 +427,7 @@
        2026-10-07 evening: "display the inbound outbound sms arrows for all
        agents across both rosters") -- small, after the name */
     .sms{font-size:10px;margin-left:5px;white-space:nowrap}
+    .pq{font-size:10px;white-space:normal;line-height:1.35}
     .r{padding:6px 0}
     .tk{font-size:13.5px}
     .c,.co{font-size:10.5px}
@@ -648,6 +654,26 @@
     if (!p || p.source !== 'ringcx' || !p.call || !p.call.uii) return '';
     return '<span class="mon" data-uii="' + esc(p.call.uii) + '">' +
            '<a href="#" data-verb="listen">Listen</a> \u00b7 <a href="#" data-verb="whisper">Whisper</a></span>';
+  }
+
+  // The work queue on the collapsed row, for the manager's eye: to schedule,
+  // missed inbound, open tasks, today's calls and the overdue backlog. Red
+  // where there is something to do. Danny, 2026-10-12: "add the priorities to
+  // the manager dashboard collapsed rows too". Surgical seats only (the queue
+  // exists only for them); a coordinator's own page has the block instead.
+  function queueChip(a) {
+    var qu = (((a || {}).crm || {}).journeys || {}).queue;
+    if (!qu || AGENT) return '';
+    var tot = a.worked || a.totals || {};
+    var missed = Math.max(0, (tot.inbound || 0) - (tot.inbound_answered || 0));
+    var n = function (v, hot) { return '<b' + (hot && v ? ' class="hot"' : '') + '>' + v + '</b>'; };
+    var tip = 'Priorities, in order: ' + qu.to_schedule + ' deal' + (qu.to_schedule === 1 ? '' : 's') + ' paid and waiting for a surgery date' +
+              (qu.oldest_wait_days != null && qu.to_schedule ? ' (oldest ' + qu.oldest_wait_days + ' d)' : '') +
+              (qu.escalated ? ', ' + qu.escalated + ' with a manager' : '') + ' \u00b7 ' + missed + ' missed inbound to call back \u00b7 ' +
+              qu.tasks_open + ' tasks due \u00b7 ' + qu.calls_scheduled_today + ' planner calls today, ' + qu.calls_overdue + ' overdue from before';
+    return '<span class="pq" title="' + esc(tip) + '">' +
+           n(qu.to_schedule, true) + ' to schedule \u00b7 ' + n(missed, true) + ' missed \u00b7 ' + n(qu.tasks_open, true) + ' tasks \u00b7 ' +
+           n(qu.calls_scheduled_today, false) + ' calls' + (qu.calls_overdue ? ' (' + n(qu.calls_overdue, true) + ' overdue)' : '') + '</span>';
   }
 
   function smsChip(a) {
@@ -1035,14 +1061,14 @@
       if (quiet) {
         h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
           '<div class="rk">' + (i + 1) + '</div>' +
-          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + '</div>' +
           '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
           '</div>';
       } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (paceCol ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -1421,7 +1447,7 @@
       var qid = slot + '_q' + qi;
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">&ndash;</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + '</div>' +
         // Danny, 2026-10-07, on six quiet seats reading only "No Activity":
         // "not showing any shift sched". They have no shift on file -- the
         // schedule sheet named eleven people -- and the line now says so,
