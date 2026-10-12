@@ -2914,6 +2914,11 @@ def _shift_phase(name, now_local):
         e_h, e_m = (int(x) for x in sh["end"].split(":"))
     except (KeyError, ValueError, AttributeError):
         return None
+    # A scheduled day off is neither late nor silent. Oscar works Tue-Sat
+    # (Danny, 2026-10-12: "oscar is off today btw") and read "No Activity"
+    # on a Monday because this only looked at the clock, not the calendar.
+    if now_local.strftime("%a").lower()[:3] in {str(d).lower()[:3] for d in (sh.get("off") or [])}:
+        return "off", "Off Today"
     now = now_local.hour * 60 + now_local.minute
     if now < s_h * 60 + s_m:
         t = datetime(2000, 1, 1, s_h, s_m)
@@ -3154,7 +3159,9 @@ def _api_v6_presence_impl():
                 # shift finished, or due and silent. None of them is "Offline",
                 # which RingCX cannot tell us.
                 ph = _shift_phase(seat["name"], now_local)
-                if ph and ph[0] == "before":
+                if ph and ph[0] == "off":
+                    state, label, note = "off_day", ph[1], "scheduled day off"
+                elif ph and ph[0] == "before":
                     state, label, note = "before_shift", ph[1], "shift has not started"
                 elif ph and ph[0] == "after":
                     state, label, note = "after_shift", ph[1], "shift has ended"

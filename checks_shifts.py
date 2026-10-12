@@ -95,3 +95,11 @@ for e in errors:
     print("  FAIL", e)
 print("\n%d failed" % len(errors))
 sys.exit(1 if errors else 0)
+
+# ---- a scheduled day off reads "Off Today", not "No Activity" (Oscar works Tue-Sat; 2026-10-12 was a Monday) ----
+ck("Oscar on a Monday is Off Today", A._shift_phase("Oscar Caballero", datetime(2026, 10, 12, 14, 0)) == ("off", "Off Today"), A._shift_phase("Oscar Caballero", datetime(2026, 10, 12, 14, 0)))
+ck("Oscar on a Tuesday inside his shift is on the clock (None)", A._shift_phase("Oscar Caballero", datetime(2026, 10, 13, 14, 0)) is None, A._shift_phase("Oscar Caballero", datetime(2026, 10, 13, 14, 0)))
+ck("Oscar on a Tuesday before 10 still reads Starts", (A._shift_phase("Oscar Caballero", datetime(2026, 10, 13, 9, 0)) or ("", ""))[0] == "before", A._shift_phase("Oscar Caballero", datetime(2026, 10, 13, 9, 0)))
+ck("Judith on a Saturday is Off Today", A._shift_phase("Judith Merlo", datetime(2026, 10, 17, 12, 0)) == ("off", "Off Today"), A._shift_phase("Judith Merlo", datetime(2026, 10, 17, 12, 0)))
+_h = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the Off Today pill has a style", ".pz-off_day" in _h, "pill css missing")
