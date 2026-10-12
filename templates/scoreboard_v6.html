@@ -504,7 +504,8 @@
     medical: ZB + 'CustomModule13/custom-view/5212466001043166701/list',  // Medical Action Needed
     dateNeeded: ZB + 'CustomModule13/custom-view/5212466001043166685/list',
     myActive: ZB + 'CustomModule13/custom-view/5212466001043166661/kanban',
-    upcoming: ZB + 'CustomModule13/custom-view/5212466001043166669/list'
+    upcoming: ZB + 'CustomModule13/custom-view/5212466001043166669/list',
+    deals: ZB + 'Potentials'                                                // Deals module
   };
   var AGENT = {{ (agent_only or '')|tojson }};
   var AGENT_SLUG = {{ (agent_slug or '')|tojson }};
@@ -1104,8 +1105,12 @@
         'Journeys': 'Journeys (patient cases) owned by this coordinator with Case Status Active.',
         'Planner calls': 'The cadence planner\u2019s \u201cJourney call \u2013 \u2026\u201d calls due in the window: done, overdue, still scheduled. To fix: Calls > My Journey Calls, overdue first; never leave one Overdue.',
         'Surgeries': 'Active Journeys owned by this coordinator with a surgery date inside the next 14 days. Where: Journeys > My Upcoming Surgeries (30 Days).',
-        'Not ready': 'Of those surgeries: labs pending, medical clearance pending, or a balance still due. A blank status is not counted as a finding. Where: Journeys > Within 14 Days - Not Ready. Open each Journey: set Lab Status and MC Status as items arrive, or collect the balance.',
+        'Not ready': 'Of those surgeries: labs pending, medical clearance pending, or a balance still due. A blank status is not counted as a finding. This is what Zoho says, not a verified fact: check DrChrono first -- results and clearance letters often land in the chart before Zoho is updated -- and confirm balances in Books. Where: Journeys > Within 14 Days - Not Ready; if it is there, set Lab Status / MC Status in Zoho, otherwise chase.',
         'SMS': 'Texts sent and received on this seat\u2019s RingEX extension in the window.',
+        '1 \u00b7 To schedule': 'Deals with the retainer paid and no surgery scheduled yet, assigned to this coordinator (stage \u201cPayment Received, Needs Surgery Scheduled\u201d). A patient who has paid and is waiting for a date: the first thing to work. \u201cWith a manager\u201d = stage Manager Support Needed. Where: Deals, Scheduling Owner = you.',
+        '2 \u00b7 Inbound': 'Inbound calls that reached this agent today: answered, and missed ones to call back. Second priority.',
+        '3 \u00b7 Tasks': 'Tasks under your name due today or earlier and not completed. Where: Tasks > My Today + Overdue Tasks.',
+        '4 \u00b7 Scheduled calls': 'Planner calls scheduled for today, and any left Overdue from earlier days. Where: Calls > My Journey Calls.',
         'Text replies': 'Minutes from an inbound text to the next outbound to that number. Consecutive inbound texts before a reply count as one wait; unanswered = still waiting at the end of the window. To fix: answer inbound texts within 15 minutes in the RingEX app; an unanswered text still counts the next day.'
       };
       // the long-call label is built from the threshold, so its tip is too
@@ -1210,7 +1215,7 @@
             // chips -- each reason with its definition behind it.
             if (so.total) {
               readyLines += line('Surgeries', so.total, 'inside the next 14 days', '');
-              readyLines += line('Not ready', so.not_ready, so.not_ready ? 'need labs, clearance or payment' : 'all cleared and paid',
+              readyLines += line('Not ready', so.not_ready, so.not_ready ? 'per Zoho \u2014 verify labs and clearance in DrChrono, balances in Books' : 'all cleared and paid per Zoho',
                                  so.not_ready ? 'below' : '');
               if (so.not_ready) {
                 // each chip opens the Zoho view where those cases sit
@@ -1218,9 +1223,9 @@
                   return n ? '<a class="rc hot" href="' + esc(url) + '" target="_blank" rel="noopener" title="' + esc(tip) + '">' + lbl + ' <b>' + n + '</b> \u2197</a>' : '';
                 };
                 readyLines += '<div class="rd">' +
-                  chip(so.labs, 'Labs pending', 'Lab Status is Not Received, In Review, Rejected, Further Review Needed or Incomplete. Where: Journeys > Within 14 Days - Not Ready, sort by Lab Status. Chase the patient; set Lab Status when the result is in.', ZOHO.notReady) +
-                  chip(so.mc, 'Clearance pending', 'MC Status is awaiting submission, pending review, needs more info, not approved or rejected. Where: Journeys > Medical Action Needed (and Within 14 Days - Not Ready). Get the clearance letter; set MC Status when received.', ZOHO.medical) +
-                  chip(so.balance, 'Balance due', 'Journey Balance Due is above zero. Where: Journeys > Within 14 Days - Not Ready. Collect it, or hand it to billing with a note on the Journey.', ZOHO.notReady) +
+                  chip(so.labs, 'Labs pending', 'Lab Status in Zoho is Not Received, In Review, Rejected, Further Review Needed or Incomplete. Check DrChrono first: if the result is in the chart, set Lab Status in Zoho; if not, chase the patient. Where: Journeys > Within 14 Days - Not Ready, sort by Lab Status.', ZOHO.notReady) +
+                  chip(so.mc, 'Clearance pending', 'MC Status in Zoho is awaiting submission, pending review, needs more info, not approved or rejected. Check DrChrono first: if the clearance letter is in the chart, set MC Status in Zoho; if not, get it from the patient. Where: Journeys > Medical Action Needed (and Within 14 Days - Not Ready).', ZOHO.medical) +
+                  chip(so.balance, 'Balance due', 'Journey Balance Due in Zoho is above zero. Confirm the balance in Books first (a payment may not have synced); then collect it, or hand it to billing with a note on the Journey. Where: Journeys > Within 14 Days - Not Ready.', ZOHO.notReady) +
                   '</div>';
               }
             }
@@ -1311,20 +1316,39 @@
       // A coordinator's own page: the red items first, each with the Zoho
       // view where the work is. Danny, 2026-10-08: "tooltips of how they can
       // resolve the stat ... where to find those in Zoho".
+      var zl = function (url, label) { return '<a class="zl" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + ' \u2197</a>'; };
+      // The work queue in the order Danny set (2026-10-12): new deals waiting
+      // for their schedule, then inbound, then tasks, then the scheduled
+      // calls. Surgical seats only; it reads what is waiting NOW, not the window.
+      var prioLines = '';
+      var qu = ((a.crm || {}).journeys || {}).queue;
+      if (qu) {
+        var missed = Math.max(0, (tot.inbound || 0) - (tot.inbound_answered || 0));
+        prioLines += line('1 \u00b7 To schedule', qu.to_schedule,
+                          (qu.to_schedule ? zl(ZOHO.deals, 'Deals') + ' &middot; ' : '') + 'paid, no date yet' +
+                          (qu.to_schedule && qu.oldest_wait_days != null ? ' &middot; oldest waiting <b>' + qu.oldest_wait_days + ' d</b>' : '') +
+                          (qu.escalated ? ' &middot; <b>' + qu.escalated + '</b> with a manager' : ''), qu.to_schedule ? 'below' : '');
+        prioLines += line('2 \u00b7 Inbound', (tot.inbound_answered || 0) + ' of ' + (tot.inbound || 0),
+                          missed ? '<b>' + missed + ' missed</b> to call back' : ((tot.inbound || 0) ? 'all answered' : 'none yet'), missed ? 'below' : '');
+        prioLines += line('3 \u00b7 Tasks', qu.tasks_open, zl(ZOHO.tasks, 'My Today + Overdue Tasks') + ' &middot; due today or earlier', qu.tasks_open ? 'below' : '');
+        prioLines += line('4 \u00b7 Scheduled calls', qu.calls_scheduled_today,
+                          zl(ZOHO.myCalls, 'My Journey Calls') + ' &middot; today' + (qu.calls_overdue ? ' &middot; <b>' + qu.calls_overdue + ' overdue</b> from before' : ''),
+                          qu.calls_overdue ? 'below' : '');
+      }
+      var prioBlk = blk('Priorities', prioLines, 'Your work, in the order it should be done: new deals waiting for a schedule, inbound, tasks, scheduled calls');
       var fixLines = '';
       if (AGENT) {
-        var zl = function (url, label) { return '<a class="zl" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + ' \u2197</a>'; };
         var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, so2 = jn2.soon || {}, tt2 = (a.crm || {}).tasks || {};
         // one shape per line: the label says what, the value is the number,
         // the tail is the view to open and the next step
         if (jc2.overdue) fixLines += line('Overdue calls', jc2.overdue, zl(ZOHO.myCalls, 'My Journey Calls') + ' &middot; mark Completed, even on no answer', 'below',
                                           'Planner calls whose start time has passed and are not Completed.');
-        if (so2.labs) fixLines += line('Labs pending', so2.labs, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; chase, then set Lab Status', 'below',
-                                       'Surgeries inside 14 days with Lab Status still pending.');
-        if (so2.mc) fixLines += line('Clearance pending', so2.mc, zl(ZOHO.medical, 'Medical Action Needed') + ' &middot; get the letter, then set MC Status', 'below',
-                                     'Surgeries inside 14 days with medical clearance still pending.');
-        if (so2.balance) fixLines += line('Balance due', so2.balance, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; collect, or hand to billing', 'below',
-                                          'Surgeries inside 14 days with Journey Balance Due above zero.');
+        if (so2.labs) fixLines += line('Labs pending', so2.labs, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; check DrChrono first, then set Lab Status or chase', 'below',
+                                       'Surgeries inside 14 days whose Lab Status in Zoho is still pending. The result may already be in DrChrono: check there first.');
+        if (so2.mc) fixLines += line('Clearance pending', so2.mc, zl(ZOHO.medical, 'Medical Action Needed') + ' &middot; check DrChrono first, then set MC Status or chase', 'below',
+                                     'Surgeries inside 14 days whose MC Status in Zoho is still pending. The letter may already be in DrChrono: check there first.');
+        if (so2.balance) fixLines += line('Balance due', so2.balance, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; confirm in Books, then collect or hand to billing', 'below',
+                                          'Surgeries inside 14 days whose Journey Balance Due in Zoho is above zero. Confirm in Books before collecting.');
         if (tt2.open) fixLines += line('Open tasks', tt2.open, zl(ZOHO.tasks, 'My Today + Overdue Tasks') + ' &middot; close or reschedule', 'below', 'Tasks due in the window and not completed.');
         if (rp && rp.unanswered) fixLines += line('Unanswered texts', rp.unanswered, 'RingEX app &middot; reply within 15 min', 'below',
                                                   'Inbound texts with no reply yet.');
@@ -1334,16 +1358,17 @@
       }
       var fixBlk = blk('What to fix now', fixLines, 'Your red items, each with the Zoho view where the work is');
       body = '<div class="lns"><div class="col">' +
-        (AGENT ? fixBlk : '') +
+        (AGENT ? prioBlk + fixBlk : '') +
         blk(pace ? 'Today' : 'This range', TODAY_M.map(mline).join('') + wrapLine + dirLines) +
         blk('Day', dayLines, 'How the day was worked, against the shift on file') +
         blk('Reach', reachLines, 'People, not dials') +
         blk('Quality', QUAL_M.map(mline).join('')) +
         '</div><div class="col">' +
+        (AGENT ? '' : prioBlk) +
         blk('Collections', collLine, 'Payments in Books attributed to this biller in the window') +
         blk('CRM', crmLines, 'Zoho CRM calls and tasks owned by this person, in the window shown') +
         blk('Journeys', journeyLines, 'The Journeys module: cases owned and the planner\u2019s calls') +
-        blk('Surgery readiness', readyLines, 'Surgeries inside 14 days and what still stands in the way') +
+        blk('Surgery readiness', readyLines, 'Surgeries inside 14 days and what Zoho says still stands in the way -- verify labs and clearance in DrChrono, balances in Books') +
         blk('Texts', smsLine + textLines, 'SMS on the RingEX extension') +
         '</div></div>';
 

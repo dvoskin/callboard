@@ -133,11 +133,11 @@ ck("the readiness chips link to the Zoho views (labs/balance -> Not Ready, clear
    and "custom-view/5212466001043166677/list" in html_tpl and "custom-view/5212466001043166701/list" in html_tpl, "chip links missing")
 ck("a coordinator's page opens with What to fix now, linked, and says All clear when nothing is red",
    "blk('What to fix now', fixLines" in html_tpl and "zl(ZOHO.myCalls, 'My Journey Calls')" in html_tpl
-   and "line('All clear'" in html_tpl and "if (AGENT) {\n        var zl" in html_tpl, "fix list missing or not agent-only")
+   and "line('All clear'" in html_tpl and "if (AGENT) {\n        var jn2" in html_tpl, "fix list missing or not agent-only")
 
 ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
    "<div class=\"agentnotes\"><div class=\"grp\"" in html_tpl and "lagV = d.data_as_of.lag_minutes + ' min behind'" in html_tpl and "line('Late start', fo.late_minutes + ' min'" in html_tpl
-   and "emailed every ~30 min" in html_tpl and "nl('On track for', 'a projection'" in html_tpl and "(AGENT ? fixBlk : '')" in html_tpl and html_tpl.index("if (AGENT) {\n      var nl = function") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
+   and "emailed every ~30 min" in html_tpl and "nl('On track for', 'a projection'" in html_tpl and "(AGENT ? prioBlk + fixBlk : '')" in html_tpl and html_tpl.index("if (AGENT) {\n      var nl = function") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
 
 ck("readiness copy says to verify in DrChrono (labs, clearance) and Books (balance) before chasing",
    "check DrChrono first, then set Lab Status or chase" in html_tpl and "check DrChrono first, then set MC Status or chase" in html_tpl

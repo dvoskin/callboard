@@ -401,7 +401,8 @@ def _stub_bd(s_, e_, ids, start_date=None, end_date=None):
 A._zoho.activity_breakdown = _stub_bd
 _real_jbd = A._zoho.journey_breakdown
 A._zoho.journey_breakdown = lambda ids, s_, e_, anchor: {"u-judith": {"active": 207, "soon": {"total": 15, "not_ready": 6, "labs": 5, "mc": 1, "balance": 4},
-                                                                        "journey_calls": {"due": 14, "scheduled": 6, "overdue": 1, "completed": 7}}}
+                                                                        "journey_calls": {"due": 14, "scheduled": 6, "overdue": 1, "completed": 7},
+                                                                        "queue": {"to_schedule": 2, "escalated": 1, "oldest_wait_days": 5, "calls_overdue": 9, "calls_scheduled_today": 4, "tasks_open": 3}}}
 A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
 A._CRM_ASYNC = False          # the checks read inline; production reads on a thread
 A._v6_cache.clear()          # the earlier request cached rows without CRM on them
@@ -632,3 +633,11 @@ ck("every panel label has a definition behind it (tooltips), and the two-column 
 ck("nothing was due -> plain words, never '2 of 0 due done'", "' done', 'none due" in _tpl8, "zero-due wording missing")
 ck("the long-call tip is set AFTER the TIP map exists (it threw 'Cannot set properties of undefined' before)",
    _tpl8.index("var TIP = {") < _tpl8.index("TIP[longLbl] = "), "TIP[longLbl] assigned before var TIP")
+
+# ---- Danny, 2026-10-12: a KPI tracker per coordinator in priority order ----
+ck("the work queue rides on the Journeys read", (jcrm or {}).get("journeys", {}).get("queue", {}).get("to_schedule") == 2
+   and (jcrm or {}).get("journeys", {}).get("queue", {}).get("calls_overdue") == 9, (jcrm or {}).get("journeys", {}).get("queue"))
+ck("the panel has a Priorities block in the order: to schedule, inbound, tasks, scheduled calls",
+   "blk('Priorities', prioLines" in _tpl8 and _tpl8.index("'1 \\u00b7 To schedule'") < _tpl8.index("'2 \\u00b7 Inbound'") < _tpl8.index("'3 \\u00b7 Tasks'") < _tpl8.index("'4 \\u00b7 Scheduled calls'")
+   and "(AGENT ? prioBlk + fixBlk : '')" in _tpl8 and "(AGENT ? '' : prioBlk)" in _tpl8, "priorities block missing or out of order")
+ck("to-schedule links to Deals and names the oldest wait", "zl(ZOHO.deals, 'Deals')" in _tpl8 and "oldest waiting <b>" in _tpl8 and "deals: ZB + 'Potentials'" in _tpl8, "deals link missing")

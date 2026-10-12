@@ -3271,6 +3271,7 @@ class ZohoClient:
           journey_calls.*       the planner's "Journey call - ..." Calls with a
                                 start time in the window: due / scheduled /
                                 overdue / completed
+          queue.*               the work queue now (see the block below)
 
         COQL on this org rejects three bare AND conditions: nest in pairs
         (verified 2026-10-08). Raises on an HTTP failure.
@@ -3344,6 +3345,57 @@ class ZohoClient:
             st = (r.get("Outgoing_Call_Status") or "").strip().lower()
             if st in ("scheduled", "overdue", "completed"):
                 c[st] += 1
+
+        # ---- The work queue, in the order Danny set on 2026-10-12: new deals
+        # waiting for their schedule first, then inbound, then tasks, then the
+        # scheduled calls. Not windowed: a queue is what is waiting NOW.
+        #   to_schedule   Deals in stage "Payment Received, Needs Surgery
+        #                 Scheduled" whose Scheduling Owner is this coordinator
+        #   escalated     same, stage "Manager Support Needed"
+        #   oldest_wait_days  days since the oldest such deal's retainer was paid
+        #   calls_overdue planner calls Overdue, any date
+        #   calls_scheduled_today  planner calls Scheduled with a start today
+        #   tasks_open    tasks not completed, due today or earlier
+        tzs = start_iso[19:] or ""
+        def _q(uid):
+            return _slot(uid).setdefault("queue", {
+                "to_schedule": 0, "escalated": 0, "oldest_wait_days": None,
+                "calls_overdue": 0, "calls_scheduled_today": 0, "tasks_open": 0})
+        for uid in list(out):
+            _q(uid)
+        for r in _rows(f"select id, Scheduling_Owner, Stage, Retainer_Paid_Date from Deals where "
+                       f"(Scheduling_Owner.id in ({ids}) and Stage in "
+                       f"('Payment Received, Needs Surgery Scheduled','Manager Support Needed'))"):
+            o = r.get("Scheduling_Owner") or {}
+            uid = str(o.get("id") or "") if isinstance(o, dict) else ""
+            if not uid:
+                continue
+            q = _q(uid)
+            if (r.get("Stage") or "") == "Manager Support Needed":
+                q["escalated"] += 1
+            else:
+                q["to_schedule"] += 1
+            try:
+                paid = datetime.strptime(str(r.get("Retainer_Paid_Date"))[:10], "%Y-%m-%d").date()
+                wait = (d1 - paid).days
+                if q["oldest_wait_days"] is None or wait > q["oldest_wait_days"]:
+                    q["oldest_wait_days"] = wait
+            except (ValueError, TypeError):
+                pass
+        for r in _rows(f"select id, Owner from Calls where ((Owner.id in ({ids}) and "
+                       f"Subject like 'Journey call -%') and Outgoing_Call_Status = 'Overdue')"):
+            if _uid(r):
+                _q(_uid(r))["calls_overdue"] += 1
+        for r in _rows(f"select id, Owner from Calls where ((Owner.id in ({ids}) and "
+                       f"Outgoing_Call_Status = 'Scheduled') and Call_Start_Time between "
+                       f"'{d1}T00:00:00{tzs}' and '{d1}T23:59:59{tzs}')"):
+            if _uid(r):
+                _q(_uid(r))["calls_scheduled_today"] += 1
+        for r in _rows(f"select id, Owner from Tasks where ((Owner.id in ({ids}) and "
+                       f"Status in ('Not Started','In Progress','Waiting for input','Deferred')) "
+                       f"and Due_Date <= '{d1}')"):
+            if _uid(r):
+                _q(_uid(r))["tasks_open"] += 1
         return out
 
     def get_scheduled_followup_calls(self, start_iso: str, end_iso: str) -> list[dict]:
