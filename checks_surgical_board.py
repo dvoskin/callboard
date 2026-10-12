@@ -573,6 +573,15 @@ try:
     A._attach_crm_created(_rep2, "2026-07-29T00:00:00-04:00", "2026-07-29T23:59:59-04:00")
     ck("a stuck in-flight read older than the guard is restarted", _ran.wait(5), "no new read started")
     ck("and /api/build shows the breakdown state", "crm_breakdown" in (c.get("/api/build").get_json() or {}), "diag missing")
+    # when the read lands, the report cache for that window is dropped so the next poll carries the CRM
+    A._v6_cache[("2026-07-29", "2026-07-29", -240, "surgical")] = {"at": time.time(), "report": {"meta": {}}, "ttl": 150.0}
+    A._v6_cache[("2026-07-30", "2026-07-30", -240, "surgical")] = {"at": time.time(), "report": {"meta": {}}, "ttl": 150.0}
+    A._CRM_ASYNC = False; A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
+    A._zoho.activity_breakdown = lambda s_, e_, ids, start_date=None, end_date=None: {"u-judith": {"calls": {"created": 0, "due": 0, "completed": 0, "overdue": 0}, "tasks": {"created": 0, "due": 0, "completed": 0, "open": 0}}}
+    A._attach_crm_created({"ranked": [{"name": "Judith Merlo"}], "silent": [], "stalled": [], "unknown": []}, "2026-07-29T00:00:00-04:00", "2026-07-29T23:59:59-04:00")
+    ck("the report cache for that window is dropped when the CRM read lands; other windows stay",
+       ("2026-07-29", "2026-07-29", -240, "surgical") not in A._v6_cache and ("2026-07-30", "2026-07-30", -240, "surgical") in A._v6_cache, sorted(A._v6_cache))
+    A._v6_cache.pop(("2026-07-30", "2026-07-30", -240, "surgical"), None); A._CRM_ASYNC = True
 finally:
     _gate.set()
     A._zoho.list_users, A._zoho.activity_breakdown = _real_users, _real_bd

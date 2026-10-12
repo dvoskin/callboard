@@ -1501,7 +1501,10 @@ if not BILLING_TOKEN:
           "/v6 still works behind the normal login.", flush=True)
 
 _v6_cache: dict = {}
-_v6_lock = threading.Lock()
+# RLock: the CRM read drops report-cache entries for its window, and on the
+# synchronous path (the checks) it runs INSIDE _v6_build, which already
+# holds this lock -- a plain Lock deadlocked the suite on 2026-10-12.
+_v6_lock = threading.RLock()
 _V6_TTL_TODAY = 150.0        # today moves; matches the warmer's refresh cadence
 _V6_TTL_PAST = 3600.0        # a finished day is final
 
@@ -4371,6 +4374,17 @@ def _crm_breakdown_read(key, names, start_iso, end_iso):
             _crm_bd_inflight.pop(key, None)
             _crm_bd_last.update(at=time.time(), took=round(time.time() - t0, 1),
                                 ok=by is not None, error=meta.get("error"), window=key[:2])
+    # The reports built while this read was in flight say "being read" and sit
+    # in the report cache for up to 150s. Drop them for this window so the next
+    # poll rebuilds with the CRM attached, instead of waiting the cache out.
+    if by is not None:
+        try:
+            ds, de = key[0][:10], key[1][:10]
+            with _v6_lock:
+                for k in [k for k in _v6_cache if k[0] == ds and k[1] == de]:
+                    _v6_cache.pop(k, None)
+        except Exception:  # noqa: BLE001
+            pass
     return by, meta
 
 
