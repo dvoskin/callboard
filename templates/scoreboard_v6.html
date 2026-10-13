@@ -704,7 +704,11 @@
     var rgb = c0.map(function (v, k) { return Math.round(v + (c1[k] - v) * f); });
     var tip = 'Progress on the window\u2019s calls and tasks: ' + done + ' of ' + due + ' done (' + pct + '%) \u2014 ' +
               (jc.completed || 0) + ' of ' + (jc.due || 0) + ' planner calls, ' + (tt.completed || 0) + ' of ' + (tt.due || 0) + ' tasks';
-    return '<span class="prog" title="' + esc(tip) + '" aria-label="' + pct + '% done"><i style="width:' + pct + '%;background:rgb(' + rgb.join(',') + ')"></i></span>';
+    // Nothing done yet still has to SHOW: a 0% fill is invisible, which read as
+    // "no hairline" for the inbound seats on 2026-10-13. A short red sliver
+    // says "work due, none done" instead of saying nothing.
+    var w = Math.max(pct, 4);
+    return '<span class="prog" title="' + esc(tip) + '" aria-label="' + pct + '% done"><i style="width:' + w + '%;background:rgb(' + rgb.join(',') + ')"></i></span>';
   }
 
   function smsChip(a) {
@@ -1160,7 +1164,7 @@
         'CRM calls': 'Zoho Calls owned by this person with a start time in the window: completed and overdue; logged = created in the window. To fix: Calls > My Journey Calls, overdue first; mark Completed even on no answer.',
         'Tasks': 'Zoho Tasks owned by this person: due in the window, completed, still open. To fix: Tasks > My Today + Overdue Tasks.',
         'Journeys': 'Journeys (patient cases) owned by this coordinator with Case Status Active.',
-        'Planner calls': 'The cadence planner\u2019s \u201cJourney call \u2013 \u2026\u201d calls due in the window: done, overdue, still scheduled. To fix: Calls > My Journey Calls, overdue first; never leave one Overdue.',
+        'Planner calls': 'The cadence planner\u2019s calls due in the window (subjects like \u201cName \u00b7 Attempt 1/4: check-in \u00b7 Surg Nov 3\u201d): done, overdue, still scheduled. To fix: Calls > My Journey Calls, overdue first; never leave one Overdue.',
         'Surgeries': 'Active Journeys owned by this coordinator with a surgery date inside the next 14 days. Where: Journeys > My Upcoming Surgeries (30 Days).',
         'Not ready': 'Of those surgeries: labs pending, medical clearance pending, or a balance still due. A blank status is not counted as a finding. This is what Zoho says, not a verified fact: check DrChrono first -- results and clearance letters often land in the chart before Zoho is updated -- and confirm balances in Books. Where: Journeys > Within 14 Days - Not Ready; if it is there, set Lab Status / MC Status in Zoho, otherwise chase.',
         'SMS': 'Texts sent and received on this seat\u2019s RingEX extension in the window.',

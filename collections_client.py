@@ -185,6 +185,26 @@ for _i, _n in enumerate(["january", "february", "march", "april", "may", "june",
 _MONTHS["sept"] = 9
 
 
+def _year(stated, default_year):
+    """The year a hand-typed date means, or None when it cannot be placed.
+
+    A two-digit year is this century. A year that cannot be real -- "0206"
+    for 2026, the typo that hid Ana's whole 2026-10-13 (88 rows, $11,149)
+    -- carries no information, exactly like a missing one, so it takes the
+    year carried forward from the rows above. Without a carried year there
+    is still nothing to trust, and the row stays uncounted rather than
+    guessed into the current year.
+    """
+    y = int(stated) if stated else None
+    if y is not None and y < 100:
+        y += 2000
+    if y is None or not (YEAR_LO <= y <= YEAR_HI):
+        y = default_year
+    if y is None or not (YEAR_LO <= y <= YEAR_HI):
+        return None
+    return y
+
+
 def parse_date(raw, default_year=None):
     """Hand-typed date -> date, or None. None means 'do not trust', not 'blank'.
 
@@ -210,12 +230,8 @@ def parse_date(raw, default_year=None):
     m = re.match(r"^(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?$", txt)
     if m:
         a, b = int(m.group(1)), int(m.group(2))
-        y = int(m.group(3)) if m.group(3) else default_year
+        y = _year(m.group(3), default_year)
         if y is None:
-            return None
-        if y < 100:
-            y += 2000
-        if not (YEAR_LO <= y <= YEAR_HI):
             return None
         try:
             if a > 12 and b <= 12:
@@ -233,8 +249,8 @@ def parse_date(raw, default_year=None):
         if not mon:
             return None
         d = int(m.group(2))
-        y = int(m.group(3)) if m.group(3) else default_year
-        if y is None or not (YEAR_LO <= y <= YEAR_HI):
+        y = _year(m.group(3), default_year)
+        if y is None:
             return None
         try:
             return date(y, mon, d)

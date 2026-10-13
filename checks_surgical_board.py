@@ -588,17 +588,30 @@ finally:
     A._zoho.journey_breakdown = _real_jbd
     A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
 
-for e in errors:
-    print("  FAIL", e)
-print("\n%d failed" % len(errors))
-sys.exit(1 if errors else 0)
+# No tally and no exit here. Until 2026-10-13 this spot printed "0 failed" and
+# called sys.exit, so the 150 lines of checks below it -- the pace column, the
+# SMS chip, missed calls, the progress hairline -- never ran once while the
+# suite read green. The one tally is at the END of the file.
 
 # ---- Danny, 2026-10-07 evening: no pace column on surgical; the SMS chip is back on both boards ----
 _tpl2 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
 ck("surgical reports pace_column off, billing on", A._TEAM_PACE_COLUMN.get("surgical") is False and A._TEAM_PACE_COLUMN.get("billing", True) is True, A._TEAM_PACE_COLUMN)
-_rj = c.get("/api/v6/report?team=surgical&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
-_rb = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
-ck("and the report JSON carries it", _rj.get("pace_column") is False and _rb.get("pace_column") is True, (_rj.get("pace_column"), _rb.get("pace_column")))
+# Built behind the same platform stubs as the first build above: with the real
+# fetchers back in place the report is a token error with no pace_column at all.
+_sv2 = (A._v6_fetch_ringex, A._v6_cx_rows_for_team, A._v6_fetch_sms)
+A._v6_fetch_ringex = lambda seats, d_, lt, tz: ({x["name"]: {"rows": [], "ext": x["ext"], "ext_id": x["ext_id"], "complete": True,
+                                                            "missing_days": []} for x in seats}, {"cached": 0, "fetched": 0, "missing": 0})
+A._v6_cx_rows_for_team = lambda t, d_, seats: ({x["name"]: [] for x in seats}, len(d_), {})
+A._v6_fetch_sms = lambda r_, d_, lt, tz: ({}, {})
+try:
+    _cls.configured = property(lambda self: True)      # the wrapper's "not configured" gate, lifted
+    _rj = c.get("/api/v6/report?team=surgical&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+    _rb = c.get("/api/v6/report?team=billing&start=2026-07-29&end=2026-07-29&tz=240").get_json() or {}
+finally:
+    A._v6_fetch_ringex, A._v6_cx_rows_for_team, A._v6_fetch_sms = _sv2
+    if _real_cfg is not None: _cls.configured = _real_cfg
+ck("and the report JSON carries it", _rj.get("pace_column") is False and _rb.get("pace_column") is True,
+   (_rj.get("pace_column"), _rb.get("pace_column"), str(_rj.get("error"))[:120], str(_rj.get("detail"))[:160]))
 ck("the page drops the column and its heading where pace_column is false",
    "var paceCol = live && d.pace_column !== false;" in _tpl2 and "(paceCol ? '<div class=\"a-pc\">vs expected</div>' : '')" in _tpl2
    and "(paceCol ? paceCell(pace, 'talk_minutes', 'm') : '')" in _tpl2 and ".live.nopace .hd,.live.nopace .r{" in _tpl2 and ".live.nopace .r{grid-template-areas:\"nm tk tk\"" in _tpl2, "pace column not gated")
@@ -639,7 +652,22 @@ ck("an inbound with no reply is unanswered", _rp8["unanswered"] == 1 and _rp8["t
 _rep8b = build_report({"Judith Merlo": {"rows": _rows8, "ext": "185", "ext_id": 1, "complete": True}},
                       tz_offset_minutes=-240, window={"start": "2026-10-07", "end": "2026-10-07"})
 ck("no shift on file -> no lateness judged, start still shown", _rep8b["ranked"][0]["day"]["shift_days"] == 0 and _rep8b["ranked"][0]["day"]["focus"]["late_minutes"] is None and _rep8b["ranked"][0]["day"]["focus"]["first"] == "10:14 AM", _rep8b["ranked"][0]["day"])
-ck("a RingCX row carries the other party's number for reach", any("number" in r for rs in _got.get("rows", {}).values() for r in rs), "number missing on CX rows")
+# The real converter, fed one delivered report: "Lead Phone" (ani) is the
+# patient in BOTH directions, "Caller ID" (dnis) the company line. Checking
+# the stubbed rows of the first build proved nothing about this.
+_sv9 = (A._inbox_paths_all_scopes, A._parse_inbox_cached)
+A._inbox_paths_all_scopes = lambda day: ["one-report"]
+A._parse_inbox_cached = lambda path: [
+    {"agent_name": "Judith Merlo", "direction": "Outbound", "result": "Outbound Answered", "ani": "3055550101", "dnis": "3055550000", "start_time": "10:00:00", "talk_time": 60},
+    {"agent_name": "Judith Merlo", "direction": "Inbound", "result": "Inbound Missed", "ani": "3055550202", "dnis": "3055550000", "start_time": "10:05:00", "talk_time": 0}]
+try:
+    _cx9, _fd9, _ = A._v6_cx_rows_for_team("surgical", ["2026-10-13"], [{"name": "Judith Merlo", "ext": "185", "ext_id": 1}])
+finally:
+    A._inbox_paths_all_scopes, A._parse_inbox_cached = _sv9
+_cx9r = _cx9.get("Judith Merlo") or []
+ck("a RingCX row carries the other party's number both ways, never the company line",
+   _fd9 == 1 and [r.get("number") for r in _cx9r] == ["3055550101", "3055550202"]
+   and [r["direction"] for r in _cx9r] == ["Outbound", "Inbound"] and [r["result"] for r in _cx9r] == ["Call connected", "Missed"], _cx9r)
 _tpl8 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
 ck("the panel carries Day, Reach, text replies and the Journeys lines -- the row does not",
    "blk('Day', dayLines" in _tpl8 and "blk('Reach', reachLines" in _tpl8 and "'Text replies'" in _tpl8 and "blk('Surgery readiness', readyLines" in _tpl8
@@ -704,7 +732,7 @@ ck("a teammate's callback counts too, and says who", _by13["3055550303"]["resolv
 ck("the number calling again and being answered clears it", _by13["3055550404"]["resolved"] and "answered" in _by13["3055550404"]["back"]["how"], _by13["3055550404"])
 ck("one stays open", not _by13["3055550202"]["resolved"] and _j13["missed_summary"] == {"missed": 4, "called_back": 3, "open": 1}, _j13["missed_summary"])
 ck("newest first", [m["at"] for m in _j13["missed_calls"]][0] == "11:15 AM", [m["at"] for m in _j13["missed_calls"]])
-ck("reach now counts people (Lead Phone both ways), not the company caller id", _j13["reach"]["unique_outbound"] == 2, _j13["reach"])
+ck("reach counts people both ways: four numbers, one of them dialled", _j13["reach"]["unique_contacts"] == 4 and _j13["reach"]["unique_outbound"] == 1, _j13["reach"])
 _t13 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
 ck("the panel has a Missed calls block with tap-to-call numbers and a fix-list line",
    "blk('Missed calls', missedLines" in _t13 and "href=\"tel:+1' + esc(m.digits)" in _t13 and "line('Missed calls', ms.open" in _t13 and "'Missed calls':" in _t13, "missed calls block missing")
@@ -714,6 +742,35 @@ ck("the collapsed row carries a progress hairline whose length and colour follow
    _tpl8.count("queueChip(a) + progressBar(a)") == 3 and "function progressBar(a)" in _tpl8 and "var stops = [[176, 58, 49], [217, 119, 6], [22, 163, 74]];" in _tpl8
    and ".prog i{display:block;height:100%" in _tpl8 and "if (!due) return '';" in _tpl8, "progress bar missing")
 
+# The planner's call subjects changed shape on 2026-10-13 ("Name · Attempt
+# 1/4: check-in · Surg Nov 3"); matching only "Journey call -" counted zero
+# planner calls and zero overdue for every coordinator, and the inbound seats'
+# progress hairline had nothing to draw. Every Calls query in the Journeys read
+# must accept both shapes.
+import zoho_client as _zc
+_seen_q = []
+class _R204:
+    status_code = 204; ok = True; text = ""
+    def json(self): return {}
+_real_post = _zc.requests.post
+_zc.requests.post = lambda *a, **k: (_seen_q.append((k.get("json") or {}).get("select_query", "")) or _R204())
+A._zoho._headers = lambda: {}          # no token refresh from a check
+try:
+    _zc_cls = type(A._zoho)
+    _zc_cls.journey_breakdown(A._zoho, ["u-1"], "2026-10-13T00:00:00-04:00", "2026-10-13T23:59:59-04:00", "2026-10-13")
+finally:
+    _zc.requests.post = _real_post
+    del A._zoho._headers
+_callq = [q for q in _seen_q if " from Calls " in q and "Subject" in q]
+ck("planner-call queries carry a subject filter", len(_callq) == 2, len(_callq))
+ck("...that accepts the new subject shape", all("Subject like '% · Surg %'" in q for q in _callq), _callq)
+ck("...and still the old prefix", all("Subject like 'Journey call -%'" in q for q in _callq), _callq)
+ck("...as one OR'd pair, nested the way COQL accepts", all("and (Subject like 'Journey call -%' or Subject like '% · Surg %'))" in q for q in _callq), _callq)
+ck("zero done still draws a red sliver", "var w = Math.max(pct, 4);" in _tpl8 and "width:' + w + '%" in _tpl8, "min width missing")
+
 # the tally stays LAST: on 2026-10-13 it sat mid-file and nine later checks ran uncounted
+for e in errors:
+    print("  FAIL", e)
 print("%d passed" % passed)
-print("%d failed" % failed)
+print("\n%d failed" % len(errors))
+sys.exit(1 if errors else 0)

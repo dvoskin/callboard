@@ -3311,7 +3311,8 @@ class ZohoClient:
           soon.total            of those, surgery within 14 days of anchor_date
           soon.not_ready        with labs pending, MC pending or a balance due
           soon.labs/mc/balance  the three reasons, counted separately
-          journey_calls.*       the planner's "Journey call - ..." Calls with a
+          journey_calls.*       the planner's Calls ("Journey call - ..." or
+                                "Name · Attempt 1/4: ... · Surg Nov 3") with a
                                 start time in the window: due / scheduled /
                                 overdue / completed
           queue.*               the work queue now (see the block below)
@@ -3379,9 +3380,17 @@ class ZohoClient:
             if mc: so["mc"] += 1
             if bal: so["balance"] += 1
             if labs or mc or bal: so["not_ready"] += 1
+        # What a planner call looks like. The planner first wrote "Journey call
+        # - ..."; since 2026-10-13 it writes "Name · Attempt 1/4: check-in ·
+        # Surg Nov 3" (and "Name · Pre-op confirm · Surg Oct 23"). Matching
+        # only the old prefix counted ZERO planner calls and ZERO overdue for
+        # every coordinator while Zoho held 25 and 10 for Mier alone. Both
+        # shapes match; a logged phone call ("Call scheduled with ...",
+        # "Scheduled Call: ...") matches neither, so completed-by-logging calls
+        # do not inflate the done count.
+        planner = "(Subject like 'Journey call -%' or Subject like '% · Surg %')"
         for r in _rows(f"select id, Owner, Outgoing_Call_Status from Calls where ((Owner.id in ({ids}) "
-                       f"and Subject like 'Journey call -%') and Call_Start_Time between "
-                       f"'{start_iso}' and '{end_iso}')"):
+                       f"and Call_Start_Time between '{start_iso}' and '{end_iso}') and {planner})"):
             if not _uid(r):
                 continue
             c = _slot(_uid(r))["journey_calls"]; c["due"] += 1
@@ -3426,7 +3435,7 @@ class ZohoClient:
             except (ValueError, TypeError):
                 pass
         for r in _rows(f"select id, Owner from Calls where ((Owner.id in ({ids}) and "
-                       f"Subject like 'Journey call -%') and Outgoing_Call_Status = 'Overdue')"):
+                       f"Outgoing_Call_Status = 'Overdue') and {planner})"):
             if _uid(r):
                 _q(_uid(r))["calls_overdue"] += 1
         for r in _rows(f"select id, Owner from Calls where ((Owner.id in ({ids}) and "

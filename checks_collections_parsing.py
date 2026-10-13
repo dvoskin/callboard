@@ -162,6 +162,28 @@ def run():
         ("...so nothing is dropped", st7.get("subtotal_rows", 0), 0),
     ]
 
+    # An impossible year is a typo, not a date: "10/13/0206" is how Ana's tab
+    # spelled 2026-10-13 (88 rows, $11,149), and the day vanished from the
+    # board. It carries the year forward like a year-less cell does -- and
+    # with no year to carry, it is still not guessed.
+    per8, st8 = _tab([
+        "Date,Patient Name,Amount Collected",
+        "10/12/2026,A,$100",
+        "10/13/0206,B,$200",
+        '"Oct 14, 0206",C,$300',
+    ])
+    per9, st9 = _tab([
+        "Date,Patient Name,Amount Collected",
+        "10/13/0206,B,$200",
+    ])
+    cases += [
+        ("typo year carries forward", per8.get(date(2026, 10, 13)), 200.0),
+        ("...month-name shape too", per8.get(date(2026, 10, 14)), 300.0),
+        ("...not counted as bad", st8.get("bad_date", 0), 0),
+        ("typo year with nothing to carry", len(per9), 0),
+        ("...is still a bad date", st9.get("bad_date", 0), 1),
+    ]
+
     for label, got, want in cases:
         ok = got == want
         print("  %-34s want %-10s got %-10s %s"

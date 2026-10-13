@@ -403,9 +403,13 @@ def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40):
             if d2 == "Inbound" and res2 == "Accepted":
                 back = {"at": _hhmm(t2), "by": who, "how": "called again, answered", "connected": True}
                 break
-        out.append({"at": _hhmm(t), "date": t.date().isoformat(), "number": _fmt_phone(num), "digits": num,
-                    "resolved": back is not None, "back": back, "by_self": bool(back and back["by"] == name)})
-    out.sort(key=lambda m: (m["date"], m["at"]), reverse=True)
+        out.append((t, {"at": _hhmm(t), "date": t.date().isoformat(), "number": _fmt_phone(num), "digits": num,
+                        "resolved": back is not None, "back": back, "by_self": bool(back and back["by"] == name)}))
+    # Sorted on the time itself. Sorting on the "9:00 AM" string put 9:00
+    # above 11:15, because "9" > "1" -- the check that would have caught it
+    # sat behind an early sys.exit until 2026-10-13.
+    out.sort(key=lambda m: m[0], reverse=True)
+    out = [m for _, m in out]
     summary = {"missed": len(out), "called_back": sum(1 for m in out if m["resolved"]),
                "open": sum(1 for m in out if not m["resolved"])}
     return out[:limit], summary
