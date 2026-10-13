@@ -17,13 +17,56 @@ Required env vars:
 """
 
 import os
+import re
 import time
 import logging
+import unicodedata
 import requests
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+
+# ── Typed vs automated outbound SMS ──────────────────────────────────────
+# Zoho automations (HelloSend) send the Journey and billing texts THROUGH the
+# coordinators' own RingEX numbers, so the message store files them as that
+# person's outbound SMS: on 2026-10-13 Judith Merlo read 71 sent, of which 28
+# were automated and 43 typed. The message store has no "sent by API" flag;
+# the only separator is the text itself. Every automated template ends with a
+# STOP line or the coordinator signature, and nobody typing by hand writes
+# those, so a marker anywhere in the body means automated.
+AUTO_SMS_MARKERS = (
+    "Reply STOP to opt out",
+    "Responde STOP para cancelar",
+    "Surgical Coordinator at GOALS",
+    "GOALS Coordinator",
+    "Coordinación GOALS",
+    "Reply STOP",
+)
+
+
+def _sms_norm(s):
+    # NFC so a decomposed "o + combining acute" still matches "ó"; whitespace
+    # runs (newlines, non-breaking spaces) to one space; casefold for the
+    # case-insensitive match.
+    s = unicodedata.normalize("NFC", s)
+    return re.sub(r"\s+", " ", s).casefold()
+
+
+_AUTO_SMS_MARKERS_NORM = tuple(_sms_norm(m) for m in AUTO_SMS_MARKERS)
+
+
+def classify_outbound_sms(text):
+    """Return "auto" when the body carries an automated-template marker, else "typed".
+
+    A missing or empty body is "typed": the rule is to count it as the person's
+    and not to guess. Only ever applied to OUTBOUND messages.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return "typed"
+    t = _sms_norm(text)
+    return "auto" if any(m in t for m in _AUTO_SMS_MARKERS_NORM) else "typed"
 
 
 class RingCXClient:
@@ -1845,9 +1888,10 @@ class RingCXClient:
                     to0 = to_list[0] if to_list else {}
                     mtype = rec.get("type", "") or ""
                     meta["types"][mtype] = meta["types"].get(mtype, 0) + 1
-                    rows[rec.get("id") or f"{page}:{len(rows)}"] = {
+                    direction = rec.get("direction", "") or ""
+                    row = {
                         "id": rec.get("id", ""),
-                        "direction": rec.get("direction", "") or "",
+                        "direction": direction,
                         "type": mtype,
                         "start_time": rec.get("creationTime", "") or "",
                         "from_number": frm.get("phoneNumber", "") or "",
@@ -1858,6 +1902,16 @@ class RingCXClient:
                         "has_attachment": bool(rec.get("attachments")),
                         "source": "ringex_sms",
                     }
+                    # Typed by the person or sent by a Zoho automation through
+                    # their number. Classified HERE from `subject` (the SMS
+                    # body, in this same list response) and only the verdict is
+                    # kept: the body is patient text and the rows are written
+                    # to disk as day snapshots. A row without `sent_by` is an
+                    # older snapshot, read before this existed: its split is
+                    # unknown, never guessed.
+                    if direction == "Outbound":
+                        row["sent_by"] = classify_outbound_sms(rec.get("subject"))
+                    rows[rec.get("id") or f"{page}:{len(rows)}"] = row
                 if len(recs) < 250:
                     break
                 page += 1

@@ -226,6 +226,9 @@
        white-space:nowrap}
   .sms b{font-weight:700;color:var(--ink-2)}
   .sms-na{font-style:italic;font-weight:400}
+  .sms-split{font-weight:400}
+  /* the same split, as its own line under the name -- phones only (below) */
+  .sms-sub{display:none}
   .live .hd>*{padding-left:6px}
   .live .hd .a-nm{padding-left:0}
   .a-pc{grid-area:pc} .pc{grid-area:pc;font-weight:700;font-size:12.5px}
@@ -437,6 +440,12 @@
        2026-10-07 evening: "display the inbound outbound sms arrows for all
        agents across both rosters") -- small, after the name */
     .sms{font-size:10px;margin-left:5px;white-space:nowrap}
+    /* Typed/auto inside the chip made the name+pill+chip run too wide for a
+       375px row, and the NAME broke across two lines instead. On a phone the
+       chip stays "71 up 53 down" and the split drops to a line of its own. */
+    .sms .sms-split{display:none}
+    .sms-sub{display:block;margin:1px 0 0;font-size:10px;font-weight:400;
+             color:var(--muted);white-space:normal;line-height:1.35}
     .pq{font-size:10px;white-space:normal;line-height:1.35}
     .r{padding:6px 0}
     .tk{font-size:13.5px}
@@ -721,11 +730,26 @@
     if (!s) return '';
     if (s.unknown) return '<span class="sms sms-na" title="The message store could ' +
       'not be read for this seat, so this is unknown -- not zero.">SMS not read</span>';
-    var tip = s.sent + ' sent, ' + s.received + ' received' +
+    // Sent splits into typed by the person and automated: Zoho (HelloSend)
+    // sends the Journey and billing texts through the coordinators' own
+    // numbers, so the total alone credited them with texts they never wrote
+    // (Judith Merlo, 2026-10-13: 71 sent = 43 typed + 28 automated). No split
+    // when the window holds messages read before it existed -- the total alone
+    // then, never a guessed share.
+    var split = s.sent_typed != null && s.sent_auto != null;
+    var tip = s.sent + ' sent' +
+      (split ? ' (' + s.sent_typed + ' typed by hand, ' + s.sent_auto +
+               ' automated Zoho texts sent through this number)' : '') +
+      ', ' + s.received + ' received' +
       (s.complete ? '' : ' -- PART of the window could not be read, so this is a floor');
     return '<span class="sms" title="' + esc(tip) + '">' +
-      '<b>' + s.sent + '</b>&uarr; <b>' + s.received + '</b>&darr;' +
-      (s.complete ? '' : '+') + '</span>';
+      '<b>' + s.sent + '</b>&uarr;' +
+      (split ? ' <span class="sms-split">(' + s.sent_typed + ' typed \u00b7 ' +
+               s.sent_auto + ' auto)</span>' : '') +
+      ' <b>' + s.received + '</b>&darr;' +
+      (s.complete ? '' : '+') + '</span>' +
+      (split ? '<span class="sms-sub">texts sent: ' + s.sent_typed + ' typed \u00b7 ' +
+               s.sent_auto + ' auto</span>' : '');
   }
 
   // A metric cell coloured by where it lands against the KPI.
@@ -1308,6 +1332,11 @@
                        a.sms.sent_per_day + ' sent per working day &middot; texted on ' +
                        a.sms.active_days + ' day' + (a.sms.active_days === 1 ? '' : 's') +
                        (a.sms.complete ? '' : ' &middot; <b>partial read</b>'));
+        // Its own line: inside the value above it squeezed the tail into a
+        // one-word column. Absent for a window read before the split existed.
+        if (a.sms.sent_typed != null && a.sms.sent_auto != null)
+          smsLine += line('Sent', a.sms.sent_typed + ' typed \u00b7 ' + a.sms.sent_auto + ' auto',
+                          'auto = Zoho automations on this number');
       }
 
       var body, mline;

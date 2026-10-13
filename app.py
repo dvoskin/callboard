@@ -1709,8 +1709,16 @@ def _v6_sms_save_day(ext_id, day_iso, rows):
         log.warning("v6 sms snapshot unwritable %s: %s", p, e)
 
 
+def _v6_sms_unsplit(rows):
+    """True for a day snapshot read before outbound SMS carried `sent_by`
+    (typed vs automated). It still loads and its totals still count; only the
+    split is unknown, so the warmer re-reads it after the true gaps."""
+    return any(r.get("direction") == "Outbound" and "sent_by" not in r
+               for r in rows or [])
+
+
 def _v6_fetch_sms_day(ext_id, day_iso, tz_offset_minutes):
-    """One seat, one local day of SMS. Returns (rows, ok, group)."""
+    """One seat, one local day of SMS. Returns (rows, ok, group, why)."""
     start_dt = _parse_local_date_to_utc(day_iso, 0, 0, 0, tz_offset_minutes)
     end_dt = _parse_local_date_to_utc(day_iso, 23, 59, 59, tz_offset_minutes)
     rows, meta = _ringcx.fetch_extension_messages(
@@ -2775,16 +2783,30 @@ def _v6_warm_loop():
                                 _v6_warm_state["sms_error"] = "today %s" % seat["ext_id"]
                                 break
                     # Backfill finished SMS days, newest first, small slice per cycle.
-                    sms_gaps = []
+                    # Then re-read days snapshotted before outbound texts were
+                    # split typed/automated: those still load and count, but
+                    # their split is unknown until re-read. Missing days first --
+                    # a day with no figure at all matters more than a day whose
+                    # figure lacks the split.
+                    sms_gaps, sms_unsplit = [], []
                     for seat in roster:
                         for i in range(1, _V6_WARM_DAYS + 1):
                             day = (today - timedelta(days=i)).isoformat()
-                            if _v6_sms_load_day(seat["ext_id"], day) is None:
+                            snap = _v6_sms_load_day(seat["ext_id"], day)
+                            if snap is None:
                                 sms_gaps.append((seat["ext_id"], day))
+                            elif _v6_sms_unsplit(snap):
+                                sms_unsplit.append((seat["ext_id"], day))
                     _v6_warm_state["sms_missing"] = len(sms_gaps)
+                    _v6_warm_state["sms_unsplit"] = len(sms_unsplit)
                     sms_gaps.sort(key=lambda g: g[1], reverse=True)
-                    for eid, day in sms_gaps[:20]:
-                        rows, ok, grp = _v6_fetch_sms_day(eid, day, tz_off)
+                    sms_unsplit.sort(key=lambda g: g[1], reverse=True)
+                    for eid, day in (sms_gaps + sms_unsplit)[:20]:
+                        # Four values since fd50852 added `why`. This line still
+                        # unpacked three, so every backfill pass died here with
+                        # "too many values to unpack" and no finished SMS day was
+                        # ever filled in the background.
+                        rows, ok, grp, _why = _v6_fetch_sms_day(eid, day, tz_off)
                         if grp:
                             _v6_warm_state["sms_rate_group"] = grp
                         if not ok:
@@ -2876,6 +2898,8 @@ def api_v6_sms_probe():
         "pages": meta.get("pages"), "types_seen": meta.get("types"),
         "messages": len(rows),
         "sent": sum(1 for r in rows if r.get("direction") == "Outbound"),
+        "sent_typed": sum(1 for r in rows if r.get("sent_by") == "typed"),
+        "sent_auto": sum(1 for r in rows if r.get("sent_by") == "auto"),
         "received": sum(1 for r in rows if r.get("direction") == "Inbound"),
     })
 

@@ -247,16 +247,37 @@ def _fold(bucket, row):
 
 
 def _blank_sms():
-    return {"sent": 0, "received": 0, "total": 0, "inbound_conversations": 0}
+    return {"sent": 0, "received": 0, "total": 0, "inbound_conversations": 0,
+            "sent_typed": 0, "sent_auto": 0, "sent_unsplit": 0}
 
 
 def _fold_sms(bucket, row):
-    """Add one message to a bucket. Outbound = sent by the agent."""
+    """Add one message to a bucket. Outbound = sent FROM the agent's number,
+    which includes the Zoho automations that text through it: `sent_by` on the
+    row (set when the message store was read) splits typed from automated. A
+    row without it is an older snapshot -- counted in `sent`, and in
+    `sent_unsplit`, never guessed into either side."""
     bucket["total"] += 1
     if row.get("direction") == "Outbound":
         bucket["sent"] += 1
+        by = row.get("sent_by")
+        if by == "typed":
+            bucket["sent_typed"] += 1
+        elif by == "auto":
+            bucket["sent_auto"] += 1
+        else:
+            bucket["sent_unsplit"] += 1
     elif row.get("direction") == "Inbound":
         bucket["received"] += 1
+
+
+def _sms_split(bucket):
+    """(typed, auto) for a bucket, or (None, None) when any outbound message in
+    it predates the split -- a partial split would print a typed figure that is
+    short by an unknown amount, so the board shows the total alone instead."""
+    if bucket["sent_unsplit"]:
+        return None, None
+    return bucket["sent_typed"], bucket["sent_auto"]
 
 
 def _hhmm(t):
@@ -677,8 +698,16 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 if t is None:
                     continue
                 _fold_sms(sby_day.setdefault(t.date().isoformat(), _blank_sms()), r)
+            s_typed, s_auto = _sms_split(stot)
             sms = {
                 "sent": stot["sent"], "received": stot["received"], "total": stot["total"],
+                # `sent` split by who wrote it: typed by the person, or a Zoho
+                # automation texting through their number. Both None when the
+                # window includes messages read before the split existed --
+                # the board then shows the total alone. sent_unsplit says how
+                # many outbound messages that was.
+                "sent_typed": s_typed, "sent_auto": s_auto,
+                "sent_unsplit": stot["sent_unsplit"],
                 # Per WORKED day, the same denominator every other per-day figure
                 # on this board uses, so the columns are comparable.
                 "sent_per_day": round(stot["sent"] / n, 1),
@@ -787,8 +816,12 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
     if sms_seats:
         t_sent = sum(a["sms"]["sent"] for a in sms_seats)
         t_recv = sum(a["sms"]["received"] for a in sms_seats)
+        # The split only when EVERY counted seat has one; otherwise None.
+        t_split = all(a["sms"].get("sent_typed") is not None for a in sms_seats)
         team_summary["sms"] = {
             "sent": t_sent, "received": t_recv, "total": t_sent + t_recv,
+            "sent_typed": sum(a["sms"]["sent_typed"] for a in sms_seats) if t_split else None,
+            "sent_auto": sum(a["sms"]["sent_auto"] for a in sms_seats) if t_split else None,
             "sent_per_day": round(t_sent / team_days, 1),
             "received_per_day": round(t_recv / team_days, 1),
             "seats": len(sms_seats), "seats_total": len(agents),
