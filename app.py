@@ -605,6 +605,26 @@ def _inbox_file_shape(path, rows):
     }
 
 
+def _collections_diag():
+    try:
+        coll, cmeta = _collections.cached()
+        now = time.time()
+        today = (datetime.now(timezone.utc) - timedelta(minutes=-int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)).date()
+        last7 = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+        per = {}
+        for who, days in (coll or {}).items():
+            keys = {k.isoformat() if hasattr(k, "isoformat") else str(k) for k in days}
+            per[who] = {"days_with_rows_last_7": sorted(d for d in last7 if d in keys), "today": today.isoformat() in keys,
+                        "latest_day": max(keys) if keys else None}
+        st = dict(_collections_state)
+        for k in ("last_ok_at", "last_attempt_at", "error_at"):
+            if st.get(k): st[k + "_age_seconds"] = round(now - st[k]); st.pop(k, None)
+        return {"state": st, "meta": {k: v for k, v in (cmeta or {}).items() if k in ("age_seconds", "stale", "tabs", "read_at", "source", "error", "note")},
+                "per_biller": per, "today": today.isoformat()}
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:160]}
+
+
 def _crm_bd_diag():
     """The background CRM read as it stands: what is in flight (and for how
     long), what is cached (and whether it errored), and the newest outcome.
@@ -771,6 +791,10 @@ def api_build():
         # down (Danny, 2026-10-08: "my sales call liveboard got thrown off").
         "live_feeds": _live_feeds_diag(),
         "crm_breakdown": _crm_bd_diag(),
+        # The collections sheet as the process holds it: refresh state and, per
+        # biller, which of the last 7 days have rows. Dates and counts only --
+        # never amounts. Added 2026-10-13 when Ana's total did not show.
+        "collections": _collections_diag(),
         "started_at": datetime.fromtimestamp(_BOOT_AT, timezone.utc).isoformat(),
         "uptime_seconds": round(up),
         "uptime_human": "%dh %dm" % (up // 3600, (up % 3600) // 60),

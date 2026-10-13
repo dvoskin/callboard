@@ -213,7 +213,12 @@
   .pq{display:block;margin:2px 0 0;font-size:11px;color:var(--muted);white-space:nowrap;
       font-weight:400;letter-spacing:0;cursor:help}
   .pq b{font-weight:700;color:var(--ink)} .pq b.hot{color:var(--dn)}
+  /* the progress hairline under the queue line */
+  .prog{display:block;height:3px;max-width:240px;margin-top:4px;border-radius:2px;background:var(--hair);
+        overflow:hidden;cursor:help}
+  .prog i{display:block;height:100%;border-radius:2px;transition:width .4s}
   .agent .pq{display:none}
+  .agent .prog{max-width:320px}
   .mon{margin-left:8px;font-size:11px;color:var(--muted);white-space:nowrap}
   .mon a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--hair)}
   .mon a:hover{color:var(--up);border-color:var(--up)}
@@ -681,6 +686,27 @@
            n(qu.calls_scheduled_today, false) + ' calls' + (qu.calls_overdue ? ' (' + n(qu.calls_overdue, true) + ' overdue)' : '') + '</span>';
   }
 
+  // A hairline under the queue line: how much of today's planner calls and
+  // tasks are done, as length AND colour (red through amber to green).
+  // Danny, 2026-10-13: "some sort of super minimal color gradient indicating
+  // task/call progress ... in the collapsed state". Surgical seats only.
+  function progressBar(a) {
+    var jn = ((a || {}).crm || {}).journeys;
+    if (!jn || !jn.queue) return '';
+    var jc = jn.journey_calls || {}, tt = ((a.crm || {}).tasks) || {};
+    var due = (jc.due || 0) + (tt.due || 0), done = (jc.completed || 0) + (tt.completed || 0);
+    if (!due) return '';
+    var pct = Math.max(0, Math.min(100, Math.round(100 * done / due)));
+    // red (0) -> amber (50) -> green (100), interpolated per channel
+    var stops = [[176, 58, 49], [217, 119, 6], [22, 163, 74]];
+    var t = pct / 50, i = Math.min(1, Math.floor(t)), f = t - i;
+    var c0 = stops[i], c1 = stops[Math.min(2, i + 1)];
+    var rgb = c0.map(function (v, k) { return Math.round(v + (c1[k] - v) * f); });
+    var tip = 'Progress on the window\u2019s calls and tasks: ' + done + ' of ' + due + ' done (' + pct + '%) \u2014 ' +
+              (jc.completed || 0) + ' of ' + (jc.due || 0) + ' planner calls, ' + (tt.completed || 0) + ' of ' + (tt.due || 0) + ' tasks';
+    return '<span class="prog" title="' + esc(tip) + '" aria-label="' + pct + '% done"><i style="width:' + pct + '%;background:rgb(' + rgb.join(',') + ')"></i></span>';
+  }
+
   function smsChip(a) {
     if (!SHOW_SMS_CHIP) return '';
     // A board with SMS switched off shows nothing at all -- not "not read".
@@ -1066,14 +1092,14 @@
       if (quiet) {
         h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
           '<div class="rk">' + (i + 1) + '</div>' +
-          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + progressBar(a) + '</div>' +
           '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
           '</div>';
       } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + progressBar(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (paceCol ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -1473,7 +1499,7 @@
       var qid = slot + '_q' + qi;
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">&ndash;</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + progressBar(a) + '</div>' +
         // Danny, 2026-10-07, on six quiet seats reading only "No Activity":
         // "not showing any shift sched". They have no shift on file -- the
         // schedule sheet named eleven people -- and the line now says so,
