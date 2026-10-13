@@ -588,7 +588,6 @@ finally:
     A._zoho.journey_breakdown = _real_jbd
     A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
 
-print("%d passed" % passed)
 for e in errors:
     print("  FAIL", e)
 print("\n%d failed" % len(errors))
@@ -710,3 +709,7 @@ _t13 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates"
 ck("the panel has a Missed calls block with tap-to-call numbers and a fix-list line",
    "blk('Missed calls', missedLines" in _t13 and "href=\"tel:+1' + esc(m.digits)" in _t13 and "line('Missed calls', ms.open" in _t13 and "'Missed calls':" in _t13, "missed calls block missing")
 ck("the CX row carries Lead Phone as the number for both directions", '"number": r.get("ani") or ""' in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8").read(), "number mapping")
+
+# the tally stays LAST: on 2026-10-13 it sat mid-file and nine later checks ran uncounted
+print("%d passed" % passed)
+print("%d failed" % failed)
