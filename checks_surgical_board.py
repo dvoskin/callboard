@@ -680,3 +680,33 @@ try:
 finally:
     A._zoho.list_users, A._zoho.activity_breakdown, A._zoho.journey_breakdown = _real_users2, _real_bd2, _real_jbd2
     A._CRM_ASYNC = True; A._crm_bd_cache.clear(); A._crm_bd_inflight.clear()
+
+# ---- Danny, 2026-10-13: missed calls with the callback number, cleared when the callback shows up ----
+def _r13(hhmm, direction, result, num, name_rows):
+    h, m = hhmm.split(":")
+    name_rows.append({"direction": direction, "result": result, "duration": 60 if result in ("Call connected", "Accepted") else 0,
+                      "start_time": "2026-10-13T%02d:%02d:00-04:00" % (int(h), int(m)), "number": num})
+_ja, _oa = [], []
+_r13("10:00", "Inbound", "Missed", "3055550101", _ja)          # Judith missed A ...
+_r13("10:30", "Outbound", "No Answer", "3055550101", _ja)      # ... and called A back (no answer)
+_r13("11:00", "Inbound", "Missed", "3055550202", _ja)          # missed B, nobody called
+_r13("11:15", "Inbound", "Missed", "3055550303", _ja)          # missed C ...
+_r13("11:40", "Outbound", "Call connected", "3055550303", _oa) # ... Oscar called C back
+_r13("09:00", "Inbound", "Missed", "3055550404", _ja)          # missed D ...
+_r13("09:20", "Inbound", "Accepted", "3055550404", _ja)        # ... D called again and was answered
+_rep13 = build_report({"Judith Merlo": {"rows": _ja, "ext": "185", "ext_id": 1, "complete": True},
+                       "Oscar Caballero": {"rows": _oa, "ext": "167", "ext_id": 2, "complete": True}},
+                      tz_offset_minutes=-240, window={"start": "2026-10-13", "end": "2026-10-13"})
+_j13 = next(a for a in _rep13["ranked"] + _rep13["silent"] + _rep13["unknown"] if a["name"] == "Judith Merlo")
+_by13 = {m["digits"]: m for m in _j13["missed_calls"]}
+ck("every missed inbound is listed with a formatted callback number", len(_by13) == 4 and _by13["3055550202"]["number"] == "(305) 555-0202", _j13["missed_calls"])
+ck("a later outbound to the number marks it called back, with the time and the result", _by13["3055550101"]["resolved"] and _by13["3055550101"]["back"]["at"] == "10:30 AM" and _by13["3055550101"]["back"]["connected"] is False and _by13["3055550101"]["by_self"], _by13["3055550101"])
+ck("a teammate's callback counts too, and says who", _by13["3055550303"]["resolved"] and _by13["3055550303"]["back"]["by"] == "Oscar Caballero" and not _by13["3055550303"]["by_self"], _by13["3055550303"])
+ck("the number calling again and being answered clears it", _by13["3055550404"]["resolved"] and "answered" in _by13["3055550404"]["back"]["how"], _by13["3055550404"])
+ck("one stays open", not _by13["3055550202"]["resolved"] and _j13["missed_summary"] == {"missed": 4, "called_back": 3, "open": 1}, _j13["missed_summary"])
+ck("newest first", [m["at"] for m in _j13["missed_calls"]][0] == "11:15 AM", [m["at"] for m in _j13["missed_calls"]])
+ck("reach now counts people (Lead Phone both ways), not the company caller id", _j13["reach"]["unique_outbound"] == 2, _j13["reach"])
+_t13 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the panel has a Missed calls block with tap-to-call numbers and a fix-list line",
+   "blk('Missed calls', missedLines" in _t13 and "href=\"tel:+1' + esc(m.digits)" in _t13 and "line('Missed calls', ms.open" in _t13 and "'Missed calls':" in _t13, "missed calls block missing")
+ck("the CX row carries Lead Phone as the number for both directions", '"number": r.get("ani") or ""' in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8").read(), "number mapping")

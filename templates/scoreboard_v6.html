@@ -190,6 +190,11 @@
   .rd .rc b{color:var(--ink);font-weight:700}
   .rd .rc.hot{border-color:var(--dn);color:var(--dn)} .rd .rc.hot b{color:var(--dn)}
   .rd a.rc{text-decoration:none} .rd a.rc:hover{background:var(--tint)}
+  /* missed calls: the number is the point -- tappable; a called-back line goes quiet */
+  .ln.mc .vl a.num{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
+  .ln.mc .vl a.num:hover{color:var(--up);border-color:var(--up)}
+  .ln.mc.mc-ok .lb,.ln.mc.mc-ok .vl a.num{color:var(--muted);font-weight:400;border-bottom-color:transparent}
+  .mc-done{color:var(--muted)} .mcd{color:var(--muted);font-weight:400;margin-left:4px}
   /* a link into Zoho, inside a line's tail */
   .zl{color:var(--up);text-decoration:none;border-bottom:1px solid var(--hair);white-space:nowrap}
   .zl:hover{border-color:var(--up)}
@@ -1137,6 +1142,7 @@
         '2 \u00b7 Inbound': 'Inbound calls that reached this agent today: answered, and missed ones to call back. Second priority.',
         '3 \u00b7 Tasks': 'Tasks under your name due today or earlier and not completed. Where: Tasks > My Today + Overdue Tasks.',
         '4 \u00b7 Scheduled calls': 'Planner calls scheduled for today, and any left Overdue from earlier days. Where: Calls > My Journey Calls.',
+        'Missed calls': 'Inbound calls this agent missed in the window, newest first, with the number to call back. A line clears itself when a later call to that number (by anyone on the board) or an answered call from it appears in the next report.',
         'Text replies': 'Minutes from an inbound text to the next outbound to that number. Consecutive inbound texts before a reply count as one wait; unanswered = still waiting at the end of the window. To fix: answer inbound texts within 15 minutes in the RingEX app; an unanswered text still counts the next day.'
       };
       // the long-call label is built from the threshold, so its tip is too
@@ -1362,6 +1368,23 @@
                           qu.calls_overdue ? 'below' : '');
       }
       var prioBlk = blk('Priorities', prioLines, 'Your work, in the order it should be done: new deals waiting for a schedule, inbound, tasks, scheduled calls');
+      // Missed inbound calls with the number to dial; a line turns quiet once
+      // a later call to or from that number shows up in the report.
+      var missedLines = '';
+      var mc = a.missed_calls || [], ms = a.missed_summary || {};
+      if (mc.length) {
+        missedLines += line('Missed calls', ms.missed, ms.open ? '<b>' + ms.open + ' not called back</b> &middot; ' + ms.called_back + ' done' : 'all called back', ms.open ? 'below' : '');
+        mc.forEach(function (m) {
+          var who = m.back ? (m.by_self ? '' : ' by ' + esc(m.back.by)) : '';
+          var tail = m.resolved
+            ? '<span class="mc-done">' + esc(m.back.how) + ' ' + esc(m.back.at) + who + (m.back.connected ? '' : ' &middot; no answer') + '</span>'
+            : '<a class="zl" href="tel:+1' + esc(m.digits) + '">call back</a>';
+          missedLines += '<div class="ln mc' + (m.resolved ? ' mc-ok' : '') + '"><span class="lb">' + esc(m.at) + (multi ? ' <span class="mcd">' + esc(m.date.slice(5)) + '</span>' : '') + '</span>' +
+                         '<span class="vl"><a class="num" href="tel:+1' + esc(m.digits) + '">' + esc(m.number) + '</a></span>' +
+                         '<span class="tl">' + tail + '</span></div>';
+        });
+      }
+      var missedBlk = blk('Missed calls', missedLines, 'Inbound calls missed in the window and the number to call back; cleared automatically when the callback shows up');
       var fixLines = '';
       if (AGENT) {
         var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, so2 = jn2.soon || {}, tt2 = (a.crm || {}).tasks || {};
@@ -1376,6 +1399,8 @@
         if (so2.balance) fixLines += line('Balance due', so2.balance, zl(ZOHO.notReady, 'Within 14 Days - Not Ready') + ' &middot; confirm in Books, then collect or hand to billing', 'below',
                                           'Surgeries inside 14 days whose Journey Balance Due in Zoho is above zero. Confirm in Books before collecting.');
         if (tt2.open) fixLines += line('Open tasks', tt2.open, zl(ZOHO.tasks, 'My Today + Overdue Tasks') + ' &middot; close or reschedule', 'below', 'Tasks due in the window and not completed.');
+        if (ms.open) fixLines += line('Missed calls', ms.open, 'numbers in the Missed calls block below &middot; call each back', 'below',
+                                      'Inbound calls missed in the window with no later call to or from that number.');
         if (rp && rp.unanswered) fixLines += line('Unanswered texts', rp.unanswered, 'RingEX app &middot; reply within 15 min', 'below',
                                                   'Inbound texts with no reply yet.');
         if (fo && fo.late_minutes > 5) fixLines += line('Late start', fo.late_minutes + ' min', 'first interaction at ' + esc(fo.first) + ' &middot; be on the phone at ' + esc((dy.shift || {}).start || 'the start'), 'below',
@@ -1388,6 +1413,7 @@
         blk(pace ? 'Today' : 'This range', TODAY_M.map(mline).join('') + wrapLine + dirLines) +
         blk('Day', dayLines, 'How the day was worked, against the shift on file') +
         blk('Reach', reachLines, 'People, not dials') +
+        missedBlk +
         blk('Quality', QUAL_M.map(mline).join('')) +
         '</div><div class="col">' +
         (AGENT ? '' : prioBlk) +

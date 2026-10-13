@@ -1956,10 +1956,12 @@ def _v6_cx_rows_for_team(team, days, roster):
                 # Handle Time column, which is talk + wrap.
                 "wrap_seconds": r.get("wrap_time") or 0,
                 "start_time": _cx_iso(r.get("start_time"), day),
-                # The other party's number, so the report can count PEOPLE
-                # reached and not just dials (an agent's own line is the
-                # other column). Digits only; the report keeps the last ten.
-                "number": (r.get("dnis") if outbound else r.get("ani")) or "",
+                # The other party's number. In the Interaction Report "Lead
+                # Phone" (ani) is the patient in BOTH directions and "Caller ID"
+                # (dnis) is the company line the call went out on -- which is
+                # why "people reached" read 1 for everyone while this used dnis
+                # for outbound (2026-10-08..12). Digits only downstream.
+                "number": r.get("ani") or "",
                 "source": "ringcx",
             })
     return by_agent, found_days, covers_to

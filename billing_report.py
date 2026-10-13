@@ -353,6 +353,64 @@ def _day_shape(rows, tz_offset_minutes, shift, focus_day, live_day):
     return punct, gaps, reach
 
 
+def _fmt_phone(d):
+    d = "".join(ch for ch in str(d or "") if ch.isdigit())[-10:]
+    return "(%s) %s-%s" % (d[:3], d[3:6], d[6:]) if len(d) == 10 else d
+
+
+def _number_index(rows_by_agent, tz_offset_minutes):
+    """number (last 10 digits) -> [(t_local, agent, direction, result)] across the
+    whole board, sorted by time. The missed-call list resolves against it."""
+    idx = {}
+    for name, meta in rows_by_agent.items():
+        rows = meta["rows"] if isinstance(meta, dict) else meta
+        for r in rows or []:
+            t = _ts(r.get("start_time") or r.get("startTime"), tz_offset_minutes)
+            if t is None:
+                continue
+            out = r.get("direction") == "Outbound"
+            num = r.get("number") or (r.get("to_number") if out else r.get("from_number")) or ""
+            num = "".join(ch for ch in str(num) if ch.isdigit())[-10:]
+            if len(num) == 10:
+                idx.setdefault(num, []).append((t, name, r.get("direction"), r.get("result")))
+    for v in idx.values():
+        v.sort(key=lambda e: e[0])
+    return idx
+
+
+def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40):
+    """Inbound calls this seat missed, newest first, each with the number to
+    call back and whether a later call to or from that number exists -- by this
+    seat or by a teammate -- which marks it called back. Danny, 2026-10-13:
+    "add a list of missed calls ... with the call back number and mark them
+    completed once they come in on next sync". Numbers are formatted, never
+    hidden: the point of the list is to dial them."""
+    out = []
+    for r in rows or []:
+        if r.get("direction") != "Inbound" or r.get("result") != "Missed":
+            continue
+        t = _ts(r.get("start_time") or r.get("startTime"), tz_offset_minutes)
+        num = "".join(ch for ch in str(r.get("number") or r.get("from_number") or "") if ch.isdigit())[-10:]
+        if t is None or len(num) != 10:
+            continue
+        back = None
+        for (t2, who, d2, res2) in idx.get(num, []):
+            if t2 <= t:
+                continue
+            if d2 == "Outbound":
+                back = {"at": _hhmm(t2), "by": who, "how": "called back", "connected": res2 == "Call connected"}
+                break
+            if d2 == "Inbound" and res2 == "Accepted":
+                back = {"at": _hhmm(t2), "by": who, "how": "called again, answered", "connected": True}
+                break
+        out.append({"at": _hhmm(t), "date": t.date().isoformat(), "number": _fmt_phone(num), "digits": num,
+                    "resolved": back is not None, "back": back, "by_self": bool(back and back["by"] == name)})
+    out.sort(key=lambda m: (m["date"], m["at"]), reverse=True)
+    summary = {"missed": len(out), "called_back": sum(1 for m in out if m["resolved"]),
+               "open": sum(1 for m in out if not m["resolved"])}
+    return out[:limit], summary
+
+
 def _sms_replies(srows, tz_offset_minutes):
     """How fast inbound texts were answered. A wait opens on an inbound
     message from a number and closes on the agent's next outbound to that
@@ -439,6 +497,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 and win["start"] == now_local.date().isoformat())
 
     agents = []
+    _num_idx = _number_index(rows_by_agent, tz_offset_minutes)
     for name, meta in sorted(rows_by_agent.items()):
         rows = meta["rows"] if isinstance(meta, dict) else meta
         ext = (meta.get("ext") if isinstance(meta, dict) else "") or ""
@@ -651,6 +710,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "answer_rate_pct": answer_rate,
             # How the day was worked (panel only): start vs shift, silences, reach.
             "day": punct, "gaps": gaps, "reach": reach,
+            "missed_calls": _missed_calls(name, rows, _num_idx, tz_offset_minutes)[0],
+            "missed_summary": _missed_calls(name, rows, _num_idx, tz_offset_minutes)[1],
             "wrap_minutes": round(wtot["wrap_seconds"] / 60.0, 1),
             "handle_minutes": round((wtot["talk_seconds"] + wtot["wrap_seconds"]) / 60.0, 1),
             "avg_call_seconds": round(wtot["talk_seconds"] / wtot["connected"])
