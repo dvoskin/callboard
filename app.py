@@ -4003,6 +4003,137 @@ def api_v6_coordinator_links():
     return jsonify({"team": _COORD_TEAM, "links": links})
 
 
+# ── Unreturned inbound calls from booked patients ──────────────────────
+# Danny, 2026-10-13: "build the unreturned inbound calls board". The audit
+# behind it: nine paid patients were about to be cancelled as "unresponsive";
+# the carrier log showed they had called us and we had missed most of it and
+# returned almost none. The rules live in callbacks_board.py (pure); this is
+# the plumbing: the day snapshots the board already keeps (no new RingEX
+# requests on a page load) plus one Journeys read every 15 minutes.
+import callbacks_board as _cbb  # noqa: E402
+
+_CB_JOURNEYS_TTL = 900.0        # the active caseload changes slowly
+_CB_TTL = 120.0                 # a built board, per (days, tz)
+_CB_MIN_CONNECTED = int(os.environ.get("CALLBACK_MIN_CONNECTED_SECONDS", "45"))
+_CB_MAX_DAYS = 14
+_cb_lock = threading.Lock()
+_cb_journeys = {"at": 0.0, "rows": None}
+_cb_cache = {}
+
+
+def _cb_active_journeys():
+    """(rows, error, from_cache). A failed read keeps the last good list and
+    SAYS so; it never comes back as an empty caseload, which would read as
+    'nobody is booked' and empty the board."""
+    now = time.time()
+    with _cb_lock:
+        if _cb_journeys["rows"] is not None and now - _cb_journeys["at"] < _CB_JOURNEYS_TTL:
+            return _cb_journeys["rows"], None, True
+    try:
+        rows, err = _zoho.active_journeys(), None
+    except Exception as e:  # noqa: BLE001
+        rows, err = None, "Journeys could not be read: %s" % str(e)[:160]
+    with _cb_lock:
+        if rows is not None:
+            _cb_journeys.update(at=now, rows=rows)
+            return rows, None, False
+        if _cb_journeys["rows"] is not None:
+            return _cb_journeys["rows"], err + " (showing the last good read)", True
+    return [], err, False
+
+
+def _callbacks_build(days, tz_offset_minutes):
+    _off = tz_offset_minutes if tz_offset_minutes is not None else \
+        -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date()
+    day_list = [(local_today - timedelta(days=i)).isoformat() for i in range(days)]
+    calls, missing, snaps = [], [], {}
+    for day in day_list:
+        is_today = day == local_today.isoformat()
+        got = _load_ringex_snapshot(day, allow_refresh=is_today, tz_offset_minutes=tz_offset_minutes)
+        if got is None and _ringex_may_spend():
+            # A day with no snapshot yet (a fresh instance, or a day the inbox
+            # never saw a report for). One fetch per request at most -- the
+            # budget gate decides -- and the rest are listed as missing.
+            _snapshot_ringex(day, tz_offset_minutes)
+            got = _load_ringex_snapshot(day)
+        if got is None:
+            missing.append(day)
+            continue
+        rows, meta = got
+        calls.extend(rows)
+        snaps[day] = {"calls": meta.get("calls"), "age_minutes": meta.get("age_minutes")}
+    journeys, jerr, _ = _cb_active_journeys()
+    board = _cbb.build(calls, journeys, min_connected=_CB_MIN_CONNECTED, tz_offset_minutes=_off)
+    board["window"] = {"days": days, "from": day_list[-1], "to": day_list[0],
+                       "missing_days": missing, "snapshots": snaps}
+    notes = []
+    if jerr:
+        notes.append(jerr)
+    if missing:
+        notes.append("No RingEX snapshot for %s; calls on those days are not on the board."
+                     % ", ".join(sorted(missing)))
+    if not journeys and not jerr:
+        notes.append("The Journeys read returned no active cases, so no caller can be matched.")
+    board["notes"] = notes
+    board["built_utc"] = datetime.now(timezone.utc).isoformat()
+    return board
+
+
+@app.route("/callbacks", methods=["GET", "POST"])
+def board_callbacks():
+    """The unreturned-calls board. Same door as /v6: a Google session or the
+    shared word password."""
+    ip = (request.headers.get("CF-Connecting-IP")
+          or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+          or request.remote_addr or "?")
+    error = ""
+    if request.method == "POST":
+        if _v5_pw_throttled(ip):
+            error = "Too many tries. Wait five minutes."
+        elif _v5_password_matches(request.form.get("password", "").strip()):
+            session["v5_pw"] = True
+            return redirect(url_for("board_callbacks"))
+        else:
+            _v5_pw_record_failure(ip)
+            error = "That is not the password."
+    if not _v6_allowed():
+        if not V5_PASSWORDS and not V7_PASSWORDS:
+            return redirect("/login")
+        return render_template("v5_password.html", error=error,
+                               page_title="Unreturned Calls",
+                               page_sub="Booked patients who called and did not get a call back."), 200
+    return render_template("callbacks.html", current_user=session.get("user") or {})
+
+
+@app.route("/api/v6/callbacks")
+def api_v6_callbacks():
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        days = int(request.args.get("days", 7) or 7)
+    except (TypeError, ValueError):
+        days = 7
+    days = max(1, min(days, _CB_MAX_DAYS))
+    tz_param = request.args.get("tz")
+    try:
+        tz_offset_minutes = int(tz_param) if tz_param is not None else None
+    except (TypeError, ValueError):
+        tz_offset_minutes = None
+    key = (days, tz_offset_minutes)
+    now = time.time()
+    with _cb_lock:
+        hit = _cb_cache.get(key)
+    if hit and now - hit["at"] < _CB_TTL and not request.args.get("fresh"):
+        board = dict(hit["board"]); board["cached"] = True
+        return jsonify(board)
+    board = _callbacks_build(days, tz_offset_minutes)
+    with _cb_lock:
+        _cb_cache[key] = {"at": now, "board": board}
+    board = dict(board); board["cached"] = False
+    return jsonify(board)
+
+
 @app.route("/sales")
 def board_sales():
     return _render_team_board("sales")

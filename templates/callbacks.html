@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Unreturned Calls</title>
+<style>
+  :root{
+    --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
+    --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
+    --up:#0B6E67; --dn:#B03A31;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --pad-x:clamp(11px, 3.4vw, 24px); --pad-y:clamp(14px, 2.4vw, 32px);
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
+    --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492; --up:#4FCCBF; --dn:#EE8177;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:var(--pad-y) var(--pad-x) calc(var(--pad-y) + 24px)}
+  h1{margin:0 0 2px;font-size:19px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
+  .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .sub b{color:var(--ink);font-weight:600}
+  .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px;font-size:12.5px;color:var(--muted)}
+  .ctl button{font:inherit;font-size:12.5px;padding:4px 10px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);border-radius:6px;cursor:pointer}
+  .ctl button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .kpi{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 18px}
+  .kpi div{min-width:120px}
+  .kpi .n{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+  .kpi .n.dn{color:var(--dn)}
+  .kpi .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  h2{margin:22px 0 6px;font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);display:flex;justify-content:space-between;align-items:baseline}
+  h2 span{font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:6px 8px 6px 0;border-bottom:1px solid var(--rule)}
+  td{padding:8px 8px 8px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+  tr.open td:first-child{border-left:3px solid var(--dn);padding-left:8px}
+  tr.returned{color:var(--muted)}
+  tr.returned td:first-child{border-left:3px solid var(--rule);padding-left:8px}
+  .pt{font-weight:600}
+  .pt a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--rule)}
+  .num a{color:inherit;text-decoration:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .m{color:var(--muted);font-size:12px}
+  .dn{color:var(--dn);font-weight:600}
+  .note{background:var(--tint);border:1px solid var(--rule);border-radius:8px;padding:8px 12px;font-size:12.5px;color:var(--ink-2);margin:0 0 14px}
+  .empty{color:var(--muted);padding:18px 0}
+  @media (max-width:640px){
+    .hide-s{display:none}
+    td,th{padding-right:6px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Unreturned Calls</h1>
+  <p class="sub" id="sub">Booked patients who called us and did not get a real call back. A call back counts only when it connected for at least <b id="minc">45</b> seconds, or the patient called again and was answered.</p>
+  <div class="ctl">
+    <span>Window</span>
+    <button type="button" data-days="7" aria-pressed="true">7 days</button>
+    <button type="button" data-days="14" aria-pressed="false">14 days</button>
+    <span id="asof"></span>
+  </div>
+  <div id="notes"></div>
+  <div class="kpi" id="kpi"></div>
+  <div id="board"><div class="empty">Loading…</div></div>
+</div>
+<script>
+(function(){
+  var days = 7, timer = null;
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function n(x){ return (x == null) ? '–' : String(x); }
+  function ago(h){ if (h == null) return ''; if (h < 1) return Math.round(h*60) + ' min'; if (h < 48) return Math.round(h) + ' h'; return (h/24).toFixed(1).replace(/\.0$/,'') + ' d'; }
+  function zohoUrl(id){ return 'https://crm.zoho.com/crm/org771460636/tab/CustomModule13/' + encodeURIComponent(id); }
+  function surg(r){
+    if (!r.surgery_date) return '<span class="m">no date</span>';
+    var d = r.days_until, tag = '';
+    if (d != null) tag = d < 0 ? ' <span class="m">(' + (-d) + ' d ago)</span>' : d === 0 ? ' <span class="dn">today</span>' : d <= 7 ? ' <span class="dn">in ' + d + ' d</span>' : ' <span class="m">in ' + d + ' d</span>';
+    return esc(r.surgery_date.slice(5).replace('-', '/')) + tag + (r.date_status && r.date_status !== 'Confirmed' ? ' <span class="m">' + esc(r.date_status) + '</span>' : '');
+  }
+  function status(r){
+    if (r.status === 'open') {
+      var s = '<span class="dn">not called back</span> · waiting ' + ago(r.age_hours);
+      if (r.tries) s += '<div class="m">' + r.tries + (r.tries === 1 ? ' try' : ' tries') + ' that did not connect' + (r.last_try ? ', last ' + esc(r.last_try.at.label) + (r.last_try.by ? ' by ' + esc(r.last_try.by) : '') : '') + '</div>';
+      else s += '<div class="m">no call back attempted</div>';
+      return s;
+    }
+    var rt = r.returned || {};
+    return esc(rt.how || 'returned') + ' ' + esc((rt.at || {}).label || '') + (rt.by ? ' <span class="m">by ' + esc(rt.by) + '</span>' : '') +
+           '<div class="m">' + (rt.seconds ? Math.round(rt.seconds/60) + ' min · ' : '') + 'after ' + ago(rt.hours_to_return) + (r.tries ? ' · ' + r.tries + ' earlier ' + (r.tries === 1 ? 'try' : 'tries') : '') + '</div>';
+  }
+  function missed(r){
+    var s = esc(r.first_missed.label);
+    if (r.misses > 1) s += ' <span class="dn">×' + r.misses + '</span>';
+    if (r.status === 'open' && r.last_missed && r.misses > 1) s += '<div class="m">last ' + esc(r.last_missed.label) + '</div>';
+    if (r.status === 'open' && r.rang && r.rang.length) s += '<div class="m">rang ' + esc(r.rang.join(', ')) + '</div>';
+    return s;
+  }
+  function row(r){
+    var cls = r.status === 'open' ? 'open' : 'returned';
+    var other = (r.other_journeys || []).length ? '<div class="m">also an active case with ' + esc(r.other_journeys.map(function(o){ return o.owner || '?'; }).join(', ')) + '</div>' : '';
+    var lang = r.language && ['English','Unselected','-None-'].indexOf(r.language) < 0 ? '<div class="m">' + esc(r.language) + '</div>' : '';
+    return '<tr class="' + cls + '">' +
+      '<td class="pt"><a href="' + zohoUrl(r.journey_id) + '" target="_blank" rel="noopener">' + esc(r.patient || '(no name)') + '</a>' + lang + other + '</td>' +
+      '<td class="num"><a href="tel:+1' + esc(r.digits) + '">' + esc(r.number) + '</a></td>' +
+      '<td>' + missed(r) + '</td>' +
+      '<td class="hide-s">' + surg(r) + '</td>' +
+      '<td>' + status(r) + '</td></tr>';
+  }
+  function render(d){
+    var s = d.summary || {};
+    document.getElementById('minc').textContent = s.min_connected_seconds || 45;
+    document.getElementById('kpi').innerHTML =
+      '<div><div class="n' + (s.open ? ' dn' : '') + '">' + n(s.open) + '</div><div class="l">not called back</div></div>' +
+      '<div><div class="n' + (s.within_7_days_open ? ' dn' : '') + '">' + n(s.within_7_days_open) + '</div><div class="l">surgery within 7 days</div></div>' +
+      '<div><div class="n">' + (s.oldest_open_hours ? ago(s.oldest_open_hours) : '–') + '</div><div class="l">oldest waiting</div></div>' +
+      '<div><div class="n">' + n(s.returned) + '</div><div class="l">called back in window</div></div>';
+    var notes = (d.notes || []).map(function(t){ return '<div class="note">' + esc(t) + '</div>'; }).join('');
+    document.getElementById('notes').innerHTML = notes;
+    var w = d.window || {};
+    document.getElementById('asof').textContent = '· ' + (w.from || '') + ' to ' + (w.to || '') + ' · ' + n(s.calls_scanned) + ' calls scanned · ' + n(s.journeys) + ' active cases' + (s.journeys_without_number ? ' (' + s.journeys_without_number + ' with no number)' : '') + (d.cached ? ' · cached' : '');
+    var owners = d.owners || [];
+    if (!owners.length) { document.getElementById('board').innerHTML = '<div class="empty">No booked patient called without a call back in this window.</div>'; return; }
+    var html = '';
+    owners.forEach(function(o){
+      html += '<h2>' + esc(o.owner) + '<span>' + (o.open ? '<b class="dn">' + o.open + ' not called back</b>' : 'all called back') + (o.returned ? ' · ' + o.returned + ' returned' : '') + '</span></h2>';
+      html += '<table><thead><tr><th>Patient</th><th>Number</th><th>Called us</th><th class="hide-s">Surgery</th><th>Status</th></tr></thead><tbody>';
+      o.rows.forEach(function(r){ html += row(r); });
+      html += '</tbody></table>';
+    });
+    document.getElementById('board').innerHTML = html;
+  }
+  function load(){
+    var tz = new Date().getTimezoneOffset();
+    fetch('/api/v6/callbacks?days=' + days + '&tz=' + tz, {credentials:'same-origin'})
+      .then(function(r){ if (r.status === 401) { location.href = '/callbacks'; return null; } return r.json(); })
+      .then(function(d){ if (d) render(d); })
+      .catch(function(e){ document.getElementById('board').innerHTML = '<div class="note">Could not load: ' + esc(e && e.message) + '</div>'; });
+  }
+  document.querySelectorAll('.ctl button').forEach(function(b){
+    b.addEventListener('click', function(){
+      days = parseInt(b.getAttribute('data-days'), 10) || 7;
+      document.querySelectorAll('.ctl button').forEach(function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      load();
+    });
+  });
+  load();
+  timer = setInterval(load, 5 * 60 * 1000);
+})();
+</script>
+</body>
+</html>

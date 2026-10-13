@@ -3259,6 +3259,49 @@ class ZohoClient:
                    "Not Approved", "Pending Review", "Rejected", "Further Review Needed",
                    "Incomplete", "Not Recieved"}
 
+    def active_journeys(self) -> list:
+        """Every Journey with Case Status = Active, with the patient's number as
+        ten digits. The unreturned-calls board (callbacks_board.py) matches
+        inbound callers against this list. Journeys has no Phone field; the
+        number lives in `Mobile` (filled on all but a handful of active cases,
+        checked 2026-10-13), with `DialerCallbackPhone` as the fallback. A
+        Journey without a number is returned with digits "" so the caller can
+        COUNT it rather than lose it. Raises on an HTTP failure so the board
+        says "not read" instead of showing nobody."""
+        q = ("select id, Name, Mobile, DialerCallbackPhone, Owner.id, Owner.first_name, "
+             "Owner.last_name, Surgery_Date, Journey_Stage, Surgery_Date_Status, "
+             "Preferred_Language, Contact from Journeys where Case_Status = 'Active'")
+        out, offset = [], 0
+        while offset < 10000:
+            resp = requests.post(f"{self.base_url}/crm/v6/coql", headers=self._headers(),
+                                 json={"select_query": q + " limit 200 offset %d" % offset},
+                                 timeout=25)
+            if resp.status_code == 204:
+                break
+            if not resp.ok:
+                raise RuntimeError("CRM COQL returned HTTP %d. %s"
+                                   % (resp.status_code, (resp.text or "")[:160]))
+            body = resp.json() or {}
+            for r in (body.get("data") or []):
+                owner = " ".join(x for x in (r.get("Owner.first_name"), r.get("Owner.last_name")) if x)
+                contact = r.get("Contact") if isinstance(r.get("Contact"), dict) else {}
+                out.append({
+                    "id": str(r.get("id") or ""),
+                    "name": r.get("Name") or "",
+                    "digits": normalize_phone(r.get("Mobile") or r.get("DialerCallbackPhone") or "") or "",
+                    "owner": owner.strip(),
+                    "owner_id": str(r.get("Owner.id") or ""),
+                    "surgery_date": r.get("Surgery_Date") or "",
+                    "stage": r.get("Journey_Stage") or "",
+                    "date_status": r.get("Surgery_Date_Status") or "",
+                    "language": r.get("Preferred_Language") or "",
+                    "contact_id": str(contact.get("id") or ""),
+                })
+            if not (body.get("info") or {}).get("more_records"):
+                break
+            offset += 200
+        return out
+
     def journey_breakdown(self, owner_ids: list, start_iso: str, end_iso: str,
                           anchor_date: str) -> dict:
         """The surgical coordinator's caseload from the Journeys module, per
