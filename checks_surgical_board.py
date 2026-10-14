@@ -687,7 +687,7 @@ ck("the panel has a Priorities block in the order: to schedule, inbound, tasks, 
    and "(AGENT ? prioBlk + fixBlk : '')" in _tpl8 and "(AGENT ? '' : prioBlk)" in _tpl8, "priorities block missing or out of order")
 ck("to-schedule links to Deals and names the oldest wait", "zl(ZOHO.deals, 'Deals')" in _tpl8 and "oldest waiting <b>" in _tpl8 and "deals: ZB + 'Potentials'" in _tpl8, "deals link missing")
 ck("the collapsed row carries the queue line on every row builder, hidden on a coordinator's own page",
-   _tpl8.count("smsChip(a) + srcChip(a) + queueChip(a)") == 3 and "function queueChip(a)" in _tpl8 and "if (!qu || AGENT) return '';" in _tpl8
+   _tpl8.count("smsChip(a) + srcChip(a) + shiftChip(a) + queueChip(a)") == 3 and "function queueChip(a)" in _tpl8 and "if (!qu || AGENT) return '';" in _tpl8
    and ".agent .pq{display:none}" in _tpl8 and "' to schedule \\u00b7 '" in _tpl8, "queue chip missing")
 
 # ---- billers don't schedule: no Journeys / Priorities for them, and no Journeys read on their behalf (Danny, 2026-10-12) ----
@@ -767,6 +767,41 @@ ck("...that accepts the new subject shape", all("Subject like '% · Surg %'" in 
 ck("...and still the old prefix", all("Subject like 'Journey call -%'" in q for q in _callq), _callq)
 ck("...as one OR'd pair, nested the way COQL accepts", all("and (Subject like 'Journey call -%' or Subject like '% · Surg %'))" in q for q in _callq), _callq)
 ck("zero done still draws a red sliver", "var w = Math.max(pct, 4);" in _tpl8 and "width:' + w + '%" in _tpl8, "min width missing")
+
+# ---- Danny, 2026-10-14: "add the shift started note to the rows" ----
+# A seat whose shift began minutes before the report's cut reads as idle next
+# to one that started at 10. The report says how far into the shift its data
+# reaches, on ITS clock (the RingCX cut), and the row says so under two hours.
+from datetime import datetime as _dt14
+def _r14(hhmm, name_rows):
+    h, m = hhmm.split(":")
+    name_rows.append({"direction": "Outbound", "result": "Call connected", "duration": 60,
+                      "start_time": "2026-10-14T%02d:%02d:00-04:00" % (int(h), int(m)), "number": "3055550199"})
+_jm, _am, _jd = [], [], []
+_r14("12:06", _jm); _r14("12:30", _jm); _r14("10:02", _jd)
+_seats14 = {"Jorge Mier":   {"rows": _jm, "ext": "221", "ext_id": 1, "complete": True, "shift": {"start": "12:00", "end": "21:00", "off": ["sat", "sun"]}},
+            "Alex Morales": {"rows": _am, "ext": "208", "ext_id": 2, "complete": True, "shift": {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]}},
+            "Judith Merlo": {"rows": _jd, "ext": "185", "ext_id": 3, "complete": True, "shift": {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]}},
+            "No Shift":     {"rows": [], "ext": "1", "ext_id": 4, "complete": True}}
+_rep14 = build_report(_seats14, tz_offset_minutes=-240, window={"start": "2026-10-14", "end": "2026-10-14"},
+                      now_local=_dt14(2026, 10, 14, 13, 18))      # the 1:18 PM report, a Wednesday
+_by14 = {a["name"]: a for a in _rep14["ranked"] + _rep14["silent"] + _rep14["unknown"]}
+ck("78 min into a 12:00 shift at the 1:18 PM report", _by14["Jorge Mier"]["day"]["shift_age_minutes"] == 78, _by14["Jorge Mier"]["day"])
+ck("18 min into a 13:00 shift, even with no calls yet", _by14["Alex Morales"]["day"]["shift_age_minutes"] == 18, _by14["Alex Morales"]["day"])
+ck("a 10:00 shift is 198 min old (the page hides it past 120)", _by14["Judith Merlo"]["day"]["shift_age_minutes"] == 198, _by14["Judith Merlo"]["day"])
+ck("no shift on file -> no age", _by14["No Shift"]["day"]["shift_age_minutes"] is None, _by14["No Shift"]["day"])
+_rep14b = build_report(_seats14, tz_offset_minutes=-240, window={"start": "2026-10-13", "end": "2026-10-13"},
+                       now_local=_dt14(2026, 10, 14, 13, 18))
+ck("a finished day carries no shift age", all(a["day"]["shift_age_minutes"] is None for a in _rep14b["ranked"] + _rep14b["silent"] + _rep14b["unknown"]), "age on a past window")
+_rep14c = build_report({"Jorge Mier": _seats14["Jorge Mier"]}, tz_offset_minutes=-240, window={"start": "2026-10-14", "end": "2026-10-14"},
+                       now_local=_dt14(2026, 10, 14, 11, 40))
+ck("before the start the age is negative (the row says when the shift begins)", _by14 and _rep14c["ranked"][0]["day"]["shift_age_minutes"] == -20, _rep14c["ranked"][0]["day"])
+_tpl14 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the note sits on every collapsed row builder, before the queue line",
+   _tpl14.count("srcChip(a) + shiftChip(a) + queueChip(a) + progressBar(a)") == 3 and "function shiftChip(a)" in _tpl14, "shiftChip not on the rows")
+ck("...hidden once the shift is two hours old, and only on the live day",
+   "if (!d.live || age == null || !dy.shift || age >= 120) return '';" in _tpl14 and ".sa{display:inline-block" in _tpl14, "threshold or style missing")
+ck("...and reads as a sentence with the report time", "shift started <b>' + age + ' min</b> before ' + rep" in _tpl14 and "shift starts ' + esc(start)" in _tpl14, "wording changed")
 
 # the tally stays LAST: on 2026-10-13 it sat mid-file and nine later checks ran uncounted
 for e in errors:

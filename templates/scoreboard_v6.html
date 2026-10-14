@@ -213,6 +213,9 @@
   .pq{display:block;margin:2px 0 0;font-size:11px;color:var(--muted);white-space:nowrap;
       font-weight:400;letter-spacing:0;cursor:help}
   .pq b{font-weight:700;color:var(--ink)} .pq b.hot{color:var(--dn)}
+  /* the young-shift note: "shift started 78 min before the 1:18 PM report" */
+  .sa{display:inline-block;margin-left:8px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:help}
+  .sa b{font-weight:700;color:var(--ink)}
   /* the progress hairline under the queue line */
   .prog{display:block;height:3px;max-width:240px;margin-top:4px;border-radius:2px;background:var(--hair);
         overflow:hidden;cursor:help}
@@ -720,6 +723,32 @@
     return '<span class="prog" title="' + esc(tip) + '" aria-label="' + pct + '% done"><i style="width:' + w + '%;background:rgb(' + rgb.join(',') + ')"></i></span>';
   }
 
+  // "shift started 78 min before the 1:18 PM report": a seat whose day is
+  // young at the report's cut, so its small numbers are not read as a slow
+  // day. Jorge (12:00) and Alex (13:00) looked idle next to Judith (10:00) on
+  // 2026-10-14 for exactly this reason. Shown while the shift is under two
+  // hours old at the cut; before the start it says when the shift begins.
+  function hh12(t) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
+    if (!m) return t || '';
+    var h = +m[1], ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    return h + ':' + m[2] + ' ' + ap;
+  }
+  function shiftChip(a) {
+    var d = LAST[CUR_SLOT] || {}, dy = (a || {}).day || {}, age = dy.shift_age_minutes;
+    if (!d.live || age == null || !dy.shift || age >= 120) return '';
+    var cut = (d.data_as_of || {}).as_of, start = hh12(dy.shift.start);
+    var rep = cut ? 'the ' + esc(cut) + ' report' : 'the latest report';
+    if (age < 0)
+      return '<span class="sa" title="' + esc('This seat’s shift starts at ' + start + '; ' + rep.replace(/<[^>]+>/g, '') +
+             ' was cut ' + (-age) + ' min before that, so nothing of the shift is in these numbers yet.') + '">shift starts ' + esc(start) +
+             (cut ? ' · report to ' + esc(cut) : '') + '</span>';
+    return '<span class="sa" title="' + esc('This seat’s shift started at ' + start + '. ' + rep.replace(/<[^>]+>/g, '') +
+           ' reaches only ' + age + ' min into it, so these numbers cover ' + age + ' minutes of work, not a day.') +
+           '">shift started <b>' + age + ' min</b> before ' + rep + '</span>';
+  }
+
   function smsChip(a) {
     if (!SHOW_SMS_CHIP) return '';
     // A board with SMS switched off shows nothing at all -- not "not read".
@@ -1120,14 +1149,14 @@
       if (quiet) {
         h += '<div class="r r-quiet" data-det="' + id + '" tabindex="0" role="button" aria-expanded="false">' +
           '<div class="rk">' + (i + 1) + '</div>' +
-          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + progressBar(a) + '</div>' +
+          '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + shiftChip(a) + queueChip(a) + progressBar(a) + '</div>' +
           '<div class="qn">' + (a.complete ? 'no calls yet today' : 'not read yet') + '</div>' +
           '</div>';
       } else
       h += '<div class="r' + (band === 'below' ? ' r-below' : '') + '" data-det="' + id +
            '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">' + (i + 1) + '</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + progressBar(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + shiftChip(a) + queueChip(a) + progressBar(a) + '</div>' +
         cell('tk', show.talk_minutes + 'm', pg.talk_minutes || 'below',
              live ? 'Talk so far' : 'Talk/day') +
         (paceCol ? paceCell(pace, 'talk_minutes', 'm') : '') +
@@ -1532,7 +1561,7 @@
       var qid = slot + '_q' + qi;
       h += '<div class="r r-quiet" data-det="' + qid + '" tabindex="0" role="button" aria-expanded="false">' +
         '<div class="rk">&ndash;</div>' +
-        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + queueChip(a) + progressBar(a) + '</div>' +
+        '<div class="nm">' + esc(a.name) + presenceChip(a) + monitorLinks(a) + crmChip(a) + smsChip(a) + srcChip(a) + shiftChip(a) + queueChip(a) + progressBar(a) + '</div>' +
         // Danny, 2026-10-07, on six quiet seats reading only "No Activity":
         // "not showing any shift sched". They have no shift on file -- the
         // schedule sheet named eleven people -- and the line now says so,

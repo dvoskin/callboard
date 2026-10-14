@@ -292,7 +292,7 @@ def _shift_minutes(hhmm):
         return None
 
 
-def _day_shape(rows, tz_offset_minutes, shift, focus_day, live_day):
+def _day_shape(rows, tz_offset_minutes, shift, focus_day, live_day, now_local=None):
     """How each day was WORKED, not how much: when it started against the
     shift, when it ended, the longest silence inside it, and how many
     different people the calls reached. Danny, 2026-10-08: the parameters a
@@ -349,8 +349,18 @@ def _day_shape(rows, tz_offset_minutes, shift, focus_day, live_day):
                      "gap_minutes": int(round(gmax)),
                      "gap_window": (_hhmm(gwin[0]) + "\u2013" + _hhmm(gwin[1])) if gwin else None,
                      "interactions": len(es)}
+    # How far into TODAY's shift the delivered data reaches, in minutes;
+    # negative before the shift starts, None off-shift or when not live.
+    # now_local is the report's own clock (the RingCX cut, not the wall), so
+    # Jorge at 11 calls and 14 minutes of talk reads as "78 min into a 12:00
+    # shift at the 1:18 PM report", not as a slow day. Danny, 2026-10-14.
+    shift_age = None
+    if (now_local is not None and s_start is not None
+            and now_local.strftime("%a").lower()[:3] not in off):
+        shift_age = (now_local.hour * 60 + now_local.minute) - s_start
     punct = {
         "shift_days": len(late_list),
+        "shift_age_minutes": shift_age,
         "late_days": sum(1 for x in late_list if x > 5),
         "avg_late_minutes": round(sum(late_list) / len(late_list)) if late_list else None,
         "early_days": sum(1 for x in early_list if x > 15),
@@ -597,7 +607,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         focus_day = (now_local.date().isoformat() if live else
                      (win.get("start") if win.get("start") and win.get("start") == win.get("end") else None))
         punct, gaps, reach = _day_shape(rows, tz_offset_minutes, seat_shift, focus_day,
-                                        now_local.date().isoformat() if live else None)
+                                        now_local.date().isoformat() if live else None,
+                                        now_local if live else None)
 
         scored = {
             "talk_minutes": per_day["talk_minutes"],
