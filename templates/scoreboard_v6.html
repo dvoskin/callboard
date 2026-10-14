@@ -740,11 +740,12 @@
     if (!d.live || age == null || !dy.shift || age >= 120) return '';
     var cut = (d.data_as_of || {}).as_of, start = hh12(dy.shift.start);
     var rep = cut ? 'the ' + esc(cut) + ' report' : 'the latest report';
+    var repT = cut ? 'The ' + cut + ' report' : 'The latest report';   // plain text, sentence-initial
     if (age < 0)
-      return '<span class="sa" title="' + esc('This seat’s shift starts at ' + start + '; ' + rep.replace(/<[^>]+>/g, '') +
+      return '<span class="sa" title="' + esc('This seat’s shift starts at ' + start + '. ' + repT +
              ' was cut ' + (-age) + ' min before that, so nothing of the shift is in these numbers yet.') + '">shift starts ' + esc(start) +
              (cut ? ' · report to ' + esc(cut) : '') + '</span>';
-    return '<span class="sa" title="' + esc('This seat’s shift started at ' + start + '. ' + rep.replace(/<[^>]+>/g, '') +
+    return '<span class="sa" title="' + esc('This seat’s shift started at ' + start + '. ' + repT +
            ' reaches only ' + age + ' min into it, so these numbers cover ' + age + ' minutes of work, not a day.') +
            '">shift started <b>' + age + ' min</b> before ' + rep + '</span>';
   }
