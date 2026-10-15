@@ -165,7 +165,25 @@
   .agent .lb{flex-basis:118px}   /* "Clearance pending", "Unanswered texts" on one line */
   .agentnotes .ln{margin-bottom:2px}
   .agent .hd{display:none}
-  .agent .r{border-bottom:0;padding-bottom:2px}
+  .agent .r{display:none}   /* the day strip carries the row's numbers on a coordinator's own page */
+  /* the day strip */
+  .strip{border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:10px 0 11px;margin:0 0 6px;max-width:980px}
+  .strip .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .strip .big{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  .strip .big small{font-size:12px;font-weight:500;color:var(--muted);margin-left:6px}
+  .strip .tail{font-size:12.5px;color:var(--ink-2)}
+  .strip .tail b{color:var(--ink)} .strip b.dn{color:var(--dn)}
+  .strip .ctx{font-size:12px;color:var(--muted);margin-left:auto}
+  .strip .prog{max-width:520px;height:5px;margin:8px 0 9px}
+  .strip .nums{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}
+  .strip .nums b{font-size:14px;color:var(--ink);font-weight:700;margin-right:4px}
+  .strip .pz{margin-right:2px}
+  .okm,.opm{font-style:normal;font-weight:700;margin-right:5px} .okm{color:var(--up)} .opm{color:var(--muted)}
+  .agent .lb{flex-basis:132px}
+  .agentnotes summary{cursor:pointer;font-size:12px;color:var(--muted);list-style:none;margin:14px 0 4px}
+  .agentnotes summary::before{content:'\25B8  '}
+  .agentnotes[open] summary::before{content:'\25BE  '}
+  @media(max-width:560px){.strip .ctx{margin-left:0;flex-basis:100%}.strip .nums{gap:12px 16px}}
   .agent .det{border-left:0;margin-left:0;padding-left:0;padding-top:4px}
   .agent .lns{gap:2px 40px}
   .agent .lns .g{margin-bottom:8px}
@@ -927,6 +945,7 @@
     // is -- the team strip that carries this on the dashboard is hidden here.
     // Danny, 2026-10-08: "their individual links should have data notes about
     // how talk time is a bit delayed etc".
+    var agentNotes = '';
     if (AGENT) {
       var nl = function (label, value, tail) {
         return '<div class="ln"><span class="lb">' + label + '</span><span class="vl">' + value + '</span>' +
@@ -940,13 +959,50 @@
       } else {
         lagV = 'complete'; lagT = 'a finished range &middot; every report for these days has arrived';
       }
-      h += '<div class="agentnotes"><div class="grp" title="How fresh each figure on this page is">About these numbers</div>' +
+      // Folded into one line at the foot of the page. Danny, 2026-10-15:
+      // "more minimal ... more work-focused".
+      agentNotes = '<details class="agentnotes"><summary title="How fresh each figure on this page is">About these numbers</summary>' +
            nl('Talk &amp; calls', lagV, lagT) +
            nl('On track for', 'a projection', 'where the day lands if the rest of your shift goes like the part reported') +
            nl('Green dot', 'live', 'about 2 min behind &middot; no dot between calls is normal') +
            nl('Texts', 'a few min behind', 'read from RingEX every few minutes') +
            nl('CRM', 'every 5 min', 'Journeys, planner calls, tasks and readiness &middot; the page itself refreshes every 45 s') +
-           '</div>';
+           '</details>';
+      // The day strip: the one row this page needs. Done over due with the
+      // bar, what is left, then the day's numbers on one line. It replaces
+      // the table row (hidden on this page) and the Progress line.
+      var me = ranked[0] || silent[0] || stalled[0] || unknown[0] || quietSeats[0];
+      if (me) {
+        var mt = me.totals || {}, msm = me.sms || {}, mm = me.missed_summary || {};
+        var mj = ((me.crm || {}).journeys || {}), mjc = mj.journey_calls || {}, mtt = (me.crm || {}).tasks || {}, mq = mj.queue;
+        var mdue = (mjc.due || 0) + (mtt.due || 0), mdone = (mjc.completed || 0) + (mtt.completed || 0);
+        var mleft = Math.max(0, (mjc.due || 0) - (mjc.completed || 0));
+        var head;
+        if (mq) {
+          head = '<span class="big">' + mdone + ' of ' + mdue + ' done' + (mdue ? '<small>' + Math.round(100 * mdone / mdue) + '%</small>' : '') + '</span><span class="tail">' +
+                 (d.live ? (mleft ? '<b>' + mleft + ' planner call' + (mleft === 1 ? '' : 's') + '</b> to go' : 'planner calls done')
+                         : (mjc.completed || 0) + ' of ' + (mjc.due || 0) + ' planner calls · ' + (mtt.completed || 0) + ' of ' + (mtt.due || 0) + ' tasks') +
+                 (mq.calls_overdue ? ' · <b class="dn">' + mq.calls_overdue + ' overdue</b>' : ' · nothing overdue') +
+                 (d.live ? (mq.tasks_open ? ' · <b>' + mq.tasks_open + ' task' + (mq.tasks_open === 1 ? '' : 's') + '</b> open' : ' · tasks clear') : '') +
+                 (mq.to_schedule ? ' · <b class="dn">' + mq.to_schedule + ' to schedule</b>' : '') + '</span>';
+        } else {
+          head = '<span class="tail">' + (me.crm && !me.crm.unknown ? '' : 'CRM figures loading — reload in a moment') + '</span>';
+        }
+        var ctx = [];
+        if (d.live && d.data_as_of) ctx.push('report to ' + esc(d.data_as_of.as_of));
+        var dyM = me.day || {};
+        if (d.live && dyM.shift_age_minutes != null && dyM.shift)
+          ctx.push(dyM.shift_age_minutes < 0 ? 'shift starts ' + esc(hh12(dyM.shift.start))
+                                             : dyM.shift_age_minutes + ' min into your ' + esc(hh12(dyM.shift.start)) + ' shift');
+        var nums = '<span><b>' + (mt.calls || 0) + '</b>calls' + (mt.connected ? ' · ' + mt.connected + ' connected' : '') + '</span>' +
+                   '<span><b>' + Math.round((mt.talk_seconds || 0) / 60) + 'm</b>talk</span>' +
+                   '<span><b>' + (mt.inbound_answered || 0) + ' of ' + (mt.inbound || 0) + '</b>inbound answered</span>' +
+                   (msm && !msm.unknown && (LAST[CUR_SLOT] || {}).sms_enabled !== false ? '<span><b>' + (msm.sent || 0) + '↑ ' + (msm.received || 0) + '↓</b>texts</span>' : '') +
+                   '<span><b' + (mm.open ? ' class="dn"' : '') + '>' + (mm.open || 0) + '</b>missed to call back</span>';
+        h += '<div class="strip"><div class="top">' + presenceChip(me) + head +
+             (ctx.length ? '<span class="ctx">' + ctx.join(' · ') + '</span>' : '') + '</div>' +
+             (mq && mdue ? progressBar(me) : '') + '<div class="nums">' + nums + '</div></div>';
+      }
     }
     if (d.live && !AGENT) {   // one person needs no team strip
       var P = PRESENCE[slot];
@@ -1443,23 +1499,27 @@
         // coordinators' own pages, where the queue line is hidden.
         var jcP = ((a.crm || {}).journeys || {}).journey_calls || {}, ttP = (a.crm || {}).tasks || {};
         var dueP = (jcP.due || 0) + (ttP.due || 0), doneP = (jcP.completed || 0) + (ttP.completed || 0);
-        if (dueP) {
+        if (dueP && !AGENT) {     // a coordinator's own page carries this in the day strip
           var pctP = Math.max(0, Math.min(100, Math.round(100 * doneP / dueP)));
           prioLines += line('Progress', doneP + ' of ' + dueP + ' done',
                             progressBar(a) + (jcP.completed || 0) + ' of ' + (jcP.due || 0) + ' planner calls \u00b7 ' + (ttP.completed || 0) + ' of ' + (ttP.due || 0) + ' tasks',
                             pctP < 50 ? 'below' : '',
                             'Today\u2019s planner calls and tasks marked done, over the ones due. Red under half, amber around half, green near done.');
         }
-        prioLines += line('1 \u00b7 To schedule', qu.to_schedule,
+        // On a coordinator's own page each priority is a checklist line: a
+        // check when it is clear, a dash while it is open. The manager's
+        // board keeps the plain numbers.
+        var mk = function (clear) { return AGENT ? '<i class="' + (clear ? 'okm' : 'opm') + '">' + (clear ? '\u2713' : '\u2013') + '</i>' : ''; };
+        prioLines += line(mk(!qu.to_schedule && !qu.escalated) + '1 \u00b7 To schedule', qu.to_schedule,
                           (qu.to_schedule ? zl(ZOHO.deals, 'Deals') + ' &middot; ' : '') + 'paid, no date yet' +
                           (qu.to_schedule && qu.oldest_wait_days != null ? ' &middot; oldest waiting <b>' + qu.oldest_wait_days + ' d</b>' : '') +
-                          (qu.escalated ? ' &middot; <b>' + qu.escalated + '</b> with a manager' : ''), qu.to_schedule ? 'below' : '');
-        prioLines += line('2 \u00b7 Inbound', (tot.inbound_answered || 0) + ' of ' + (tot.inbound || 0),
-                          missed ? '<b>' + missed + ' missed</b> to call back' : ((tot.inbound || 0) ? 'all answered' : 'none yet'), missed ? 'below' : '');
-        prioLines += line('3 \u00b7 Tasks', qu.tasks_open, zl(ZOHO.tasks, 'My Today + Overdue Tasks') + ' &middot; due today or earlier', qu.tasks_open ? 'below' : '');
-        prioLines += line('4 \u00b7 Scheduled calls', qu.calls_scheduled_today,
+                          (qu.escalated ? ' &middot; <b>' + qu.escalated + '</b> with a manager' : ''), qu.to_schedule ? 'below' : '', TIP['1 \u00b7 To schedule']);
+        prioLines += line(mk(!missed) + '2 \u00b7 Inbound', (tot.inbound_answered || 0) + ' of ' + (tot.inbound || 0),
+                          missed ? '<b>' + missed + ' missed</b> to call back' : ((tot.inbound || 0) ? 'all answered' : 'none yet'), missed ? 'below' : '', TIP['2 \u00b7 Inbound']);
+        prioLines += line(mk(!qu.tasks_open) + '3 \u00b7 Tasks', qu.tasks_open, zl(ZOHO.tasks, 'My Today + Overdue Tasks') + ' &middot; due today or earlier', qu.tasks_open ? 'below' : '', TIP['3 \u00b7 Tasks']);
+        prioLines += line(mk(!qu.calls_scheduled_today && !qu.calls_overdue) + '4 \u00b7 Scheduled calls', qu.calls_scheduled_today,
                           zl(ZOHO.myCalls, 'My Journey Calls') + ' &middot; today' + (qu.calls_overdue ? ' &middot; <b>' + qu.calls_overdue + ' overdue</b> from before' : ''),
-                          qu.calls_overdue ? 'below' : '');
+                          qu.calls_overdue ? 'below' : '', TIP['4 \u00b7 Scheduled calls']);
       }
       var prioBlk = blk('Priorities', prioLines, 'Your work, in the order it should be done: new deals waiting for a schedule, inbound, tasks, scheduled calls');
       // Missed inbound calls with the number to dial; a line turns quiet once
@@ -1658,7 +1718,7 @@
          '<span class="sep">&middot;</span>talk time, wrap excluded' +
          '</div>';
 
-    $(slot).innerHTML = h;
+    $(slot).innerHTML = h + agentNotes;
 
     $(slot).querySelectorAll('.r[data-det]').forEach(function (row) {
       var toggle = function () {

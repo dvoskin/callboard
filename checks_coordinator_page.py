@@ -136,13 +136,36 @@ ck("a coordinator's page opens with What to fix now, linked, and says All clear 
    and "line('All clear'" in html_tpl and "if (AGENT) {\n        var jn2" in html_tpl, "fix list missing or not agent-only")
 
 ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
-   "<div class=\"agentnotes\"><div class=\"grp\"" in html_tpl and "lagV = d.data_as_of.lag_minutes + ' min behind'" in html_tpl and "line('Late start', fo.late_minutes + ' min'" in html_tpl
+   "<details class=\"agentnotes\"><summary" in html_tpl and "lagV = d.data_as_of.lag_minutes + ' min behind'" in html_tpl and "line('Late start', fo.late_minutes + ' min'" in html_tpl
    and "emailed every ~30 min" in html_tpl and "nl('On track for', 'a projection'" in html_tpl and "(AGENT ? prioBlk + fixBlk : '')" in html_tpl and html_tpl.index("if (AGENT) {\n      var nl = function") < html_tpl.index("if (d.live && !AGENT) {"), "agent notes missing")
 
 ck("readiness copy says to verify in DrChrono (labs, clearance) and Books (balance) before chasing",
    "check DrChrono first, then set Lab Status or chase" in html_tpl and "check DrChrono first, then set MC Status or chase" in html_tpl
    and "confirm in Books, then collect" in html_tpl and "verify labs and clearance in DrChrono, balances in Books" in html_tpl
    and "Check DrChrono first: if the result is in the chart" in html_tpl, "DrChrono verification copy missing")
+
+# Danny, 2026-10-15: "simplify their personal trackers ... business-first".
+# One day strip replaces the table row and the Progress line on a
+# coordinator's own page; the priorities read as a checklist there; the data
+# notes fold into one line at the foot. The manager's board is untouched.
+ck("the coordinator page opens with a day strip: done over due, the bar, what is left, the day's numbers",
+   "h += '<div class=\"strip\"><div class=\"top\">' + presenceChip(me) + head" in html_tpl
+   and "'<span class=\"big\">' + mdone + ' of ' + mdue + ' done'" in html_tpl and "(mq && mdue ? progressBar(me) : '')" in html_tpl
+   and "'</b>inbound answered</span>'" in html_tpl and "'</b>missed to call back</span>'" in html_tpl, "strip missing")
+ck("...and names the report time and how far into the shift it reaches",
+   "ctx.push('report to ' + esc(d.data_as_of.as_of))" in html_tpl and "' min into your ' + esc(hh12(dyM.shift.start)) + ' shift'" in html_tpl, "context missing")
+ck("...built from the one seat whatever bucket it landed in",
+   "var me = ranked[0] || silent[0] || stalled[0] || unknown[0] || quietSeats[0];" in html_tpl, "seat lookup")
+ck("the table row is hidden on the coordinator page and the panel's Progress line yields to the strip",
+   ".agent .r{display:none}" in html_tpl and "if (dueP && !AGENT) {" in html_tpl, "row or progress line still doubled")
+ck("priorities are a checklist on the coordinator page only: check when clear, dash while open",
+   "var mk = function (clear) { return AGENT ? '<i class=\"' + (clear ? 'okm' : 'opm') + '\">'" in html_tpl
+   and "mk(!qu.to_schedule && !qu.escalated) + '1 \\u00b7 To schedule'" in html_tpl and "mk(!missed) + '2 \\u00b7 Inbound'" in html_tpl
+   and "mk(!qu.tasks_open) + '3 \\u00b7 Tasks'" in html_tpl and "mk(!qu.calls_scheduled_today && !qu.calls_overdue) + '4 \\u00b7 Scheduled calls'" in html_tpl
+   and html_tpl.count("TIP['4 \\u00b7 Scheduled calls']") == 1, "checklist glyphs missing")
+ck("the data notes fold into one line at the foot of the page",
+   "$(slot).innerHTML = h + agentNotes;" in html_tpl and "var agentNotes = '';" in html_tpl and ".agentnotes summary{cursor:pointer" in html_tpl, "notes not folded")
+ck("no badges, no mood copy, no ring", all(w not in html_tpl for w in ("badge", "Building momentum", "stroke-dasharray")), "gamified leftovers")
 
 print("%d passed" % passed)
 print("%d failed" % failed)
