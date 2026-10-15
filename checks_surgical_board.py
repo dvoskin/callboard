@@ -687,7 +687,7 @@ ck("the panel has a Priorities block in the order: to schedule, inbound, tasks, 
    and "(AGENT ? prioBlk + fixBlk : '')" in _tpl8 and "(AGENT ? '' : prioBlk)" in _tpl8, "priorities block missing or out of order")
 ck("to-schedule links to Deals and names the oldest wait", "zl(ZOHO.deals, 'Deals')" in _tpl8 and "oldest waiting <b>" in _tpl8 and "deals: ZB + 'Potentials'" in _tpl8, "deals link missing")
 ck("the collapsed row carries the queue line on every row builder, hidden on a coordinator's own page",
-   _tpl8.count("smsChip(a) + srcChip(a) + shiftChip(a) + queueChip(a)") == 3 and "function queueChip(a)" in _tpl8 and "if (!qu || AGENT) return '';" in _tpl8
+   _tpl8.count("smsChip(a) + srcChip(a) + queueChip(a)") == 3 and "function queueChip(a)" in _tpl8 and "if (!qu || AGENT) return '';" in _tpl8
    and ".agent .pq{display:none}" in _tpl8 and "' to schedule \\u00b7 '" in _tpl8, "queue chip missing")
 
 # ---- billers don't schedule: no Journeys / Priorities for them, and no Journeys read on their behalf (Danny, 2026-10-12) ----
@@ -797,11 +797,18 @@ _rep14c = build_report({"Jorge Mier": _seats14["Jorge Mier"]}, tz_offset_minutes
                        now_local=_dt14(2026, 10, 14, 11, 40))
 ck("before the start the age is negative (the row says when the shift begins)", _by14 and _rep14c["ranked"][0]["day"]["shift_age_minutes"] == -20, _rep14c["ranked"][0]["day"])
 _tpl14 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
-ck("the note sits on every collapsed row builder, before the queue line",
-   _tpl14.count("srcChip(a) + shiftChip(a) + queueChip(a) + progressBar(a)") == 3 and "function shiftChip(a)" in _tpl14, "shiftChip not on the rows")
-ck("...hidden once the shift is two hours old, and only on the live day",
-   "if (!d.live || age == null || !dy.shift || age >= 120) return '';" in _tpl14 and ".sa{display:inline-block" in _tpl14, "threshold or style missing")
-ck("...and reads as a sentence with the report time", "shift started <b>' + age + ' min</b> before ' + rep" in _tpl14 and "shift starts ' + esc(start)" in _tpl14, "wording changed")
+# Danny, 2026-10-15: "remove shift started at on collapsed view" -- the note
+# lives in the expanded day block only, and no chip function is left behind.
+ck("the collapsed rows carry no shift note",
+   "shiftChip" not in _tpl14 and ".sa{" not in _tpl14 and _tpl14.count("srcChip(a) + queueChip(a) + progressBar(a)") == 3, "shift chip still on the rows")
+ck("the expanded day block says how far into the shift the report reaches, under two hours, live only",
+   "dayLines += line('Into the shift', age + ' min'" in _tpl14 and "dayLines += line('Shift', 'starts ' + esc(hh12(dy.shift.start))" in _tpl14
+   and "if ((LAST[CUR_SLOT] || {}).live && age != null && dy.shift && age < 120) {" in _tpl14, "panel line missing")
+# ...and the coordinators' own pages get the day's progress in numbers, with
+# the bar, at the top of Priorities (the queue line is hidden there).
+ck("Priorities opens with the day's progress: done over due, planner calls and tasks, with the bar",
+   "prioLines += line('Progress', doneP + ' of ' + dueP + ' done'" in _tpl14 and "progressBar(a) + (jcP.completed || 0) + ' of ' + (jcP.due || 0) + ' planner calls" in _tpl14
+   and "pctP < 50 ? 'below' : ''" in _tpl14 and ".agent .prog{max-width:320px;height:5px}" in _tpl14, "progress line missing")
 
 # the tally stays LAST: on 2026-10-13 it sat mid-file and nine later checks ran uncounted
 for e in errors:
