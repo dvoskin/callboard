@@ -722,7 +722,13 @@
     var jn = ((a || {}).crm || {}).journeys;
     if (!jn || !jn.queue) return '';
     var jc = jn.journey_calls || {}, tt = ((a.crm || {}).tasks) || {};
-    var due = (jc.due || 0) + (tt.due || 0), done = (jc.completed || 0) + (tt.completed || 0);
+    // Done over due, SAME population on both sides: planner calls due in the
+    // window that are Completed, plus tasks due in the window that are no
+    // longer open. tasks.completed is "closed in the window" whatever the due
+    // date -- Oscar clearing a 63-task backlog on 2026-10-14 read as "99 of
+    // 48 done, 206%".
+    var tdone = Math.max(0, (tt.due || 0) - (tt.open || 0));
+    var due = (jc.due || 0) + (tt.due || 0), done = (jc.completed || 0) + tdone;
     if (!due) return '';
     var pct = Math.max(0, Math.min(100, Math.round(100 * done / due)));
     // red (0) -> amber (50) -> green (100), interpolated per channel
@@ -731,7 +737,7 @@
     var c0 = stops[i], c1 = stops[Math.min(2, i + 1)];
     var rgb = c0.map(function (v, k) { return Math.round(v + (c1[k] - v) * f); });
     var tip = 'Progress on the window\u2019s calls and tasks: ' + done + ' of ' + due + ' done (' + pct + '%) \u2014 ' +
-              (jc.completed || 0) + ' of ' + (jc.due || 0) + ' planner calls, ' + (tt.completed || 0) + ' of ' + (tt.due || 0) + ' tasks';
+              (jc.completed || 0) + ' of ' + (jc.due || 0) + ' planner calls, ' + tdone + ' of ' + (tt.due || 0) + ' tasks';
     // Nothing done yet still has to SHOW: a 0% fill is invisible, which read as
     // "no hairline" for the inbound seats on 2026-10-13. A short red sliver
     // says "work due, none done" instead of saying nothing.
@@ -975,16 +981,22 @@
       if (me) {
         var mt = me.totals || {}, msm = me.sms || {}, mm = me.missed_summary || {};
         var mj = ((me.crm || {}).journeys || {}), mjc = mj.journey_calls || {}, mtt = (me.crm || {}).tasks || {}, mq = mj.queue;
-        var mdue = (mjc.due || 0) + (mtt.due || 0), mdone = (mjc.completed || 0) + (mtt.completed || 0);
+        // Same population both sides (see progressBar): tasks due in the
+        // window and no longer open, not every task closed in the window.
+        var mtdone = Math.max(0, (mtt.due || 0) - (mtt.open || 0));
+        var mdue = (mjc.due || 0) + (mtt.due || 0), mdone = (mjc.completed || 0) + mtdone;
         var mleft = Math.max(0, (mjc.due || 0) - (mjc.completed || 0));
         var head;
         if (mq) {
-          head = '<span class="big">' + mdone + ' of ' + mdue + ' done' + (mdue ? '<small>' + Math.round(100 * mdone / mdue) + '%</small>' : '') + '</span><span class="tail">' +
+          // The queue (overdue, to schedule, open tasks) is what is waiting
+          // NOW; it belongs on the live day only, not under "Yesterday".
+          head = '<span class="big">' + mdone + ' of ' + mdue + ' done' + (mdue ? '<small>' + Math.min(100, Math.round(100 * mdone / mdue)) + '%</small>' : '') + '</span><span class="tail">' +
                  (d.live ? (mleft ? '<b>' + mleft + ' planner call' + (mleft === 1 ? '' : 's') + '</b> to go' : 'planner calls done')
-                         : (mjc.completed || 0) + ' of ' + (mjc.due || 0) + ' planner calls · ' + (mtt.completed || 0) + ' of ' + (mtt.due || 0) + ' tasks') +
-                 (mq.calls_overdue ? ' · <b class="dn">' + mq.calls_overdue + ' overdue</b>' : ' · nothing overdue') +
+                         : (mjc.completed || 0) + ' of ' + (mjc.due || 0) + ' planner calls · ' + mtdone + ' of ' + (mtt.due || 0) + ' task' + ((mtt.due || 0) === 1 ? '' : 's') +
+                           ((mtt.completed || 0) > mtdone ? ' · ' + (mtt.completed || 0) + ' tasks closed in all' : '')) +
+                 (d.live ? (mq.calls_overdue ? ' · <b class="dn">' + mq.calls_overdue + ' overdue</b>' : ' · nothing overdue') : '') +
                  (d.live ? (mq.tasks_open ? ' · <b>' + mq.tasks_open + ' task' + (mq.tasks_open === 1 ? '' : 's') + '</b> open' : ' · tasks clear') : '') +
-                 (mq.to_schedule ? ' · <b class="dn">' + mq.to_schedule + ' to schedule</b>' : '') + '</span>';
+                 (d.live && mq.to_schedule ? ' · <b class="dn">' + mq.to_schedule + ' to schedule</b>' : '') + '</span>';
         } else {
           head = '<span class="tail">' + (me.crm && !me.crm.unknown ? '' : 'CRM figures loading — reload in a moment') + '</span>';
         }
@@ -1344,11 +1356,15 @@
                      rate(cc.completed, cc.due) + (cc.overdue ? ' \u00b7 <b>' + cc.overdue + ' overdue</b>' : '') +
                      ' \u00b7 ' + cc.created + ' logged', cc.overdue ? 'below' : '')
               : line('CRM calls', cc.completed + ' done', 'none due \u00b7 ' + cc.created + ' logged', '')) +
+            // Of the tasks DUE in the window, how many are no longer open;
+            // every task closed in the window (whatever its due date) is the
+            // separate "closed" count. Oscar closing a 63-task backlog read as
+            // "63 of 2 done" while these were the same number.
             (tt.due
-              ? line('Tasks', tt.completed + ' of ' + tt.due + ' done',
-                     rate(tt.completed, tt.due) + (tt.open ? ' \u00b7 <b>' + tt.open + ' still open</b>' : '') +
-                     ' \u00b7 ' + tt.created + ' created', tt.open ? 'below' : '')
-              : line('Tasks', tt.completed + ' done', 'none due \u00b7 ' + tt.created + ' created', ''));
+              ? line('Tasks', Math.max(0, tt.due - (tt.open || 0)) + ' of ' + tt.due + ' done',
+                     rate(Math.max(0, tt.due - (tt.open || 0)), tt.due) + (tt.open ? ' \u00b7 <b>' + tt.open + ' still open</b>' : '') +
+                     ' \u00b7 ' + tt.completed + ' closed \u00b7 ' + tt.created + ' created', tt.open ? 'below' : '')
+              : line('Tasks', tt.completed + ' closed', 'none due \u00b7 ' + tt.created + ' created', ''));
           // The coordinator's caseload from the Journeys module (the planner
           // sets Journey Owner to the coordinator): cases owned, the planner's
           // own calls in the window, and surgeries inside 14 days that are
@@ -1498,11 +1514,12 @@
         // planner calls and tasks done over due. Danny, 2026-10-15, for the
         // coordinators' own pages, where the queue line is hidden.
         var jcP = ((a.crm || {}).journeys || {}).journey_calls || {}, ttP = (a.crm || {}).tasks || {};
-        var dueP = (jcP.due || 0) + (ttP.due || 0), doneP = (jcP.completed || 0) + (ttP.completed || 0);
+        var tdoneP = Math.max(0, (ttP.due || 0) - (ttP.open || 0));
+        var dueP = (jcP.due || 0) + (ttP.due || 0), doneP = (jcP.completed || 0) + tdoneP;
         if (dueP && !AGENT) {     // a coordinator's own page carries this in the day strip
           var pctP = Math.max(0, Math.min(100, Math.round(100 * doneP / dueP)));
           prioLines += line('Progress', doneP + ' of ' + dueP + ' done',
-                            progressBar(a) + (jcP.completed || 0) + ' of ' + (jcP.due || 0) + ' planner calls \u00b7 ' + (ttP.completed || 0) + ' of ' + (ttP.due || 0) + ' tasks',
+                            progressBar(a) + (jcP.completed || 0) + ' of ' + (jcP.due || 0) + ' planner calls \u00b7 ' + tdoneP + ' of ' + (ttP.due || 0) + ' tasks',
                             pctP < 50 ? 'below' : '',
                             'Today\u2019s planner calls and tasks marked done, over the ones due. Red under half, amber around half, green near done.');
         }

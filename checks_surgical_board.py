@@ -810,6 +810,21 @@ ck("Priorities opens with the day's progress: done over due, planner calls and t
    "prioLines += line('Progress', doneP + ' of ' + dueP + ' done'" in _tpl14 and "progressBar(a) + (jcP.completed || 0) + ' of ' + (jcP.due || 0) + ' planner calls" in _tpl14
    and "pctP < 50 ? 'below' : ''" in _tpl14 and ".agent .prog{max-width:320px;height:5px}" in _tpl14, "progress line missing")
 
+# Danny, 2026-10-15: Oscar's Yesterday read "99 of 48 done, 206% ... 63 of 2
+# tasks". tasks.completed is every task CLOSED in the window; tasks.due is
+# every task DUE in it. Done over due must take the same population on both
+# sides: tasks due in the window that are no longer open.
+_tpl15 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the hairline counts tasks done as due minus open, never closed-in-window",
+   "var tdone = Math.max(0, (tt.due || 0) - (tt.open || 0));" in _tpl15 and "done = (jc.completed || 0) + tdone;" in _tpl15
+   and "(tt.completed || 0) + ' of ' + (tt.due || 0) + ' tasks'" not in _tpl15, "hairline formula")
+ck("...and so do the day strip and the panel's Progress line",
+   "var mtdone = Math.max(0, (mtt.due || 0) - (mtt.open || 0));" in _tpl15 and "mdone = (mjc.completed || 0) + mtdone;" in _tpl15
+   and "var tdoneP = Math.max(0, (ttP.due || 0) - (ttP.open || 0));" in _tpl15 and "doneP = (jcP.completed || 0) + tdoneP;" in _tpl15
+   and "(mtt.completed || 0) + ' of ' + (mtt.due || 0)" not in _tpl15 and "(ttP.completed || 0) + ' of ' + (ttP.due || 0)" not in _tpl15, "strip/panel formula")
+ck("the strip's percentage is capped at 100 and the queue shows on the live day only",
+   "Math.min(100, Math.round(100 * mdone / mdue))" in _tpl15 and "(d.live ? (mq.calls_overdue ?" in _tpl15 and "(d.live && mq.to_schedule ?" in _tpl15, "cap or live gating")
+
 # the tally stays LAST: on 2026-10-13 it sat mid-file and nine later checks ran uncounted
 for e in errors:
     print("  FAIL", e)
