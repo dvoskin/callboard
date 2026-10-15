@@ -167,5 +167,21 @@ ck("the data notes fold into one line at the foot of the page",
    "$(slot).innerHTML = h + agentNotes;" in html_tpl and "var agentNotes = '';" in html_tpl and ".agentnotes summary{cursor:pointer" in html_tpl, "notes not folded")
 ck("no badges, no mood copy, no ring", all(w not in html_tpl for w in ("badge", "Building momentum", "stroke-dasharray")), "gamified leftovers")
 
+# Danny, 2026-10-15: "a small alert that plays a tone intermittently for users
+# who have missed inbound calls and unanswered texts that can be silenced or
+# muted unless a new one is added".
+ck("the tone bar sits under the strip on the coordinator's page, live day only",
+   "h += alertBar(me, d);" in html_tpl and "if (!AGENT || !d.live) { ALERT.keys = []; return ''; }" in html_tpl and "if (AGENT) alertSync();" in html_tpl, "bar missing")
+ck("...keyed on each open missed call and each unanswered text",
+   "ks.push('call:' + m.digits + '@' + m.date + ' ' + m.at)" in html_tpl and "if (!m.resolved)" in html_tpl and ".unanswered_keys || []).forEach(function (k) { ks.push('text:' + k); })" in html_tpl, "keys")
+ck("...a soft two-note tone every 40 s while anything open is not muted",
+   "ALERT.timer = setInterval(alertTone, 40000);" in html_tpl and "[[660, 0], [880, 0.17]]" in html_tpl and "clearInterval(ALERT.timer); ALERT.timer = null;" in html_tpl, "tone")
+ck("...Mute covers the items on the bar now and a new one sounds again by itself",
+   "(ALERT.keys || []).forEach(function (k) { muted[k] = 1; })" in html_tpl and "return !muted[k];" in html_tpl
+   and "if (keys.indexOf(k) < 0) { delete muted[k]; }" in html_tpl and "'v6-alert-muted-' + (AGENT_SLUG || AGENT || '')" in html_tpl, "mute rule")
+ck("...audio is armed on the first touch, and the bar says so until then",
+   "document.addEventListener('pointerdown', alertUnlock);" in html_tpl and "click anywhere once to enable the tone" in html_tpl and "if (ALERT.timer) alertTone();" in html_tpl, "unlock")
+ck("...and the tab title carries the open count", "document.title = fresh.length ? '(' + fresh.length + ') ' + base : base;" in html_tpl, "title")
+
 print("%d passed" % passed)
 print("%d failed" % failed)

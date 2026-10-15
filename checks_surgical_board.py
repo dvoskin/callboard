@@ -649,6 +649,12 @@ ck("people reached counts numbers, not dials", _a8["reach"]["unique_outbound"] =
 _rp8 = _a8["sms"]["replies"]
 ck("two inbound texts before a reply are ONE wait; the reply took 12 min", _rp8["replied"] == 1 and _rp8["median_minutes"] == 12, _rp8)
 ck("an inbound with no reply is unanswered", _rp8["unanswered"] == 1 and _rp8["threads"] == 2, _rp8)
+# Danny, 2026-10-15: the page's tone needs to tell a NEW unanswered text from
+# the ones already muted, so each one carries an opaque key -- last four
+# digits and the minute it has waited since, never the number.
+ck("...and carries one opaque key per unanswered thread",
+   len(_rp8.get("unanswered_keys") or []) == 1 and _rp8["unanswered_keys"][0] == "5555@2026-10-07 14:00"
+   and all(len(k.split("@")[0]) == 4 for k in _rp8["unanswered_keys"]), _rp8.get("unanswered_keys"))
 _rep8b = build_report({"Judith Merlo": {"rows": _rows8, "ext": "185", "ext_id": 1, "complete": True}},
                       tz_offset_minutes=-240, window={"start": "2026-10-07", "end": "2026-10-07"})
 ck("no shift on file -> no lateness judged, start still shown", _rep8b["ranked"][0]["day"]["shift_days"] == 0 and _rep8b["ranked"][0]["day"]["focus"]["late_minutes"] is None and _rep8b["ranked"][0]["day"]["focus"]["first"] == "10:14 AM", _rep8b["ranked"][0]["day"])

@@ -473,7 +473,11 @@ def _sms_replies(srows, tz_offset_minutes):
             replies.append((t - waiting.pop(num)).total_seconds() / 60.0)
     return {"threads": len(threads), "replied": len(replies), "unanswered": len(waiting),
             "median_minutes": int(round(statistics.median(replies))) if replies else None,
-            "within_15_pct": _rate(sum(1 for m in replies if m <= 15), len(replies)) if replies else None}
+            "within_15_pct": _rate(sum(1 for m in replies if m <= 15), len(replies)) if replies else None,
+            # One opaque key per unanswered thread (last four digits and the
+            # minute it has waited since), so a coordinator's page can tell a
+            # NEW unanswered text from the ones already muted. Not the number.
+            "unanswered_keys": sorted(n[-4:] + "@" + t.strftime("%Y-%m-%d %H:%M") for n, t in waiting.items())}
 
 
 def _rate(num, den):

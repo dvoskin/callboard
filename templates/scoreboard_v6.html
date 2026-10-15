@@ -184,6 +184,19 @@
   .agentnotes summary::before{content:'\25B8  '}
   .agentnotes[open] summary::before{content:'\25BE  '}
   @media(max-width:560px){.strip .ctx{margin-left:0;flex-basis:100%}.strip .nums{gap:12px 16px}}
+  /* the tone bar: open missed calls and unanswered texts on a coordinator's page */
+  .alert{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:7px 10px;border:1px solid var(--rule);border-radius:6px;font-size:12.5px;max-width:980px}
+  .alert.on{border-color:var(--dn)}
+  .alert .dot{width:8px;height:8px;border-radius:50%;background:var(--dn);flex:none}
+  .alert.on .dot{animation:alertpulse 1.6s ease-in-out infinite}
+  .alert.quiet .dot{background:var(--muted)}
+  .alert .what{color:var(--ink);font-weight:600}
+  .alert.quiet .what{color:var(--ink-2);font-weight:500}
+  .alert button{font-family:inherit;font-size:12px;padding:3px 10px;border:1px solid var(--rule);border-radius:4px;background:var(--bg);color:var(--ink);cursor:pointer}
+  .alert button:hover{border-color:var(--ink-2)}
+  .alert .mutedtxt,.alert .hint{font-size:11.5px;color:var(--muted)}
+  .alert .hint{margin-left:auto}
+  @keyframes alertpulse{0%,100%{opacity:1}50%{opacity:.25}}
   .agent .det{border-left:0;margin-left:0;padding-left:0;padding-top:4px}
   .agent .lns{gap:2px 40px}
   .agent .lns .g{margin-bottom:8px}
@@ -753,6 +766,94 @@
     h = h % 12; if (h === 0) h = 12;
     return h + ':' + m[2] + ' ' + ap;
   }
+  // ---- The tone. On a coordinator's own page, live day only: while any
+  // missed inbound call is not called back or any text is unanswered, a soft
+  // two-note tone every 40 s and a bar saying what is open. Mute silences the
+  // items on the bar at that moment; a NEW missed call or unanswered text is
+  // not covered by the mute, so it sounds again by itself. Danny, 2026-10-15.
+  // Browsers refuse audio until the page has been touched, so the sound is
+  // armed on the first click or key and the bar says so until then.
+  var ALERT = { ctx: null, timer: null, keys: [], muted: null, armed: false, seat: null };
+  function alertStore() { return 'v6-alert-muted-' + (AGENT_SLUG || AGENT || ''); }
+  function alertLoadMuted() {
+    if (ALERT.muted) return ALERT.muted;
+    var m = {};
+    try { (JSON.parse(localStorage.getItem(alertStore()) || '[]') || []).forEach(function (k) { m[k] = 1; }); } catch (e) {}
+    ALERT.muted = m; return m;
+  }
+  function alertSaveMuted() { try { localStorage.setItem(alertStore(), JSON.stringify(Object.keys(ALERT.muted || {}))); } catch (e) {} }
+  function alertKeys(a) {
+    var ks = [];
+    ((a || {}).missed_calls || []).forEach(function (m) { if (!m.resolved) ks.push('call:' + m.digits + '@' + m.date + ' ' + m.at); });
+    ((((a || {}).sms || {}).replies || {}).unanswered_keys || []).forEach(function (k) { ks.push('text:' + k); });
+    return ks;
+  }
+  function alertUnlock() {
+    try {
+      if (!ALERT.ctx) ALERT.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ALERT.ctx.state === 'suspended') ALERT.ctx.resume();
+    } catch (e) { return; }
+    if (ALERT.armed) return;
+    ALERT.armed = true;
+    setTimeout(function () {
+      document.querySelectorAll('.alert .hint').forEach(function (el) { el.remove(); });
+      if (ALERT.timer) alertTone();      // something was already due: say so now
+    }, 300);
+  }
+  function alertTone() {
+    var c = ALERT.ctx; if (!c || c.state !== 'running') return;
+    [[660, 0], [880, 0.17]].forEach(function (p) {
+      var o = c.createOscillator(), g = c.createGain(), t = c.currentTime + p[1];
+      o.type = 'sine'; o.frequency.value = p[0]; o.connect(g); g.connect(c.destination);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      o.start(t); o.stop(t + 0.16);
+    });
+  }
+  function alertBar(a, d) {
+    if (!AGENT || !d.live) { ALERT.keys = []; return ''; }
+    var keys = alertKeys(a), muted = alertLoadMuted();
+    ALERT.keys = keys; ALERT.seat = a;
+    if (!keys.length) return '';
+    var calls = keys.filter(function (k) { return k.slice(0, 5) === 'call:'; }).length, texts = keys.length - calls;
+    var fresh = keys.filter(function (k) { return !muted[k]; }).length;
+    var what = (calls ? calls + ' missed call' + (calls === 1 ? '' : 's') + ' to call back' : '') +
+               (calls && texts ? ' · ' : '') + (texts ? texts + ' text' + (texts === 1 ? '' : 's') + ' unanswered' : '');
+    return '<div class="alert' + (fresh ? ' on' : ' quiet') + '" role="status">' +
+           '<span class="dot"></span><span class="what">' + what + '</span>' +
+           (fresh ? '<button type="button" class="mute">Mute</button>'
+                  : '<span class="mutedtxt">muted · a new one will sound</span><button type="button" class="unmute">Unmute</button>') +
+           (fresh && !(ALERT.ctx && ALERT.ctx.state === 'running') ? '<span class="hint">click anywhere once to enable the tone</span>' : '') +
+           '</div>';
+  }
+  function alertSync() {
+    var keys = ALERT.keys || [], muted = alertLoadMuted();
+    // items that went away (called back, answered) leave the muted list
+    Object.keys(muted).forEach(function (k) { if (keys.indexOf(k) < 0) { delete muted[k]; } });
+    alertSaveMuted();
+    var fresh = keys.filter(function (k) { return !muted[k]; });
+    if (fresh.length && !ALERT.timer) {
+      alertTone();
+      ALERT.timer = setInterval(alertTone, 40000);
+    } else if (!fresh.length && ALERT.timer) {
+      clearInterval(ALERT.timer); ALERT.timer = null;
+    }
+    var base = document.title.replace(/^\(\d+\) /, '');
+    document.title = fresh.length ? '(' + fresh.length + ') ' + base : base;
+  }
+  document.addEventListener('pointerdown', alertUnlock);
+  document.addEventListener('keydown', alertUnlock);
+  document.addEventListener('click', function (ev) {
+    var b = ev.target && ev.target.closest ? ev.target.closest('.alert .mute, .alert .unmute') : null;
+    if (!b) return;
+    var muted = alertLoadMuted();
+    if (b.classList.contains('mute')) { (ALERT.keys || []).forEach(function (k) { muted[k] = 1; }); }
+    else { ALERT.muted = {}; }
+    alertSaveMuted();
+    var bar = b.closest('.alert');
+    if (bar) bar.outerHTML = alertBar(ALERT.seat, LAST[CUR_SLOT] || {});
+    alertSync();
+  });
+
   function smsChip(a) {
     if (!SHOW_SMS_CHIP) return '';
     // A board with SMS switched off shows nothing at all -- not "not read".
@@ -1014,6 +1115,9 @@
         h += '<div class="strip"><div class="top">' + presenceChip(me) + head +
              (ctx.length ? '<span class="ctx">' + ctx.join(' · ') + '</span>' : '') + '</div>' +
              (mq && mdue ? progressBar(me) : '') + '<div class="nums">' + nums + '</div></div>';
+        h += alertBar(me, d);
+      } else {
+        ALERT.keys = [];
       }
     }
     if (d.live && !AGENT) {   // one person needs no team strip
@@ -1736,6 +1840,7 @@
          '</div>';
 
     $(slot).innerHTML = h + agentNotes;
+    if (AGENT) alertSync();
 
     $(slot).querySelectorAll('.r[data-det]').forEach(function (row) {
       var toggle = function () {
