@@ -133,7 +133,7 @@ ck("the readiness chips link to the Zoho views (labs/balance -> Not Ready, clear
    and "custom-view/5212466001043166677/list" in html_tpl and "custom-view/5212466001043166701/list" in html_tpl, "chip links missing")
 ck("a coordinator's page opens with What to fix now, linked, and says All clear when nothing is red",
    "blk('What to fix now', fixLines" in html_tpl and "zl(ZOHO.myCalls, 'My Journey Calls')" in html_tpl
-   and "line('All clear'" in html_tpl and "if (AGENT) {\n        var jn2" in html_tpl, "fix list missing or not agent-only")
+   and "line('All clear'" in html_tpl and "{   // built for every seat since 2026-10-15" in html_tpl and "(AGENT ? prioBlk + fixBlk : '')" in html_tpl, "fix list missing")
 
 ck("a coordinator's page carries plain-language data notes with the report's own time and lag",
    "<details class=\"agentnotes\"><summary" in html_tpl and "lagV = d.data_as_of.lag_minutes + ' min behind'" in html_tpl and "line('Late start', fo.late_minutes + ' min'" in html_tpl
@@ -182,6 +182,21 @@ ck("...Mute covers the items on the bar now and a new one sounds again by itself
 ck("...audio is armed on the first touch, and the bar says so until then",
    "document.addEventListener('pointerdown', alertUnlock);" in html_tpl and "click anywhere once to enable the tone" in html_tpl and "if (ALERT.timer) alertTone();" in html_tpl, "unlock")
 ck("...and the tab title carries the open count", "document.title = fresh.length ? '(' + fresh.length + ') ' + base : base;" in html_tpl, "title")
+
+# Danny, 2026-10-15: "improve my tracker now better as well" -- the manager's
+# board: the team's open work on one line under the presence counts, the pill
+# caveat folded under Summary, unanswered texts on the queue line, and What to
+# fix now in every seat's panel, not only the coordinator's own page.
+ck("the manager's board sums the team's open work on one line",
+   "var seatsT = ranked.concat(silent, stalled, unknown, quietSeats), T2 = {crm: 0, due: 0, done: 0, overdue: 0, sched: 0, missed: 0, texts: 0};" in html_tpl
+   and "T2.done += (jc.completed || 0) + Math.max(0, (tt.due || 0) - (tt.open || 0));" in html_tpl
+   and "h += '<div class=\"att\">'" in html_tpl and "'missed call' + (T2.missed === 1 ? '' : 's') + ' to call back</span>'" in html_tpl, "team line missing")
+ck("...the status-pill caveat is folded under Summary, not printed on every board every day",
+   html_tpl.count('class="disc"') == 1 and "'<p class=\"sub\">' + sub + '</p>' +\n           '<div class=\"disc\">" in html_tpl, "caveat still loose")
+ck("...unanswered texts join the queue line when there are any",
+   "var unans = (((a.sms || {}).replies || {}).unanswered) || 0;" in html_tpl and "(unans ? ' \\u00b7 ' + n(unans, true) + ' text' + (unans === 1 ? '' : 's') + ' unanswered' : '')" in html_tpl, "texts on the chip")
+ck("...and What to fix now is in every seat's panel",
+   "(AGENT ? '' : prioBlk + fixBlk)" in html_tpl and "{   // built for every seat since 2026-10-15" in html_tpl and "(AGENT ? 'Your red items' : 'This seat\\u2019s red items')" in html_tpl, "fix block manager-side")
 
 print("%d passed" % passed)
 print("%d failed" % failed)

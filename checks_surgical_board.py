@@ -690,7 +690,7 @@ ck("the work queue rides on the Journeys read", (jcrm or {}).get("journeys", {})
    and (jcrm or {}).get("journeys", {}).get("queue", {}).get("calls_overdue") == 9, (jcrm or {}).get("journeys", {}).get("queue"))
 ck("the panel has a Priorities block in the order: to schedule, inbound, tasks, scheduled calls",
    "blk('Priorities', prioLines" in _tpl8 and _tpl8.index("'1 \\u00b7 To schedule'") < _tpl8.index("'2 \\u00b7 Inbound'") < _tpl8.index("'3 \\u00b7 Tasks'") < _tpl8.index("'4 \\u00b7 Scheduled calls'")
-   and "(AGENT ? prioBlk + fixBlk : '')" in _tpl8 and "(AGENT ? '' : prioBlk)" in _tpl8, "priorities block missing or out of order")
+   and "(AGENT ? prioBlk + fixBlk : '')" in _tpl8 and "(AGENT ? '' : prioBlk + fixBlk)" in _tpl8, "priorities block missing or out of order")
 ck("to-schedule links to Deals and names the oldest wait", "zl(ZOHO.deals, 'Deals')" in _tpl8 and "oldest waiting <b>" in _tpl8 and "deals: ZB + 'Potentials'" in _tpl8, "deals link missing")
 ck("the collapsed row carries the queue line on every row builder, hidden on a coordinator's own page",
    _tpl8.count("smsChip(a) + srcChip(a) + queueChip(a)") == 3 and "function queueChip(a)" in _tpl8 and "if (!qu || AGENT) return '';" in _tpl8
