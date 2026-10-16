@@ -838,7 +838,7 @@ _real_fem = A._ringcx.fetch_extension_messages
 def _fem16(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_text=False):
     r = lambda i, d, frm, to, at, txt: {"id": i, "direction": d, "type": "SMS", "start_time": at, "from_number": frm, "to_number": to,
                                           "conversation_id": "", "status": "", "availability": "", "has_attachment": False, "source": "ringex_sms",
-                                          **({"text": txt} if keep_text else {})}
+                                          **({"text": txt, "read": ("Unread" if d == "Inbound" and i == "4" else "Read")} if keep_text else {})}
     return [r("1", "Inbound", "+13055550101", "+12125550100", "2026-10-15T14:00:00Z", "Can I pay my balance today?"),
             r("2", "Outbound", "+12125550100", "+13055550101", "2026-10-15T14:05:00Z", "Yes, I can take a card now."),
             r("3", "Inbound", "+13055550101", "+12125550100", "2026-10-15T14:30:00Z", "ok how"),
@@ -854,11 +854,33 @@ finally:
 _s0 = (_su.get("seats") or [{}])[0]
 _byn = {t["digits"]: t for t in _s0.get("unanswered") or []}
 ck("every billing seat is read, with its message count", len(_su.get("seats") or []) >= 3 and _s0.get("messages") == 5, _su)
-ck("a reply closes the wait: only the inbound AFTER the last reply is open, with its text", _s0.get("unanswered_count") == 2 and _byn["3055550101"]["inbound"] == [{"at": "Thu 10:30 AM", "text": "ok how"}]
+ck("a reply closes the wait: only the inbound AFTER the last reply is open, with its text", _s0.get("unanswered_count") == 2
+   and [(m["at"], m["text"]) for m in _byn["3055550101"]["inbound"]] == [("Thu 10:30 AM", "ok how")]
    and _byn["3055550101"]["inbound_total"] == 2, _s0.get("unanswered"))
 ck("...and the seat's last reply comes along as context", _byn["3055550101"]["last_outbound"] == "Yes, I can take a card now." and _byn["3055550101"]["last_outbound_at"] == "Thu 10:05 AM", _byn.get("3055550101"))
 ck("a number that only ever wrote in is open; a number only written TO is not", _byn["3055550202"]["inbound"][0]["text"] == "hola" and "3055550303" not in _byn, sorted(_byn))
 ck("the number is formatted for dialling", _byn["3055550202"]["number"] == "(305) 555-0202", _byn.get("3055550202"))
+ck("the store's own read flag rides along: one unread, per thread and per seat",
+   _byn["3055550202"]["unread"] == 1 and _byn["3055550101"]["unread"] == 0 and _s0.get("unread_total") == 1, (_byn, _s0.get("unread_total")))
+# The sales floor: RingCX seats with no RingEX extension on file are resolved
+# by name in the extension directory; the nine October reps come from
+# _SMS_EXTRA_SEATS; a name the directory lacks is reported, not guessed.
+_real_dir = A._ringcx.fetch_extension_directory
+A._ringcx.fetch_extension_directory = lambda **k: ({"101": {"id": 555001, "name": "Maia Pasifae Palma", "type": "User", "status": "Enabled"},
+                                                    "102": {"id": 555002, "name": "Carvajal, Maria", "type": "User", "status": "Enabled"}}, {})
+A._ringcx.fetch_extension_messages = _fem16
+try:
+    _cls.configured = property(lambda self: True)
+    _ss = c.get("/api/v6/sms-unanswered?team=sales&days=1").get_json() or {}
+finally:
+    A._ringcx.fetch_extension_messages = _real_fem
+    A._ringcx.fetch_extension_directory = _real_dir
+    if _real_cfg is not None: _cls.configured = _real_cfg
+_sn = {s["seat"]: s for s in _ss.get("seats") or []}
+ck("a floor seat resolved by exact name is read on its extension", _sn.get("Maia Pasifae Palma", {}).get("ext") == "101", _sn.get("Maia Pasifae Palma"))
+ck("...first + last name match the directory's 'Last, First' spelling too", "Maria Carvajal" in _sn and _sn["Maria Carvajal"]["ext"] == "102", sorted(_sn))
+ck("the nine October reps are read from their own extensions", all(n in _sn for n in ("Annyta Santiago", "Roman Gomez", "Seydi Medrano")) and _sn["Roman Gomez"]["ext"] == "146", sorted(_sn))
+ck("names the directory lacks are reported, not guessed", len(_ss.get("unresolved") or []) == 13 and "Gregory Beltran" in _ss["unresolved"], _ss.get("unresolved"))
 _rc_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ringcx_client.py"), encoding="utf-8").read()
 ck("the text body is kept ONLY when asked for; the board's own fetch never carries it",
    "if keep_text:" in _rc_src and '["text"] = rec.get("subject", "") or ""' in _rc_src and _rc_src.count("keep_text") == 2

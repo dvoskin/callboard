@@ -1336,6 +1336,24 @@ _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx
 # message store; the RingCX-only seats (no extension) read "SMS not read" with
 # the reason, never zero.
 _TEAM_SMS = {"sales": False}
+
+# Seats the unanswered-texts view reads on top of a team's roster. The nine
+# reps who joined the floor on RingEX in October (extensions created
+# 2026-10-12) dial and text from these extensions and sit on no board yet.
+# Danny, 2026-10-15: "check unread sms across all sales team members".
+_SMS_EXTRA_SEATS = {
+    "sales": [
+        {"name": "Annyta Santiago",  "ext": "149", "ext_id": 1251376035},
+        {"name": "Ramon Gallardo",   "ext": "135", "ext_id": 1251371035},
+        {"name": "Roberto Castillo", "ext": "109", "ext_id": 1250719035},
+        {"name": "Roman Gomez",      "ext": "146", "ext_id": 1251375035},
+        {"name": "Jabes Perdomo",    "ext": "141", "ext_id": 1251373035},
+        {"name": "Howard Salmon",    "ext": "156", "ext_id": 1251378035},
+        {"name": "Javier Perez",     "ext": "153", "ext_id": 1251377035},
+        {"name": "Seydi Medrano",    "ext": "160", "ext_id": 1251381035},
+        {"name": "Ambar Luciano",    "ext": "140", "ext_id": 1251372035},
+    ],
+}
 # Which boards carry a Zoho CRM count on each row: activities the person
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
 # created in Zoho CRM by each user for the time range shown"). Reuses the
@@ -2882,8 +2900,38 @@ def api_v6_sms_unanswered():
         return jsonify({"error": "RingEX not configured"}), 503
     team = request.args.get("team", "billing")
     roster, _ = _billing_roster(team)
+    roster = [dict(s) for s in (roster or [])] + [dict(s) for s in _SMS_EXTRA_SEATS.get(_team_key(team), [])]
     if not roster:
         return jsonify({"error": "no roster for team %s" % team}), 400
+    # A RingCX-only seat (the sales floor) names no RingEX extension. Its
+    # texts still live on the person's RingEX extension, so the name is
+    # resolved in the extension directory; a name the directory does not
+    # carry is reported, not guessed.
+    unresolved = []
+    if any(not s.get("ext_id") for s in roster):
+        directory, _dm = _ringcx.fetch_extension_directory()
+        by_name = {}
+        # "Carvajal, Maria" in the directory, "Maria Carvajal" on the roster:
+        # punctuation goes, and first + last token must both appear.
+        _norm = lambda v: " ".join(str(v or "").lower().replace(",", " ").replace(".", " ").split())
+        for num, e in (directory or {}).items():
+            nm = _norm((e or {}).get("name"))
+            if nm:
+                by_name[nm] = ((e or {}).get("id"), num)
+        for s in roster:
+            if s.get("ext_id"):
+                continue
+            nm = _norm(s.get("name"))
+            hit = by_name.get(nm)
+            if not hit:
+                toks = nm.split()
+                cands = [v for k, v in by_name.items() if toks and toks[0] in k.split() and toks[-1] in k.split()]
+                hit = cands[0] if len(cands) == 1 else None
+            if hit and hit[0]:
+                s["ext_id"], s["ext"] = hit[0], str(hit[1])
+            else:
+                unresolved.append(s.get("name"))
+        roster = [s for s in roster if s.get("ext_id")]
     try:
         days_back = max(1, min(int(request.args.get("days", 2)), 7))
     except (TypeError, ValueError):
@@ -2920,18 +2968,25 @@ def api_v6_sms_unanswered():
                                          "last_outbound": None, "last_outbound_at": None, "inbound_total": 0})
             if r["direction"] == "Inbound":
                 t["inbound_total"] += 1
-                t["inbound"].append({"at": _local(r.get("start_time")), "text": r.get("text", "")})
+                t["inbound"].append({"at": _local(r.get("start_time")), "text": r.get("text", ""),
+                                     "read": r.get("read", "")})
             else:
                 t["inbound"] = []                      # the reply closes the wait
                 t["last_outbound"] = r.get("text", "")
                 t["last_outbound_at"] = _local(r.get("start_time"))
         unanswered = [t for t in threads.values() if t["inbound"]]
+        for t in unanswered:
+            t["unread"] = sum(1 for m in t["inbound"] if m.get("read") == "Unread")
         unanswered.sort(key=lambda t: t["inbound"][0]["at"])
+        # Unread is the store's own flag: an inbound nobody has opened, whether
+        # or not something was sent to that number later.
+        unread_total = sum(1 for r in ev if r["direction"] == "Inbound" and r.get("read") == "Unread")
         seats.append({"seat": seat["name"], "ext": seat["ext"], "messages": len(rows),
-                      "threads": len(threads), "unanswered_count": len(unanswered),
+                      "threads": len(threads), "unanswered_count": len(unanswered), "unread_total": unread_total,
                       "note": meta.get("note"), "truncated": bool(meta.get("truncated")),
                       "unanswered": unanswered})
-    return jsonify({"team": team, "window": {"start": first, "end": today.isoformat()}, "seats": seats})
+    return jsonify({"team": team, "window": {"start": first, "end": today.isoformat()},
+                    "unresolved": unresolved, "seats": seats})
 
 
 @app.route("/api/v6/sms-probe")

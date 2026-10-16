@@ -1916,6 +1916,7 @@ class RingCXClient:
                     # unanswered-texts view asks for it. Danny, 2026-10-15.
                     if keep_text:
                         row["text"] = rec.get("subject", "") or ""
+                        row["read"] = rec.get("readStatus", "") or ""    # "Read" / "Unread"
                     rows[rec.get("id") or f"{page}:{len(rows)}"] = row
                 if len(recs) < 250:
                     break
