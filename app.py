@@ -3006,7 +3006,11 @@ def _optouts_run(days=2):
 
 
 def _optouts_loop():
-    time.sleep(20)
+    # Ten minutes after a boot, not twenty seconds: the scan spends ~50 message-
+    # store reads, and right after a deploy the boards' own texts need that
+    # budget -- the two collided into a 429 cooldown on 2026-10-15. Hourly
+    # after that; a STOP waits at most an hour plus this.
+    time.sleep(600)
     while True:
         _optouts_run(days=2)
         time.sleep(3600)
