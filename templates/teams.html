@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>All Teams</title>
 {% include "_board_style.html" %}
+<style>
+  /* one wider result column here: "Calls done" and "Collected" are longer words than "Quotes" */
+  @media(min-width:561px){.hd,.r{grid-template-columns:22px minmax(0,1fr) 84px 64px 56px 100px 80px}}
+</style>
 </head>
 <body>
 <!-- Every team on one page, in the sales board's design. Danny, 2026-10-16:
@@ -89,7 +93,15 @@
   }
 
   function v6Model(j, team, label, href) {
-    var rows = (j.ranked || []).map(function (a) { return v6Row(a, team); });
+    var rows = (j.ranked || []).map(function (a) {
+      var r = v6Row(a, team);
+      r.unread = a.complete === false && !r.talk && !r.dials && !sum(a.days, 'inbound');
+      return r;
+    });
+    // Seats the report could not read yet ("not known", not "no calls").
+    (j.unknown || []).forEach(function (a) {
+      if (a && a.name) rows.push({ name: a.name, unread: true });
+    });
     var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0 };
     (j.ranked || []).forEach(function (a) {
       var D = a.days || [], calls = (a.crm || {}).calls || {};

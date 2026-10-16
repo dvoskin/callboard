@@ -40,7 +40,7 @@ window.TB = (function () {
   }
   // The floor: the median of the people who worked, not a target.
   function floorOf(rows) {
-    var on = rows.filter(function (r) { return r.talk || r.dials; });
+    var on = rows.filter(function (r) { return !r.unread && (r.talk || r.dials); });
     return { talk: median(on.map(function (r) { return r.talk || 0; })),
              dials: median(on.map(function (r) { return r.dials || 0; })),
              over3: median(on.map(function (r) { return r.over3 || 0; })) };
@@ -77,7 +77,11 @@ window.TB = (function () {
 
   function render(el, m) {
     if (!el) return;
-    var rows = (m.rows || []).slice().sort(function (a, b) { return (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0); });
+    // A seat RingEX has not been read for yet is "not known", never zero: it
+    // sorts last, carries no arrows and no figures, and says so under the name.
+    var rows = (m.rows || []).slice().sort(function (a, b) {
+      return (a.unread ? 1 : 0) - (b.unread ? 1 : 0) || (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0);
+    });
     var f = m.floor || floorOf(rows), k = m.key || 'tb';
     var h = '<h2 class="tb-h">' + esc(m.label) + (m.href ? ' <a class="tb-open" href="' + esc(m.href) + '">open board →</a>' : '') + '</h2>';
     if (m.error) { el.innerHTML = h + '<div class="msg err">' + m.error + '</div>'; return; }
@@ -93,6 +97,13 @@ window.TB = (function () {
          '<span class="a-q"' + (m.aTitle ? ' title="' + esc(m.aTitle) + '"' : '') + '>' + esc(m.colA) + '</span>' +
          '<span class="a-rt"' + (m.bTitle ? ' title="' + esc(m.bTitle) + '"' : '') + '>' + esc(m.colB) + '</span></div>';
     rows.forEach(function (r, i) {
+      if (r.unread) {
+        var dash = function (cls) { return '<span class="' + cls + ' zero">\u2014</span>'; };
+        h += '<div class="r"><span class="rk">' + (i + 1) + '</span><span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) +
+             '<span class="press">not read yet \u00b7 RingEX fills this in within a few minutes</span></span>' +
+             dash('tk') + dash('d') + dash('t3') + dash('q') + dash('rt') + '</div>';
+        return;
+      }
       var up = (r.talk || 0) >= f.talk;
       var low = (r.talk || 0) < f.talk && (r.dials || 0) < f.dials && (r.over3 || 0) < f.over3;
       h += '<div class="r' + (low ? ' low' : '') + '" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '">' +
@@ -130,6 +141,7 @@ window.TB = (function () {
       var b = a.books || {};
       return {
         name: a.name, talk: a.talk, dials: a.attempts, over3: a.over_3,
+        unread: a.complete === false && !a.talk && !a.attempts && !a.inbound,
         a: { html: booksOk ? w(b.quotes_sent) : '—', zero: booksOk && !b.quotes_sent },
         b: { html: booksOk ? w(b.retainers_paid) : '—', zero: booksOk && !b.retainers_paid },
         press: opts.press ? opts.press(a) : pressMissed(a.missed_open),

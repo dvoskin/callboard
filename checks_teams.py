@@ -160,7 +160,10 @@ if node:
                   {"name": "Roman <b>Gomez</b>", "talk": 5640, "attempts": 160, "over_3": 8, "over_10": 1, "inbound": 0,
                    "inbound_answered": 0, "connected": 40, "longest": 600, "first": "10:31 AM", "missed_open": 1,
                    "missed_calls": [{"at": "1:00 PM", "number": "(305) 555-0100", "resolved": False}],
-                   "books": {"quotes_sent": 0, "retainers_paid": 0}}]
+                   "books": {"quotes_sent": 0, "retainers_paid": 0}},
+                  {"name": "Howard Salmon", "talk": 0, "attempts": 0, "over_3": 0, "over_10": 0, "inbound": 0,
+                   "inbound_answered": 0, "connected": 0, "longest": 0, "first": None, "missed_open": 0,
+                   "missed_calls": [], "complete": False, "books": {}}]
     js = ("var window = {}; var document = {querySelectorAll: function(){return [];}, getElementById: function(){return null;}};\n" + tb +
           "\nvar el = {innerHTML: '', querySelectorAll: function(){return [];}};\n"
           "var d = " + json.dumps({"ranked": model_rows, "totals": {"talk": 14160, "attempts": 310, "over_3": 14, "over_10": 1,
@@ -178,6 +181,8 @@ if node:
                                                                            '>Quotes<', '>Paid<')), h[:400])
     ck("talk, dials and >3m carry an arrow against the median; quotes and paid do not",
        h.count('class="mk"') == 6 and '<span class="q"' in h and '<span class="rt zero"' in h, h.count('class="mk"'))
+    ck("a seat RingEX has not been read for says 'not read yet', last, with no arrows and no zeros",
+       "not read yet" in h and h.index("Howard Salmon") > h.index("Roman") and h.count('class="mk"') == 6, "unread")
     ck("a name is escaped, never HTML", "Roman &lt;b&gt;Gomez&lt;/b&gt;" in h and "Roman <b>Gomez" not in h, "esc")
     ck("a missed call not called back shows under the name and in the panel with a tap-to-call",
        '<b class="hot">1</b> missed' in h and 'href="tel:3055550100"' in h, "missed")
