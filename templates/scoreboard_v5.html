@@ -120,6 +120,13 @@
   .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;
       overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px}
   .r.low .nm{color:var(--dn)}
+  /* texts under the name: sent (typed / auto), received, unread, waiting */
+  .nm .sms{display:block;margin-top:1px;font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted);
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nm .sms b{font-weight:700;color:var(--ink-2)} .nm .sms i{font-style:normal;opacity:.85}
+  .nm .sms b.hot,.smstot b.hot{color:var(--dn)}
+  .smstot{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+  .smstot b{color:var(--ink);font-weight:700} .smstot i{font-style:normal;color:var(--muted)}
   .tk{grid-area:tk;font-weight:700;font-size:14.5px}
   .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
   .d,.t3,.t10,.q,.rt{font-weight:600;color:var(--ink-2);font-size:13px}
@@ -233,6 +240,70 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  // ---- Texts, from each rep's RingEX extension (/api/v5/sms). Danny,
+  // 2026-10-15: "add inbound outbound sms sent auto and manual and unread to
+  // the sales call board". Fetched beside the report, never in its way: the
+  // line under a name appears when the texts land and is repainted in place.
+  var SMS = null, SMS_KEY = '', SMS_TRIES = 0;
+  function smsNorm(n) { return String(n || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function smsFor(name) {
+    if (!SMS || !SMS.agents) return null;
+    var want = smsNorm(name), byNorm = {}, k;
+    for (k in SMS.agents) byNorm[smsNorm(k)] = SMS.agents[k];
+    if (byNorm[want]) return byNorm[want];
+    var t = want.split(' '), hits = [];
+    for (k in byNorm) { var kt = k.split(' '); if (kt.indexOf(t[0]) >= 0 && kt.indexOf(t[t.length - 1]) >= 0) hits.push(byNorm[k]); }
+    return hits.length === 1 ? hits[0] : null;
+  }
+  function smsLine(name) {
+    var s = smsFor(name);
+    if (!s) return '';
+    var split = s.sent_typed != null && s.sent_auto != null;
+    var tip = s.sent + ' texts sent' + (split ? ' (' + s.sent_typed + ' typed by hand, ' + s.sent_auto + ' automated)' : '') +
+              ', ' + s.received + ' received, ' + s.unread + ' received and not opened yet, ' +
+              s.unanswered + ' conversation' + (s.unanswered === 1 ? '' : 's') + ' where the patient wrote last' +
+              (s.complete ? '' : ' -- part of the window could not be read, so these are a floor') + '. RingEX extension ' + (s.ext || '?') + '.';
+    return '<span class="sms" title="' + esc(tip) + '"><b>' + s.sent + '</b>\u2191' +
+      (split ? ' <i>(' + s.sent_typed + ' typed \u00b7 ' + s.sent_auto + ' auto)</i>' : '') +
+      ' <b>' + s.received + '</b>\u2193' +
+      (s.unread ? ' \u00b7 <b class="hot">' + s.unread + '</b> unread' : '') +
+      (s.unanswered ? ' \u00b7 ' + s.unanswered + ' waiting' : '') +
+      (s.complete ? '' : ' <i>+</i>') + '</span>';
+  }
+  function smsPaint() {
+    var out = $('out'); if (!out) return;
+    out.querySelectorAll('.nm[data-name]').forEach(function (el) {
+      var old = el.querySelector('.sms'); if (old) old.remove();
+      var html = smsLine(el.getAttribute('data-name'));
+      if (html) el.insertAdjacentHTML('beforeend', html);
+    });
+    var tot = $('smstot'); if (tot) tot.remove();
+    var hd = out.querySelector('.hd');
+    if (SMS && SMS.totals && hd) {
+      var T = SMS.totals, sp = T.sent_typed != null;
+      hd.insertAdjacentHTML('beforebegin', '<div id="smstot" class="smstot" title="Texts on the reps\u2019 RingEX extensions in this window">Texts' +
+        ' <b>' + T.sent + '</b> sent' + (sp ? ' (' + T.sent_typed + ' typed \u00b7 ' + T.sent_auto + ' auto)' : '') +
+        ' \u00b7 <b>' + T.received + '</b> received' +
+        ' \u00b7 <b' + (T.unread ? ' class="hot"' : '') + '>' + T.unread + '</b> unread' +
+        ' \u00b7 <b>' + T.unanswered + '</b> waiting on a reply' +
+        (T.incomplete_seats ? ' \u00b7 <i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') + '</div>');
+    }
+  }
+  function loadSms(q) {
+    var key = q.toString();
+    if (key !== SMS_KEY) { SMS = null; SMS_KEY = key; SMS_TRIES = 0; }
+    fetch('/api/v5/sms?' + key, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || key !== SMS_KEY) return;
+        if (j.loading || j.refreshing) {
+          if (++SMS_TRIES <= 12) setTimeout(function () { if (key === SMS_KEY) loadSms(q); }, 8000);
+        }
+        if (j.agents && Object.keys(j.agents).length) { SMS = j; smsPaint(); }
+      })
+      .catch(function () {});
+  }
+
   function cell(v, med, cls, label) {
     var up = v >= med;
     return '<span class="' + cls + ' ' + (up ? 'up' : 'down') + '">' +
@@ -324,7 +395,7 @@
       };
       h += '<div class="r ' + a.band + '" role="button" tabindex="0" aria-expanded="false"' +
            ' data-det="d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
-           '<span class="nm">' + esc(a.name) + '</span>' +
+           '<span class="nm" data-name="' + esc(a.name) + '">' + esc(a.name) + smsLine(a.name) + '</span>' +
            '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' +
              (up ? '▲' : '▼') + '</span>' + hm(a.talk) + '</span>' +
            cell(a.attempts, f.attempts, 'd', ' dials') +
@@ -561,6 +632,8 @@
           });
         }
         render(res.j);
+        smsPaint();            // what is already known, at once
+        loadSms(q);            // and the window's own texts, when they land
         // Books is fetched in the background, so the first load of a day usually
         // lands before it has. Waiting out the five-minute timer left Quotes and
         // Retainers blank for that long; ask again shortly, a few times at most.

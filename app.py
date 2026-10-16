@@ -3005,6 +3005,124 @@ def _optouts_loop():
         time.sleep(3600)
 
 
+# ---- Texts on the sales board (/v5) ---------------------------------------
+# Danny, 2026-10-15: "add inbound outbound sms sent auto and manual and unread
+# to the sales call board". Read from each rep's RingEX extension (the floor's
+# calls are RingCX, its texts are RingEX), on its own route and its own cache
+# so the call figures never wait on the message store. Counts only: no text,
+# no numbers leave the server.
+_V5_SMS_CACHE = {}               # (start, end, tz) -> {"at": ts, "data": {...}}
+_V5_SMS_INFLIGHT = set()
+_V5_SMS_LOCK = threading.Lock()
+_V5_SMS_TTL_LIVE = 180           # today: three minutes
+_V5_SMS_TTL_PAST = 1800          # a finished window: half an hour
+_V5_SMS_MAX_DAYS = 7
+
+
+def _v5_sms_seat(rows, meta):
+    """One seat's counts from its message rows."""
+    ib = [r for r in rows if r.get("direction") == "Inbound"]
+    ob = [r for r in rows if r.get("direction") == "Outbound"]
+    split = all(r.get("sent_by") in ("typed", "auto") for r in ob)
+    # A thread waits when the newest message with that number is inbound.
+    last = {}
+    for r in sorted(rows, key=lambda r: r.get("start_time") or ""):
+        d = r.get("direction")
+        num = r.get("from_number") if d == "Inbound" else r.get("to_number")
+        num = "".join(ch for ch in str(num or "") if ch.isdigit())[-10:]
+        if len(num) == 10 and d in ("Inbound", "Outbound"):
+            last[num] = d
+    return {"sent": len(ob), "received": len(ib),
+            "sent_typed": sum(1 for r in ob if r.get("sent_by") == "typed") if split else None,
+            "sent_auto": sum(1 for r in ob if r.get("sent_by") == "auto") if split else None,
+            "unread": sum(1 for r in ib if r.get("read") == "Unread"),
+            "unanswered": sum(1 for v in last.values() if v == "Inbound"),
+            "complete": not meta.get("note") and not meta.get("truncated"),
+            "note": meta.get("note")}
+
+
+def _v5_sms_build(start_iso, end_iso, tz_off):
+    """{agents: {name: counts}, totals, unresolved} for the sales floor."""
+    seats, unresolved = _sms_seats("sales")
+    start_dt = _parse_local_date_to_utc(start_iso, 0, 0, 0, tz_off)
+    end_dt = _parse_local_date_to_utc(end_iso, 23, 59, 59, tz_off)
+    agents = {}
+    for seat in seats:
+        try:
+            rows, meta = _ringcx.fetch_extension_messages(seat["ext_id"], start_dt, end_dt,
+                                                          max_pages=12, max_wait=0.0, timeout=15.0)
+        except Exception as e:  # noqa: BLE001
+            rows, meta = [], {"note": "%s: %s" % (type(e).__name__, str(e)[:120])}
+        a = _v5_sms_seat(rows, meta)
+        a["ext"] = str(seat.get("ext") or "")
+        agents[seat["name"]] = a
+        time.sleep(0.25)
+    tot = {k: sum(a[k] for a in agents.values()) for k in ("sent", "received", "unread", "unanswered")}
+    split = all(a["sent_typed"] is not None for a in agents.values())
+    tot["sent_typed"] = sum(a["sent_typed"] for a in agents.values()) if split else None
+    tot["sent_auto"] = sum(a["sent_auto"] for a in agents.values()) if split else None
+    tot["incomplete_seats"] = sum(1 for a in agents.values() if not a["complete"])
+    return {"agents": agents, "totals": tot, "unresolved": unresolved,
+            "window": {"start": start_iso, "end": end_iso}, "seats": len(agents)}
+
+
+def _v5_sms_refresh(key):
+    try:
+        data = _v5_sms_build(key[0], key[1], key[2])
+        at = time.time()
+        # Mostly unread (rate limited): try again in half a minute, not three.
+        if data["seats"] and data["totals"]["incomplete_seats"] * 4 > data["seats"]:
+            at -= max(0, (_V5_SMS_TTL_LIVE if key[3] else _V5_SMS_TTL_PAST) - 30)
+        with _V5_SMS_LOCK:
+            _V5_SMS_CACHE[key[:3]] = {"at": at, "data": data}
+            while len(_V5_SMS_CACHE) > 12:
+                _V5_SMS_CACHE.pop(min(_V5_SMS_CACHE, key=lambda k: _V5_SMS_CACHE[k]["at"]))
+    except Exception:  # noqa: BLE001
+        log.exception("v5 sms build failed")
+    finally:
+        with _V5_SMS_LOCK:
+            _V5_SMS_INFLIGHT.discard(key[:3])
+
+
+@app.route("/api/v5/sms")
+def api_v5_sms():
+    """Per-rep text counts for the sales board's window: sent (typed / auto),
+    received, unread, unanswered. Answers from cache at once and refreshes in
+    the background; the first read of a window says {"loading": true}."""
+    if not _v5_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        return jsonify({"agents": {}, "note": "RingEX is not configured"})
+    try:
+        tz = int(request.args.get("tz"))
+    except (TypeError, ValueError):
+        tz = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz)).date()
+    try:
+        s = datetime.strptime(request.args.get("start") or today.isoformat(), "%Y-%m-%d").date()
+        e = datetime.strptime(request.args.get("end") or s.isoformat(), "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "bad date"}), 400
+    if e < s:
+        s, e = e, s
+    if (e - s).days + 1 > _V5_SMS_MAX_DAYS:
+        return jsonify({"agents": {}, "too_long": True, "max_days": _V5_SMS_MAX_DAYS})
+    live = e >= today
+    key = (s.isoformat(), e.isoformat(), tz)
+    ttl = _V5_SMS_TTL_LIVE if live else _V5_SMS_TTL_PAST
+    with _V5_SMS_LOCK:
+        c = _V5_SMS_CACHE.get(key)
+        fresh = bool(c and time.time() - c["at"] < ttl)
+        start_it = not fresh and key not in _V5_SMS_INFLIGHT
+        if start_it:
+            _V5_SMS_INFLIGHT.add(key)
+    if start_it:
+        threading.Thread(target=_v5_sms_refresh, args=(key + (live,),), daemon=True, name="v5sms:build").start()
+    if not c:
+        return jsonify({"agents": {}, "loading": True})
+    return jsonify(dict(c["data"], age_seconds=round(time.time() - c["at"]), refreshing=not fresh))
+
+
 @app.route("/api/v6/opt-outs")
 def api_v6_opt_outs():
     """Signed in only. The opt-out list and the last runs. ?kick=1 starts a

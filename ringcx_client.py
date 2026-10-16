@@ -1911,12 +1911,17 @@ class RingCXClient:
                     # unknown, never guessed.
                     if direction == "Outbound":
                         row["sent_by"] = classify_outbound_sms(rec.get("subject"))
+                    # Read or not, as the store has it now: not the body, so it
+                    # rides on every inbound row. The sales board counts unread
+                    # from it (Danny, 2026-10-15); a past day's snapshot keeps
+                    # whatever it was when that day was read.
+                    elif direction == "Inbound":
+                        row["read"] = rec.get("readStatus", "") or ""    # "Read" / "Unread"
                     # The body itself stays out of the normal path (the board
                     # counts and pairs, it never reads). Only the signed-in
                     # unanswered-texts view asks for it. Danny, 2026-10-15.
                     if keep_text:
                         row["text"] = rec.get("subject", "") or ""
-                        row["read"] = rec.get("readStatus", "") or ""    # "Read" / "Unread"
                     rows[rec.get("id") or f"{page}:{len(rows)}"] = row
                 if len(recs) < 250:
                     break
