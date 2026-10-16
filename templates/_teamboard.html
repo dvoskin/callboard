@@ -1,8 +1,26 @@
 <style>
-  /* the team header: the label, and a quiet link to that team's own board */
-  h2.tb-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:30px}
-  h2.tb-h .tb-open{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted);text-decoration:none}
-  h2.tb-h .tb-open:hover{color:var(--up)}
+  /* One team per section, titled the way the Billing & Surgical Coordinator
+     Dashboard titles its boards: a plain bold heading, one muted line under
+     it, a rule between teams. */
+  .tb-sec{margin-top:34px;padding-top:22px;border-top:1px solid var(--rule)}
+  .tb-sec.first{margin-top:12px;padding-top:0;border-top:0}
+  .tb-sec .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:-.01em;color:var(--ink);text-transform:none}
+  .tb-sec>.sub{margin:0 0 8px}
+  .tb-sec>.sub a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--rule)}
+  .tb-sec>.sub a:hover{color:var(--up);border-color:var(--up)}
+  .tb-sec>.sub .sep{opacity:.45;padding:0 5px}
+  .tb-sec .bt.tb-tog{cursor:pointer;display:flex;align-items:baseline;gap:7px;-webkit-user-select:none;user-select:none}
+  .tb-sec .bt.tb-tog:focus-visible{outline:2px solid var(--up);outline-offset:3px;border-radius:3px}
+  .tb-sec .chev{display:inline-block;width:11px;font-size:11px;color:var(--muted);transition:transform .15s}
+  .tb-sec.collapsed .chev{transform:rotate(-90deg)}
+  .tb-sec.collapsed .tb-body{display:none}
+  .tb-sec>.sub{padding-left:18px}
+  .tb-hl{display:none;margin:2px 0 0;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .tb-hl b{color:var(--ink);font-weight:700} .tb-hl b.hot{color:var(--dn)} .tb-hl .sep{opacity:.45;padding:0 5px}
+  .tb-sec.collapsed .tb-hl{display:block}
+  details.tb-notes{margin-top:12px}
+  details.tb-notes .note{margin:6px 0 0}
+  @media(max-width:560px){.tb-sec{margin-top:18px;padding-top:12px}.tb-sec.first{margin-top:6px;padding-top:0}.tb-sec .bt{font-size:15px}.tb-sec>.sub,.tb-hl{padding-left:18px;font-size:12px}}
   .q .hot,.rt .hot{color:var(--dn)}
   /* a seat not read yet: its own line, so the texts line never paints over it */
   .nm .unr{display:block;margin-top:1px;font-size:11px;font-weight:400;font-style:italic;letter-spacing:0;color:var(--muted);white-space:normal}
@@ -77,6 +95,25 @@ window.TB = (function () {
       }).join('') + '</div>';
   }
 
+  // Folded or not, per team, on this device. Memory first (a refresh must not
+  // flip it), then localStorage, then the default: folded on a phone unless
+  // the model says it opens there.
+  var FOLD = {};
+  function foldKey(m) { return 'tb-fold-' + (m.key || 'tb'); }
+  function isCollapsed(m) {
+    var k = foldKey(m);
+    if (k in FOLD) return FOLD[k];
+    var v = null;
+    try { v = window.localStorage.getItem(k); } catch (e) { v = null; }
+    if (v === '1' || v === '0') return (FOLD[k] = v === '1');
+    var phone = !!(window.matchMedia && window.matchMedia('(max-width:560px)').matches);
+    return (FOLD[k] = phone && !m.openOnPhone);
+  }
+  function remember(m, folded) {
+    FOLD[foldKey(m)] = folded;
+    try { window.localStorage.setItem(foldKey(m), folded ? '1' : '0'); } catch (e) { /* private mode: memory only */ }
+  }
+
   function render(el, m) {
     if (!el) return;
     // A seat RingEX has not been read for yet is "not known", never zero: it
@@ -85,41 +122,78 @@ window.TB = (function () {
       return (a.unread ? 1 : 0) - (b.unread ? 1 : 0) || (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0);
     });
     var f = m.floor || floorOf(rows), k = m.key || 'tb';
-    var h = '<h2 class="tb-h">' + esc(m.label) + (m.href ? ' <a class="tb-open" href="' + esc(m.href) + '">open board →</a>' : '') + '</h2>';
-    if (m.error) { el.innerHTML = h + '<div class="msg err">' + m.error + '</div>'; return; }
-    if (!rows.length) { el.innerHTML = h + '<div class="msg">' + (m.empty || 'No one on this team has a call in this window.') + '</div>'; return; }
-    if (m.sum && m.sum.length) {
-      h += '<div class="sum">' + m.sum.map(function (s) {
-        return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + s[1] + '</span></div>';
-      }).join('') + '</div>';
-    }
-    h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">' + esc(m.nameHead || 'Name') + '</span>' +
-         '<span class="a-tk">Talk</span><span class="a-d">' + esc(m.dialsHead || 'Dials') + '</span>' +
-         '<span class="a-t3">&gt;3m</span>' +
-         '<span class="a-q"' + (m.aTitle ? ' title="' + esc(m.aTitle) + '"' : '') + '>' + esc(m.colA) + '</span>' +
-         '<span class="a-rt"' + (m.bTitle ? ' title="' + esc(m.bTitle) + '"' : '') + '>' + esc(m.colB) + '</span></div>';
-    rows.forEach(function (r, i) {
-      if (r.unread) {
-        var dash = function (cls) { return '<span class="' + cls + ' zero">\u2014</span>'; };
-        h += '<div class="r"><span class="rk">' + (i + 1) + '</span><span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) +
-             '<span class="unr">not read yet \u00b7 RingEX fills this in within a few minutes</span></span>' +
-             dash('tk') + dash('d') + dash('t3') + dash('q') + dash('rt') + '</div>';
-        return;
+    el.classList.add('tb-sec');
+    // Collapsible: tap the title. A phone starts with every team but the
+    // first folded (Danny, 2026-10-16: "make teams collapsible maybe on mobile
+    // for easier use"); a folded team still shows its one-line headline. The
+    // choice is remembered per team on this device.
+    var col = isCollapsed(m);
+    el.classList.toggle('collapsed', col);
+    var subBits = [];
+    if (m.sub) subBits.push(m.sub);
+    if (m.href) subBits.push('<a href="' + esc(m.href) + '">Open board ↗</a>');
+    var head = '<h2 class="bt tb-tog" role="button" tabindex="0" aria-expanded="' + (!col) + '">' +
+               '<span class="chev" aria-hidden="true">▾</span>' + esc(m.label) + '</h2>' +
+               (subBits.length ? '<p class="sub">' + subBits.join('<span class="sep">·</span>') + '</p>' : '') +
+               (m.headline ? '<p class="tb-hl">' + m.headline + '</p>' : '');
+    var h = '';
+    if (m.error) {
+      h = '<div class="msg err">' + m.error + '</div>';
+    } else if (!rows.length) {
+      h = '<div class="msg">' + (m.empty || 'No one on this team has a call in this window.') + '</div>';
+    } else {
+      if (m.sum && m.sum.length) {
+        h += '<div class="sum">' + m.sum.map(function (s) {
+          return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + s[1] + '</span></div>';
+        }).join('') + '</div>';
       }
-      var up = (r.talk || 0) >= f.talk;
-      var low = (r.talk || 0) < f.talk && (r.dials || 0) < f.dials && (r.over3 || 0) < f.over3;
-      h += '<div class="r' + (low ? ' low' : '') + '" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '">' +
-           '<span class="rk">' + (i + 1) + '</span>' +
-           '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + (r.press || '') + '</span>' +
-           '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' + (up ? '▲' : '▼') + '</span>' + hm(r.talk) + '</span>' +
-           cell(r.dials, f.dials, 'd', m.dialsLbl || ' dials') + cell(r.over3, f.over3, 't3', ' >3m') +
-           res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';
-      h += '<div class="det" id="' + k + '-d' + i + '"><div class="dg">' +
-           (r.panel || []).map(function (p) { return p === 'rule' ? '<span class="rule"></span>' : cell2(p[0], p[1], p[2]); }).join('') +
-           '</div>' + missedList(r.missed, r.missedOpen, r.name) + '</div>';
-    });
-    if (m.note) h += '<p class="note">' + m.note + '</p>';
-    el.innerHTML = h;
+      h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">' + esc(m.nameHead || 'Name') + '</span>' +
+           '<span class="a-tk">Talk</span><span class="a-d">' + esc(m.dialsHead || 'Dials') + '</span>' +
+           '<span class="a-t3">&gt;3m</span>' +
+           '<span class="a-q"' + (m.aTitle ? ' title="' + esc(m.aTitle) + '"' : '') + '>' + esc(m.colA) + '</span>' +
+           '<span class="a-rt"' + (m.bTitle ? ' title="' + esc(m.bTitle) + '"' : '') + '>' + esc(m.colB) + '</span></div>';
+      rows.forEach(function (r, i) {
+        if (r.unread) {
+          var dash = function (cls) { return '<span class="' + cls + ' zero">—</span>'; };
+          h += '<div class="r"><span class="rk">' + (i + 1) + '</span><span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) +
+               '<span class="unr">not read yet · RingEX fills this in within a few minutes</span></span>' +
+               dash('tk') + dash('d') + dash('t3') + dash('q') + dash('rt') + '</div>';
+          return;
+        }
+        var up = (r.talk || 0) >= f.talk;
+        var low = (r.talk || 0) < f.talk && (r.dials || 0) < f.dials && (r.over3 || 0) < f.over3;
+        h += '<div class="r' + (low ? ' low' : '') + '" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '">' +
+             '<span class="rk">' + (i + 1) + '</span>' +
+             '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + (r.press || '') + '</span>' +
+             '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' + (up ? '▲' : '▼') + '</span>' + hm(r.talk) + '</span>' +
+             cell(r.dials, f.dials, 'd', m.dialsLbl || ' dials') + cell(r.over3, f.over3, 't3', ' >3m') +
+             res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';
+        h += '<div class="det" id="' + k + '-d' + i + '"><div class="dg">' +
+             (r.panel || []).map(function (p) { return p === 'rule' ? '<span class="rule"></span>' : cell2(p[0], p[1], p[2]); }).join('') +
+             '</div>' + missedList(r.missed, r.missedOpen, r.name) + '</div>';
+      });
+      if (m.note) h += '<p class="note">' + m.note + '</p>';
+    }
+    // What the section's numbers are, where they come from and how far
+    // behind they can run (Danny, 2026-10-16: "add page notes for each
+    // section about delays and what each means").
+    if (m.notes && m.notes.length) {
+      h += '<details class="notes tb-notes"><summary>Notes</summary>' +
+           m.notes.map(function (p) { return '<p class="note">' + p + '</p>'; }).join('') + '</details>';
+    }
+    el.innerHTML = head + '<div class="tb-body">' + h + '</div>';
+    var tog = el.querySelector('.tb-tog');
+    if (tog) {
+      var flip = function () {
+        var now = !el.classList.contains('collapsed');
+        el.classList.toggle('collapsed', now);
+        tog.setAttribute('aria-expanded', String(!now));
+        remember(m, now);
+      };
+      tog.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a')) return; flip(); });
+      tog.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+    }
+    if (m.error || !rows.length) return;
     el.querySelectorAll('.r[data-det]').forEach(function (row) {
       var open = function () {
         var d = document.getElementById(row.getAttribute('data-det'));
@@ -165,7 +239,15 @@ window.TB = (function () {
     var allUnread = rows.length && rows.every(function (r) { return r.unread; });
     var T = d.totals || {}, S = function (k) { return (d.ranked || []).reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
     return {
-      key: opts.key || 'rx', label: opts.label || d.label || 'New reps · RingEX', href: opts.href,
+      key: opts.key || 'rx', label: opts.label || d.label || 'Sales Training Class', href: opts.href,
+      sub: opts.sub != null ? opts.sub : rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ', dialing from RingEX',
+      openOnPhone: !!opts.openOnPhone,
+      headline: allUnread ? 'not read yet' :
+        '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +
+        '<span class="sep">·</span><b>' + fmt(T.over_3) + '</b> over 3m' +
+        (booksOk ? '<span class="sep">·</span><b>' + fmt(S('quotes_sent')) + '</b> quotes' : '') +
+        (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed' : ''),
+      notes: opts.notes || TRAINING_NOTES,
       colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid', nameHead: 'Rep',
       aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
       rows: rows,
@@ -182,11 +264,24 @@ window.TB = (function () {
       note: opts.note
     };
   }
+  var MARKS = '<b>Marks.</b> ▲▼ compare each person with the median person on the same team, not a target. ' +
+              'A red name is below that median on talk, dials and >3m together. “missed” under a name is an inbound call ' +
+              'that rang out and has not been returned yet; tap the row for the numbers.';
+  var TRAINING_NOTES = [
+    '<b>Where.</b> Each rep’s own RingEX extension. The training class dials from RingEX, not RingCX, so the Sales Floor never shows them.',
+    '<b>Delay.</b> A background job reads one rep every 30 seconds, so each rep is at most about 5 minutes behind. A reading older than ' +
+      '15 minutes shows as “not read yet”, and so does every rep for a few minutes after the board restarts. That means not known, not zero. ' +
+      'Quotes and Paid come from Books and refresh every 5 minutes.',
+    '<b>Columns.</b> Talk is time on connected calls; on RingEX that includes voicemail drops, so >3m (calls over 3 minutes) is the better count ' +
+      'of real conversations. Dials are outbound calls. Quotes are quotes sent in Books in this window. Paid is retainers paid in full in this window.',
+    MARKS
+  ];
+
   function pressMissed(n) {
     return n ? '<span class="press"><b class="hot">' + w(n) + '</b> missed</span>' : '';
   }
 
-  return { render: render, ringexModel: ringexModel, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
+  return { render: render, ringexModel: ringexModel, MARKS: MARKS, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
            median: median, floorOf: floorOf, pressMissed: pressMissed };
 })();
 </script>

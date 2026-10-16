@@ -44,9 +44,10 @@ ck("a 200 s and a 700 s call: two over 3m, one over 10m; ring time never counts"
 # ---- the team ----
 NINE = ["Annyta Santiago", "Ramon Gallardo", "Roberto Castillo", "Roman Gomez", "Jabes Perdomo",
         "Howard Salmon", "Javier Perez", "Seydi Medrano", "Ambar Luciano"]
-ck("the RingEX team is the nine October reps, by extension",
-   [s["name"] for s in A._TEAM_ROSTERS["ringex"]] == NINE and all(s["ext_id"] for s in A._TEAM_ROSTERS["ringex"]),
-   A._TEAM_ROSTERS["ringex"])
+ck("the training class is the October RingEX reps by extension, Roberto Castillo off the board (let go 10-15)",
+   [s["name"] for s in A._TEAM_ROSTERS["ringex"]] == [n for n in NINE if n != "Roberto Castillo"]
+   and all(s["ext_id"] for s in A._TEAM_ROSTERS["ringex"]), [s["name"] for s in A._TEAM_ROSTERS["ringex"]])
+ck("...and shown as the Sales Training Class", A.TEAM_LABELS["ringex"] == "Sales Training Class", A.TEAM_LABELS["ringex"])
 ck("...read from RingEX on demand, NOT warmed: no 90-day backfill competing with billing's live day",
    "ringex" not in A._TEAM_SOURCES and all(s.get("always_rank") for s in A._TEAM_ROSTERS["ringex"]), A._TEAM_SOURCES.get("ringex"))
 ck("...texts not read twice (/v5 reads these seats already)", A._TEAM_SMS["ringex"] is False, A._TEAM_SMS)
@@ -57,7 +58,7 @@ ck("the team key resolves (it used to fall back to billing for an unknown name)"
 _src = open(os.path.join(HERE, "app.py"), encoding="utf-8").read()
 ck("the new reps are not excluded from the sales floor as 'another team'",
    'if team in ("sales", "ringex"):     # both are the sales floor' in _src, "exclusion")
-ck("the SMS seats for sales are unchanged (roster + the same nine)",
+ck("the SMS seats for sales still read all nine lines (the STOP scan keeps Roberto's)",
    [s["name"] for s in A._SMS_EXTRA_SEATS["sales"]] == NINE, A._SMS_EXTRA_SEATS["sales"])
 
 # ---- the rows: v6 days -> the /v5 row shape ----
@@ -134,8 +135,14 @@ try:
     html = c.get("/teams").get_data(as_text=True)
 finally:
     A._v6_allowed = real6
-ck("/teams has the four teams, in order", [m for m in re.findall(r'id="t-([a-z]+)"', html)] ==
-   ["surgical", "billing", "sales", "ringex"], re.findall(r'id="t-([a-z]+)"', html))
+ck("/teams: sales first, then the training class, coordinators, billing", [m for m in re.findall(r'id="t-([a-z]+)"', html)] ==
+   ["sales", "ringex", "surgical", "billing"], re.findall(r'id="t-([a-z]+)"', html))
+ck("...titled like the dashboard's boards, in Title Case", all(t in html for t in ('<h2 class="bt">Sales Floor</h2>',
+   '<h2 class="bt">Sales Training Class</h2>', '<h2 class="bt">Surgical Coordinators</h2>', '<h2 class="bt">Billing</h2>')), "titles")
+ck("...each team carries its own notes on delays and meanings", html.count("'<b>Delay.</b>") >= 3
+   and "TRAINING_NOTES" in html and "15 to 20 minutes" in html and ("2\\u00bd minutes" in html or "2\u00bd minutes" in html), "notes")
+ck("...the Sales Floor opens on a phone; the others start folded", "openOnPhone: true" in html
+   and "return (FOLD[k] = phone && !m.openOnPhone);" in html, "fold")
 ck("...each from its own board's API", all(u in html for u in ("/api/v6/report?team=surgical&", "/api/v6/report?team=billing&",
                                                                "/api/v5/report?", "/api/v5/ringex?")), "urls")
 style = open(os.path.join(HERE, "templates", "_board_style.html"), encoding="utf-8").read()
@@ -233,12 +240,13 @@ if node:
                    "inbound_answered": 0, "connected": 0, "longest": 0, "first": None, "missed_open": 0,
                    "missed_calls": [], "complete": False, "books": {}}]
     js = ("var window = {}; var document = {querySelectorAll: function(){return [];}, getElementById: function(){return null;}};\n" + tb +
-          "\nvar el = {innerHTML: '', querySelectorAll: function(){return [];}};\n"
+          "\nvar el = {innerHTML: '', cls: {}, classList: {add: function(c){el.cls[c]=1;}, toggle: function(c, on){if(on) el.cls[c]=1; else delete el.cls[c];}," +
+          " contains: function(c){return !!el.cls[c];}}, querySelectorAll: function(){return [];}, querySelector: function(){return null;}};\n"
           "var d = " + json.dumps({"ranked": model_rows, "totals": {"talk": 14160, "attempts": 310, "over_3": 14, "over_10": 1,
                                                                     "inbound": 3, "inbound_answered": 2, "connected": 100, "missed_open": 1},
                                    "meta": {"books": {}}}) + ";\n"
           "window.TB.render(el, window.TB.ringexModel(d, {key: 'rx', label: 'New reps'}));\n"
-          "console.log(el.innerHTML);")
+          "console.log(el.innerHTML); console.error(JSON.stringify(el.cls));")
     tmp = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
     tmp.write(js); tmp.close()
     out = subprocess.run([node, tmp.name], capture_output=True, text=True)
@@ -255,6 +263,11 @@ if node:
     ck("a missed call not called back shows under the name and in the panel with a tap-to-call",
        '<b class="hot">1</b> missed' in h and 'href="tel:3055550100"' in h, "missed")
     ck("the summary says the team's totals", "<b>3:56:00</b> talk" in h and "<b>310</b> dials" in h, "sum")
+    ck("the title folds the team; a folded team keeps a one-line headline",
+       'class="bt tb-tog" role="button"' in h and '<p class="tb-hl">' in h and '<div class="tb-body">' in h, "fold")
+    ck("on a desktop (no phone media match) a team starts open", '"tb-sec":1' in out.stderr and "collapsed" not in out.stderr, out.stderr[-120:])
+    ck("the section's notes sit at its foot, folded", '<details class="notes tb-notes"><summary>Notes</summary>' in h
+       and "<b>Delay.</b>" in h and "<b>Columns.</b>" in h and "<b>Marks.</b>" in h, "notes")
     os.unlink(tmp.name)
 else:
     errors.append("node is not installed -- the renderer could not be run, which is a failure, not a pass")

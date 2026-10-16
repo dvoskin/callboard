@@ -186,17 +186,17 @@
         if (key !== EX_KEY || !window.TB) return;
         var box = $('exout');
         if (!res.ok) {
-          TB.render(box, { label: 'New reps \u00b7 RingEX', error: esc(res.j.error || 'error') + ' ' + esc(res.j.detail || '') });
+          TB.render(box, { label: 'Sales Training Class', error: esc(res.j.error || 'error') + ' ' + esc(res.j.detail || '') });
           return;
         }
         var model = TB.ringexModel(res.j, {
-          key: 'rx', label: 'New reps \u00b7 RingEX', href: SHARE ? '' : '/sales-ringex',
+          key: 'rx', label: 'Sales Training Class', href: SHARE ? '' : '/sales-ringex',
           press: function (a) { AG[a.name] = a; return pressLine(a.name); },
           panelExtra: function (a) {
             return [['Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>']];
           },
-          note: 'Their calls come from each rep\u2019s RingEX extension (the roster above is RingCX). ' +
-                '\u25B2\u25BC compare with the median rep of these nine.'
+          note: 'The training class dials from RingEX (the roster above is RingCX). ' +
+                '\u25B2\u25BC compare with the class\u2019s own median rep.'
         });
         EX_MODEL = model;
         TB.render(box, model);

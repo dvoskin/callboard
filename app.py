@@ -1362,8 +1362,14 @@ _SMS_EXTRA_SEATS = {
 # day snapshots, the 429 handling and the warm loop come with the engine.
 # Texts stay off here: /v5 already reads these seats' message store for its
 # texts line, and reading it twice would spend the same budget twice.
-_TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True, cache_only_today=True) for s in _SMS_EXTRA_SEATS["sales"]]
-TEAM_LABELS["ringex"] = "Sales \u00b7 New reps (RingEX)"
+# Roberto Castillo was let go on 2026-10-15; off this board (Danny, 2026-10-16:
+# "remove Roberto Castillo from the new reps board"). His extension stays in
+# _SMS_EXTRA_SEATS so the STOP scan still reads it. Shown as the sales
+# TRAINING CLASS ("make new sales show as training class for sales").
+_RINGEX_OFF_BOARD = {"Roberto Castillo"}
+_TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True, cache_only_today=True) for s in _SMS_EXTRA_SEATS["sales"]
+                           if s["name"] not in _RINGEX_OFF_BOARD]
+TEAM_LABELS["ringex"] = "Sales Training Class"
 # NOT in _TEAM_SOURCES, on purpose (same as surgical): the report still reads
 # RingEX -- that is the default -- but the warm loop only warms the teams
 # listed there, and listing these nine queued 810 seat-days of 90-day backfill

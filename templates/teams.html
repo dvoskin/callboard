@@ -27,17 +27,13 @@
     <span><b class="u">▲</b><b class="d">▼</b> vs the team’s median person</span>
     <span><b>Talk</b> excludes wrap</span>
     <span><b>&gt;3m</b> = real conversations</span>
-    <span>Tap a row for the detail</span>
+    <span>Tap a team to fold it, a row for the detail</span>
   </div>
-  <div id="t-surgical"><h2 class="tb-h">Surgical Coordinators</h2><div class="msg">Loading…</div></div>
-  <div id="t-billing"><h2 class="tb-h">Billing</h2><div class="msg">Loading…</div></div>
-  <div id="t-sales"><h2 class="tb-h">Sales · RingCX floor</h2><div class="msg">Loading…</div></div>
-  <div id="t-ringex"><h2 class="tb-h">Sales · New reps (RingEX)</h2><div class="msg">Loading…</div></div>
-  <details class="notes"><summary>How each team is counted</summary>
-    <p class="note"><b>Coordinators and billing</b> come from each person’s RingEX extension: talk is connected time, dials are outbound calls, and the two result columns are their Zoho calls done against what was due today and the ones now overdue. Billing’s first result is what each biller recorded as collected.</p>
-    <p class="note"><b>Sales · RingCX floor</b> is the sales board: RingCX and RingEX combined, dials are attempts, quotes and paid retainers come from Books.</p>
-    <p class="note"><b>Sales · New reps</b> are the nine reps who dial from RingEX, read the same way as coordinators, with quotes and paid retainers from Books.</p>
-  </details>
+  <!-- Sales first, then coordinators and billing (Danny, 2026-10-16) -->
+  <section class="tb-sec first" id="t-sales"><h2 class="bt">Sales Floor</h2><div class="msg">Loading…</div></section>
+  <section class="tb-sec" id="t-ringex"><h2 class="bt">Sales Training Class</h2><div class="msg">Loading…</div></section>
+  <section class="tb-sec" id="t-surgical"><h2 class="bt">Surgical Coordinators</h2><div class="msg">Loading…</div></section>
+  <section class="tb-sec" id="t-billing"><h2 class="bt">Billing</h2><div class="msg">Loading…</div></section>
 </div>
 {% include "_teamboard.html" %}
 <script>
@@ -116,8 +112,36 @@
         (((j.collections || {}).payments || {}).all_payments ? ' <i>Books: ' + money(j.collections.payments.all_payments) + ' in all payments</i>' : '') +
         sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> Zoho calls overdue'
       : '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' Zoho calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue';
+    var n = rows.filter(function (r) { return !r.unread; }).length;
     return {
       key: team, label: label, href: href, nameHead: 'Name', dialsHead: 'Dials',
+      headline: team === 'billing'
+        ? '<b>' + money(T.coll) + '</b> collected' + sep + '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> dials' +
+          sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue'
+        : '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> dials' + sep + '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) +
+          ' calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' +
+          (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed' : ''),
+      notes: team === 'billing' ? [
+        '<b>Where.</b> Each biller’s RingEX extension, the billers’ collections sheets, and their Zoho calls.',
+        '<b>Delay.</b> Calls refresh about every 2½ minutes; the subtitle says how far they reach (“calls through”). ' +
+          'Collections refresh every 2 minutes and Zoho counts every 5. Someone shown “not read yet” has not been read from RingEX ' +
+          'since a restart or a rate limit: not known, not zero.',
+        '<b>Columns.</b> Talk is time on connected calls. Dials are outbound calls. >3m counts calls over 3 minutes. Collected is what each ' +
+          'biller recorded as collected in this window. The Books figure in the Result line is every payment Books recorded, including ones ' +
+          'no biller logged, so it runs higher. Overdue is Zoho calls (billing follow-ups) past their time and still open.',
+        TB.MARKS
+      ] : [
+        '<b>Where.</b> Each coordinator’s RingEX extension, plus their Zoho calls, tasks and Journeys.',
+        '<b>Delay.</b> Calls refresh about every 2½ minutes; the subtitle says how far they reach (“calls through”). ' +
+          'Zoho counts refresh every 5 minutes. Someone shown “not read yet” has not been read from RingEX since a restart or ' +
+          'a rate limit: not known, not zero.',
+        '<b>Columns.</b> Talk is time on connected calls. Dials are outbound calls. >3m counts calls over 3 minutes. Calls done is Zoho calls ' +
+          'completed out of those due in this window (planner calls and follow-ups). Overdue is Zoho calls past their time and still open. ' +
+          'The row panel adds planner (Journey) calls, tasks and active Journeys.',
+        TB.MARKS
+      ],
+      sub: rows.length + ' ' + (team === 'billing' ? 'biller' : 'coordinator') + (rows.length === 1 ? '' : 's') +
+           (j.as_of ? ', calls through ' + esc(j.as_of) : '') + (n < rows.length ? ', ' + (rows.length - n) + ' not read yet' : ''),
       colA: team === 'billing' ? 'Collected' : 'Calls done', colB: 'Overdue',
       aLbl: team === 'billing' ? 'collected' : 'done', bLbl: 'overdue',
       aTitle: team === 'billing' ? 'Recorded as collected in this window' : 'Zoho calls completed / due in this window',
@@ -163,7 +187,22 @@
     var T = j.totals || {}, S = function (k) { return all.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
     var talk = all.reduce(function (s, a) { return s + (a.talk || 0); }, 0);
     return {
-      key: 'sales', label: 'Sales · RingCX floor', href: '/v5', nameHead: 'Rep',
+      key: 'sales', label: 'Sales Floor', href: '/v5', nameHead: 'Rep',
+      sub: rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ', RingCX and RingEX combined',
+      openOnPhone: true,
+      headline: '<b>' + hm(talk) + '</b> talk' + sep + '<b>' + fmt(T.attempts) + '</b> dials' +
+        (ok ? sep + '<b>' + fmt(S('quotes_sent')) + '</b> quotes' + sep + '<b>' + fmt(S('retainers_paid')) + '</b> paid' : '') +
+        (T.missed_open ? sep + '<b class="hot">' + fmt(T.missed_open) + '</b> missed' : ''),
+      notes: [
+        '<b>Where.</b> RingCX’s Interaction Report plus RingEX’s call log, combined so no call is counted twice.',
+        '<b>Delay.</b> RingCX emails its report every 15 minutes and the board picks it up within about 5, so a call shows 15 to 20 minutes ' +
+          'after it ends. The first report of the day lands about 7:45 AM, so the floor reads light until then. Quotes and Paid refresh ' +
+          'from Books every 5 minutes.',
+        '<b>Columns.</b> Talk is time on connected calls, without wrap-up. Dials are every attempt. >3m counts calls over 3 minutes, the real ' +
+          'conversations. Quotes are quotes sent in Books in this window. Paid is retainers paid in full in this window. The row panel adds ' +
+          'the reps’ own dispositions: reached, booked, quoted, no answer, do not call.',
+        TB.MARKS
+      ],
       colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid',
       aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
       rows: rows,
@@ -180,13 +219,13 @@
   }
 
   var SOURCES = [
+    { id: 't-sales', url: '/api/v5/report?', label: 'Sales Floor', model: v5Model },
+    { id: 't-ringex', url: '/api/v5/ringex?', label: 'Sales Training Class',
+      model: function (j) { return TB.ringexModel(j, { key: 'ringex', label: 'Sales Training Class', href: '/sales-ringex' }); } },
     { id: 't-surgical', url: '/api/v6/report?team=surgical&', label: 'Surgical Coordinators',
       model: function (j) { return v6Model(j, 'surgical', 'Surgical Coordinators', '/surgical-coordinator'); } },
     { id: 't-billing', url: '/api/v6/report?team=billing&', label: 'Billing',
-      model: function (j) { return v6Model(j, 'billing', 'Billing', '/billing'); } },
-    { id: 't-sales', url: '/api/v5/report?', label: 'Sales · RingCX floor', model: v5Model },
-    { id: 't-ringex', url: '/api/v5/ringex?', label: 'Sales · New reps (RingEX)',
-      model: function (j) { return TB.ringexModel(j, { key: 'ringex', label: 'Sales · New reps (RingEX)', href: '/sales-ringex' }); } }
+      model: function (j) { return v6Model(j, 'billing', 'Billing', '/billing'); } }
   ];
   var LAST_OK = null, GEN = 0;
 
