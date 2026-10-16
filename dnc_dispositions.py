@@ -31,13 +31,16 @@ Rules
       Contact   Do_Not_Contact, the SMS and email opt-outs, Unsubscribed_Mode
                 Manual and Unsubscribed_Time (only when empty); trigger [] --
                 Contacts has no edit rule
-      Deals     every open sales deal of the person -> Stage Unsubscribe WITH
-                workflows, so the org's stage rules run as they do for any
-                Unsubscribe (Closing Date, the Contact's stage mirror, Mark
-                Open Activity As Completed) and the backoffice opt-out sync
-                picks it up; RC_SMS_Opt_Out on, every Send_*_SMS off.
+      Deals     every open sales deal of the person -> Stage Unsubscribe,
+                RC_SMS_Opt_Out on, every Send_*_SMS off -- trigger [], SILENT.
+                Danny, 2026-10-16: "Do this silently without any outbound
+                messages". With workflows the move also fired the Zoho Flow
+                webhook "Deals_ZohoFlow_create contact", whose effect is not
+                visible from here. The rules' one useful effect, the Contact's
+                Deal_Stage mirror, is written directly; the backoffice opt-out
+                sync polls Unsubscribe deals and still picks them up.
                 A deal already on Unsubscribe or Duplicates / Junk keeps its
-                stage and only gets the switches (trigger [])
+                stage and only gets the switches
       Calls     every Scheduled / Overdue call on the person or those deals ->
                 Cancelled, trigger [] (the stage rule leaves the old cadence
                 calls open: 78 of 84 on the deals it did move on 2026-10-15)
@@ -71,7 +74,7 @@ SEND_OFF = {"RC_SMS_Opt_Out": True, "Send_Welcome_SMS": False, "Send_No_Show_SMS
 DEAL_FIELDS = ("id, Stage, Contact_Name, Created_Time, RC_SMS_Opt_Out, Send_Welcome_SMS, Send_No_Show_SMS, "
                "Send_Photo_Request_SMS, New_Deal_24H_SMS, Short_Call_SMS")
 CONTACT_FIELDS = ("id, Do_Not_Contact, ringcentralextensionabr__SMS_OPT_OUT, Email_Opt_Out, Unsubscribed_Time, "
-                  "Created_Time")
+                  "Created_Time, Deal_Stage")
 CALL_FIELDS = ("id, Who_Id, What_Id, Call_Type, Call_Start_Time, Outgoing_call_disposition, Outgoing_Call_Status")
 OPEN_CALL = ("Scheduled", "Overdue")
 
@@ -267,6 +270,12 @@ def decide(world):
         if con is not None and not (con.get("Do_Not_Contact") and con.get("ringcentralextensionabr__SMS_OPT_OUT")
                                     and con.get("Email_Opt_Out")):
             dec["contact_write"] = True
+        # the Contact's copy of the deal stage, which the stage rule would
+        # have written had the move run with workflows
+        if con is not None and (dec["deals_move"] or any((d.get("Stage") or "") == UNSUB for d in deals)) \
+                and con.get("Deal_Stage") != UNSUB:
+            dec["contact_write"] = True
+            dec["contact_stage"] = True
         mine = {d["id"] for d in deals}
         dec["calls_cancel"] = sorted(c["id"] for c in world["calls"].values()
                                      if (c.get("Outgoing_Call_Status") or "") in OPEN_CALL
@@ -294,6 +303,8 @@ def payloads(decisions, world, now_iso):
                    "Email_Opt_Out": True}
             if not con.get("Unsubscribed_Time"):
                 row.update({"Unsubscribed_Mode": "Manual", "Unsubscribed_Time": now_iso})
+            if dec.get("contact_stage"):
+                row["Deal_Stage"] = UNSUB
             contacts[cid] = row
         for i in dec["deals_move"]:
             move[i] = dict({"id": i, "Stage": UNSUB}, **SEND_OFF)
@@ -324,7 +335,7 @@ def apply(put, plan, describe=None, log=None):
     else:
         calls = [{"id": c["id"], "Outgoing_Call_Status": "Cancelled"} for c in calls]
     steps = (("Contacts", plan["contacts"], [], "contacts"),
-             ("Deals", plan["deals_move"], ["workflow"], "deals_moved"),
+             ("Deals", plan["deals_move"], [], "deals_moved"),
              ("Deals", plan["deals_flag"], [], "deals_flagged"),
              ("Calls", calls, [], "calls_cancelled"))
     for module, rows, trigger, name in steps:

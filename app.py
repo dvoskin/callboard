@@ -3018,8 +3018,9 @@ def _optouts_loop():
 
 # ---- Do-not-call dispositions, honored (dnc_dispositions.py) ---------------
 # A RingCX "DNC (Do Not Call)" disposition -> the Contact's Do_Not_Contact and
-# opt-outs, every open sales deal to Unsubscribe WITH workflows, the open calls
-# cancelled. Every 15 minutes over the last 3 days; ?run=1&since= for the past.
+# opt-outs, every open sales deal to Unsubscribe, the open calls cancelled --
+# all with trigger [], nothing sent to anyone (Danny, 2026-10-16: "silently
+# without any outbound messages"). Every 15 minutes over the last 3 days; ?run=1&since= for the past.
 # Patients (paid / won / contract stages, Active Journey) and anyone who came
 # back after the DNC go to a review list instead. Danny, 2026-10-15: "Fix all
 # of these and then figure out a way to fix previous ones".

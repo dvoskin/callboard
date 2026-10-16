@@ -83,7 +83,7 @@ p = dd.payloads([d], w, "2026-10-16T01:00:00-04:00")
 ck("the Contact gets Do_Not_Contact, the SMS and email opt-outs, Manual and the time",
    p["contacts"] == [{"id": "c1", "Do_Not_Contact": True, "ringcentralextensionabr__SMS_OPT_OUT": True,
                       "Email_Opt_Out": True, "Unsubscribed_Mode": "Manual",
-                      "Unsubscribed_Time": "2026-10-16T01:00:00-04:00"}], p["contacts"])
+                      "Unsubscribed_Time": "2026-10-16T01:00:00-04:00", "Deal_Stage": "Unsubscribe"}], p["contacts"])
 ck("a moved deal gets Stage Unsubscribe, RC_SMS_Opt_Out and every Send_*_SMS off",
    p["deals_move"][0] == dict({"id": "d1", "Stage": "Unsubscribe"}, **dd.SEND_OFF) and all(r["Stage"] == "Unsubscribe" for r in p["deals_move"]),
    p["deals_move"])
@@ -91,13 +91,23 @@ ck("a flag-only deal never carries a Stage", p["deals_flag"] == [dict({"id": "d3
 ck("a cancelled call says why, with the DNC date", p["calls_cancel"][0]["Outgoing_Call_Status"] == "Cancelled"
    and p["calls_cancel"][0]["_note"] == "Cancelled: do not call (DNC disposition 2026-10-15).", p["calls_cancel"])
 
+ck("the Contact's Deal_Stage copy says Unsubscribe once its deals moved (the stage rule would have written it)",
+   p["contacts"][0].get("Deal_Stage") == "Unsubscribe" and one(w, "c1").get("contact_stage") is True, p["contacts"])
+_wm = world([call("k1", who="c1", deal="d1")], deals=[deal("d1", "c1", "Expired")],
+            contacts=[dict(contact("c1", dnc=True, sms=True, email=True), Deal_Stage="Expired")])
+_dm = one(_wm, "c1")
+ck("a flagged Contact whose deal moves is still written, for the stage copy alone",
+   _dm["contact_write"] and _dm.get("contact_stage") and dd.payloads([_dm], _wm, "N")["contacts"][0]["Deal_Stage"] == "Unsubscribe", _dm)
+_wd = world([call("k1", who="c1", deal="d1")], deals=[deal("d1", "c1", "Unsubscribe", **dd.SEND_OFF)],
+            contacts=[dict(contact("c1", dnc=True, sms=True, email=True), Deal_Stage="Unsubscribe")])
+ck("...and one already showing Unsubscribe is not", one(_wd, "c1")["result"] == "done", one(_wd, "c1"))
 c2 = contact("c2", unsub="2026-09-01T10:00:00-04:00")
 p2 = dd.payloads([one(world([call("k", who="c2")], contacts=[c2]), "c2")], world([call("k", who="c2")], contacts=[c2]), "X")
 ck("an existing Unsubscribed_Time is kept", "Unsubscribed_Time" not in p2["contacts"][0], p2["contacts"])
 
 # ---- already done: nothing to write ----
 w = world([call("k1", who="c1", deal="d1")], deals=[deal("d1", "c1", "Unsubscribe", **{**dd.SEND_OFF})],
-          contacts=[contact("c1", dnc=True, sms=True, email=True)])
+          contacts=[dict(contact("c1", dnc=True, sms=True, email=True), Deal_Stage="Unsubscribe")])
 d = one(w, "c1")
 ck("someone already fully unsubscribed is 'done' and nothing is written", d["result"] == "done" and not
    any(dd.payloads([d], w, "X").values()), d)
@@ -192,10 +202,10 @@ plan = {"contacts": [{"id": "c1"}], "deals_move": [{"id": "d%d" % i, "Stage": "U
         "deals_flag": [{"id": "f1"}], "calls_cancel": [{"id": "o1", "Outgoing_Call_Status": "Cancelled", "_note": "N."}]}
 res = dd.apply(fake_put, plan, describe=lambda ids: {"o1": "old notes"})
 mods = [(m, t, len(ids)) for m, ids, t, _ in seen]
-ck("the stage move runs WITH workflows (the org's Unsubscribe rules), in chunks of 100",
-   ("Deals", ["workflow"], 100) in mods and ("Deals", ["workflow"], 50) in mods, mods)
-ck("contacts, switch-only deals and calls are written with trigger: []",
-   ("Contacts", [], 1) in mods and ("Deals", [], 1) in mods and ("Calls", [], 1) in mods, mods)
+ck("the stage move is SILENT -- trigger: [] -- in chunks of 100 (Danny: no outbound messages)",
+   ("Deals", [], 100) in mods and ("Deals", [], 50) in mods, mods)
+ck("every write, of every kind, is trigger: []", all(t == [] for _, t, _ in mods) and ("Contacts", [], 1) in mods
+   and ("Deals", [], 1) in mods and ("Calls", [], 1) in mods, mods)
 ck("a cancelled call keeps its notes and gains one line, and no private key leaks into Zoho",
    seen[-1][3] == [{"id": "o1", "Outgoing_Call_Status": "Cancelled", "Description": "old notes\n\nN."}], seen[-1][3])
 ck("the counts add up", res["deals_moved"] == 150 and res["contacts"] == 1 and res["calls_cancelled"] == 1 and not res["errors"], res)
