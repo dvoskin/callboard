@@ -4,6 +4,8 @@
   h2.tb-h .tb-open{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted);text-decoration:none}
   h2.tb-h .tb-open:hover{color:var(--up)}
   .q .hot,.rt .hot{color:var(--dn)}
+  /* a seat not read yet: its own line, so the texts line never paints over it */
+  .nm .unr{display:block;margin-top:1px;font-size:11px;font-weight:400;font-style:italic;letter-spacing:0;color:var(--muted);white-space:normal}
 </style>
 <script>
 // One team, one table, in the sales board's own design (the classes in
@@ -100,7 +102,7 @@ window.TB = (function () {
       if (r.unread) {
         var dash = function (cls) { return '<span class="' + cls + ' zero">\u2014</span>'; };
         h += '<div class="r"><span class="rk">' + (i + 1) + '</span><span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) +
-             '<span class="press">not read yet \u00b7 RingEX fills this in within a few minutes</span></span>' +
+             '<span class="unr">not read yet \u00b7 RingEX fills this in within a few minutes</span></span>' +
              dash('tk') + dash('d') + dash('t3') + dash('q') + dash('rt') + '</div>';
         return;
       }
@@ -159,13 +161,15 @@ window.TB = (function () {
         ].concat(opts.panelExtra ? opts.panelExtra(a) : [])
       };
     });
+    // Nobody read yet (a restart): say so rather than print a team of zeros.
+    var allUnread = rows.length && rows.every(function (r) { return r.unread; });
     var T = d.totals || {}, S = function (k) { return (d.ranked || []).reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
     return {
       key: opts.key || 'rx', label: opts.label || d.label || 'New reps · RingEX', href: opts.href,
       colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid', nameHead: 'Rep',
       aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
       rows: rows,
-      sum: [
+      sum: allUnread ? [['Team', '<i>not read yet \u00b7 RingEX fills this in within a few minutes</i>']] : [
         ['Team', '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +
                  '<span class="sep">·</span><b>' + fmt(T.over_3) + '</b> &gt;3m<span class="sep">·</span><b>' + fmt(T.over_10) + '</b> &gt;10m'],
         ['Sent', booksOk ? '<b>' + fmt(S('quotes_sent')) + '</b> quotes<span class="sep">·</span><b>' + fmt(S('retainers_sent')) +

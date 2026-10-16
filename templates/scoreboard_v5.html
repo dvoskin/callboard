@@ -19,8 +19,6 @@
   <div class="ctl" id="days"></div>
   {% endif %}
   <div id="out"><div class="msg">Pulling calls from RingEX and RingCX…</div></div>
-  <!-- the nine reps who dial from RingEX, under the RingCX roster (2026-10-16) -->
-  <div id="exout"></div>
 </div>
 {% include "_teamboard.html" %}
 
@@ -178,7 +176,7 @@
   // The nine reps who dial from RingEX (/api/v5/ringex), as a second board in
   // the same design under the roster. Danny, 2026-10-16: "Add a new board below
   // the current roster for the 9 new RingEX reps on the sales page".
-  var EX_KEY = '';
+  var EX_KEY = '', EX_MODEL = null;
   function loadEx(q) {
     var key = q.toString();
     EX_KEY = key;
@@ -200,6 +198,7 @@
           note: 'Their calls come from each rep\u2019s RingEX extension (the roster above is RingCX). ' +
                 '\u25B2\u25BC compare with the median rep of these nine.'
         });
+        EX_MODEL = model;
         TB.render(box, model);
         smsPaint();
         var bm = (res.j.meta || {}).books;
@@ -393,6 +392,11 @@
       h += '</ul><p class="note">No calls logged yet in this window.</p>';
     }
 
+    // The RingEX reps' board sits here, directly under the roster -- above the
+    // texts table and the data notes. Repainted at once from the last model so
+    // a refresh of the roster does not blank it while its own fetch runs.
+    h += '<div id="exout"></div>';
+
     (d.warnings || []).forEach(function (x) {
       if (x.kind === 'report_stale') h += '<div class="warn">' + esc(x.detail) + '</div>';
       if (x.kind === 'report_stopped') h += '<div class="warn">' + esc(x.detail) + '</div>';
@@ -435,6 +439,7 @@
          'wrap and admin excluded. Shift length isn’t in the data, so a half day sits beside a full one.</p>';
     h += '<details class="notes" id="datanotes"><summary>Data notes' + (nNotes ? ' (' + nNotes + ')' : '') + '</summary>' + notes + '</details>';
     $('out').innerHTML = h;
+    if (EX_MODEL && window.TB) TB.render($('exout'), EX_MODEL);
 
     // Expand on click. Delegated so it survives every refresh, and keyboard
     // reachable because the rows are the only way into this detail.
