@@ -120,6 +120,9 @@ def run():
 
     # And it must be idempotent: a second call in the same process starts
     # nothing new, or every request would spawn another set of loops.
+    # The first call may start the loops the import does not (loop:optouts,
+    # loop:dnc); only the calls after it must start nothing.
+    appmod._ensure_worker_threads()
     before = len(threading.enumerate())
     appmod._ensure_worker_threads()
     appmod._ensure_worker_threads()

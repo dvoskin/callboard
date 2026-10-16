@@ -140,7 +140,12 @@ class Store:
             with open(self.path, encoding="utf-8") as f:
                 d = json.load(f)
             if isinstance(d, dict) and isinstance(d.get("numbers"), dict):
+                # zoho_armed too: dropping it here disarmed the Zoho marking on
+                # every restart (found 2026-10-16 -- armed 10-15 21:51, false
+                # after the next deploy).
                 self.data = {"numbers": d["numbers"], "runs": d.get("runs") or []}
+                if "zoho_armed" in d:
+                    self.data["zoho_armed"] = bool(d["zoho_armed"])
         except FileNotFoundError:
             pass
         except Exception as e:  # noqa: BLE001
@@ -187,7 +192,8 @@ def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
     """Set the org's opt-out fields for one number, everywhere it appears.
 
     Contact and Lead: ringcentralextensionabr__SMS_OPT_OUT, Unsubscribed_Mode
-    = Manual, Unsubscribed_Time. Deal (through its Contact): RC_SMS_Opt_Out
+    = Manual, Unsubscribed_Time; the Contact also Do_Not_Contact unless it has
+    an Active Journey. Deal (through its Contact): RC_SMS_Opt_Out
     and every Send_*_SMS switch off. All with trigger: []. Returns a dict of
     counts and errors; raises nothing.
     """
@@ -225,8 +231,19 @@ def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
         if contacts:
             deals = [r["id"] for r in coql("select id from Deals where Contact_Name.id in (%s) limit 100" % ",".join(contacts))]
         stamp = {"ringcentralextensionabr__SMS_OPT_OUT": True, "Unsubscribed_Mode": "Manual", "Unsubscribed_Time": now_iso}
+        # Do_Not_Contact as well (2026-10-16, the messaging-system gap list):
+        # it is the only field the Zoho Calls rules read -- the no-answer text,
+        # the reminders, the dialer push. Not on a Contact with an Active
+        # Journey: the surgical coordinator still has to reach a booked patient;
+        # that Contact keeps the SMS opt-out only.
+        booked = set()
         if contacts:
-            out["contacts"] = put("Contacts", [dict(id=i, **stamp) for i in contacts])
+            booked = {(r.get("Contact") or {}).get("id") for r in coql(
+                "select id, Contact from Journeys where (Contact.id in (%s) and Case_Status = 'Active') limit 200"
+                % ",".join(contacts))}
+            out["contacts"] = put("Contacts", [dict(id=i, **stamp, **({} if i in booked else {"Do_Not_Contact": True}))
+                                               for i in contacts])
+            out["do_not_contact"] = sum(1 for i in contacts if i not in booked)
         if leads:
             out["leads"] = put("Leads", [dict(id=i, **stamp) for i in leads])
         if deals:

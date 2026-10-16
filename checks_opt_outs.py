@@ -82,6 +82,10 @@ ck("last_seen is the latest STOP, first_seen the earliest", st.data["numbers"]["
 st.save()
 st2 = so.Store(tmp)
 ck("the list comes back from disk", st2.digits() == ["3055550101", "3055550303"], st2.digits())
+_ap = os.path.join(_tmp_armed := tempfile.mkdtemp(), "o.json")
+_sa = so.Store(_ap); _sa.data["zoho_armed"] = True; _sa.save()
+ck("the armed flag survives a restart (a reload used to drop it: every deploy disarmed the Zoho marking)",
+   so.Store(_ap).data.get("zoho_armed") is True, so.Store(_ap).data)
 ck("the plain list is sorted digits, nothing else", st2.digits() == sorted(st2.data["numbers"]), st2.digits())
 
 # ---- Zoho: the org's own opt-out fields, trigger: [], the Deal's stage untouched ----
@@ -96,6 +100,7 @@ class _Http:
         if "from Contacts" in q: return _Resp(200, {"data": [{"id": "c1", "Phone": "+1 305-555-0101"}, {"id": "c2", "Mobile": "13055550101"},
                                                               {"id": "cX", "Phone": "3055550101 ext 9"}]})
         if "from Leads" in q: return _Resp(204, {})
+        if "from Journeys" in q: return _Resp(200, {"data": [{"id": "j1", "Contact": {"id": "c2"}}]})
         if "from Deals" in q: return _Resp(200, {"data": [{"id": "d1"}]})
         return _Resp(400, {})
     @staticmethod
@@ -105,8 +110,13 @@ class _Http:
 res = so.mark_in_zoho("https://z", lambda: {"Authorization": "x"}, "3055550101", "2026-10-15T21:30:00-04:00", _Http)
 puts = {c[1]: c[2] for c in _calls if c[0] == "put"}
 ck("contacts and deals found, leads none, nothing raised", res["found"] == {"contacts": 2, "leads": 0, "deals": 1} and res["errors"] == [], res)
-ck("the Contact gets the org's three opt-out fields, with trigger: []",
-   puts["Contacts"]["trigger"] == [] and puts["Contacts"]["data"][0] == {"id": "c1", "ringcentralextensionabr__SMS_OPT_OUT": True, "Unsubscribed_Mode": "Manual", "Unsubscribed_Time": "2026-10-15T21:30:00-04:00"}, puts.get("Contacts"))
+ck("the Contact gets the org's opt-out fields and Do_Not_Contact, with trigger: []",
+   puts["Contacts"]["trigger"] == [] and puts["Contacts"]["data"][0] == {"id": "c1", "ringcentralextensionabr__SMS_OPT_OUT": True, "Unsubscribed_Mode": "Manual", "Unsubscribed_Time": "2026-10-15T21:30:00-04:00", "Do_Not_Contact": True}, puts.get("Contacts"))
+ck("a Contact with an Active Journey keeps the SMS opt-out but NOT Do_Not_Contact (the coordinator must reach a booked patient)",
+   puts["Contacts"]["data"][1]["id"] == "c2" and "Do_Not_Contact" not in puts["Contacts"]["data"][1]
+   and puts["Contacts"]["data"][1]["ringcentralextensionabr__SMS_OPT_OUT"] is True and res.get("do_not_contact") == 1, puts["Contacts"]["data"])
+ck("the Active Journey lookup is on the matched Contacts only",
+   any(c[0] == "post" and "from Journeys" in c[1] and "Contact.id in (c1,c2)" in c[1] and "Case_Status = 'Active'" in c[1] for c in _calls), [c[1] for c in _calls if c[0] == "post"])
 ck("the Deal gets RC_SMS_Opt_Out and every Send_*_SMS switch off -- and NO stage change",
    puts["Deals"]["trigger"] == [] and puts["Deals"]["data"][0]["RC_SMS_Opt_Out"] is True and puts["Deals"]["data"][0]["Send_Welcome_SMS"] is False
    and puts["Deals"]["data"][0]["New_Deal_24H_SMS"] is False and "Stage" not in puts["Deals"]["data"][0] and "Email_Opt_Out" not in puts["Contacts"]["data"][0], puts.get("Deals"))

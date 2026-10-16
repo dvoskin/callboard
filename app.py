@@ -3016,6 +3016,181 @@ def _optouts_loop():
         time.sleep(3600)
 
 
+# ---- Do-not-call dispositions, honored (dnc_dispositions.py) ---------------
+# A RingCX "DNC (Do Not Call)" disposition -> the Contact's Do_Not_Contact and
+# opt-outs, every open sales deal to Unsubscribe WITH workflows, the open calls
+# cancelled. Every 15 minutes over the last 3 days; ?run=1&since= for the past.
+# Patients (paid / won / contract stages, Active Journey) and anyone who came
+# back after the DNC go to a review list instead. Danny, 2026-10-15: "Fix all
+# of these and then figure out a way to fix previous ones".
+import dnc_dispositions as _dnc_mod
+_DNC_FILE = _data_dir / "dnc_dispositions.json"
+_dnc = _dnc_mod.Store(_DNC_FILE)
+_dnc_state = {"runs": 0, "running": False}
+_dnc_lock = threading.Lock()
+
+
+def _dnc_coql_all(q, page=2000):
+    out, off = [], 0
+    while True:
+        r = None
+        for attempt in range(5):
+            r = requests.post(f"{_zoho.base_url}/crm/v6/coql", headers=_zoho._headers(),
+                              json={"select_query": q + f" limit {off}, {page}"}, timeout=60)
+            if r.status_code != 429:
+                break
+            time.sleep(5 * (attempt + 1))
+        if r.status_code == 204:
+            return out
+        if not r.ok:
+            raise RuntimeError("COQL HTTP %d %s" % (r.status_code, (r.text or "")[:160]))
+        j = r.json() or {}
+        out += j.get("data") or []
+        if not (j.get("info") or {}).get("more_records"):
+            return out
+        off += page
+
+
+def _dnc_match_number(d):
+    # The full ten digits at the END of Phone or Mobile -- never the last seven
+    # alone: another area code shares them.
+    rows = _dnc_coql_all(f"select {_dnc_mod.CONTACT_FIELDS}, Phone, Mobile from Contacts "
+                         f"where (Phone like '%{d}' or Mobile like '%{d}')", page=50)
+    return [r for r in rows if any(_dnc_mod._digits(r.get(f)) == d for f in ("Phone", "Mobile"))]
+
+
+def _dnc_put(module, rows, trigger):
+    r = None
+    for attempt in range(5):
+        r = requests.put(f"{_zoho.base_url}/crm/v6/{module}", headers=_zoho._headers(),
+                         json={"data": rows, "trigger": trigger}, timeout=90)
+        if r.status_code != 429:
+            break
+        time.sleep(5 * (attempt + 1))
+    body = r.json() if r.content else {}
+    data = body.get("data") or []
+    if not data:
+        raise RuntimeError("PUT %s HTTP %d %s" % (module, r.status_code, str(body)[:160]))
+    return [(row["id"], (x or {}).get("code") == "SUCCESS", (x or {}).get("message") or (x or {}).get("code"))
+            for row, x in zip(rows, data)]
+
+
+def _dnc_describe(ids):
+    rows = _dnc_coql_all("select id, Description from Calls where id in (%s)" % ",".join(ids))
+    return {r["id"]: r.get("Description") or "" for r in rows}
+
+
+def _dnc_window(since=None, until=None, days=3):
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    off = -tz_off
+    zone = "%s%02d:%02d" % ("+" if off >= 0 else "-", abs(off) // 60, abs(off) % 60)
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+    a = since or (today - timedelta(days=max(1, days) - 1)).isoformat()
+    b = until or today.isoformat()
+    return a, b, zone, tz_off
+
+
+def _dnc_run(since=None, until=None, days=3, write=None, control=None, chunk=400, label="auto"):
+    """One pass over the DNC calls in the window that the ledger has not
+    settled. write=None: write when armed. control=<contact id>: that one
+    person only, written whatever the arm says (the positive control).
+    Never raises."""
+    if not _dnc_lock.acquire(blocking=False):
+        return {"skipped": "a run is in progress"}
+    t0 = time.time()
+    info = {"started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "label": label}
+    _dnc_state["running"] = True
+    try:
+        if not (_zoho.refresh_token and _zoho.client_id):
+            raise RuntimeError("no Zoho credentials")
+        a, b, zone, tz_off = _dnc_window(since, until, days)
+        armed = os.environ.get("DNC_ZOHO_WRITE", "1") != "0" and bool(_dnc.data.get("armed"))
+        if control:
+            write = True
+            deals = [d["id"] for d in _dnc_coql_all(f"select id from Deals where Contact_Name.id = '{control}'")]
+            where = f"Who_Id = '{control}'"
+            if deals:
+                where = f"(Who_Id = '{control}' or What_Id in ({','.join(deals[:50])}))"
+            calls = _dnc_coql_all("select id, What_Id, Who_Id, $se_module, Call_Start_Time, Subject from Calls "
+                                  f"where (Outgoing_call_disposition = '{_dnc_mod.DNC}' and {where})")
+            pending = calls
+        else:
+            write = armed if write is None else (bool(write) and armed)
+            calls = _dnc_coql_all("select id, What_Id, Who_Id, $se_module, Call_Start_Time, Subject from Calls "
+                                  f"where (Outgoing_call_disposition = '{_dnc_mod.DNC}' and Call_Start_Time between "
+                                  f"'{a}T00:00:00{zone}' and '{b}T23:59:59{zone}')")
+            pending = _dnc.pending(calls)
+        pending.sort(key=lambda c: c.get("Call_Start_Time") or "")
+        info.update({"window": [a, b] if not control else None, "control": control, "write": bool(write),
+                     "calls": len(calls), "pending": len(pending)})
+        now_iso = _optouts_mod.now_iso_local(tz_off)
+        tot = {"summary": {}, "written": {}, "errors": []}
+        review = []
+        for i in range(0, len(pending), chunk):
+            part = pending[i:i + chunk]
+            world = _dnc_mod.collect(_dnc_coql_all, part, _dnc_match_number)
+            decs = _dnc_mod.decide(world)
+            if control:
+                decs = [d for d in decs if d.get("contact") == control]
+            plan = _dnc_mod.payloads(decs, world, now_iso)
+            res = _dnc_mod.apply(_dnc_put, plan, _dnc_describe, log) if write else {}
+            if write:
+                _dnc.record(decs, res, now_iso)
+                _dnc.save()
+            summ = _dnc_mod.summarize(decs)
+            for k, v in summ.items():
+                if isinstance(v, dict):
+                    sub = tot["summary"].setdefault(k, {})
+                    for kk, vv in v.items():
+                        sub[kk] = sub.get(kk, 0) + vv
+                else:
+                    tot["summary"][k] = tot["summary"].get(k, 0) + v
+            for k in ("contacts", "deals_moved", "deals_flagged", "calls_cancelled"):
+                tot["written"][k] = tot["written"].get(k, 0) + (res.get(k) or 0)
+                if control:
+                    tot["written"].setdefault("ids", {}).setdefault(k, []).extend((res.get("ids") or {}).get(k) or [])
+            tot["errors"] += (res.get("errors") or [])[:20]
+            review += [{"person": d["key"], "reason": d["reason"], "dnc_at": d["dnc_at"]}
+                       for d in decs if d["result"] == "review"]
+            info["progress"] = "%d/%d" % (min(i + chunk, len(pending)), len(pending))
+            _dnc_state["last"] = dict(info, **tot)
+        info.update(tot)
+        info["errors"] = tot["errors"][:40]
+        if control:
+            info["decisions"] = [{k: d[k] for k in ("key", "result", "reason", "dnc_at", "deals_move", "deals_flag",
+                                                     "contact_write", "calls_cancel")} for d in decs]
+        if not write:
+            info["review"] = review[:300]
+        _dnc.note_run({k: v for k, v in info.items() if k not in ("review", "decisions")})
+        _dnc.save()
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("dnc run failed")
+        try:
+            _dnc.note_run(info)
+            _dnc.save()
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        info["took"] = round(time.time() - t0, 1)
+        _dnc_state.update({"runs": _dnc_state.get("runs", 0) + 1, "last": info, "running": False,
+                           "last_at": time.time()})
+        _dnc_lock.release()
+    return info
+
+
+def _dnc_loop():
+    # Five minutes after a boot, then every fifteen. Zoho reads only -- no
+    # RingCentral budget -- and a quiet pass is one COQL query.
+    # Nothing at all until armed: a disarmed pass would re-read the same
+    # three days every time and write nothing.
+    time.sleep(300)
+    while True:
+        if _dnc.data.get("armed"):
+            _dnc_run(days=3, label="auto")
+        time.sleep(900)
+
+
 # ---- Texts on the sales board (/v5) ---------------------------------------
 # Danny, 2026-10-15: "add inbound outbound sms sent auto and manual and unread
 # to the sales call board". Read from each rep's RingEX extension (the floor's
@@ -3275,6 +3450,39 @@ def api_v6_opt_outs():
              "zoho": r.get("zoho")} for d, r in sorted(nums.items(), key=lambda kv: kv[1].get("last_seen") or "", reverse=True)]
     return jsonify({"count": len(rows), "armed": bool(_optouts.data.get("zoho_armed")), "state": st,
                     "file": str(_OPTOUT_FILE), "numbers": rows, "runs": _optouts.data.get("runs", [])[-5:]})
+
+
+@app.route("/api/v6/dnc")
+def api_v6_dnc():
+    """Signed in only. The do-not-call ledger: counts, the last runs and the
+    review list (record ids and reasons, no names). ?dry=1&since=&until= plans
+    without writing; ?run=1&since=&until= writes when armed; ?control=<Contact
+    id> applies one person now (the positive control); ?arm=1|0."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    ctl = "".join(ch for ch in (request.args.get("control") or "") if ch.isdigit())
+    if ctl:
+        return jsonify(_dnc_run(control=ctl, label="control"))
+    if request.args.get("arm") in ("1", "0"):
+        _dnc.data["armed"] = request.args.get("arm") == "1"
+        _dnc.save()
+    day = lambda k: (request.args.get(k) or "")[:10] if re.match(r"^\d{4}-\d{2}-\d{2}$", (request.args.get(k) or "")[:10]) else None
+    if (request.args.get("dry") or request.args.get("run")) and not _dnc_state.get("running"):
+        threading.Thread(target=_dnc_run, kwargs={"since": day("since"), "until": day("until"),
+                                                  "write": bool(request.args.get("run")) and not request.args.get("dry"),
+                                                  "label": "manual"}, daemon=True, name="dnc:kick").start()
+    st = dict(_dnc_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    led = _dnc.data["calls"]
+    by = {}
+    for v in led.values():
+        by[v.get("result")] = by.get(v.get("result"), 0) + 1
+    rev = sorted(({"person": k, **v} for k, v in _dnc.data["review"].items()), key=lambda r: r.get("dnc_at") or "",
+                 reverse=True)
+    return jsonify({"armed": bool(_dnc.data.get("armed")), "ledger": {"calls": len(led), "by_result": by},
+                    "state": st, "runs": _dnc.data.get("runs", [])[-10:], "review_count": len(rev),
+                    "review": rev[:500], "file": str(_DNC_FILE)})
 
 
 @app.route("/api/v6/opt-outs.txt")
@@ -9505,7 +9713,8 @@ def _collections_loop():
 _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:v6-warm", lambda: _v6_warm_loop()),
                  ("loop:collections", lambda: _collections_loop()),
-                 ("loop:optouts", lambda: _optouts_loop()))
+                 ("loop:optouts", lambda: _optouts_loop()),
+                 ("loop:dnc", lambda: _dnc_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 
