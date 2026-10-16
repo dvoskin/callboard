@@ -226,6 +226,38 @@ try:
 finally:
     A._v6_fetch_day = real_fd
     A._v6_today_cache.pop((A._TEAM_ROSTERS["ringex"][0]["ext_id"], "2099-01-01"), None)
+# ---- a refused re-read keeps today's last reading (Danny's 6:32 PM phone screenshot) ----
+import time as _t
+_rf = A._v6_fetch_day
+try:
+    A._v6_fetch_day = lambda eid, day, tz: ([], False)          # RingEX refuses
+    bseat = dict(A._TEAM_ROSTERS["billing"][0]); D0 = "2099-01-03"
+    A._v6_today_cache[(bseat["ext_id"], D0)] = {"at": _t.time() - 600, "rows": [{"id": "x"}]}
+    got, st = A._v6_fetch_ringex([bseat], [D0], D0, 240)
+    ck("a biller whose re-read is refused keeps her 10-minute-old reading, marked by its age -- not 'not read yet'",
+       got[bseat["name"]]["complete"] is True and got[bseat["name"]]["rows"] == [{"id": "x"}]
+       and st["stale_seats"] == {bseat["name"]: 10} and st["missing"] == 0, st)
+    A._v6_today_cache[(bseat["ext_id"], D0)] = {"at": _t.time() - 4000, "rows": [{"id": "x"}]}
+    got, st = A._v6_fetch_ringex([bseat], [D0], D0, 240)
+    ck("...but a reading over an hour old is not passed off as today's: not read yet", got[bseat["name"]]["complete"] is False
+       and st["missing"] == 1 and not st["stale_seats"], st)
+    A._v6_fetch_day = lambda eid, day, tz: ([{"id": "fresh"}], True)
+    got, st = A._v6_fetch_ringex([bseat], [D0], D0, 240)
+    ck("...and a fresh read, when RingEX answers, always wins", got[bseat["name"]]["rows"] == [{"id": "fresh"}] and not st["stale_seats"], st)
+    tseat = dict(A._TEAM_ROSTERS["ringex"][0])
+    A._v6_today_cache[(tseat["ext_id"], D0)] = {"at": _t.time() - 1800, "rows": [{"id": "t"}]}
+    got, st = A._v6_fetch_ringex([tseat], [D0], D0, 240)
+    ck("a training-class rep's last reading stands however old, marked (their loop is last in line for RingEX)",
+       got[tseat["name"]]["complete"] is True and st["stale_seats"] == {tseat["name"]: 30}, st)
+finally:
+    A._v6_fetch_day = _rf
+    for _k in [k for k in A._v6_today_cache if k[1] == "2099-01-03"]:
+        A._v6_today_cache.pop(_k, None)
+ck("the report names the seats shown from an earlier reading and how old", '"kind": "stale_seat"' in _src
+   and 'a["stale_minutes"] = stale_seats[a["name"]]' in _src, "warning")
+ck("/teams shows 'read N min ago' under such a name",
+   "'<span class=\"unr\">read ' + a.stale_minutes + ' min ago</span>'" in html, "teams")
+
 ck("their own slow loop is a worker loop, LAST in line: one seat a minute, a 70 s back-off on a refusal",
    any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._TC_PAUSE == 60.0 and A._RINGEX_REFRESH_AFTER == 300.0 and A._TC_REFRESH_AFTER == 420.0 and "time.sleep(70)" in _src, "loop")
 _today = "2099-01-02"

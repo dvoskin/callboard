@@ -324,7 +324,8 @@ window.TB = (function () {
         unread: a.complete === false && !a.talk && !a.attempts && !a.inbound,
         a: { html: booksOk ? w(b.quotes_sent) : '—', zero: booksOk && !b.quotes_sent },
         b: { html: booksOk ? w(b.retainers_paid) : '—', zero: booksOk && !b.retainers_paid },
-        press: opts.press ? opts.press(a) : pressMissed(a.missed_open),
+        press: (opts.press ? opts.press(a) : pressMissed(a.missed_open)) +
+               (a.stale_minutes ? '<span class="unr">read ' + a.stale_minutes + ' min ago</span>' : ''),
         missed: a.missed_calls, missedOpen: a.missed_open,
         panel: [
           ['Inbound', w(a.inbound) + ' <i>' + w(a.inbound_answered) + ' answered</i>', !a.inbound],
@@ -345,6 +346,8 @@ window.TB = (function () {
     return {
       key: opts.key || 'rx', label: opts.label || d.label || 'Sales Training Class', href: opts.href,
       sub: opts.sub != null ? opts.sub : rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ' \u00b7 dialing from RingEX' +
+           ((d.ranked || []).filter(function (x) { return x.stale_minutes; }).length
+             ? ' \u00b7 ' + (d.ranked || []).filter(function (x) { return x.stale_minutes; }).length + ' from an earlier reading' : '') +
            (rows.filter(function (r) { return r.unread; }).length && !allUnread
              ? ' \u00b7 ' + rows.filter(function (r) { return r.unread; }).length + ' not read yet' : ''),
       openOnPhone: !!opts.openOnPhone,

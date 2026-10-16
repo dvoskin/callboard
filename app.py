@@ -2193,15 +2193,25 @@ def _seat_meta(seat):
     return out
 
 
+# Today's reading, kept when RingEX refuses a fresh one. Danny, 2026-10-16
+# (phone screenshot, 6:32 PM): billing and half the training class read "not
+# read yet" -- the sales board's account-wide RingEX pull (up to ten pages,
+# the whole minute's budget) had RingEX refusing for a minute, and a refused
+# re-read threw away a reading that was minutes old. A reading from today, up
+# to an hour old, is shown instead and the report says how old.
+_V6_STALE_MAX = 3600.0
+
+
 def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
     """Day snapshots for a RingEX team, fetching only what is missing."""
     deadline = time.time() + _V6_DEADLINE
     budget = _V6_FETCH_BUDGET
-    rows_by_agent, stats = {}, {"cached": 0, "fetched": 0, "missing": 0}
+    rows_by_agent, stats = {}, {"cached": 0, "fetched": 0, "missing": 0, "stale": 0, "stale_seats": {}}
 
     for seat in roster:
         eid = seat["ext_id"]
         rows, missing = [], []
+        stale_s = 0.0
         # Per SEAT, not per request. A shared counter meant that when RingEX was
         # busy the first two seats used up the allowance and the last two were
         # never asked at all -- so they came back "unknown" without a single
@@ -2209,18 +2219,22 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
         fails = 0
         for day in days:
             is_today = day >= local_today
+            c = None
             if is_today:
                 c = _v6_today_cache.get((eid, day))
                 if c and time.time() - c["at"] < _V6_TTL_TODAY:
                     rows.extend(c["rows"]); stats["cached"] += 1
                     continue
-                # The RingEX reps' today is filled by their own slow loop
+                # The training class's today is filled by their own slow loop
                 # (loop:ringex), never in a request: a page refresh asking for
                 # nine seats at once tripped RingEX's 10-a-minute limit and
-                # paused billing's and the coordinators' boards with it.
+                # paused billing's and the coordinators' boards with it. Their
+                # last reading stands, however old, marked by its age.
                 if seat.get("cache_only_today"):
-                    if c and time.time() - c["at"] < _TC_TODAY_TTL:
+                    if c:
                         rows.extend(c["rows"]); stats["cached"] += 1
+                        if time.time() - c["at"] > _TC_TODAY_TTL:
+                            stale_s = max(stale_s, time.time() - c["at"]); stats["stale"] += 1
                     else:
                         missing.append(day); stats["missing"] += 1
                     continue
@@ -2229,17 +2243,26 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
                 if got is not None:
                     rows.extend(got); stats["cached"] += 1
                     continue
+            stale_ok = bool(c) and time.time() - c["at"] < _V6_STALE_MAX
             # Once RingEX has refused twice for THIS seat there is no point
             # asking again this request -- the limit is per minute, and each
             # refusal costs a round-trip plus a wait we cannot afford here.
             if budget <= 0 or fails >= _V6_MAX_FAILS or time.time() > deadline:
-                missing.append(day); stats["missing"] += 1
+                if stale_ok:
+                    rows.extend(c["rows"]); stats["stale"] += 1
+                    stale_s = max(stale_s, time.time() - c["at"])
+                else:
+                    missing.append(day); stats["missing"] += 1
                 continue
             budget -= 1
             got, ok = _v6_fetch_day(eid, day, tz_offset_minutes)
             if not ok:
                 fails += 1
-                missing.append(day); stats["missing"] += 1
+                if stale_ok:
+                    rows.extend(c["rows"]); stats["stale"] += 1
+                    stale_s = max(stale_s, time.time() - c["at"])
+                else:
+                    missing.append(day); stats["missing"] += 1
                 continue
             stats["fetched"] += 1
             rows.extend(got)
@@ -2252,6 +2275,8 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
             "rows": rows, "ext": seat["ext"], "ext_id": eid,
             "complete": not missing, "missing_days": missing,
         }
+        if stale_s:
+            stats["stale_seats"][seat["name"]] = int(round(stale_s / 60.0))
 
     return rows_by_agent, stats
 
@@ -2686,6 +2711,20 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
                    f"fill in over a few reloads. Every figure below is a floor until they "
                    f"do. Reload in a minute.")
         report["warnings"].append({"kind": "incomplete_fetch", "message": msg})
+    # Seats shown from an earlier reading of today: say whose and how old,
+    # on the report and on each of their rows.
+    stale_seats = stats.get("stale_seats") or {}
+    if stale_seats:
+        for key in ("ranked", "silent", "stalled", "unknown"):
+            for a in report.get(key) or []:
+                if isinstance(a, dict) and a.get("name") in stale_seats:
+                    a["stale_minutes"] = stale_seats[a["name"]]
+        worst = max(stale_seats.values())
+        report["warnings"].append({
+            "kind": "stale_seat",
+            "message": ("%s shown from a reading of today up to %d minute%s old: RingEX refused a fresh read "
+                        "(rate limit), so the last reading stands rather than a blank." %
+                        (", ".join(sorted(stale_seats)), worst, "" if worst == 1 else "s"))})
     report["meta"]["generated_utc"] = datetime.now(timezone.utc).isoformat()
     report["meta"]["days"] = stats
     report["meta"]["complete"] = stats["missing"] == 0
@@ -5083,7 +5122,7 @@ def _ringex_rows(report, books):
             "first": focus.get("first"), "late_minutes": focus.get("late_minutes"),
             "missed_in": int(ms.get("missed") or 0), "missed_open": int(ms.get("open") or 0),
             "missed_calls": a.get("missed_calls") or [],
-            "complete": a.get("complete", True),
+            "complete": a.get("complete", True), "stale_minutes": a.get("stale_minutes"),
             "books": {k: b.get(k, 0) for k in ("quotes_sent", "quotes_invoiced", "retainers_sent",
                                                "retainers_paid", "paid_amount")},
         })
