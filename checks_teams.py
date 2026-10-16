@@ -144,7 +144,7 @@ ck("...each team carries its own notes on delays and meanings", html.count("'<b>
 ck("coordinators and billing keep their own board's tracking: graded against the KPI target, paced, with the progress bar",
    "grade: true" in html and "function v6Grades(a)" in html and "pace.grades.talk_minutes" in html
    and "function progressBar(a)" in html and "team === 'surgical' ? progressBar(a) : ''" in html
-   and "['Target', 'daily <b>'" in html and "soFar(a, 'talk_minutes', 'm')" in html, "kpi")
+   and "['Target', '<b>' + one('talk_minutes')" in html and "soFar(a, 'talk_minutes', 'm')" in html, "kpi")
 ck("...and their Calls column is the KPI's handled calls (dials + inbound answered)", "dials: handled" in html
    and "sum(D, 'handled_calls')" in html, "handled")
 ck("...the Sales Floor opens on a phone; the others start folded", "openOnPhone: true" in html
