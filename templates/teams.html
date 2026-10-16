@@ -195,6 +195,9 @@
     if ($('start').value) q.set('start', $('start').value);
     if ($('end').value) q.set('end', $('end').value);
     q.set('tz', new Date().getTimezoneOffset());
+    // the page's key (/teams?k=) opens each section's data too
+    var K = new URLSearchParams(location.search).get('k');
+    if (K) q.set('k', K);
     var gen = ++GEN, left = SOURCES.length;
     $('spin').textContent = '…';
     SOURCES.forEach(function (src) {

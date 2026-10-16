@@ -1362,7 +1362,7 @@ _SMS_EXTRA_SEATS = {
 # day snapshots, the 429 handling and the warm loop come with the engine.
 # Texts stay off here: /v5 already reads these seats' message store for its
 # texts line, and reading it twice would spend the same budget twice.
-_TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True) for s in _SMS_EXTRA_SEATS["sales"]]
+_TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True, cache_only_today=True) for s in _SMS_EXTRA_SEATS["sales"]]
 TEAM_LABELS["ringex"] = "Sales \u00b7 New reps (RingEX)"
 # NOT in _TEAM_SOURCES, on purpose (same as surgical): the report still reads
 # RingEX -- that is the default -- but the warm loop only warms the teams
@@ -2207,6 +2207,16 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
                 c = _v6_today_cache.get((eid, day))
                 if c and time.time() - c["at"] < _V6_TTL_TODAY:
                     rows.extend(c["rows"]); stats["cached"] += 1
+                    continue
+                # The RingEX reps' today is filled by their own slow loop
+                # (loop:ringex), never in a request: a page refresh asking for
+                # nine seats at once tripped RingEX's 10-a-minute limit and
+                # paused billing's and the coordinators' boards with it.
+                if seat.get("cache_only_today"):
+                    if c and time.time() - c["at"] < _RINGEX_TODAY_TTL:
+                        rows.extend(c["rows"]); stats["cached"] += 1
+                    else:
+                        missing.append(day); stats["missing"] += 1
                     continue
             else:
                 got = _v6_load_day(eid, day)
@@ -4376,23 +4386,33 @@ def api_v6_report():
     # A coordinator token counts HERE and on their page only -- not in
     # _v6_allowed(), which would open the agent listing and the probes to it
     # (found 2026-10-09 by using it that way myself).
-    if not (_v6_allowed() or _coord_token_ok()):
+    if not (_v6_allowed() or _coord_token_ok() or _teams_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     if _coord_token_ok() and not (session.get("user") or _word_authed() or _v6_token_ok()):
         if _team_key(request.args.get("team")) != _COORD_TEAM:
             return jsonify({"error": "unauthorized"}), 401
+    if _teams_token_ok() and not (_v6_allowed() or _coord_token_ok()):
+        # the /teams key: coordinators and billing only, numbers cut to counts
+        if _team_key(request.args.get("team")) not in ("surgical", "billing"):
+            return jsonify({"error": "unauthorized"}), 401
+        resp = _api_v6_report_impl()
+        body = resp.get_json() if hasattr(resp, "get_json") else None
+        if isinstance(body, dict) and "ranked" in body:
+            return jsonify(_strip_missed_numbers(body))
+        return resp
     return _only_agent_response(_api_v6_report_impl())
 
 
 def _api_v6_report_impl():
-    # the same door as the wrapper: a coordinator token counts here too
-    if not (_v6_allowed() or _coord_token_ok()):
+    # the same door as the wrapper: a coordinator token counts here too, and
+    # the /teams key (the wrapper limits it to coordinators and billing)
+    if not (_v6_allowed() or _coord_token_ok() or _teams_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     # Before the configuration check, not after. Authorisation must not sit
     # behind "is RingCentral set up": on an instance where it is not, the gate
     # was never reached and the 503 answered first -- which happens to reveal
     # nothing, but only by accident.
-    if _team_key(request.args.get("team")) == "billing" and not _billing_allowed():
+    if _team_key(request.args.get("team")) == "billing" and not (_billing_allowed() or _teams_token_ok()):
         return jsonify({"error": "unauthorized",
                         "detail": "The billing board needs its own password."}), 401
     if not _ringcx.configured:
@@ -4947,6 +4967,74 @@ def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
     return report
 
 
+# loop:ringex -- the nine RingEX reps' TODAY, one seat every 30 seconds (two
+# requests a minute at most, a full pass in about four and a half minutes),
+# so the board under the sales roster and /teams read a cache and never fetch.
+_RINGEX_TODAY_TTL = 900.0        # what a request accepts
+_RINGEX_REFRESH_AFTER = 240.0    # what the loop refreshes
+_RINGEX_PAUSE = 30.0
+_ringex_warm_state = {"running": False, "filled": 0, "last_error": None}
+
+
+def _ringex_warm_loop():
+    time.sleep(45)
+    _ringex_warm_state["running"] = True
+    while True:
+        try:
+            if not _ringcx.configured:
+                time.sleep(300)
+                continue
+            tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+            today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
+            for seat in _billing_roster("ringex")[0]:
+                c = _v6_today_cache.get((seat["ext_id"], today))
+                if c and time.time() - c["at"] < _RINGEX_REFRESH_AFTER:
+                    continue
+                rows, ok, why = _v6_fetch_day_diag(seat["ext_id"], today, tz_off)
+                if ok:
+                    _v6_today_cache[(seat["ext_id"], today)] = {"at": time.time(), "rows": rows}
+                    _ringex_warm_state["filled"] += 1
+                    _ringex_warm_state["last_ok_at"] = time.time()
+                    time.sleep(_RINGEX_PAUSE)
+                else:
+                    _ringex_warm_state["last_error"] = why
+                    _ringex_warm_state["last_error_at"] = time.time()
+                    time.sleep(70)     # one refusal: the minute's budget is gone
+                    break
+        except Exception as e:  # noqa: BLE001
+            _ringex_warm_state["last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
+            log.exception("ringex warm loop")
+        time.sleep(20)
+
+
+# /teams?k=<token> -- Danny, 2026-10-16: "give me the new link when ready,
+# dont pw gate it for now, ill use it myself". No password and no sign-in, but
+# not open either: the repository is public and these pages carry collections
+# and patients' numbers. The key is HMAC(COORD_LINK_SECRET, "all-teams-page"),
+# so it lives nowhere in the code; /api/teams/link prints it to a signed-in
+# viewer. On the key alone the missed-call lists are cut to counts.
+def _teams_token() -> str:
+    if not COORD_LINK_SECRET:
+        return ""
+    return hmac.new(COORD_LINK_SECRET.encode(), b"all-teams-page", hashlib.sha256).hexdigest()[:24]
+
+
+def _teams_token_ok() -> bool:
+    tok = _teams_token()
+    supplied = request.args.get("k", "")
+    return bool(tok) and bool(supplied) and hmac.compare_digest(supplied, tok)
+
+
+def _strip_missed_numbers(body):
+    """Counts stay, numbers go: every missed-call list in a report body."""
+    if isinstance(body, dict):
+        for key in ("ranked", "silent", "stalled", "unknown", "unranked"):
+            for a in body.get(key) or []:
+                if isinstance(a, dict) and "missed_calls" in a:
+                    a["missed_calls"] = []
+    return body
+
+
 def _ringex_rows(report, books):
     """The new reps' v6 rows in the /v5 row shape: talk in seconds, dials,
     >3m, >10m, in/out, the missed calls, and Books' quotes and retainers by
@@ -4987,8 +5075,8 @@ def _median(xs):
 @app.route("/api/v5/ringex")
 def api_v5_ringex():
     """The nine RingEX reps, for the board under the sales roster on /v5 and
-    for the all-teams page. Same gate as /api/v5/report."""
-    if not _v5_allowed():
+    for the all-teams page. Same gate as /api/v5/report, plus the /teams key."""
+    if not (_v5_allowed() or _teams_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     if not _ringcx.configured:
         return jsonify({"error": "ringcentral_not_configured"}), 503
@@ -5032,9 +5120,19 @@ def all_teams():
     that has all the teams on one combined page all the same design across
     each team type"). Signed in only; each section reads its own board's API,
     so each keeps its own gate."""
-    if not _v6_allowed():
+    if not (_v6_allowed() or _teams_token_ok()):
         return redirect("/login")
     return render_template("teams.html", current_user=session.get("user") or {})
+
+
+@app.route("/api/teams/link")
+def api_teams_link():
+    """The /teams link with its key, for a signed-in viewer only."""
+    if not _viewer_signed_in():
+        return jsonify({"error": "unauthorized"}), 401
+    if not _teams_token():
+        return jsonify({"error": "not_configured", "detail": "COORD_LINK_SECRET is not set."}), 503
+    return jsonify({"url": "%s/teams?k=%s" % (request.host_url.rstrip("/"), _teams_token())})
 
 
 @app.route("/v6/board")
@@ -6481,8 +6579,10 @@ def api_v5_ingest_status():
 
 @app.route("/api/v5/report")
 def api_v5_report():
-    """Merged ledger + reconciliation for a window. Serves /v5 and /v5/board."""
-    if not _v5_allowed():
+    """Merged ledger + reconciliation for a window. Serves /v5 and /v5/board,
+    and the sales section of /teams on its key (missed numbers stripped below
+    for anyone not signed in)."""
+    if not (_v5_allowed() or _teams_token_ok()):
         return jsonify({"error": "unauthorized"}), 401
     try:
         today = datetime.now(timezone.utc).date()
@@ -9850,7 +9950,8 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:v6-warm", lambda: _v6_warm_loop()),
                  ("loop:collections", lambda: _collections_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
-                 ("loop:dnc", lambda: _dnc_loop()))
+                 ("loop:dnc", lambda: _dnc_loop()),
+                 ("loop:ringex", lambda: _ringex_warm_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 

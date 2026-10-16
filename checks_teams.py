@@ -142,6 +142,74 @@ style = open(os.path.join(HERE, "templates", "_board_style.html"), encoding="utf
 ck("...in the sales board's design: the same stylesheet, word for word", style in html, "style")
 ck("...and the same row renderer as the board under the sales roster", "window.TB = (function" in html, "TB")
 
+# ---- the /teams key: no sign-in, no password, but not open; numbers cut to counts ----
+realk = (A.COORD_LINK_SECRET, A.GOOGLE_CLIENT_ID, A._api_v6_report_impl, A._v6_cached_report, A._v5_books)
+try:
+    A.COORD_LINK_SECRET = "test-secret"
+    A.GOOGLE_CLIENT_ID = "x"
+    tok = A._teams_token()
+    ck("the key is derived from the secret, never stored in code, and differs from every coordinator's",
+       len(tok) == 24 and tok not in _src and all(tok != A._coord_token(A._coord_slug(x["name"]))
+                                                  for x in A._TEAM_ROSTERS["surgical"]), tok)
+    c2 = A.app.test_client()
+    ck("/teams opens on the key with no sign-in", c2.get("/teams?k=" + tok).status_code == 200, "200")
+    ck("...and not on a wrong key", c2.get("/teams?k=nope").status_code == 302, "302")
+    ck("the link itself is only printed to a signed-in viewer", c2.get("/api/teams/link").status_code == 401, "401")
+    with c2.session_transaction() as sess:
+        sess["user"] = {"email": "danny@example.com"}
+    lk = c2.get("/api/teams/link").get_json()
+    ck("...which gets the full URL", lk.get("url", "").endswith("/teams?k=" + tok), lk)
+    with c2.session_transaction() as sess:
+        sess.clear()
+    A._api_v6_report_impl = lambda: A.jsonify({"ranked": [{"name": "Ariel Ramirez", "missed_calls": [{"number": "(305) 555-0100"}],
+                                                           "missed_summary": {"open": 1}}], "meta": {}})
+    r = c2.get("/api/v6/report?team=surgical&k=" + tok)
+    body = r.get_json()
+    ck("the key opens the coordinators' report with the missed numbers cut, the count kept",
+       r.status_code == 200 and body["ranked"][0]["missed_calls"] == [] and body["ranked"][0]["missed_summary"]["open"] == 1, body)
+    ck("the key opens billing's report too", c2.get("/api/v6/report?team=billing&k=" + tok).status_code == 200, "billing")
+    ck("...but no other board", c2.get("/api/v6/report?team=scheduling&k=" + tok).status_code == 401, "scheduling")
+    ck("no key, no report", c2.get("/api/v6/report?team=surgical").status_code == 401, "nokey")
+    A._v6_cached_report = lambda team, s, e, tz: REPORT
+    A._v5_books = lambda s, e: (BOOKS, {})
+    _cfg2 = type(A._ringcx).__dict__.get("configured")
+    type(A._ringcx).configured = property(lambda self: True)
+    rx = c2.get("/api/v5/ringex?start=2026-10-16&k=" + tok)
+    ck("the key opens the RingEX reps' rows, numbers cut", rx.status_code == 200 and
+       all(not x["missed_calls"] for x in rx.get_json()["ranked"]), rx.status_code)
+    ck("/api/v5/report accepts the key", "if not (_v5_allowed() or _teams_token_ok()):" in _src, "v5 gate")
+finally:
+    A.COORD_LINK_SECRET, A.GOOGLE_CLIENT_ID, A._api_v6_report_impl, A._v6_cached_report, A._v5_books = realk
+    if "_cfg2" in globals() and _cfg2 is not None:
+        type(A._ringcx).configured = _cfg2
+A.COORD_LINK_SECRET = ""
+ck("no secret, no key: /teams?k= fails closed", A._teams_token() == "" and c.get("/teams?k=").status_code in (200, 302), "closed")
+ck("the page passes its key to every section", "if (K) q.set('k', K);" in open(os.path.join(HERE, "templates", "teams.html"), encoding="utf-8").read(), "K")
+
+# ---- RingEX pacing: a request never fetches the nine reps' today ----
+calls = []
+real_fd = A._v6_fetch_day
+try:
+    A._v6_fetch_day = lambda eid, day, tz: (calls.append(eid), ([], True))[1]
+    seat = dict(A._TEAM_ROSTERS["ringex"][0])
+    A._v6_today_cache.pop((seat["ext_id"], "2099-01-01"), None)
+    got, stats = A._v6_fetch_ringex([seat], ["2099-01-01"], "2099-01-01", 240)
+    ck("a RingEX rep with no fresh cache is 'not read yet', and the request made no RingEX call",
+       calls == [] and got[seat["name"]]["complete"] is False and stats["missing"] == 1, (calls, stats))
+    A._v6_today_cache[(seat["ext_id"], "2099-01-01")] = {"at": __import__("time").time() - 600, "rows": [{"x": 1}]}
+    got, stats = A._v6_fetch_ringex([seat], ["2099-01-01"], "2099-01-01", 240)
+    ck("...a 10-minute-old cache from their own loop is served (the board's own refresh is 5)",
+       calls == [] and got[seat["name"]]["complete"] is True and stats["cached"] == 1, stats)
+    bill = dict(A._TEAM_ROSTERS["billing"][0])
+    A._v6_today_cache.pop((bill["ext_id"], "2099-01-01"), None)
+    A._v6_fetch_ringex([bill], ["2099-01-01"], "2099-01-01", 240)
+    ck("...while a billing seat still fetches in the request as before", calls == [bill["ext_id"]], calls)
+finally:
+    A._v6_fetch_day = real_fd
+    A._v6_today_cache.pop((A._TEAM_ROSTERS["ringex"][0]["ext_id"], "2099-01-01"), None)
+ck("their own slow loop is a worker loop: one seat per 30 s, a 70 s back-off on a refusal",
+   any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._RINGEX_PAUSE == 30.0 and "time.sleep(70)" in _src, "loop")
+
 # ---- /v5: the board under the roster ----
 with A.app.test_request_context("/v5"):
     v5 = A.render_template("scoreboard_v5.html", share_mode=False, share_token="")
