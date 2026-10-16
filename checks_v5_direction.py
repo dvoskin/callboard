@@ -142,6 +142,23 @@ ck("each rep carries their dispositions with direction and count, blanks left ou
    rg3["dispositions"] == [["Left Voicemail", "in", 2]], rg3["dispositions"])
 ck("the floor-wide tally sums every rep", ["Left Voicemail", "in", 2] in rep3["dispositions"] and ["Interested - Quote Sent", "out", 1] in rep3["dispositions"], rep3["dispositions"])
 
+# ---- outcomes from what the rep recorded (instead of "connected") ----
+for raw, want in (("No Answer", "not_reached"), ("Voicemail / No Answer", "not_reached"), ("Answering Machine", "not_reached"),
+                  ("Bad Connection/Don't Hear", "not_reached"), ("Wrong Number", "not_reached"), ("Call dropped / Audio Issues", "not_reached"),
+                  ("[No-Agent-Disp]", "none"), ("Disposition Timeout", "none"), ("DNC (Do Not Call)", "dnc"),
+                  ("Follow Up Scheduled", "booked"), ("Call Scheduled", "booked"), ("Quote Sent", "quoted"), ("Quoted", "quoted"),
+                  ("General Questions", "reached"), ("Price Shopping/Not Ready", "reached"), ("", "")):
+    ck("disposition %r -> %s" % (raw, want), V.classify_disposition(raw) == want, V.classify_disposition(raw))
+cx4 = [dict(cx2[1], agent_name="Roman Gomez", agent_disposition=d, start_time="2026-10-15 1%d:00:00" % i)
+       for i, d in enumerate(["No Answer", "Voicemail", "Follow Up Scheduled", "Quote Sent", "General Questions", "DNC (Do Not Call)", "[No-Agent-Disp]"])]
+rep4 = V.build_report([], cx4, tz_offset_minutes=-240, window={"start": "2026-10-15", "end": "2026-10-15"})
+rg4 = next(a for a in rep4["ranked"] + rep4["unranked"] if a["name"] == "Roman Gomez")
+ck("reached = every conversation (booked, quoted, other talk, a do-not-call); no answer and no disposition are not",
+   (rg4["reached"], rg4["booked"], rg4["quoted"], rg4["dnc"], rg4["not_reached"], rg4["no_disposition"]) == (4, 1, 1, 1, 2, 1), rg4)
+ck("the summary and the panel show reached and booked; no-disposition and DNC only when there are any",
+   "</b> reached <i>' + fmt(TT.booked) + ' next step booked</i>'" in tpl and "cell2('Reached', w(a.reached || 0)" in tpl
+   and "(a.no_disposition ? cell2('No disposition'" in tpl and "(a.dnc ? cell2('Do not call'" in tpl, "outcomes ui")
+
 for e in errors:
     print("  FAIL", e)
 print("%d passed" % passed)

@@ -139,6 +139,7 @@
   .ml-t{color:var(--muted);font-variant-numeric:tabular-nums} .ml-n{font-weight:600;color:var(--ink);text-decoration:none;font-variant-numeric:tabular-nums}
   .ml-s{color:var(--muted)} .ml-s.hot{color:var(--dn);font-weight:600}
   .ml-r.done .ml-n{color:var(--muted);font-weight:500}
+  .dg b .hot{color:var(--dn)}
   .nm .sms.na{font-style:italic;font-weight:400}
   .smstot{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
   .smstot b{color:var(--ink);font-weight:700} .smstot i{font-style:normal;color:var(--muted)}
@@ -501,6 +502,9 @@
       h += '<div class="srow" title="Every call on the board, by its own direction"><span class="sl">Calls</span><span class="sv">' +
            '<b>' + fmt(TT.inbound) + '</b> inbound <i>' + fmt(TT.inbound_answered) + ' answered</i>' +
            '<span class="sep">\u00b7</span><b>' + fmt(TT.outbound) + '</b> outbound' +
+           // what the reps recorded: a conversation, and how many booked a next step
+           (TT.reached ? '<span class="sep">\u00b7</span><b title="Outbound calls the rep recorded as a conversation: anything but no answer, voicemail, a bad line, a wrong number or no disposition">' +
+                         fmt(TT.reached) + '</b> reached <i>' + fmt(TT.booked) + ' next step booked</i>' : '') +
            (TT.missed_in ? '<span class="sep">\u00b7</span><b' + (TT.missed_open ? ' class="hot"' : '') + '>' + fmt(TT.missed_open) + '</b> missed not called back <i>of ' + fmt(TT.missed_in) + '</i>' : '') +
            (TT.dir_unknown ? '<span class="sep">\u00b7</span><i>' + fmt(TT.dir_unknown) + ' with no direction</i>' : '') + '</span></div>';
     }
@@ -547,6 +551,10 @@
              cell2('Longest', hm(a.longest)) +
              cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>', !a.inbound) +
              cell2('Outbound', w(a.outbound || 0), !a.outbound) +
+             cell2('Reached', w(a.reached || 0) + ' <i>' + w(a.booked || 0) + ' booked \u00b7 ' + w(a.quoted || 0) + ' quoted</i>', !a.reached) +
+             cell2('No answer / VM', w(a.not_reached || 0), !a.not_reached) +
+             (a.no_disposition ? cell2('No disposition', w(a.no_disposition)) : '') +
+             (a.dnc ? cell2('Do not call', '<span class="hot">' + w(a.dnc) + '</span>') : '') +
              cell2('Over 10 min', w(a.over_10 || 0), !a.over_10) +
              cell2('Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>') +
              '<span class="rule"></span>' +

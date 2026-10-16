@@ -86,6 +86,41 @@ _MISSED = ("missed", "voicemail", "vm/", "no answer", "abandon", "rejected",
            "declined", "busy", "unavailable", "congestion", "intercept")
 
 
+_DISP_NOT_REACHED = ("no answer", "voicemail", "answering machine", "bad connection", "don't hear",
+                     "call dropped", "audio issues", "connection issues", "wrong number")
+_DISP_BOOKED = ("follow up scheduled", "call scheduled", "appointment scheduling")
+_DISP_QUOTED = ("quote sent", "quoted")
+
+
+def classify_disposition(d: str) -> str:
+    """What the rep recorded, in five groups (Danny, 2026-10-15: use the
+    dispositions instead of "connected", which only means "not an error"):
+
+      none         [No-Agent-Disp], Disposition Timeout -- nothing was recorded
+      dnc          DNC (Do Not Call) -- a person asked not to be called
+      not_reached  no answer, voicemail, answering machine, bad line, dropped,
+                   wrong number
+      booked       Follow Up Scheduled, Call Scheduled, Appointment Scheduling
+      quoted       Quote Sent, Quoted
+      reached      any other disposition -- a conversation took place
+
+    Blank (a RingEX direct call carries none) is "" and counts nowhere."""
+    r = (d or "").strip().lower()
+    if not r:
+        return ""
+    if r.startswith("[no-agent-disp") or "timeout" in r:
+        return "none"
+    if "dnc" in r or "do not call" in r:
+        return "dnc"
+    if any(w in r for w in _DISP_NOT_REACHED):
+        return "not_reached"
+    if any(w in r for w in _DISP_BOOKED):
+        return "booked"
+    if any(w in r for w in _DISP_QUOTED):
+        return "quoted"
+    return "reached"
+
+
 def _all_dispositions(agents):
     """[[disposition, direction, count], ...] over every rep, most frequent first."""
     tot = {}
@@ -441,6 +476,17 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
                 k = (x["disp"], x.get("dir") or "unknown")
                 dc[k] = dc.get(k, 0) + 1
         a["dispositions"] = [[k[0], k[1], v] for k, v in sorted(dc.items(), key=lambda kv: -kv[1])][:15]
+        # Outbound outcomes by what the rep recorded. "reached" is every
+        # conversation: booked, quoted, a do-not-call and any other talk.
+        g = {}
+        for x in L:
+            if x.get("dir") == "out":
+                k = classify_disposition(x.get("disp"))
+                if k:
+                    g[k] = g.get(k, 0) + 1
+        a["booked"], a["quoted"], a["dnc"] = g.get("booked", 0), g.get("quoted", 0), g.get("dnc", 0)
+        a["reached"] = g.get("reached", 0) + a["booked"] + a["quoted"] + a["dnc"]
+        a["not_reached"], a["no_disposition"] = g.get("not_reached", 0), g.get("none", 0)
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)
 
@@ -509,7 +555,8 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         "totals": {k: sum(a[k] for a in agents) for k in
                    ("talk", "campaign", "direct", "attempts", "missed",
                     "over_1", "over_3", "over_10", "inbound", "inbound_answered",
-                    "outbound", "outbound_connected", "dir_unknown", "missed_in", "missed_open")},
+                    "outbound", "outbound_connected", "dir_unknown", "missed_in", "missed_open",
+                    "reached", "booked", "quoted", "dnc", "not_reached", "no_disposition")},
         "recon": {
             "matched": len(pairs),
             "ex_connected": ex_connected,
