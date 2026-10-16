@@ -253,6 +253,22 @@ finally:
     A._v6_fetch_day = _rf
     for _k in [k for k in A._v6_today_cache if k[1] == "2099-01-03"]:
         A._v6_today_cache.pop(_k, None)
+# ---- today's reading survives a restart ----
+import tempfile as _tf, pathlib as _pl
+_realdir = A.V6_TODAY_DIR
+try:
+    A.V6_TODAY_DIR = _pl.Path(_tf.mkdtemp())
+    A._v6_today_put(123, "2099-01-04", [{"id": "r"}])
+    A._v6_today_cache.pop((123, "2099-01-04"), None)          # a restart empties memory
+    _c = A._v6_today_get(123, "2099-01-04")
+    ck("today's reading is written to disk and read back after a restart (not as a finished day)",
+       _c and _c["rows"] == [{"id": "r"}] and A._v6_load_day(123, "2099-01-04") is None, _c)
+finally:
+    A.V6_TODAY_DIR = _realdir
+    A._v6_today_cache.pop((123, "2099-01-04"), None)
+ck("'2 of 4 on target', not '2/4'", "[T.onT + ' of ' + T.people, 'on target']" in html
+   and "'<b>' + T.onT + '</b> of ' + T.people + ' on target'" in html and "T.onT + '/' + T.people" not in html, "of")
+
 ck("the report names the seats shown from an earlier reading and how old", '"kind": "stale_seat"' in _src
    and 'a["stale_minutes"] = stale_seats[a["name"]]' in _src, "warning")
 ck("/teams shows 'read N min ago' under such a name",

@@ -297,9 +297,9 @@
            (function () { var st = (j.ranked || []).filter(function (a) { return a.stale_minutes; });
              return st.length ? ' \u00b7 ' + st.length + ' from a reading up to ' + Math.max.apply(null, st.map(function (a) { return a.stale_minutes; })) + ' min old' : ''; })(),
       stats: team === 'billing'
-        ? [[money(T.coll), 'collected'], [T.onT + '/' + T.people, 'on target'], [fmt(T.dials), 'calls'],
+        ? [[money(T.coll), 'collected'], [T.onT + ' of ' + T.people, 'on target'], [fmt(T.dials), 'calls'],
            [T.crm ? fmt(T.od) : '\u2014', 'overdue', T.od > 0]]
-        : [[T.onT + '/' + T.people, 'on target'], [TB.hmShort(T.talk), 'talk'],
+        : [[T.onT + ' of ' + T.people, 'on target'], [TB.hmShort(T.talk), 'talk'],
            [T.crm ? fmt(T.pDone) + '/' + fmt(T.pDue) : '\u2014', 'done'], [T.crm ? fmt(T.pOd) : '\u2014', 'overdue', T.pOd > 0]],
       colA: team === 'billing' ? 'Collected' : 'Done', colB: 'Overdue',
       aLbl: team === 'billing' ? '' : 'done', bLbl: 'overdue',   // "$9,350" needs no word on a phone
@@ -310,7 +310,7 @@
         ['Target', '<b>' + one('talk_minutes') + 'm</b> talk' + sep + '<b>' + one('calls') + '</b> calls' + sep + '<b>' + one('connected') +
                    '</b> connected' + sep + '<b>' + one('long_calls') + '</b> ' + longLbl +
                    ((T6.talk_minutes || {}).floor ? ' <i>red is under ' + T6.talk_minutes.floor + 'm</i>' : '')],
-        ['Team', '<b>' + T.onT + '/' + T.people + '</b> on target' + sep + '<b>' + TB.hmShort(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) +
+        ['Team', '<b>' + T.onT + '</b> of ' + T.people + ' on target' + sep + '<b>' + TB.hmShort(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) +
                  '</b> calls' + sep + '<b>' + fmt(T.over3) + '</b> ' + longLbl],
         ['Result', result],
         ['Calls', '<b>' + fmt(T.inb) + '</b> inbound <i>' + fmt(T.inbA) + ' answered</i>' + sep + '<b>' + fmt(T.conn) + '</b> connected' +

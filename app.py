@@ -1665,6 +1665,43 @@ def _v6_snap_path(ext_id, day_iso):
     return V6_SNAP_DIR / str(ext_id) / f"{day_iso}.json"
 
 
+# Today's reading on disk too, under its own folder (never read as a finished
+# day): a deploy or restart empties memory, and every board then read "not
+# read yet" for the minutes the warmer took to refill (2026-10-16). A restart
+# now starts from the last reading, marked by its age like any other.
+V6_TODAY_DIR = V6_SNAP_DIR / "_today"
+
+
+def _v6_today_put(ext_id, day_iso, rows):
+    now = time.time()
+    _v6_today_cache[(ext_id, day_iso)] = {"at": now, "rows": rows}
+    try:
+        p = V6_TODAY_DIR / str(ext_id) / f"{day_iso}.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"at": now, "rows": rows}))
+        tmp.replace(p)
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 today reading unwritable for %s: %s", ext_id, e)
+
+
+def _v6_today_get(ext_id, day_iso):
+    c = _v6_today_cache.get((ext_id, day_iso))
+    if c:
+        return c
+    try:
+        p = V6_TODAY_DIR / str(ext_id) / f"{day_iso}.json"
+        if p.exists():
+            d = json.loads(p.read_text())
+            if isinstance(d, dict) and isinstance(d.get("rows"), list):
+                c = {"at": float(d.get("at") or 0), "rows": d["rows"]}
+                _v6_today_cache[(ext_id, day_iso)] = c
+                return c
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 today reading unreadable for %s: %s", ext_id, e)
+    return None
+
+
 def _v6_load_day(ext_id, day_iso):
     p = _v6_snap_path(ext_id, day_iso)
     try:
@@ -2221,7 +2258,7 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
             is_today = day >= local_today
             c = None
             if is_today:
-                c = _v6_today_cache.get((eid, day))
+                c = _v6_today_get(eid, day)
                 if c and time.time() - c["at"] < _V6_TTL_TODAY:
                     rows.extend(c["rows"]); stats["cached"] += 1
                     continue
@@ -2267,7 +2304,7 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
             stats["fetched"] += 1
             rows.extend(got)
             if is_today:
-                _v6_today_cache[(eid, day)] = {"at": time.time(), "rows": got}
+                _v6_today_put(eid, day, got)
             else:
                 _v6_save_day(eid, day, got)   # a finished day never changes
         rows_by_agent[seat["name"]] = {
@@ -2828,12 +2865,12 @@ def _v6_warm_loop():
             # and nothing was ever filled. One refusal means the account's budget
             # is gone for this minute; asking thirteen more times proves nothing.
             for seat in roster:
-                c = _v6_today_cache.get((seat["ext_id"], tstr))
+                c = _v6_today_get(seat["ext_id"], tstr)
                 if c and time.time() - c["at"] < _V6_TODAY_WARM_TTL:
                     continue
                 rows, ok, why = _v6_fetch_day_diag(seat["ext_id"], tstr, tz_off)
                 if ok:
-                    _v6_today_cache[(seat["ext_id"], tstr)] = {"at": time.time(), "rows": rows}
+                    _v6_today_put(seat["ext_id"], tstr, rows)
                     _v6_warm_state["today_at"] = time.time()
                     _v6_warm_state["filled_today"] = _v6_warm_state.get("filled_today", 0) + 1
                     _v6_warm_state["last_error"] = None
@@ -2850,6 +2887,14 @@ def _v6_warm_loop():
             # Drop yesterday's live entries so the dict cannot grow forever.
             for k in [k for k in list(_v6_today_cache) if k[1] != tstr]:
                 _v6_today_cache.pop(k, None)
+            # ...and earlier days' live readings on disk (each finished day has
+            # its own snapshot; these were only ever "today so far")
+            try:
+                for f in V6_TODAY_DIR.glob("*/*.json"):
+                    if f.stem < tstr:
+                        f.unlink()
+            except Exception:  # noqa: BLE001
+                pass
 
             # ── SMS warm pass ────────────────────────────────────────────────
             # Wrapped in its own try so a message-store problem can never stop
@@ -5032,7 +5077,7 @@ def _ringex_should_yield(today):
     except Exception:  # noqa: BLE001
         pass
     for seat in _billing_roster("billing")[0]:
-        c = _v6_today_cache.get((seat["ext_id"], today))
+        c = _v6_today_get(seat["ext_id"], today)
         if not c or time.time() - c["at"] > _V6_TTL_TODAY * 2:
             return True
     return False
@@ -5050,7 +5095,7 @@ def _ringex_warm_loop():
             tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
             for seat in _billing_roster("ringex")[0]:
-                c = _v6_today_cache.get((seat["ext_id"], today))
+                c = _v6_today_get(seat["ext_id"], today)
                 if c and time.time() - c["at"] < _TC_REFRESH_AFTER:
                     continue
                 if _ringex_should_yield(today):
@@ -5058,7 +5103,7 @@ def _ringex_warm_loop():
                     break
                 rows, ok, why = _v6_fetch_day_diag(seat["ext_id"], today, tz_off)
                 if ok:
-                    _v6_today_cache[(seat["ext_id"], today)] = {"at": time.time(), "rows": rows}
+                    _v6_today_put(seat["ext_id"], today, rows)
                     _ringex_warm_state["filled"] += 1
                     _ringex_warm_state["last_ok_at"] = time.time()
                     time.sleep(_TC_PAUSE)
