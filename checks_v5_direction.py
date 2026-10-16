@@ -153,8 +153,9 @@ cx4 = [dict(cx2[1], agent_name="Roman Gomez", agent_disposition=d, start_time="2
        for i, d in enumerate(["No Answer", "Voicemail", "Follow Up Scheduled", "Quote Sent", "General Questions", "DNC (Do Not Call)", "[No-Agent-Disp]"])]
 rep4 = V.build_report([], cx4, tz_offset_minutes=-240, window={"start": "2026-10-15", "end": "2026-10-15"})
 rg4 = next(a for a in rep4["ranked"] + rep4["unranked"] if a["name"] == "Roman Gomez")
-ck("reached = every conversation (booked, quoted, other talk, a do-not-call); no answer and no disposition are not",
-   (rg4["reached"], rg4["booked"], rg4["quoted"], rg4["dnc"], rg4["not_reached"], rg4["no_disposition"]) == (4, 1, 1, 1, 2, 1), rg4)
+ck("reached = booked + quoted + other talk; a do-not-call, no answer and no disposition are not",
+   (rg4["reached"], rg4["booked"], rg4["quoted"], rg4["dnc"], rg4["not_reached"], rg4["no_disposition"]) == (3, 1, 1, 1, 2, 1), rg4)
+ck("do-not-call has its own red count on the summary", "fmt(TT.dnc) + '</b> do not call'" in tpl, "dnc summary")
 ck("the summary and the panel show reached and booked; no-disposition and DNC only when there are any",
    "</b> reached <i>' + fmt(TT.booked) + ' next step booked</i>'" in tpl and "cell2('Reached', w(a.reached || 0)" in tpl
    and "(a.no_disposition ? cell2('No disposition'" in tpl and "(a.dnc ? cell2('Do not call'" in tpl, "outcomes ui")

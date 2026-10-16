@@ -503,8 +503,9 @@
            '<b>' + fmt(TT.inbound) + '</b> inbound <i>' + fmt(TT.inbound_answered) + ' answered</i>' +
            '<span class="sep">\u00b7</span><b>' + fmt(TT.outbound) + '</b> outbound' +
            // what the reps recorded: a conversation, and how many booked a next step
-           (TT.reached ? '<span class="sep">\u00b7</span><b title="Outbound calls the rep recorded as a conversation: anything but no answer, voicemail, a bad line, a wrong number or no disposition">' +
+           (TT.reached ? '<span class="sep">\u00b7</span><b title="Outbound calls the rep recorded as a conversation: anything but no answer, voicemail, a bad line, a wrong number, do not call, or no disposition">' +
                          fmt(TT.reached) + '</b> reached <i>' + fmt(TT.booked) + ' next step booked</i>' : '') +
+           (TT.dnc ? '<span class="sep">\u00b7</span><b class="hot" title="Calls the rep dispositioned DNC (Do Not Call)">' + fmt(TT.dnc) + '</b> do not call' : '') +
            (TT.missed_in ? '<span class="sep">\u00b7</span><b' + (TT.missed_open ? ' class="hot"' : '') + '>' + fmt(TT.missed_open) + '</b> missed not called back <i>of ' + fmt(TT.missed_in) + '</i>' : '') +
            (TT.dir_unknown ? '<span class="sep">\u00b7</span><i>' + fmt(TT.dir_unknown) + ' with no direction</i>' : '') + '</span></div>';
     }

@@ -103,6 +103,7 @@ def classify_disposition(d: str) -> str:
       booked       Follow Up Scheduled, Call Scheduled, Appointment Scheduling
       quoted       Quote Sent, Quoted
       reached      any other disposition -- a conversation took place
+                   ("reached" on a rep = reached + booked + quoted; never dnc)
 
     Blank (a RingEX direct call carries none) is "" and counts nowhere."""
     r = (d or "").strip().lower()
@@ -477,7 +478,9 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
                 dc[k] = dc.get(k, 0) + 1
         a["dispositions"] = [[k[0], k[1], v] for k, v in sorted(dc.items(), key=lambda kv: -kv[1])][:15]
         # Outbound outcomes by what the rep recorded. "reached" is every
-        # conversation: booked, quoted, a do-not-call and any other talk.
+        # conversation worth crediting: booked, quoted and any other talk. A
+        # do-not-call is counted on its own, never as reached -- 86 of them on
+        # 2026-10-15 put 21 into one rep's "37 reached".
         g = {}
         for x in L:
             if x.get("dir") == "out":
@@ -485,7 +488,7 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
                 if k:
                     g[k] = g.get(k, 0) + 1
         a["booked"], a["quoted"], a["dnc"] = g.get("booked", 0), g.get("quoted", 0), g.get("dnc", 0)
-        a["reached"] = g.get("reached", 0) + a["booked"] + a["quoted"] + a["dnc"]
+        a["reached"] = g.get("reached", 0) + a["booked"] + a["quoted"]
         a["not_reached"], a["no_disposition"] = g.get("not_reached", 0), g.get("none", 0)
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)
