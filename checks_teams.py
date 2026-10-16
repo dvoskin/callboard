@@ -141,6 +141,12 @@ ck("...titled like the dashboard's boards, in Title Case", all(t in html for t i
    '<h2 class="bt">Sales Training Class</h2>', '<h2 class="bt">Surgical Coordinators</h2>', '<h2 class="bt">Billing</h2>')), "titles")
 ck("...each team carries its own notes on delays and meanings", html.count("'<b>Delay.</b>") >= 3
    and "TRAINING_NOTES" in html and "15 to 20 minutes" in html and ("2\\u00bd minutes" in html or "2\u00bd minutes" in html), "notes")
+ck("coordinators and billing keep their own board's tracking: graded against the KPI target, paced, with the progress bar",
+   "grade: true" in html and "function v6Grades(a)" in html and "pace.grades.talk_minutes" in html
+   and "function progressBar(a)" in html and "team === 'surgical' ? progressBar(a) : ''" in html
+   and "['Target', 'daily <b>'" in html and "soFar(a, 'talk_minutes', 'm')" in html, "kpi")
+ck("...and their Calls column is the KPI's handled calls (dials + inbound answered)", "dials: handled" in html
+   and "sum(D, 'handled_calls')" in html, "handled")
 ck("...the Sales Floor opens on a phone; the others start folded", "openOnPhone: true" in html
    and "return (FOLD[k] = phone && !m.openOnPhone);" in html, "fold")
 ck("...each from its own board's API", all(u in html for u in ("/api/v6/report?team=surgical&", "/api/v6/report?team=billing&",
@@ -269,6 +275,25 @@ if node:
     ck("the section's notes sit at its foot, folded", '<details class="notes tb-notes"><summary>Notes</summary>' in h
        and "<b>Delay.</b>" in h and "<b>Columns.</b>" in h and "<b>Marks.</b>" in h, "notes")
     os.unlink(tmp.name)
+    # graded rows (coordinators, billing): the mark follows the KPI band, not the median
+    gm = ("var window = {}; var document = {querySelectorAll: function(){return [];}, getElementById: function(){return null;}};\n" + tb +
+          "\nvar el = {innerHTML: '', classList: {add: function(){}, toggle: function(){}, contains: function(){return false;}}," +
+          " querySelectorAll: function(){return [];}, querySelector: function(){return null;}};\n"
+          "window.TB.render(el, {key: 'g', label: 'Surgical Coordinators', grade: true, colA: 'Calls done', colB: 'Overdue', t3Head: '&ge;2m', rows: ["
+          "{name: 'Ahead', talk: 12000, dials: 60, over3: 20, g: {talk: 'stretch', dials: 'target', over3: 'floor'}, a: {html: '41'}, b: {html: '0', zero: true}},"
+          "{name: 'Behind', talk: 600, dials: 5, over3: 0, g: {talk: 'below', dials: 'below', over3: 'below'}, a: {html: '2'}, b: {html: '8', hot: true}}]});\n"
+          "console.log(el.innerHTML);")
+    tmp2 = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+    tmp2.write(gm); tmp2.close()
+    o2 = subprocess.run([node, tmp2.name], capture_output=True, text=True)
+    g = o2.stdout
+    ahead, behind = g[g.index("Ahead"):g.index("Behind")], g[g.index("Behind"):]
+    ck("graded: at/above target is up, between floor and target a quiet dot, under the floor red and down",
+       o2.returncode == 0 and ahead.count('class="mk">\u25B2') == 2 and 'flr' in ahead and behind.count('class="mk">\u25BC') == 3,
+       (o2.stderr[:200], ahead[:300]))
+    ck("graded: a name under the floor on talk is red; the long-call header follows the board's threshold",
+       '<div class="r low"' in g and g.index('<div class="r low"') > g.index("Ahead") and "&ge;2m" in g, g[:200])
+    os.unlink(tmp2.name)
 else:
     errors.append("node is not installed -- the renderer could not be run, which is a failure, not a pass")
 
