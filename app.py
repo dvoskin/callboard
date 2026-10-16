@@ -4973,12 +4973,30 @@ def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
     return report
 
 
-# loop:ringex -- the nine RingEX reps' TODAY, one seat every 30 seconds (two
-# requests a minute at most, a full pass in about four and a half minutes),
-# so the board under the sales roster and /teams read a cache and never fetch.
-_RINGEX_TODAY_TTL = 900.0        # what a request accepts
-_RINGEX_REFRESH_AFTER = 240.0    # what the loop refreshes
-_RINGEX_PAUSE = 30.0
+# loop:ringex -- the training class's TODAY, LAST in line for RingEX's
+# ~10-a-minute call-log budget: one seat a minute at most, and none while
+# RingEX is refusing or while any billing seat's day is stale (billing and the
+# coordinators come first -- at two a minute this loop tipped the account
+# over and billing read "not known" for ten minutes, 2026-10-16). A full pass
+# takes about eight minutes; a request accepts a reading up to 20 minutes old.
+_RINGEX_TODAY_TTL = 1200.0       # what a request accepts
+_RINGEX_REFRESH_AFTER = 420.0    # what the loop refreshes
+_RINGEX_PAUSE = 60.0
+
+
+def _ringex_should_yield(today):
+    """True when the training class must wait: RingEX is in a cooldown, or a
+    billing seat's today is older than its board accepts."""
+    try:
+        if _ringcx.rate_limited():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    for seat in _billing_roster("billing")[0]:
+        c = _v6_today_cache.get((seat["ext_id"], today))
+        if not c or time.time() - c["at"] > _V6_TTL_TODAY * 2:
+            return True
+    return False
 _ringex_warm_state = {"running": False, "filled": 0, "last_error": None}
 
 
@@ -4996,6 +5014,9 @@ def _ringex_warm_loop():
                 c = _v6_today_cache.get((seat["ext_id"], today))
                 if c and time.time() - c["at"] < _RINGEX_REFRESH_AFTER:
                     continue
+                if _ringex_should_yield(today):
+                    _ringex_warm_state["yielded"] = _ringex_warm_state.get("yielded", 0) + 1
+                    break
                 rows, ok, why = _v6_fetch_day_diag(seat["ext_id"], today, tz_off)
                 if ok:
                     _v6_today_cache[(seat["ext_id"], today)] = {"at": time.time(), "rows": rows}
@@ -5010,7 +5031,7 @@ def _ringex_warm_loop():
         except Exception as e:  # noqa: BLE001
             _ringex_warm_state["last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
             log.exception("ringex warm loop")
-        time.sleep(20)
+        time.sleep(45)
 
 
 # /teams?k=<token> -- Danny, 2026-10-16: "give me the new link when ready,

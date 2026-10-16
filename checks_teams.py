@@ -220,8 +220,22 @@ try:
 finally:
     A._v6_fetch_day = real_fd
     A._v6_today_cache.pop((A._TEAM_ROSTERS["ringex"][0]["ext_id"], "2099-01-01"), None)
-ck("their own slow loop is a worker loop: one seat per 30 s, a 70 s back-off on a refusal",
-   any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._RINGEX_PAUSE == 30.0 and "time.sleep(70)" in _src, "loop")
+ck("their own slow loop is a worker loop, LAST in line: one seat a minute, a 70 s back-off on a refusal",
+   any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._RINGEX_PAUSE == 60.0 and "time.sleep(70)" in _src, "loop")
+_today = "2099-01-02"
+for _s in A._billing_roster("billing")[0]:
+    A._v6_today_cache.pop((_s["ext_id"], _today), None)
+ck("...and it yields while any billing seat's day is not fresh", A._ringex_should_yield(_today) is True, "yield")
+for _s in A._billing_roster("billing")[0]:
+    A._v6_today_cache[(_s["ext_id"], _today)] = {"at": __import__("time").time(), "rows": []}
+_rl = A._ringcx.rate_limited
+A._ringcx.rate_limited = lambda: False
+ck("...and goes when billing is fresh and RingEX is not refusing", A._ringex_should_yield(_today) is False, "go")
+A._ringcx.rate_limited = lambda: True
+ck("...and waits out a RingEX cooldown", A._ringex_should_yield(_today) is True, "cooldown")
+A._ringcx.rate_limited = _rl
+for _s in A._billing_roster("billing")[0]:
+    A._v6_today_cache.pop((_s["ext_id"], _today), None)
 
 # ---- /v5: the board under the roster ----
 with A.app.test_request_context("/v5"):
