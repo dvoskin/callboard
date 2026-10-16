@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 
 # A call is a real conversation past these marks (seconds). 120 is the one Danny
 # asked for; the others give the board somewhere to grow without a schema change.
-CONV_MARKS = (60, 120, 300)
+CONV_MARKS = (60, 120, 180, 300, 600)   # 180/600: the sales boards' >3m and >10m (2026-10-16)
 
 # The default "long call" mark used for the headline KPI.
 LONG_CALL_SECONDS = 120

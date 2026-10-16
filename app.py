@@ -1354,6 +1354,18 @@ _SMS_EXTRA_SEATS = {
         {"name": "Ambar Luciano",    "ext": "140", "ext_id": 1251372035},
     ],
 }
+
+# The same nine as a TEAM of their own on the RingEX engine (Danny, 2026-10-16:
+# "Add a new board below the current roster for the 9 new RingEX reps on the
+# sales page"). They dial from these extensions, not RingCX, so the /v5 roster
+# -- built from RingCX -- never shows them. The per-extension call log, the
+# day snapshots, the 429 handling and the warm loop come with the engine.
+# Texts stay off here: /v5 already reads these seats' message store for its
+# texts line, and reading it twice would spend the same budget twice.
+_TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True) for s in _SMS_EXTRA_SEATS["sales"]]
+TEAM_LABELS["ringex"] = "Sales \u00b7 New reps (RingEX)"
+_TEAM_SOURCES["ringex"] = "ringex"
+_TEAM_SMS["ringex"] = False
 # Which boards carry a Zoho CRM count on each row: activities the person
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
 # created in Zoho CRM by each user for the time range shown"). Reuses the
@@ -4663,7 +4675,7 @@ def hub_v7_logout():
 # those. /v6?team= still works so existing links do not break.
 _TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
                "inbound": "customer-service", "surgical": "surgical-coordinator",
-               "sales": "sales"}
+               "sales": "sales", "ringex": "sales-ringex"}
 
 
 def _page_title(team):
@@ -4900,6 +4912,124 @@ def api_v6_callbacks():
 @app.route("/sales")
 def board_sales():
     return _render_team_board("sales")
+
+
+@app.route("/sales-ringex")
+def board_sales_ringex():
+    return _render_team_board("ringex")
+
+
+def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
+    """The v6 report for one team and window, through the same cache and lock
+    as /api/v6/report -- for the pages that are not /v6 (the new-reps board on
+    /v5, the all-teams page) so they never start a second fetch of their own."""
+    _off = tz_offset_minutes if tz_offset_minutes is not None else \
+        -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
+    key = (date_start, date_end, _off, team)
+    ttl = _V6_TTL_TODAY if date_end >= local_today else _V6_TTL_PAST
+    with _v6_lock:
+        hit = _v6_cache.get(key)
+        if hit and time.time() - hit["at"] < hit.get("ttl", ttl):
+            out = dict(hit["report"])
+            out["meta"] = dict(out["meta"], cached=True, age_seconds=round(time.time() - hit["at"]))
+            return out
+        report = _v6_build(date_start, date_end, tz_offset_minutes, local_today, team)
+        _v6_cache[key] = {"at": time.time(), "report": report,
+                          "ttl": ttl if report["meta"].get("complete") else 120.0}
+    report = dict(report)
+    report["meta"] = dict(report["meta"], cached=False)
+    return report
+
+
+def _ringex_rows(report, books):
+    """The new reps' v6 rows in the /v5 row shape: talk in seconds, dials,
+    >3m, >10m, in/out, the missed calls, and Books' quotes and retainers by
+    name -- so the board under the sales roster reads exactly like it."""
+    rows = []
+    for a in report.get("ranked") or []:
+        days = a.get("days") or []
+        tot = lambda k: sum(int(d.get(k) or 0) for d in days)
+        b = books.get(_norm_name(a.get("name") or "")) or {}
+        focus = (a.get("day") or {}).get("focus") or {}
+        ms = a.get("missed_summary") or {}
+        rows.append({
+            "name": a.get("name"), "ext": a.get("ext"),
+            "talk": tot("talk_seconds"), "attempts": tot("dials"), "outbound": tot("dials"),
+            "inbound": tot("inbound"), "inbound_answered": tot("inbound_answered"),
+            "connected": tot("connected"), "calls": tot("calls"),
+            "over_3": tot("over_180s"), "over_10": tot("over_600s"),
+            "longest": max([int(d.get("longest_seconds") or 0) for d in days] or [0]),
+            "first": focus.get("first"), "late_minutes": focus.get("late_minutes"),
+            "missed_in": int(ms.get("missed") or 0), "missed_open": int(ms.get("open") or 0),
+            "missed_calls": a.get("missed_calls") or [],
+            "complete": a.get("complete", True),
+            "books": {k: b.get(k, 0) for k in ("quotes_sent", "quotes_invoiced", "retainers_sent",
+                                               "retainers_paid", "paid_amount")},
+        })
+    rows.sort(key=lambda r: (-r["talk"], -r["attempts"], r["name"] or ""))
+    return rows
+
+
+def _median(xs):
+    xs = sorted(xs)
+    if not xs:
+        return 0
+    m = len(xs) // 2
+    return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
+
+
+@app.route("/api/v5/ringex")
+def api_v5_ringex():
+    """The nine RingEX reps, for the board under the sales roster on /v5 and
+    for the all-teams page. Same gate as /api/v5/report."""
+    if not _v5_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        return jsonify({"error": "ringcentral_not_configured"}), 503
+    try:
+        tz_param = request.args.get("tz")
+        tz = int(tz_param) if tz_param is not None else None
+        _off = tz if tz is not None else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
+        date_start = request.args.get("start") or local_today
+        date_end = request.args.get("end") or date_start
+        if date_end < date_start:
+            return jsonify({"error": "bad_range"}), 400
+        report = _v6_cached_report("ringex", date_start, date_end, tz)
+        books, bmeta = _v5_books(date_start, date_end)
+        rows = _ringex_rows(report, books)
+        # The share link (/v5/board?k=) gets counts, not patients' numbers --
+        # the same rule /api/v5/report applies to its missed calls.
+        if GOOGLE_CLIENT_ID and not session.get("user") and not _word_authed():
+            for r in rows:
+                r["missed_calls"] = []
+        floor = {k: _median([r[k] for r in rows if r["attempts"] or r["talk"]])
+                 for k in ("talk", "attempts", "over_3")}
+        totals = {k: sum(r[k] for r in rows) for k in ("talk", "attempts", "inbound", "inbound_answered",
+                                                       "connected", "over_3", "over_10", "missed_open")}
+        return jsonify({"label": TEAM_LABELS["ringex"], "window": {"start": date_start, "end": date_end},
+                        "as_of": report.get("as_of"), "ranked": rows, "floor": floor, "totals": totals,
+                        "warnings": report.get("warnings") or [],
+                        "meta": {"complete": (report.get("meta") or {}).get("complete"),
+                                 "cached": (report.get("meta") or {}).get("cached"),
+                                 "age_seconds": (report.get("meta") or {}).get("age_seconds"),
+                                 "books": bmeta}})
+    except Exception as e:  # noqa: BLE001
+        log.exception("ringex report failed")
+        return jsonify({"error": "report_failed", "detail": str(e)[:200]}), 500
+
+
+@app.route("/teams")
+def all_teams():
+    """Every team on one page, one design: coordinators, billing, the sales
+    floor and the new RingEX reps (Danny, 2026-10-16: "create a page for me
+    that has all the teams on one combined page all the same design across
+    each team type"). Signed in only; each section reads its own board's API,
+    so each keeps its own gate."""
+    if not _v6_allowed():
+        return redirect("/login")
+    return render_template("teams.html", current_user=session.get("user") or {})
 
 
 @app.route("/v6/board")
@@ -5199,7 +5329,7 @@ def _other_team_names() -> set:
         # left the Sales Floor Scoreboard with the two diallers on no roster at
         # all (Danny, 2026-10-08: "my sales call liveboard got thrown off ...
         # only 1 person showing").
-        if team == "sales":
+        if team in ("sales", "ringex"):     # both are the sales floor
             continue
         try:
             seats = _billing_roster(team)[0]

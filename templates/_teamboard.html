@@ -1,0 +1,178 @@
+<style>
+  /* the team header: the label, and a quiet link to that team's own board */
+  h2.tb-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:30px}
+  h2.tb-h .tb-open{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted);text-decoration:none}
+  h2.tb-h .tb-open:hover{color:var(--up)}
+  .q .hot,.rt .hot{color:var(--dn)}
+</style>
+<script>
+// One team, one table, in the sales board's own design (the classes in
+// _board_style.html). Used under the sales roster for the RingEX reps and on
+// /teams for every team, so every team reads the same way. Danny, 2026-10-16:
+// "all the teams on one combined page all the same design across each team
+// type".
+//
+// A model is {key, label, href, sum: [[label, html]], colA, colB, aTitle,
+// bTitle, nameHead, rows: [...], note}. A row is {name, talk (s), dials, over3,
+// a: {html, zero, hot}, b: {...}, press (html), panel: [[label, html, zero]],
+// missed: [...]}. Talk, dials and >3m carry an arrow against the team's own
+// median rep; the two result columns do not.
+window.TB = (function () {
+  function hm(s) {
+    s = Math.round(s || 0);
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return h ? h + ':' + p(m) + ':' + p(x) : m + ':' + p(x);
+  }
+  function w(n) { return Math.round(n || 0); }
+  function fmt(n) { return Math.round(n || 0).toLocaleString('en-US'); }
+  function money(v) { return v == null ? '—' : '$' + Math.round(v).toLocaleString('en-US'); }
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function median(xs) {
+    xs = xs.slice().sort(function (a, b) { return a - b; });
+    if (!xs.length) return 0;
+    var m = Math.floor(xs.length / 2);
+    return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2;
+  }
+  // The floor: the median of the people who worked, not a target.
+  function floorOf(rows) {
+    var on = rows.filter(function (r) { return r.talk || r.dials; });
+    return { talk: median(on.map(function (r) { return r.talk || 0; })),
+             dials: median(on.map(function (r) { return r.dials || 0; })),
+             over3: median(on.map(function (r) { return r.over3 || 0; })) };
+  }
+  function cell(v, med, cls, label) {
+    var up = (v || 0) >= med;
+    return '<span class="' + cls + ' ' + (up ? 'up' : 'down') + '"><span class="mk">' + (up ? '▲' : '▼') +
+           '</span>' + w(v) + '<span class="lbl">' + label + '</span></span>';
+  }
+  function res(x, cls, label) {
+    x = x || {};
+    return '<span class="' + cls + (x.zero ? ' zero' : '') + '"' + (x.title ? ' title="' + esc(x.title) + '"' : '') + '>' +
+           (x.hot ? '<b class="hot" style="font-weight:inherit">' + x.html + '</b>' : (x.html == null ? '—' : x.html)) +
+           '<span class="lbl"> ' + esc(label) + '</span></span>';
+  }
+  function cell2(label, value, isZero) {
+    return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + esc(label) + '</em><b>' + value + '</b></div>';
+  }
+  // Missed inbound calls: the number to call back, or who got back and when.
+  function missedList(L, open, self) {
+    L = L || [];
+    if (!L.length) return '';
+    return '<div class="ml"><div class="ml-h">Missed calls · ' + (open || 0) + ' not called back</div>' +
+      L.map(function (m) {
+        var b = m.back || {};
+        return '<div class="ml-r' + (m.resolved ? ' done' : '') + '"><span class="ml-t">' + esc(m.at) + '</span>' +
+          (m.resolved
+            ? '<span class="ml-n">' + esc(m.number) + '</span><span class="ml-s">' + esc(b.how || 'called back') + ' ' +
+              esc(b.at || '') + (b.by && b.by !== self ? ' · ' + esc(b.by) : '') + '</span>'
+            : '<a class="ml-n" href="tel:' + esc(String(m.number || '').replace(/[^0-9]/g, '')) + '">' + esc(m.number) +
+              '</a><span class="ml-s hot">call back</span>') + '</div>';
+      }).join('') + '</div>';
+  }
+
+  function render(el, m) {
+    if (!el) return;
+    var rows = (m.rows || []).slice().sort(function (a, b) { return (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0); });
+    var f = m.floor || floorOf(rows), k = m.key || 'tb';
+    var h = '<h2 class="tb-h">' + esc(m.label) + (m.href ? ' <a class="tb-open" href="' + esc(m.href) + '">open board →</a>' : '') + '</h2>';
+    if (m.error) { el.innerHTML = h + '<div class="msg err">' + m.error + '</div>'; return; }
+    if (!rows.length) { el.innerHTML = h + '<div class="msg">' + (m.empty || 'No one on this team has a call in this window.') + '</div>'; return; }
+    if (m.sum && m.sum.length) {
+      h += '<div class="sum">' + m.sum.map(function (s) {
+        return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + s[1] + '</span></div>';
+      }).join('') + '</div>';
+    }
+    h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">' + esc(m.nameHead || 'Name') + '</span>' +
+         '<span class="a-tk">Talk</span><span class="a-d">' + esc(m.dialsHead || 'Dials') + '</span>' +
+         '<span class="a-t3">&gt;3m</span>' +
+         '<span class="a-q"' + (m.aTitle ? ' title="' + esc(m.aTitle) + '"' : '') + '>' + esc(m.colA) + '</span>' +
+         '<span class="a-rt"' + (m.bTitle ? ' title="' + esc(m.bTitle) + '"' : '') + '>' + esc(m.colB) + '</span></div>';
+    rows.forEach(function (r, i) {
+      var up = (r.talk || 0) >= f.talk;
+      var low = (r.talk || 0) < f.talk && (r.dials || 0) < f.dials && (r.over3 || 0) < f.over3;
+      h += '<div class="r' + (low ? ' low' : '') + '" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '">' +
+           '<span class="rk">' + (i + 1) + '</span>' +
+           '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + (r.press || '') + '</span>' +
+           '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' + (up ? '▲' : '▼') + '</span>' + hm(r.talk) + '</span>' +
+           cell(r.dials, f.dials, 'd', m.dialsLbl || ' dials') + cell(r.over3, f.over3, 't3', ' >3m') +
+           res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';
+      h += '<div class="det" id="' + k + '-d' + i + '"><div class="dg">' +
+           (r.panel || []).map(function (p) { return p === 'rule' ? '<span class="rule"></span>' : cell2(p[0], p[1], p[2]); }).join('') +
+           '</div>' + missedList(r.missed, r.missedOpen, r.name) + '</div>';
+    });
+    if (m.note) h += '<p class="note">' + m.note + '</p>';
+    el.innerHTML = h;
+    el.querySelectorAll('.r[data-det]').forEach(function (row) {
+      var open = function () {
+        var d = document.getElementById(row.getAttribute('data-det'));
+        if (!d) return;
+        var was = d.classList.contains('on');
+        document.querySelectorAll('.det.on').forEach(function (o) { o.classList.remove('on'); });
+        document.querySelectorAll('.r[aria-expanded="true"]').forEach(function (x) { x.setAttribute('aria-expanded', 'false'); });
+        if (!was) { d.classList.add('on'); row.setAttribute('aria-expanded', 'true'); }
+      };
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
+  }
+
+  // The RingEX reps (/api/v5/ringex) as a model: the sales columns, Quotes and
+  // Paid from Books, the same panel the RingCX reps have where the data exists.
+  function ringexModel(d, opts) {
+    opts = opts || {};
+    var bm = (d.meta || {}).books || {}, booksOk = !bm.loading;
+    var rows = (d.ranked || []).map(function (a) {
+      var b = a.books || {};
+      return {
+        name: a.name, talk: a.talk, dials: a.attempts, over3: a.over_3,
+        a: { html: booksOk ? w(b.quotes_sent) : '—', zero: booksOk && !b.quotes_sent },
+        b: { html: booksOk ? w(b.retainers_paid) : '—', zero: booksOk && !b.retainers_paid },
+        press: opts.press ? opts.press(a) : pressMissed(a.missed_open),
+        missed: a.missed_calls, missedOpen: a.missed_open,
+        panel: [
+          ['Inbound', w(a.inbound) + ' <i>' + w(a.inbound_answered) + ' answered</i>', !a.inbound],
+          ['Outbound', w(a.attempts), !a.attempts],
+          ['Connected', w(a.connected), !a.connected],
+          ['Over 10 min', w(a.over_10), !a.over_10],
+          ['Longest', hm(a.longest), !a.longest],
+          ['First call', a.first ? esc(a.first) + (a.late_minutes ? ' <i>' + w(a.late_minutes) + ' min late</i>' : '') : '—', !a.first],
+          'rule',
+          ['Quotes invoiced', booksOk ? w(b.quotes_invoiced) : '—', !b.quotes_invoiced],
+          ['Retainers sent', booksOk ? w(b.retainers_sent) : '—', !b.retainers_sent],
+          ['Paid $', b.paid_amount ? money(b.paid_amount) : '—', !b.paid_amount]
+        ].concat(opts.panelExtra ? opts.panelExtra(a) : [])
+      };
+    });
+    var T = d.totals || {}, S = function (k) { return (d.ranked || []).reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
+    return {
+      key: opts.key || 'rx', label: opts.label || d.label || 'New reps · RingEX', href: opts.href,
+      colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid', nameHead: 'Rep',
+      aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
+      rows: rows,
+      sum: [
+        ['Team', '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +
+                 '<span class="sep">·</span><b>' + fmt(T.over_3) + '</b> &gt;3m<span class="sep">·</span><b>' + fmt(T.over_10) + '</b> &gt;10m'],
+        ['Sent', booksOk ? '<b>' + fmt(S('quotes_sent')) + '</b> quotes<span class="sep">·</span><b>' + fmt(S('retainers_sent')) +
+                 '</b> retainers<span class="sep">·</span><b>' + fmt(S('retainers_paid')) + '</b> paid' +
+                 (S('paid_amount') ? ' <i>' + money(S('paid_amount')) + '</i>' : '') : 'loading from Books…'],
+        ['Calls', '<b>' + fmt(T.inbound) + '</b> inbound <i>' + fmt(T.inbound_answered) + ' answered</i>' +
+                  '<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> outbound' +
+                  '<span class="sep">·</span><b>' + fmt(T.connected) + '</b> connected' +
+                  (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed not called back' : '')]
+      ],
+      note: opts.note
+    };
+  }
+  function pressMissed(n) {
+    return n ? '<span class="press"><b class="hot">' + w(n) + '</b> missed</span>' : '';
+  }
+
+  return { render: render, ringexModel: ringexModel, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
+           median: median, floorOf: floorOf, pressMissed: pressMissed };
+})();
+</script>

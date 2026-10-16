@@ -152,7 +152,7 @@ except Exception as e:
 
 # ---- the panel ------------------------------------------------------------
 import io
-tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read()
+tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read() + io.open("templates/_board_style.html", encoding="utf-8").read()  # styles moved to the shared partial 2026-10-16
 # The cell is HIDDEN for now -- CRM returns Owner without a name on this token,
 # so nothing attributes and every cell would be a dash. The API still computes it.
 ok("the cell is not rendered", "cell2('Follow Up Created'" not in tpl)

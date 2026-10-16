@@ -73,7 +73,7 @@ ok("the rolled-up tail keeps its seconds",
 
 # the panel renders it
 import io
-tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read()
+tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read() + io.open("templates/_board_style.html", encoding="utf-8").read()  # styles moved to the shared partial 2026-10-16
 ok("the panel renders the breakdown", "a.channels && a.channels.length" in tpl)
 ok("it is full width in the panel grid", ".chan{grid-column:1/-1" in tpl)
 

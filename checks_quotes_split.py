@@ -86,7 +86,7 @@ ok("a converted quote is not lost from sent",
 
 # the template must render both, and must not resurrect the merged label
 import io
-tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read()
+tpl = io.open("templates/scoreboard_v5.html", encoding="utf-8").read() + io.open("templates/_board_style.html", encoding="utf-8").read()  # styles moved to the shared partial 2026-10-16
 # What matters is that each figure is BOUND into the per-agent panel, not how
 # the cell is spelled. Pinning the exact call text made this fail the moment
 # the panel was rebuilt to carry retainers too (f8fe33d) -- a rename reported

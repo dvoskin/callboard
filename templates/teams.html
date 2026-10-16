@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>All Teams</title>
+{% include "_board_style.html" %}
+</head>
+<body>
+<!-- Every team on one page, in the sales board's design. Danny, 2026-10-16:
+     "create a page for me that has all the teams on one combined page all the
+     same design across each team type". Each section reads its own board's
+     API; a section that cannot load says so and the others carry on. -->
+<div class="wrap">
+  <h1>All Teams</h1>
+  <p class="sub" id="stamp">Loading…</p>
+  <p class="age" id="age"></p>
+  <div class="ctl">
+    <input type="date" id="start" /><input type="date" id="end" />
+    <button id="go">Refresh</button><span class="spin" id="spin"></span>
+  </div>
+  <div class="key">
+    <span><b class="u">▲</b><b class="d">▼</b> vs the team’s median person</span>
+    <span><b>Talk</b> excludes wrap</span>
+    <span><b>&gt;3m</b> = real conversations</span>
+    <span>Tap a row for the detail</span>
+  </div>
+  <div id="t-surgical"><h2 class="tb-h">Surgical Coordinators</h2><div class="msg">Loading…</div></div>
+  <div id="t-billing"><h2 class="tb-h">Billing</h2><div class="msg">Loading…</div></div>
+  <div id="t-sales"><h2 class="tb-h">Sales · RingCX floor</h2><div class="msg">Loading…</div></div>
+  <div id="t-ringex"><h2 class="tb-h">Sales · New reps (RingEX)</h2><div class="msg">Loading…</div></div>
+  <details class="notes"><summary>How each team is counted</summary>
+    <p class="note"><b>Coordinators and billing</b> come from each person’s RingEX extension: talk is connected time, dials are outbound calls, and the two result columns are their Zoho calls done against what was due today and the ones now overdue. Billing’s first result is what each biller recorded as collected.</p>
+    <p class="note"><b>Sales · RingCX floor</b> is the sales board: RingCX and RingEX combined, dials are attempts, quotes and paid retainers come from Books.</p>
+    <p class="note"><b>Sales · New reps</b> are the nine reps who dial from RingEX, read the same way as coordinators, with quotes and paid retainers from Books.</p>
+  </details>
+</div>
+{% include "_teamboard.html" %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var hm = TB.hm, w = TB.w, fmt = TB.fmt, money = TB.money, esc = TB.esc;
+  var sep = '<span class="sep">·</span>';
+
+  function sum(days, k) { return (days || []).reduce(function (s, d) { return s + (+d[k] || 0); }, 0); }
+  function press(missedOpen, sms) {
+    var bits = [];
+    if (missedOpen) bits.push('<b class="hot">' + w(missedOpen) + '</b> missed');
+    return bits.length ? '<span class="press">' + bits.join(' · ') + '</span>' : '';
+  }
+
+  // A coordinator or billing seat (/api/v6/report) as a row.
+  function v6Row(a, team) {
+    var D = a.days || [], c = a.crm || {}, calls = c.calls || {}, jc = (c.journeys || {}).journey_calls || {},
+        t = c.tasks || {}, f = (a.day || {}).focus || {}, ms = a.missed_summary || {};
+    var due = calls.due || 0, done = calls.completed || 0, od = calls.overdue || 0;
+    var row = {
+      name: a.name, talk: sum(D, 'talk_seconds'), dials: sum(D, 'dials'), over3: sum(D, 'over_180s'),
+      press: press(ms.open), missed: a.missed_calls, missedOpen: ms.open,
+      b: { html: w(od), zero: !od, hot: od > 0, title: 'Zoho calls past their time and still open' }
+    };
+    if (team === 'billing') {
+      row.a = { html: a.collected_total ? money(a.collected_total) : '—', zero: !a.collected_total,
+                title: 'What this biller recorded as collected in this window' };
+    } else {
+      row.a = { html: due ? done + '<i style="font-style:normal;opacity:.6">/' + due + '</i>' : '—', zero: !done,
+                title: 'Zoho calls completed / due in this window' };
+    }
+    row.panel = [
+      ['Inbound', w(sum(D, 'inbound')) + ' <i>' + w(sum(D, 'inbound_answered')) + ' answered</i>', !sum(D, 'inbound')],
+      ['Outbound', w(sum(D, 'dials')), !sum(D, 'dials')],
+      ['Connected', w(sum(D, 'connected')), !sum(D, 'connected')],
+      ['Over 10 min', w(sum(D, 'over_600s')), !sum(D, 'over_600s')],
+      ['Longest', hm(Math.max.apply(null, D.map(function (d) { return d.longest_seconds || 0; }).concat([0]))), false],
+      ['First call', f.first ? esc(f.first) + (f.late_minutes ? ' <i>' + w(f.late_minutes) + ' min late</i>' : '') : '—', !f.first],
+      ['Texts', w(sum(D, 'sms_sent')) + ' sent <i>' + w(sum(D, 'sms_received')) + ' received</i>', !sum(D, 'sms_sent') && !sum(D, 'sms_received')],
+      'rule',
+      ['Zoho calls', done + ' of ' + due + (od ? ' <i>' + od + ' overdue</i>' : ''), !due]
+    ];
+    if (team === 'surgical') {
+      row.panel.push(['Planner calls', w(jc.completed) + ' of ' + w(jc.due) + (jc.overdue ? ' <i>' + w(jc.overdue) + ' overdue</i>' : ''), !jc.due]);
+      row.panel.push(['Tasks', w(t.completed) + ' of ' + w(t.due) + (t.open ? ' <i>' + w(t.open) + ' open</i>' : ''), !t.due]);
+      row.panel.push(['Active Journeys', w((c.journeys || {}).active), !(c.journeys || {}).active]);
+    } else {
+      row.panel.push(['Collected', a.collected_total ? money(a.collected_total) : '—', !a.collected_total]);
+      row.panel.push(['Per connected call', a.collected_per_connected ? money(a.collected_per_connected) : '—', !a.collected_per_connected]);
+    }
+    return row;
+  }
+
+  function v6Model(j, team, label, href) {
+    var rows = (j.ranked || []).map(function (a) { return v6Row(a, team); });
+    var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0 };
+    (j.ranked || []).forEach(function (a) {
+      var D = a.days || [], calls = (a.crm || {}).calls || {};
+      T.talk += sum(D, 'talk_seconds'); T.dials += sum(D, 'dials'); T.over3 += sum(D, 'over_180s');
+      T.inb += sum(D, 'inbound'); T.inbA += sum(D, 'inbound_answered'); T.conn += sum(D, 'connected');
+      T.mo += (a.missed_summary || {}).open || 0;
+      T.due += calls.due || 0; T.done += calls.completed || 0; T.od += calls.overdue || 0;
+      T.coll += a.collected_total || 0;
+    });
+    var result = team === 'billing'
+      ? '<b>' + money(T.coll) + '</b> collected' +
+        (((j.collections || {}).payments || {}).all_payments ? ' <i>Books: ' + money(j.collections.payments.all_payments) + ' in all payments</i>' : '') +
+        sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> Zoho calls overdue'
+      : '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' Zoho calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue';
+    return {
+      key: team, label: label, href: href, nameHead: 'Name', dialsHead: 'Dials',
+      colA: team === 'billing' ? 'Collected' : 'Calls done', colB: 'Overdue',
+      aLbl: team === 'billing' ? 'collected' : 'done', bLbl: 'overdue',
+      aTitle: team === 'billing' ? 'Recorded as collected in this window' : 'Zoho calls completed / due in this window',
+      bTitle: 'Zoho calls past their time and still open',
+      rows: rows,
+      sum: [
+        ['Team', '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> dials' + sep + '<b>' + fmt(T.over3) + '</b> &gt;3m'],
+        ['Result', result],
+        ['Calls', '<b>' + fmt(T.inb) + '</b> inbound <i>' + fmt(T.inbA) + ' answered</i>' + sep + '<b>' + fmt(T.conn) + '</b> connected' +
+                  (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed not called back' : '')]
+      ],
+      note: (j.as_of ? 'Calls through ' + esc(j.as_of) + '.' : '')
+    };
+  }
+
+  // The RingCX sales floor (/api/v5/report) as a row: the sales board's own columns.
+  function v5Model(j) {
+    var bm = (j.meta || {}).books || {}, ok = !bm.loading;
+    var all = (j.ranked || []).concat(j.unranked || []);
+    var rows = all.map(function (a) {
+      var b = a.books || {};
+      return {
+        name: a.name, talk: a.talk, dials: a.attempts, over3: a.over_3,
+        a: { html: ok ? w(b.quotes_sent) : '—', zero: ok && !b.quotes_sent },
+        b: { html: ok ? w(b.retainers_paid) : '—', zero: ok && !b.retainers_paid },
+        press: press(a.missed_open), missed: a.missed_calls, missedOpen: a.missed_open,
+        panel: [
+          ['Inbound', w(a.inbound) + ' <i>' + w(a.inbound_answered) + ' answered</i>', !a.inbound],
+          ['Outbound', w(a.outbound), !a.outbound],
+          ['Reached', w(a.reached) + ' <i>' + w(a.booked) + ' booked · ' + w(a.quoted) + ' quoted</i>', !a.reached],
+          ['No answer / VM', w(a.not_reached), !a.not_reached],
+          ['No disposition', w(a.no_disposition), !a.no_disposition],
+          ['Do not call', a.dnc ? '<span class="hot">' + w(a.dnc) + '</span>' : '0', !a.dnc],
+          ['Over 10 min', w(a.over_10), !a.over_10],
+          ['Longest', hm(a.longest), !a.longest],
+          'rule',
+          ['Quotes invoiced', ok ? w(b.quotes_invoiced) : '—', !b.quotes_invoiced],
+          ['Retainers sent', ok ? w(b.retainers_sent) : '—', !b.retainers_sent],
+          ['Paid $', b.paid_amount ? money(b.paid_amount) : '—', !b.paid_amount]
+        ]
+      };
+    });
+    var T = j.totals || {}, S = function (k) { return all.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
+    var talk = all.reduce(function (s, a) { return s + (a.talk || 0); }, 0);
+    return {
+      key: 'sales', label: 'Sales · RingCX floor', href: '/v5', nameHead: 'Rep',
+      colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid',
+      aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
+      rows: rows,
+      sum: [
+        ['Team', '<b>' + hm(talk) + '</b> talk' + sep + '<b>' + fmt(T.attempts) + '</b> dials' + sep + '<b>' + fmt(T.over_3) + '</b> &gt;3m' + sep + '<b>' + fmt(T.over_10) + '</b> &gt;10m'],
+        ['Result', ok ? '<b>' + fmt(S('quotes_sent')) + '</b> quotes' + sep + '<b>' + fmt(S('retainers_sent')) + '</b> retainers sent' + sep +
+                        '<b>' + fmt(S('retainers_paid')) + '</b> paid' + (S('paid_amount') ? ' <i>' + money(S('paid_amount')) + '</i>' : '') : 'loading from Books…'],
+        ['Calls', '<b>' + fmt(T.inbound) + '</b> inbound <i>' + fmt(T.inbound_answered) + ' answered</i>' + sep + '<b>' + fmt(T.outbound) + '</b> outbound' +
+                  (T.reached ? sep + '<b>' + fmt(T.reached) + '</b> reached <i>' + fmt(T.booked) + ' booked</i>' : '') +
+                  (T.dnc ? sep + '<b class="hot">' + fmt(T.dnc) + '</b> do not call' : '') +
+                  (T.missed_open ? sep + '<b class="hot">' + fmt(T.missed_open) + '</b> missed not called back' : '')]
+      ]
+    };
+  }
+
+  var SOURCES = [
+    { id: 't-surgical', url: '/api/v6/report?team=surgical&', label: 'Surgical Coordinators',
+      model: function (j) { return v6Model(j, 'surgical', 'Surgical Coordinators', '/surgical-coordinator'); } },
+    { id: 't-billing', url: '/api/v6/report?team=billing&', label: 'Billing',
+      model: function (j) { return v6Model(j, 'billing', 'Billing', '/billing'); } },
+    { id: 't-sales', url: '/api/v5/report?', label: 'Sales · RingCX floor', model: v5Model },
+    { id: 't-ringex', url: '/api/v5/ringex?', label: 'Sales · New reps (RingEX)',
+      model: function (j) { return TB.ringexModel(j, { key: 'ringex', label: 'Sales · New reps (RingEX)', href: '/sales-ringex' }); } }
+  ];
+  var LAST_OK = null, GEN = 0;
+
+  function load() {
+    var q = new URLSearchParams();
+    if ($('start').value) q.set('start', $('start').value);
+    if ($('end').value) q.set('end', $('end').value);
+    q.set('tz', new Date().getTimezoneOffset());
+    var gen = ++GEN, left = SOURCES.length;
+    $('spin').textContent = '…';
+    SOURCES.forEach(function (src) {
+      fetch(src.url + q.toString(), { credentials: 'same-origin' })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (gen !== GEN) return;
+          if (!res.ok) {
+            TB.render($(src.id), { label: src.label, error: '<b>' + esc(res.j.error || 'error') + '</b> ' + esc(res.j.detail || '') });
+            return;
+          }
+          TB.render($(src.id), src.model(res.j));
+          // Books loads in the background on the sales boards: ask again shortly.
+          var bm = (res.j.meta || {}).books;
+          if (bm && bm.loading) setTimeout(function () { if (gen === GEN) reloadOne(src, q, gen); }, 12000);
+        })
+        .catch(function (e) {
+          if (gen === GEN) TB.render($(src.id), { label: src.label, error: 'Could not reach the report: ' + esc(e) });
+        })
+        .then(function () {
+          if (gen !== GEN) return;
+          if (--left === 0) {
+            $('spin').textContent = '';
+            LAST_OK = new Date();
+            $('stamp').innerHTML = esc($('start').value) + ($('end').value !== $('start').value ? ' – ' + esc($('end').value) : '') +
+              ' · updated ' + LAST_OK.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          }
+        });
+    });
+  }
+  function reloadOne(src, q, gen) {
+    fetch(src.url + q.toString(), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j && gen === GEN) TB.render($(src.id), src.model(j)); })
+      .catch(function () {});
+  }
+
+  var t = new Date(), iso = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  $('start').value = iso; $('end').value = iso;
+  $('go').addEventListener('click', load);
+  load();
+  setInterval(load, 5 * 60 * 1000);
+  setInterval(function () {
+    if (!LAST_OK) return;
+    var mins = Math.floor((Date.now() - LAST_OK.getTime()) / 60000);
+    $('age').className = mins >= 11 ? 'age bad' : 'age';
+    $('age').textContent = mins >= 11 ? 'not updating — last reached the server ' + mins + ' min ago. Reload.' : '';
+  }, 30000);
+})();
+</script>
+</body>
+</html>

@@ -204,7 +204,8 @@ ck("names the cache already covers (read or unresolved) do not rebuild", (n1, n2
 ck("a name the cache never read does", n3 == 2, n3)
 
 # ---- the page ----
-tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
+tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read() + \
+    open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "_board_style.html"), encoding="utf-8").read()  # styles moved to the shared partial 2026-10-16
 ck("the texts line lives in each rep's panel; the name carries only the action line",
    "'<span class=\"dsms\" data-name=\"' + esc(a.name) + '\">' + (smsLine(a.name) || '\\u2014') + '</span>'" in tpl
    and "esc(a.name) + pressLine(a.name) + '</span>'" in tpl, "name hook")

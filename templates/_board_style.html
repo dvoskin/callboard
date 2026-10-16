@@ -1,0 +1,260 @@
+<style>
+  :root{
+    --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
+    --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
+    --up:#0B6E67; --dn:#B03A31; --mid:#9C6712;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
+    --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492;
+    --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
+       font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+       -webkit-text-size-adjust:100%}
+  .n{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .wrap{max-width:680px;margin:0 auto;padding:20px 14px 44px}
+  @media(min-width:640px){.wrap{padding:32px 22px 56px}}
+  /* Design pass 2026-10-15: calls in/out and texts joined the row; at 680px the
+     name column was ~150px and every rep's texts line wrapped to three lines. */
+  @media(min-width:900px){.wrap{max-width:920px}}
+
+  h1{margin:0 0 2px;font-size:20px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
+  .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .sub b{color:var(--ink);font-weight:650}
+  .sub b.down{color:var(--dn)}
+  h2{margin:22px 0 6px;font-size:12px;font-weight:700;letter-spacing:.06em;
+     text-transform:uppercase;color:var(--muted)}
+
+  .ctl{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:14px}
+  .ctl input,.ctl button{font-family:inherit;font-size:12.5px;padding:4px 8px;
+       border:1px solid var(--rule);background:var(--bg);color:var(--ink);
+       border-radius:5px;-webkit-appearance:none}
+  .ctl button{cursor:pointer;font-weight:600}
+  .ctl button:hover{border-color:var(--up);color:var(--up)}
+  .day{cursor:pointer;font-size:12px;font-weight:600;padding:4px 9px;border-radius:5px;
+       border:1px solid var(--rule);background:var(--bg);color:var(--muted)}
+  .day:hover{border-color:var(--up);color:var(--up)}
+  .day.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .spin{font-size:12px;color:var(--muted)}
+
+  /* the floor, one line */
+  .floor{font-size:12.5px;color:var(--muted);padding:8px 0}
+  .key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11px;color:var(--muted);
+       padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
+  .lead-short{display:none}
+  .counts{white-space:nowrap}
+  .key b{font-weight:700}
+  .key .d{padding-right:2px}
+  .key .u{color:var(--up)} .key .d{color:var(--dn)}
+  .key span{white-space:nowrap}
+  .floor b{color:var(--ink);font-weight:700}
+  .floor .sep{opacity:.45;padding:0 5px}
+  /* Totals, not medians, so a line of their own under the floor. */
+  .tot{font-size:12.5px;color:var(--muted);padding:0 0 8px}
+  .tot b{color:var(--ink);font-weight:700}
+  .tot .sep{opacity:.45;padding:0 5px}
+  /* Books' own date filter, beside the board's count rather than instead of it:
+     the two ask different questions and a manager checking one against the
+     other should not have to guess which. */
+  .tot .alt{opacity:.7}
+
+  /* the list — flat grid, hairlines only */
+  /* Quotes and retainers follow the call figures in wider columns. They are
+     Books counts, not calls, so they carry no arrow: the floor is a call median. */
+  .hd,.r{display:grid;align-items:center;
+         grid-template-columns:22px minmax(0,1fr) 84px 64px 56px 70px 80px;
+         grid-template-areas:"rk nm tk d t3 q rt"}
+  .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
+  .r{padding:7px 0;border-bottom:1px solid var(--hair)}
+  .r:last-child{border-bottom:0}
+  .r{cursor:pointer}
+  .r:hover{background:var(--tint)}
+  .r[aria-expanded="true"]{background:var(--tint)}
+  .det{display:none;padding:11px 0 13px 22px;border-bottom:1px solid var(--hair);
+       background:var(--tint)}
+  @media(max-width:520px){.det{padding:10px 0 12px 21px}}
+  .det.on{display:block}
+  /* Fixed 3 columns so the six call figures land as a clean 2x3 and the three
+     Books figures as one row. auto-fit packed five across and orphaned the
+     sixth on a line of its own. */
+  .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:9px 16px;max-width:460px}
+  @media(max-width:520px){.dg{gap:8px 10px;max-width:none}}
+  .dg > div{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;
+         text-transform:uppercase;color:var(--muted);line-height:1.25}
+  .dg{align-items:start}
+  .dg b{font-size:13px;font-weight:650;color:var(--ink);
+        font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dg .zero b{color:var(--muted);font-weight:500}
+  .dg .rule{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0 1px}
+  /* Channel breakdown: one line each, name left, talk right. Full width inside
+     the panel grid so long queue names ("v2 ENG - New Lead - Scheduled") are not
+     squeezed into a third of it. */
+  .chan{grid-column:1/-1;margin-top:5px;padding-top:6px;
+        border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:2px}
+  .chan div{display:flex;justify-content:space-between;gap:12px;
+            font-size:11.5px;color:var(--muted);line-height:1.4}
+  .chan span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chan b{color:var(--ink);font-weight:600;white-space:nowrap;
+          font-variant-numeric:tabular-nums}
+  /* Dials sit after the talk time, quieter: the time is the answer, the count is
+     the context for it. The middot is load-bearing -- spacing alone let
+     "1:44:21" and "8" read as one number. */
+  .chan i{font-style:normal;color:var(--muted);font-weight:500;padding-left:6px}
+  .chan i::before{content:'· ';opacity:.55}
+  .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
+  .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
+  .a-d{grid-area:d} .a-io{grid-area:io} .a-t3{grid-area:t3} .a-t10{grid-area:t10}
+  .a-q{grid-area:q} .a-rt{grid-area:rt}
+  .rk{grid-area:rk;color:var(--muted);font-size:11.5px}
+  .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px}
+  .r.low .nm{color:var(--dn)}
+  /* texts under the name: sent (typed / auto), received, unread, waiting */
+  .nm .sms{display:block;margin-top:1px;font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted);
+           white-space:normal;line-height:1.35}
+  .nm .sms b{font-weight:700;color:var(--ink-2)} .nm .sms i{font-style:normal;opacity:.85}
+  .nm .sms b.hot,.smstot b.hot{color:var(--dn)}
+  /* the one line of action under a name: missed, unread, waiting */
+  .nm .press{display:block;margin-top:1px;font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted);white-space:normal}
+  .nm .press b{font-weight:700;color:var(--ink-2)} .nm .press b.hot{color:var(--dn)}
+  .r.low .nm .press{color:var(--muted)}
+  .dsms .sms{display:inline;margin:0;font-size:12px;color:var(--ink-2)}
+  /* the panel's missed calls */
+  .ml{margin:10px 0 2px;max-width:460px}
+  .ml-h{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-bottom:3px}
+  .ml-r{display:grid;grid-template-columns:64px 118px minmax(0,1fr);gap:0 10px;font-size:12.5px;padding:3px 0;border-top:1px solid var(--hair)}
+  .ml-t{color:var(--muted);font-variant-numeric:tabular-nums} .ml-n{font-weight:600;color:var(--ink);text-decoration:none;font-variant-numeric:tabular-nums}
+  .ml-s{color:var(--muted)} .ml-s.hot{color:var(--dn);font-weight:600}
+  .ml-r.done .ml-n{color:var(--muted);font-weight:500}
+  .dg b .hot{color:var(--dn)}
+  .nm .sms.na{font-style:italic;font-weight:400}
+  .smstot{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
+  .smstot b{color:var(--ink);font-weight:700} .smstot i{font-style:normal;color:var(--muted)}
+  .tk{grid-area:tk;font-weight:700;font-size:14.5px}
+  .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
+  .d,.t3,.t10,.q,.rt{font-weight:600;color:var(--ink-2);font-size:13px}
+  /* inbound . outbound: a count, not a contest -- no arrow against the floor */
+  .io{grid-area:io;font-weight:600;color:var(--ink-2);font-size:13px;cursor:help}
+  .io i{font-style:normal;color:var(--muted);font-weight:400;padding:0 2px}
+  /* the summary: one labelled block -- Floor (medians), Sent, Calls, Texts */
+  .sum{border-top:1px solid var(--rule);padding:7px 0 6px}
+  .sum .srow{display:grid;grid-template-columns:44px minmax(0,1fr);gap:0 10px;align-items:baseline;
+             font-size:12.5px;color:var(--muted);padding:2px 0;border:0;margin:0}
+  .sum .sl{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .sum .sv b{color:var(--ink);font-weight:700} .sum .sv b.hot{color:var(--dn)}
+  .sum .sv i{font-style:normal;color:var(--muted)} .sum .sv i.med{font-size:11px;opacity:.8;margin-left:4px}
+  .sum .sep{opacity:.45;padding:0 5px}
+  .sum .tot .alt{display:block;font-size:11px}
+  .sum .srow[hidden]{display:none}   /* grid would otherwise beat [hidden] */
+  details.notes{margin:16px 0 0;border-top:1px solid var(--rule);padding-top:8px}
+  details.notes>summary{cursor:pointer;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);list-style:none}
+  details.notes>summary::before{content:'\25B8  '} details.notes[open]>summary::before{content:'\25BE  '}
+  details.notes .warn,details.notes .recon,details.notes .note{font-size:12px}
+  .dg b i{font-style:normal;font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
+  /* the other lines' texts: the main chart's own width, header and rows, names
+     lined up with the reps' names above (Danny, 2026-10-15: "match the width
+     and style of the top chart more closely") */
+  .smspanel{margin:0}
+  .sp-hd,.sp-r{display:grid;align-items:center;grid-template-columns:22px minmax(0,1fr) 80px 80px 110px 80px}
+  .sp-hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
+         padding:9px 0 5px;border-bottom:1px solid var(--rule)}
+  .sp-r{padding:7px 0;border-bottom:1px solid var(--hair)}
+  .sp-r:last-child{border-bottom:0}
+  .sp-hd>*,.sp-r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .sp-hd>*,.sp-r>*{grid-area:auto}   /* .nm and .rk carry the main chart's named areas */
+  .sp-hd .nm{font-size:10.5px;font-weight:700;letter-spacing:.05em;color:var(--muted)}
+  .sp-hd .nm,.sp-r .nm,.sp-r .rk{text-align:left}
+  .sp-r .nm i{font-style:normal;color:var(--muted);font-weight:400}
+  .sp-in,.sp-out,.sp-un,.sp-ur{font-weight:600;color:var(--ink-2);font-size:13px}
+  .sp-hd .sp-in,.sp-hd .sp-out,.sp-hd .sp-un,.sp-hd .sp-ur{font-size:10.5px;font-weight:700;color:var(--muted);cursor:help}
+  .sp-r .hot{color:var(--dn)}
+  .sp-na{grid-column:3 / -1;text-align:left;font-style:italic;color:var(--muted);font-size:12.5px}
+  .q.zero,.rt.zero{color:var(--muted);font-weight:500}
+  .lbl{display:none;color:var(--muted);font-weight:400}
+  .up{color:var(--up)} .down{color:var(--dn)}
+  .mk{font-size:9px;padding-right:2px}
+
+  @media(max-width:560px){
+    .hd{display:none}
+    /* The three sub-figures sit in AUTO columns, so each one is only as wide as
+       the widest value in that column across the whole list -- they stay tight
+       together under the name instead of spanning the screen, and still line up
+       down the page. Equal 1fr columns aligned them but pushed them apart, which
+       made a list you scroll daily harder to read, not easier. The trailing
+       column absorbs the slack. */
+    /* Two rows on a phone: name + talk, then dials, >3m, quotes, retainers.
+       In/out and >10m live in the panel (2026-10-15: "reduce amount of
+       information on collapsed state except for most pressing details"). */
+    .r{grid-template-columns:16px auto auto auto auto minmax(0,1fr) auto;
+       grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 q  rt . .";
+       row-gap:0;column-gap:9px;padding:6px 0}
+    .rk{font-size:11px}
+    .nm{font-size:14px;padding-right:6px}
+    .tk{font-size:14px}
+    .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
+    .d,.t3,.t10,.q,.rt,.io{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
+    .io{grid-area:io}
+    .sp-hd,.sp-r{grid-template-columns:16px minmax(0,1fr) 46px 52px 58px 54px}
+    .sp-r{padding:6px 0} .sp-r .nm{font-size:14px}
+    .sp-in,.sp-out,.sp-un,.sp-ur{font-size:12.5px}
+    .sum .srow{grid-template-columns:38px minmax(0,1fr);font-size:12px;gap:0 8px}
+    .sum .sv i.med{display:none}
+    /* a phone keeps the headline numbers; the sub-notes are on desktop */
+    .sum .sv i,.sum .tot .alt{display:none}
+    /* The number carries the row; the word only says which number. */
+    .lbl{display:inline;font-size:10.5px;opacity:.7}
+    .mk{font-size:8px}
+    .det{padding:8px 0 10px 16px}
+    /* Two columns in the panel: three wrapped "Quotes sent" on a narrow phone,
+       and a wrapped label reads as two fields. */
+    .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px}
+
+    /* Everything above the first row is chrome, and on a phone it was pushing
+       the data down a third of the screen: the header orphaned "525 RingCX"
+       onto its own line, the floor line orphaned "10m", and the legend ran to
+       three. Shorter words, tighter leading, and the two call counts break as
+       one unit instead of splitting. */
+    .lead-long{display:none} .lead-short{display:inline}
+    .floor{font-size:12px;line-height:1.45}
+    .floor .sep{padding:0 4px}
+    .tot{font-size:12px}
+    .tot .sep{padding:0 4px}
+    #stamp{font-size:12px;line-height:1.45}
+    .key{font-size:10.5px;gap:0 10px;line-height:1.45;padding:0 0 6px}
+    .key span:nth-child(2){display:none}   /* "Floor = median rep" -- the word
+                                              Floor is right above it */
+  }
+  /* Five figures under the name ran 10px into the gutter at 360px once quotes
+     and retainers joined the call counts. Tighter gaps hold them on one line
+     rather than wrapping a second one under every rep. */
+  @media(max-width:380px){
+    .r{column-gap:6px}
+  }
+
+  ul{list-style:none;margin:0;padding:0}
+  li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 12px;
+     padding:6px 0;border-bottom:1px solid var(--hair);font-size:13.5px}
+  li:last-child{border-bottom:0}
+  li b{font-weight:600}
+  li.low b{color:var(--dn)}
+  li span{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  p.note{font-size:12px;color:var(--muted);line-height:1.55;margin:8px 0 0}
+  p.note b{color:var(--ink-2);font-weight:650}
+  .recon{font-size:12.5px;color:var(--muted);padding:7px 0;border-top:1px solid var(--rule)}
+  .recon b{color:var(--ink);font-weight:700}
+  .warn{font-size:12.5px;color:var(--mid);padding:7px 0;border-top:1px solid var(--rule)}
+  .age{margin:-6px 0 10px;font-size:12px;color:var(--muted)}
+  .age.bad{color:var(--dn);font-weight:600}
+  .msg{padding:14px 0;font-size:13.5px;color:var(--muted);line-height:1.5;max-width:52ch}
+  .msg b{color:var(--fg);font-weight:600}
+  .msg .sub{margin-top:6px;font-size:12.5px;opacity:.8}
+  .msg.err{color:var(--dn)}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>

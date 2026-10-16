@@ -66,7 +66,8 @@ w = [x for x in rep["warnings"] if x["kind"] == "unclassified_direction"]
 ck("an unreadable direction is surfaced, with the raw value", w and dict(w[0]["values"]).get("Voice") == 1, rep["warnings"])
 
 # ---- the page (in/out moved from the row to the panel on 2026-10-15) ----
-tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
+tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read() + \
+    open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "_board_style.html"), encoding="utf-8").read()  # styles moved to the shared partial 2026-10-16
 ck("the panel carries inbound with answered, and outbound as a plain count",
    "cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>'" in tpl
    and "cell2('Outbound', w(a.outbound || 0), !a.outbound)" in tpl, "panel")
