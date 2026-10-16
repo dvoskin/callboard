@@ -1364,7 +1364,12 @@ _SMS_EXTRA_SEATS = {
 # texts line, and reading it twice would spend the same budget twice.
 _TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True) for s in _SMS_EXTRA_SEATS["sales"]]
 TEAM_LABELS["ringex"] = "Sales \u00b7 New reps (RingEX)"
-_TEAM_SOURCES["ringex"] = "ringex"
+# NOT in _TEAM_SOURCES, on purpose (same as surgical): the report still reads
+# RingEX -- that is the default -- but the warm loop only warms the teams
+# listed there, and listing these nine queued 810 seat-days of 90-day backfill
+# that took RingEX's 10-a-minute budget from billing's live day (2026-10-16:
+# billing read "not known" for five minutes after a deploy). Read on demand,
+# cached like every v6 report.
 _TEAM_SMS["ringex"] = False
 # Which boards carry a Zoho CRM count on each row: activities the person
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed

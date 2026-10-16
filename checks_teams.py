@@ -47,8 +47,8 @@ NINE = ["Annyta Santiago", "Ramon Gallardo", "Roberto Castillo", "Roman Gomez", 
 ck("the RingEX team is the nine October reps, by extension",
    [s["name"] for s in A._TEAM_ROSTERS["ringex"]] == NINE and all(s["ext_id"] for s in A._TEAM_ROSTERS["ringex"]),
    A._TEAM_ROSTERS["ringex"])
-ck("...read from RingEX, every one ranked", A._TEAM_SOURCES["ringex"] == "ringex"
-   and all(s.get("always_rank") for s in A._TEAM_ROSTERS["ringex"]), A._TEAM_SOURCES.get("ringex"))
+ck("...read from RingEX on demand, NOT warmed: no 90-day backfill competing with billing's live day",
+   "ringex" not in A._TEAM_SOURCES and all(s.get("always_rank") for s in A._TEAM_ROSTERS["ringex"]), A._TEAM_SOURCES.get("ringex"))
 ck("...texts not read twice (/v5 reads these seats already)", A._TEAM_SMS["ringex"] is False, A._TEAM_SMS)
 ck("...with a board of its own", A._TEAM_PATHS["ringex"] == "sales-ringex"
    and any(r.rule == "/sales-ringex" for r in A.app.url_map.iter_rules()), A._TEAM_PATHS)
