@@ -180,10 +180,12 @@ ck("the route carries counts only -- no numbers, no text", "3055550" not in str(
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
 ck("each rep's name carries its texts line", "'<span class=\"nm\" data-name=\"' + esc(a.name) + '\">' + esc(a.name) + smsLine(a.name) + '</span>'" in tpl, "name hook")
 ck("the texts are fetched after every report, with the same window and token", "render(res.j);\n        smsPaint();" in tpl and "loadSms(q);" in tpl and "fetch('/api/v5/sms?' + key" in tpl, "fetch hook")
-ck("the line: sent with typed / auto, received, unread in red, waiting",
-   "' <i>(' + s.sent_typed + ' typed \\u00b7 ' + s.sent_auto + ' auto)</i>'" in tpl and "' <i>(all typed)</i>'" in tpl and "' <b>' + s.received + '</b>\\u2193'" in tpl
-   and "<b class=\"hot\">' + s.unread + '</b> unread'" in tpl and "s.unanswered + ' waiting'" in tpl, "line")
-ck("a team total sits above the list", "id=\"smstot\" class=\"smstot\"" in tpl and "</b> waiting on a reply'" in tpl, "totals")
+ck("the line: sent (the typed / auto split when anything was automated), received, unread in red, waiting",
+   "(split && s.sent_auto ? ' <i>(' + s.sent_typed + ' typed \\u00b7 ' + s.sent_auto + ' auto)</i>' : '')" in tpl
+   and "' <b>' + s.received + '</b>\\u2193'" in tpl
+   and "<b class=\"hot\">' + s.unread + '</b> unread'" in tpl and "s.unanswered + ' waiting'" in tpl and "(all typed)" not in tpl, "line")
+ck("the team's texts fill their row in the summary block", "var row = $('smsrow'), rv = $('smsrowv');" in tpl
+   and "'</b> waiting on a reply'" in tpl and "row.hidden = false;" in tpl, "totals")
 ck("names match exactly, then by first + last name", "kt.indexOf(t[0]) >= 0 && kt.indexOf(t[t.length - 1]) >= 0" in tpl, "matching")
 ck("while loading it asks again, for up to four minutes", "if (++SMS_TRIES <= 30) setTimeout" in tpl, "retry")
 ck("the page passes the names it shows, once per window", "'&names=' + encodeURIComponent(names.join('|'))" in tpl and "SMS_TRIES === 0" in tpl, "names")

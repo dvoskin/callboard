@@ -67,14 +67,28 @@ ck("an unreadable direction is surfaced, with the raw value", w and dict(w[0]["v
 
 # ---- the page ----
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
-ck("a column after Dials, desktop and phone grids", "grid-template-areas:\"rk nm tk d io t3 t10 q rt\"" in tpl
-   and "\".  d  io t3 t10 q rt .\"" in tpl and "<span class=\"a-io\"" in tpl, "grid")
+ck("a column after Dials on desktop; on a phone the call figures get their own row",
+   "grid-template-areas:\"rk nm tk d io t3 t10 q rt\"" in tpl and "<span class=\"a-io\"" in tpl
+   and "\".  d  io t3 t10 . .\" \".  q  rt .  .   . .\"" in tpl, "grid")
 ck("each row shows in . out with the answered/connected counts on hover",
    "cell(a.attempts, f.attempts, 'd', ' dials') +\n           ioCell(a) +" in tpl and "' inbound (' + (a.inbound_answered || 0) + ' answered)" in tpl, "row")
 ck("the panel carries inbound answered and outbound connected",
    "cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>'" in tpl
    and "cell2('Outbound', w(a.outbound || 0) + ' <i>' + w(a.outbound_connected || 0) + ' connected</i>'" in tpl, "panel")
-ck("a team calls line above the list", "h += '<div class=\"calls\"" in tpl and "</b> inbound <i>(' + w(TT.inbound_answered) + ' answered)</i>'" in tpl, "team line")
+ck("a Calls row in the summary block, with answered and connected",
+   "<span class=\"sl\">Calls</span>" in tpl and "'</b> inbound <i>' + fmt(TT.inbound_answered) + ' answered</i>'" in tpl
+   and "'</b> outbound <i>' + fmt(TT.outbound_connected) + ' connected</i>'" in tpl, "team line")
+
+# ---- design pass, 2026-10-15: "accommodate all the data more efficiently on desktop and mobile"
+ck("the board widens on a desktop so a rep's texts fit on one line", "@media(min-width:900px){.wrap{max-width:920px}}" in tpl, "width")
+ck("the summary is one labelled block: Floor, Sent, Calls, Texts",
+   "h += '<div class=\"sum\"><div class=\"floor srow\">" in tpl and "<div class=\"tot srow\"><span class=\"sl\">Sent</span>" in tpl
+   and "id=\"smsrow\" hidden><span class=\"sl\">Texts</span>" in tpl and ".sum .srow{display:grid;grid-template-columns:44px minmax(0,1fr)" in tpl, "summary")
+ck("big totals are written 3,095 not 3095", "function fmt(n) { return Math.round(n || 0).toLocaleString('en-US'); }" in tpl, "fmt")
+ck("data notes fold under one line, and the texts table sits above them",
+   "<details class=\"notes\" id=\"datanotes\"><summary>Data notes'" in tpl and tpl.count("nNotes++, notes += '") == 4
+   and "(dn ? dn : $('out')).insertAdjacentHTML(dn ? 'beforebegin' : 'beforeend'" in tpl, "notes")
+ck("a stale or stopped report still warns in the open", "if (x.kind === 'report_stale') h += '<div class=\"warn\">'" in tpl, "stale warn")
 
 for e in errors:
     print("  FAIL", e)

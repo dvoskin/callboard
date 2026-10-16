@@ -23,6 +23,9 @@
   .n{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
   .wrap{max-width:680px;margin:0 auto;padding:20px 14px 44px}
   @media(min-width:640px){.wrap{padding:32px 22px 56px}}
+  /* Design pass 2026-10-15: calls in/out and texts joined the row; at 680px the
+     name column was ~150px and every rep's texts line wrapped to three lines. */
+  @media(min-width:900px){.wrap{max-width:920px}}
 
   h1{margin:0 0 2px;font-size:20px;line-height:1.15;letter-spacing:-.02em;font-weight:700}
   .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
@@ -44,8 +47,7 @@
   .spin{font-size:12px;color:var(--muted)}
 
   /* the floor, one line */
-  .floor{font-size:12.5px;color:var(--muted);padding:8px 0;
-         border-top:1px solid var(--rule)}
+  .floor{font-size:12.5px;color:var(--muted);padding:8px 0}
   .key{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:11px;color:var(--muted);
        padding:0 0 7px;border-bottom:1px solid var(--rule);line-height:1.5}
   .lead-short{display:none}
@@ -57,7 +59,7 @@
   .floor b{color:var(--ink);font-weight:700}
   .floor .sep{opacity:.45;padding:0 5px}
   /* Totals, not medians, so a line of their own under the floor. */
-  .tot{font-size:12.5px;color:var(--muted);margin-top:-3px;padding:0 0 8px}
+  .tot{font-size:12.5px;color:var(--muted);padding:0 0 8px}
   .tot b{color:var(--ink);font-weight:700}
   .tot .sep{opacity:.45;padding:0 5px}
   /* Books' own date filter, beside the board's count rather than instead of it:
@@ -134,8 +136,19 @@
   /* inbound . outbound: a count, not a contest -- no arrow against the floor */
   .io{grid-area:io;font-weight:600;color:var(--ink-2);font-size:13px;cursor:help}
   .io i{font-style:normal;color:var(--muted);font-weight:400;padding:0 2px}
-  .calls{font-size:12px;color:var(--ink-2);padding:6px 0 0}
-  .calls b{color:var(--ink);font-weight:700} .calls i{font-style:normal;color:var(--muted)}
+  /* the summary: one labelled block -- Floor (medians), Sent, Calls, Texts */
+  .sum{border-top:1px solid var(--rule);padding:7px 0 6px}
+  .sum .srow{display:grid;grid-template-columns:44px minmax(0,1fr);gap:0 10px;align-items:baseline;
+             font-size:12.5px;color:var(--muted);padding:2px 0;border:0;margin:0}
+  .sum .sl{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .sum .sv b{color:var(--ink);font-weight:700} .sum .sv b.hot{color:var(--dn)}
+  .sum .sv i{font-style:normal;color:var(--muted)} .sum .sv i.med{font-size:11px;opacity:.8;margin-left:4px}
+  .sum .sep{opacity:.45;padding:0 5px}
+  .sum .tot .alt{display:block;font-size:11px}
+  details.notes{margin:16px 0 0;border-top:1px solid var(--rule);padding-top:8px}
+  details.notes>summary{cursor:pointer;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);list-style:none}
+  details.notes>summary::before{content:'\25B8  '} details.notes[open]>summary::before{content:'\25BE  '}
+  details.notes .warn,details.notes .recon,details.notes .note{font-size:12px}
   .dg b i{font-style:normal;font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
   /* the other lines' texts: a small table at the foot of the board */
   .smspanel{margin:22px 0 4px;max-width:420px}
@@ -160,14 +173,20 @@
        down the page. Equal 1fr columns aligned them but pushed them apart, which
        made a list you scroll daily harder to read, not easier. The trailing
        column absorbs the slack. */
-    .r{grid-template-columns:16px auto auto auto auto auto minmax(0,1fr) auto;
-       grid-template-areas:"rk nm nm nm nm nm nm tk" ".  d  io t3 t10 q rt .";
+    /* Three rows on a phone: name + talk, the call figures, then quotes and
+       retainers. Six figures on one row ran off a 390px screen once in/out
+       joined them, and the page scrolled sideways (2026-10-15). */
+    .r{grid-template-columns:16px auto auto auto auto minmax(0,1fr) auto;
+       grid-template-areas:"rk nm nm nm nm nm tk" ".  d  io t3 t10 . ." ".  q  rt .  .   . .";
        row-gap:0;column-gap:9px;padding:6px 0}
     .rk{font-size:11px}
     .nm{font-size:14px;padding-right:6px}
     .tk{font-size:14px}
     .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
     .d,.t3,.t10,.q,.rt,.io{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
+    .io{grid-area:io} .q,.rt{margin-top:1px}
+    .sum .srow{grid-template-columns:38px minmax(0,1fr);font-size:12px;gap:0 8px}
+    .sum .sv i.med{display:none}
     /* The number carries the row; the word only says which number. */
     .lbl{display:inline;font-size:10.5px;opacity:.7}
     .mk{font-size:8px}
@@ -182,9 +201,9 @@
        three. Shorter words, tighter leading, and the two call counts break as
        one unit instead of splitting. */
     .lead-long{display:none} .lead-short{display:inline}
-    .floor{font-size:12px;padding:6px 0;line-height:1.45}
+    .floor{font-size:12px;line-height:1.45}
     .floor .sep{padding:0 4px}
-    .tot{font-size:12px;padding:0 0 6px}
+    .tot{font-size:12px}
     .tot .sep{padding:0 4px}
     #stamp{font-size:12px;line-height:1.45}
     .key{font-size:10.5px;gap:0 10px;line-height:1.45;padding:0 0 6px}
@@ -249,6 +268,7 @@
   // A median over an even number of people lands on .5 — right, but it reads as a
   // typo. Display rounds; every comparison still uses the true value.
   function w(n) { return Math.round(n || 0); }
+  function fmt(n) { return Math.round(n || 0).toLocaleString('en-US'); }   // 3,095 not 3095 in the summary
   function money(v) {
     return v == null ? '\u2014' : '$' + Math.round(v).toLocaleString();
   }
@@ -282,8 +302,7 @@
               s.unanswered + ' conversation' + (s.unanswered === 1 ? '' : 's') + ' where the patient wrote last' +
               (s.complete ? '' : ' -- part of the window could not be read, so these are a floor') + '. RingEX extension ' + (s.ext || '?') + '.';
     return '<span class="sms" title="' + esc(tip) + '"><b>' + s.sent + '</b>\u2191' +
-      (split ? (s.sent_auto ? ' <i>(' + s.sent_typed + ' typed \u00b7 ' + s.sent_auto + ' auto)</i>'
-                            : (s.sent ? ' <i>(all typed)</i>' : '')) : '') +
+      (split && s.sent_auto ? ' <i>(' + s.sent_typed + ' typed \u00b7 ' + s.sent_auto + ' auto)</i>' : '') +
       ' <b>' + s.received + '</b>\u2193' +
       (s.unread ? ' \u00b7 <b class="hot">' + s.unread + '</b> unread' : '') +
       (s.unanswered ? ' \u00b7 ' + s.unanswered + ' waiting' : '') +
@@ -296,17 +315,16 @@
       var html = smsLine(el.getAttribute('data-name'));
       if (html) el.insertAdjacentHTML('beforeend', html);
     });
-    var tot = $('smstot'); if (tot) tot.remove();
-    var hd = out.querySelector('.hd');
-    if (SMS && SMS.totals && hd) {
+    var row = $('smsrow'), rv = $('smsrowv');
+    if (SMS && SMS.totals && row && rv) {
       var T = SMS.totals, sp = T.sent_typed != null;
-      hd.insertAdjacentHTML('beforebegin', '<div id="smstot" class="smstot" title="Texts on the reps\u2019 RingEX extensions in this window">Texts' +
-        ' <b>' + T.sent + '</b> sent' + (sp ? ' (' + T.sent_typed + ' typed \u00b7 ' + T.sent_auto + ' auto)' : '') +
-        ' \u00b7 <b>' + T.received + '</b> received' +
-        ' \u00b7 <b' + (T.unread ? ' class="hot"' : '') + '>' + T.unread + '</b> unread' +
-        ' \u00b7 <b>' + T.unanswered + '</b> waiting on a reply' +
-        (T.incomplete_seats ? ' \u00b7 <i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') +
-        (T.unknown_seats ? ' \u00b7 <i>' + T.unknown_seats + ' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>' : '') + '</div>');
+      rv.innerHTML = '<b>' + fmt(T.sent) + '</b> sent' + (sp ? ' <i>' + fmt(T.sent_typed) + ' typed \u00b7 ' + fmt(T.sent_auto) + ' auto</i>' : '') +
+        '<span class="sep">\u00b7</span><b>' + fmt(T.received) + '</b> received' +
+        '<span class="sep">\u00b7</span><b' + (T.unread ? ' class="hot"' : '') + '>' + fmt(T.unread) + '</b> unread' +
+        '<span class="sep">\u00b7</span><b>' + fmt(T.unanswered) + '</b> waiting on a reply' +
+        (T.incomplete_seats ? '<span class="sep">\u00b7</span><i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') +
+        (T.unknown_seats ? '<span class="sep">\u00b7</span><i>' + T.unknown_seats + ' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>' : '');
+      row.hidden = false;
     }
     smsPanel();
   }
@@ -325,7 +343,8 @@
     }).join('') + un.map(function (l) {
       return '<tr><th>' + esc(l) + '</th><td colspan="4" class="na">no RingEX line found</td></tr>';
     }).join('');
-    $('out').insertAdjacentHTML('beforeend', '<div id="smspanel" class="smspanel"><div class="sp-h">Texts \u00b7 other lines</div>' +
+    var dn = $('datanotes');
+    (dn ? dn : $('out')).insertAdjacentHTML(dn ? 'beforebegin' : 'beforeend', '<div id="smspanel" class="smspanel"><div class="sp-h">Texts \u00b7 other lines</div>' +
       '<table><thead><tr><th></th><th title="Received">In</th><th title="Sent">Out</th>' +
       '<th title="Conversations where the other side wrote last">Unanswered</th><th title="Received and not opened">Unread</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>');
@@ -355,7 +374,7 @@
     var tip = ib + ' inbound (' + (a.inbound_answered || 0) + ' answered) \u00b7 ' + ob + ' outbound (' +
               (a.outbound_connected || 0) + ' connected)' + (unk ? ' \u00b7 ' + unk + ' with no direction in the report' : '');
     return '<span class="io" title="' + esc(tip) + '">' + w(ib) + '<i>\u00b7</i>' + w(ob) +
-           '<span class="lbl"> in \u00b7 out</span></span>';
+           '<span class="lbl"> in\u00b7out</span></span>';
   }
 
   function cell(v, med, cls, label) {
@@ -410,12 +429,12 @@
              '</span></span>';
     };
     var h = '';
-    h += '<div class="floor"><span class="lead-long">Floor to clear</span>' +
-         '<span class="lead-short">Floor</span>&nbsp; <b>' + hm(f.talk) + '</b> talk' +
+    h += '<div class="sum"><div class="floor srow"><span class="sl"><span class="lead-long">Floor</span>' +
+         '<span class="lead-short">Floor</span></span><span class="sv"><b>' + hm(f.talk) + '</b> talk' +
          '<span class="sep">·</span><b>' + w(f.attempts) + '</b> dials' +
          '<span class="sep">·</span><b>' + w(f.over_3) + '</b> &gt;3m' +
-         '<span class="sep">·</span><b>' + w(f.over_10) + '</b> &gt;10m</div>';
-    h += '<div class="tot">Sent&nbsp; <b>' +
+         '<span class="sep">·</span><b>' + w(f.over_10) + '</b> &gt;10m <i class="med">median rep</i></span></div>';
+    h += '<div class="tot srow"><span class="sl">Sent</span><span class="sv"><b>' +
          (booksHas('quotes_sent') ? w(sumB('quotes_sent')) : '\u2014') + '</b> quotes' +
          '<span class="sep">·</span><b>' +
          (booksHas('retainers_sent') ? w(sumB('retainers_sent')) : '\u2014') + '</b> retainers' +
@@ -427,7 +446,16 @@
               (bm.retainers_by_books_date != null
                  ? ' · ' + w(bm.retainers_by_books_date) + ' retainers' : '') +
               ' — a quote written in the evening carries the next day\u2019s date</span>'
-            : '') + '</div>';
+            : '') + '</span></div>';
+    var TT = d.totals || {};
+    if ((TT.inbound || 0) + (TT.outbound || 0)) {
+      h += '<div class="srow" title="Every call on the board, by its own direction"><span class="sl">Calls</span><span class="sv">' +
+           '<b>' + fmt(TT.inbound) + '</b> inbound <i>' + fmt(TT.inbound_answered) + ' answered</i>' +
+           '<span class="sep">\u00b7</span><b>' + fmt(TT.outbound) + '</b> outbound <i>' + fmt(TT.outbound_connected) + ' connected</i>' +
+           (TT.dir_unknown ? '<span class="sep">\u00b7</span><i>' + fmt(TT.dir_unknown) + ' with no direction</i>' : '') + '</span></div>';
+    }
+    // Texts land after the report; smsPaint fills this row in place.
+    h += '<div class="srow" id="smsrow" hidden><span class="sl">Texts</span><span class="sv" id="smsrowv"></span></div></div>';
     // A legend, not a tooltip: this is read on phones, where hover does not exist.
     h += '<div class="key">' +
            '<span><b class="u">▲</b><b class="d">▼</b> vs the floor</span>' +
@@ -436,13 +464,6 @@
            '<span><b>&gt;3m/&gt;10m</b> = real conversations, not dialer touches</span>' +
          '</div>';
 
-    var TT = d.totals || {};
-    if ((TT.inbound || 0) + (TT.outbound || 0)) {
-      h += '<div class="calls" title="Every call on the board, by its own direction">Calls' +
-           ' <b>' + w(TT.inbound) + '</b> inbound <i>(' + w(TT.inbound_answered) + ' answered)</i>' +
-           ' \u00b7 <b>' + w(TT.outbound) + '</b> outbound <i>(' + w(TT.outbound_connected) + ' connected)</i>' +
-           (TT.dir_unknown ? ' \u00b7 <i>' + w(TT.dir_unknown) + ' with no direction</i>' : '') + '</div>';
-    }
     h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">Rep</span>' +
          '<span class="a-tk">Talk</span><span class="a-d">Dials</span>' +
          '<span class="a-io" title="Inbound and outbound calls, from each call\u2019s own direction">In \u00b7 Out</span>' +
@@ -534,6 +555,9 @@
       if (x.kind === 'report_stopped') h += '<div class="warn">' + esc(x.detail) + '</div>';
     });
 
+    // Data notes: how the board was built and what it could not match --
+    // folded, one line until opened (design pass 2026-10-15).
+    var notes = '', nNotes = 0;
     if (!SHARE) {
       // Books work with nowhere to sit -- no salesperson on the document, or a
       // name that matches no rep here. Named, so the totals above never quietly
@@ -542,7 +566,7 @@
         var xq = (bm.quotes_sent_rows || 0) - sumB('quotes_sent'),
             xr = (bm.retainers_sent_rows || 0) - sumB('retainers_sent');
         if (xq > 0 || xr > 0) {
-          h += '<div class="warn">Books has ' + xq + ' more quote' + (xq === 1 ? '' : 's') +
+          nNotes++, notes += '<div class="warn">Books has ' + xq + ' more quote' + (xq === 1 ? '' : 's') +
                ' and ' + xr + ' more retainer' + (xr === 1 ? '' : 's') +
                ' than this board shows (no salesperson set, or a name with no row here)' +
                ((bm.not_on_board || []).length
@@ -551,7 +575,7 @@
         }
       }
       var r = d.recon || {};
-      h += '<div class="recon">RingCX holds <b>' +
+      nNotes++, notes += '<div class="recon">RingCX holds <b>' +
            (r.coverage_pct == null ? '—' : r.coverage_pct + '%') + '</b> of the connected ' +
            'RingEX calls · <b>' + w(r.matched) + '</b> matched · <b>' + w(r.ex_only) +
            '</b> RingEX-only · <b>' + w(r.uc_only) + '</b> RingCX-only · <b>' +
@@ -559,13 +583,14 @@
       (d.warnings || []).forEach(function (x) {
         if (x.kind === 'report_stale') return;
         if (x.kind === 'report_stopped') return;
-        h += '<div class="warn">' + esc(x.kind.replace(/_/g, ' ')) + ' — ' + esc(x.detail || '') +
+        nNotes++, notes += '<div class="warn">' + esc(x.kind.replace(/_/g, ' ')) + ' — ' + esc(x.detail || '') +
              (x.values ? ' (' + x.values.map(function (v) { return esc(v[0]) + ' ×' + v[1]; }).join(', ') + ')' : '') +
              '</div>';
       });
     }
-    h += '<p class="note">Both phone systems combined, no call counted twice. Talk time only — ' +
+    nNotes++, notes += '<p class="note">Both phone systems combined, no call counted twice. Talk time only — ' +
          'wrap and admin excluded. Shift length isn’t in the data, so a half day sits beside a full one.</p>';
+    h += '<details class="notes" id="datanotes"><summary>Data notes' + (nNotes ? ' (' + nNotes + ')' : '') + '</summary>' + notes + '</details>';
     $('out').innerHTML = h;
 
     // Expand on click. Delegated so it survives every refresh, and keyboard
