@@ -53,12 +53,23 @@ def _fem(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_text=Fals
             _row("d", "Inbound", "+13055550303", "+12125550100", "2026-10-15T15:30:00Z", "\U0001F6D1"),
             _row("e", "Inbound", "+13055550303", "+12125550100", "2026-10-15T15:31:00Z", "Stop")], {"note": None}
 seats = [{"name": "Gabriel Johnson", "ext": "162", "ext_id": 1}, {"name": "Capped", "ext": "2", "ext_id": 2}, {"name": "Broken", "ext": "3", "ext_id": 3}]
-hits, problems = so.scan(_fem, seats, datetime(2026, 10, 15, tzinfo=timezone.utc), datetime(2026, 10, 16, tzinfo=timezone.utc), pause=0)
+hits, problems, outbound = so.scan(_fem, seats, datetime(2026, 10, 15, tzinfo=timezone.utc), datetime(2026, 10, 16, tzinfo=timezone.utc), pause=0)
 ck("the text body is asked for on every seat", all(k for _, k in _asked) and len(_asked) == 3, _asked)
 ck("three STOPs found: two numbers, one of them twice", [h["digits"] for h in hits] == ["3055550101", "3055550303", "3055550303"], hits)
 ck("...with the seat, the time and only the first 40 characters", hits[0]["seat"] == "Gabriel Johnson" and hits[0]["at"] == "2026-10-15T14:00:00Z" and hits[0]["text"] == "STOP" and hits[0]["msg_id"] == "a", hits[0])
 ck("our own outbound STOP line is never a hit", not any(h["digits"] == "2125550100" for h in hits), hits)
 ck("a capped seat and a seat that errored are reported, not counted clean", [p["seat"] for p in problems] == ["Capped", "Broken"] and "429" in problems[1]["note"], problems)
+ck("every text the seats SENT comes back too, for the honored check", outbound == [{"digits": "3055550101", "seat": "Gabriel Johnson", "at": "2026-10-15T14:01:00Z", "status": ""}], outbound)
+
+# Honored = nothing sent to the number after its STOP, from ANY seat.
+_nums = {"3055550101": {"first_seen": "2026-10-15T14:00:00Z"}, "3055550303": {"first_seen": "2026-10-15T15:30:00Z"}}
+_out = [{"digits": "3055550101", "seat": "A", "at": "2026-10-15T13:59:00Z", "status": "Delivered"},   # before: fine
+        {"digits": "3055550101", "seat": "B", "at": "2026-10-15T16:00:00Z", "status": "Delivered"},   # after, another seat
+        {"digits": "3055550303", "seat": "A", "at": "2026-10-15T17:00:00Z", "status": "SendingFailed"},  # attempted counts
+        {"digits": "3055550999", "seat": "A", "at": "2026-10-15T18:00:00Z", "status": "Delivered"}]   # not on the list
+_aft = so.texted_after_stop(_nums, _out)
+ck("a text after the STOP is caught from another seat, a failed attempt counts, newest first",
+   [(o["digits"], o["seat"]) for o in _aft] == [("3055550303", "A"), ("3055550101", "B")], _aft)
 
 # ---- the list: deduped by message, new numbers reported once, survives a reload ----
 tmp = os.path.join(tempfile.mkdtemp(), "sms_opt_outs.json")
@@ -139,6 +150,9 @@ ck("Zoho writes need the list to be armed, and the env switch still overrides",
    "write = os.environ.get(\"OPT_OUT_ZOHO_WRITE\", \"1\") != \"0\" and bool(_optouts.data.get(\"zoho_armed\"))" in _src
    and "if write and _zoho.refresh_token and _zoho.client_id:" in _src, "arming gate")
 ck("a fresh list is disarmed", not so.Store(os.path.join(tempfile.mkdtemp(), "x.json")).data.get("zoho_armed"), "armed by default")
+ck("the hourly scan reads 20 pages a seat, so a blast line's STOPs are not past the cap",
+   "seats, start_dt, end_dt,\n                                                     max_pages=20)" in _src
+   and "after = _optouts_mod.texted_after_stop(_optouts.data[\"numbers\"], outbound)" in _src and "\"texted_after_stop\": len(after)" in _src, "cap or honored check")
 A._v6_allowed = lambda: True
 try:
     r404 = _c.get("/api/v6/opt-outs?mark=3055559999")

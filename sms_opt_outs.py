@@ -72,11 +72,13 @@ def scan(fetch_messages, seats, start_dt, end_dt, max_pages=4, timeout=15.0, pau
 
     fetch_messages -- RingCXClient.fetch_extension_messages (keep_text is asked for)
     seats          -- [{name, ext, ext_id}, ...]
-    Returns (hits, problems): hits are dicts {digits, seat, ext, at, text,
-    msg_id}; problems are per-seat notes (a seat whose store could not be read
-    is reported, never counted as clean).
+    Returns (hits, problems, outbound): hits are dicts {digits, seat, ext,
+    at, text, msg_id}; problems are per-seat notes (a seat whose store could
+    not be read is reported, never counted as clean); outbound is every text
+    the seats SENT, as {digits, seat, at, status} -- what tells a STOP that was
+    honored from one that was not.
     """
-    hits, problems = [], []
+    hits, problems, outbound = [], [], []
     for seat in seats:
         try:
             rows, meta = fetch_messages(seat["ext_id"], start_dt, end_dt, max_pages=max_pages,
@@ -87,6 +89,12 @@ def scan(fetch_messages, seats, start_dt, end_dt, max_pages=4, timeout=15.0, pau
         if meta.get("note"):
             problems.append({"seat": seat.get("name"), "note": meta.get("note")})
         for r in rows:
+            if r.get("direction") == "Outbound":
+                to = _digits(r.get("to_number"))
+                if len(to) == 10:
+                    outbound.append({"digits": to, "seat": seat.get("name"), "at": r.get("start_time") or "",
+                                     "status": r.get("status") or ""})
+                continue
             if r.get("direction") != "Inbound":
                 continue
             txt = r.get("text", "")
@@ -99,7 +107,23 @@ def scan(fetch_messages, seats, start_dt, end_dt, max_pages=4, timeout=15.0, pau
                          "at": r.get("start_time") or "", "text": txt.strip()[:40], "msg_id": str(r.get("id") or "")})
         if pause:
             time.sleep(pause)
-    return hits, problems
+    return hits, problems, outbound
+
+
+def texted_after_stop(numbers, outbound):
+    """Every text SENT to a number after it said STOP, from any seat.
+
+    numbers  -- the Store's {digits: {first_seen, ...}}
+    outbound -- scan()'s third return
+    A failed send still counts: it was attempted. Sorted newest first.
+    """
+    out = []
+    for o in outbound:
+        rec = numbers.get(o["digits"])
+        if rec and o["at"] > (rec.get("first_seen") or "9999"):
+            out.append(dict(o))
+    out.sort(key=lambda o: o["at"], reverse=True)
+    return out
 
 
 class Store:

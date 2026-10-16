@@ -2949,10 +2949,21 @@ def _optouts_run(days=2):
             unresolved += u
         seen = set()
         seats = [s for s in seats if not (s["ext_id"] in seen or seen.add(s["ext_id"]))]
-        hits, problems = _optouts_mod.scan(_ringcx.fetch_extension_messages, seats, start_dt, end_dt)
+        # 20 pages (5,000 texts) per seat: a blast line sends ~1,000 a day and
+        # a STOP past the cap would be missed. The cap note still reports it.
+        hits, problems, outbound = _optouts_mod.scan(_ringcx.fetch_extension_messages, seats, start_dt, end_dt,
+                                                     max_pages=20)
         new = _optouts.add(hits)
+        # Honored = nothing was sent to the number after its STOP, from any seat.
+        after = _optouts_mod.texted_after_stop(_optouts.data["numbers"], outbound)
+        for d, rec in _optouts.data["numbers"].items():
+            mine = [o for o in after if o["digits"] == d]
+            if mine:
+                rec["texted_after"] = max(rec.get("texted_after") or 0, len(mine))
+                rec["texted_after_last"] = mine[0]
         info.update({"seats": len(seats), "unresolved": unresolved, "hits": len(hits), "new": len(new),
-                     "problems": problems[:20]})
+                     "problems": problems[:20], "texted_after_stop": len(after),
+                     "texted_after_stop_list": after[:50]})
         # Zoho: every number not yet marked, or whose last mark failed -- once
         # the list is ARMED (/api/v6/opt-outs?arm=1, after a positive control
         # on one number with ?mark=). Shipped disarmed: the first scans only
@@ -3028,6 +3039,7 @@ def api_v6_opt_outs():
     nums = _optouts.data["numbers"]
     rows = [{"number": d, "first_seen": r.get("first_seen"), "last_seen": r.get("last_seen"), "seat": r.get("seat"),
              "ext": r.get("ext"), "text": r.get("text"), "messages": len(r.get("msg_ids") or []),
+             "texted_after": r.get("texted_after") or 0, "texted_after_last": r.get("texted_after_last"),
              "zoho": r.get("zoho")} for d, r in sorted(nums.items(), key=lambda kv: kv[1].get("last_seen") or "", reverse=True)]
     return jsonify({"count": len(rows), "armed": bool(_optouts.data.get("zoho_armed")), "state": st,
                     "file": str(_OPTOUT_FILE), "numbers": rows, "runs": _optouts.data.get("runs", [])[-5:]})
