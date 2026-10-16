@@ -222,7 +222,8 @@ window.TB = (function () {
     } else {
       if (m.sum && m.sum.length) {
         h += '<div class="sum">' + m.sum.map(function (s) {
-          return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + s[1] + '</span></div>';
+          // a number keeps its word: lines break at the separators, never between "12" and "\u22652m"
+        return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + String(s[1]).replace(/<\/b> /g, '</b>\u00a0') + '</span></div>';
         }).join('') + '</div>';
       }
       h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">' + esc(m.nameHead || 'Name') + '</span>' +
@@ -237,7 +238,7 @@ window.TB = (function () {
           // figures still stand.
           h += '<div class="r" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
                '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + '<span class="qn">no calls yet today</span>' + (r.press || '') + '</span>' +
-               '<span class="tk zero">\u2014</span><span class="d zero">\u2014</span><span class="t3 zero">\u2014</span>' +
+               '<span class="tk zero">\u2014</span><span class="d"></span><span class="t3"></span>' +
                res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';
           h += '<div class="det" id="' + k + '-d' + i + '"><div class="dg">' +
                (r.panel || []).map(function (p) { return p === 'rule' ? '<span class="rule"></span>' : cell2(p[0], p[1], p[2]); }).join('') +
@@ -335,7 +336,9 @@ window.TB = (function () {
     var T = d.totals || {}, S = function (k) { return (d.ranked || []).reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
     return {
       key: opts.key || 'rx', label: opts.label || d.label || 'Sales Training Class', href: opts.href,
-      sub: opts.sub != null ? opts.sub : rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ' \u00b7 dialing from RingEX',
+      sub: opts.sub != null ? opts.sub : rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ' \u00b7 dialing from RingEX' +
+           (rows.filter(function (r) { return r.unread; }).length && !allUnread
+             ? ' \u00b7 ' + rows.filter(function (r) { return r.unread; }).length + ' not read yet' : ''),
       openOnPhone: !!opts.openOnPhone,
       headline: allUnread ? 'not read yet' :
         '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +

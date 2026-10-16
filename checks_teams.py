@@ -268,7 +268,8 @@ if node:
     ck("a name is escaped, never HTML", "Roman &lt;b&gt;Gomez&lt;/b&gt;" in h and "Roman <b>Gomez" not in h, "esc")
     ck("a missed call not called back shows under the name and in the panel with a tap-to-call",
        '<b class="hot">1</b> missed' in h and 'href="tel:3055550100"' in h, "missed")
-    ck("the summary says the team's totals", "<b>3:56:00</b> talk" in h and "<b>310</b> dials" in h, "sum")
+    ck("the summary says the team's totals, each number glued to its word",
+       "<b>3:56:00</b>\u00a0talk" in h and "<b>310</b>\u00a0dials" in h, "sum")
     ck("the title folds the team; a folded team keeps a one-line headline",
        'class="bt tb-tog" role="button"' in h and ('<div class="tb-stats">' in h or '<p class="tb-hl">' in h) and '<div class="tb-body">' in h, "fold")
     ck("folded, a team shows four figures (value over label), and its board link sits on the title row",
