@@ -54,17 +54,21 @@
     var D = a.days || [], c = a.crm || {}, calls = c.calls || {}, jc = (c.journeys || {}).journey_calls || {},
         t = c.tasks || {}, f = (a.day || {}).focus || {}, ms = a.missed_summary || {};
     var due = calls.due || 0, done = calls.completed || 0, od = calls.overdue || 0;
+    // Zoho's counts load a moment after the calls on a fresh start: a dash
+    // until they arrive, never a confident zero.
+    var crmIn = !!(a.crm && a.crm.calls);
     var row = {
       name: a.name, talk: sum(D, 'talk_seconds'), dials: sum(D, 'dials'), over3: sum(D, 'over_180s'),
       press: press(ms.open), missed: a.missed_calls, missedOpen: ms.open,
-      b: { html: w(od), zero: !od, hot: od > 0, title: 'Zoho calls past their time and still open' }
+      b: crmIn ? { html: w(od), zero: !od, hot: od > 0, title: 'Zoho calls past their time and still open' }
+                 : { html: '—', zero: true, title: 'Zoho counts are still loading' }
     };
     if (team === 'billing') {
       row.a = { html: a.collected_total ? money(a.collected_total) : '—', zero: !a.collected_total,
                 title: 'What this biller recorded as collected in this window' };
     } else {
-      row.a = { html: due ? done + '<i style="font-style:normal;opacity:.6">/' + due + '</i>' : '—', zero: !done,
-                title: 'Zoho calls completed / due in this window' };
+      row.a = { html: crmIn && due ? done + '<i style="font-style:normal;opacity:.6">/' + due + '</i>' : '—', zero: !done,
+                title: crmIn ? 'Zoho calls completed / due in this window' : 'Zoho counts are still loading' };
     }
     row.panel = [
       ['Inbound', w(sum(D, 'inbound')) + ' <i>' + w(sum(D, 'inbound_answered')) + ' answered</i>', !sum(D, 'inbound')],
@@ -98,28 +102,31 @@
     (j.unknown || []).forEach(function (a) {
       if (a && a.name) rows.push({ name: a.name, unread: true });
     });
-    var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0 };
+    var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0, crm: 0 };
     (j.ranked || []).forEach(function (a) {
       var D = a.days || [], calls = (a.crm || {}).calls || {};
       T.talk += sum(D, 'talk_seconds'); T.dials += sum(D, 'dials'); T.over3 += sum(D, 'over_180s');
       T.inb += sum(D, 'inbound'); T.inbA += sum(D, 'inbound_answered'); T.conn += sum(D, 'connected');
       T.mo += (a.missed_summary || {}).open || 0;
       T.due += calls.due || 0; T.done += calls.completed || 0; T.od += calls.overdue || 0;
+      if (a.crm && a.crm.calls) T.crm++;
       T.coll += a.collected_total || 0;
     });
     var result = team === 'billing'
       ? '<b>' + money(T.coll) + '</b> collected' +
         (((j.collections || {}).payments || {}).all_payments ? ' <i>Books: ' + money(j.collections.payments.all_payments) + ' in all payments</i>' : '') +
-        sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> Zoho calls overdue'
-      : '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' Zoho calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue';
+        sep + (T.crm ? '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> Zoho calls overdue' : '<i>Zoho counts loading\u2026</i>')
+      : (T.crm ? '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' Zoho calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue'
+               : '<i>Zoho counts loading\u2026</i>');
     var n = rows.filter(function (r) { return !r.unread; }).length;
     return {
       key: team, label: label, href: href, nameHead: 'Name', dialsHead: 'Dials',
+      retry: !T.crm && (j.ranked || []).length > 0,
       headline: team === 'billing'
         ? '<b>' + money(T.coll) + '</b> collected' + sep + '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> dials' +
-          sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue'
-        : '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> dials' + sep + '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) +
-          ' calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' +
+          (T.crm ? sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' : '')
+        : '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> dials' +
+          (T.crm ? sep + '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' : '') +
           (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed' : ''),
       notes: team === 'billing' ? [
         '<b>Where.</b> Each biller’s RingEX extension, the billers’ collections sheets, and their Zoho calls.',
@@ -250,8 +257,8 @@
           }
           TB.render($(src.id), src.model(res.j));
           // Books loads in the background on the sales boards: ask again shortly.
-          var bm = (res.j.meta || {}).books;
-          if (bm && bm.loading) setTimeout(function () { if (gen === GEN) reloadOne(src, q, gen); }, 12000);
+          var bm = (res.j.meta || {}).books, mdl = src.model(res.j);
+          if ((bm && bm.loading) || mdl.retry) setTimeout(function () { if (gen === GEN) reloadOne(src, q, gen); }, mdl.retry ? 20000 : 12000);
         })
         .catch(function (e) {
           if (gen === GEN) TB.render($(src.id), { label: src.label, error: 'Could not reach the report: ' + esc(e) });
@@ -267,10 +274,17 @@
         });
     });
   }
-  function reloadOne(src, q, gen) {
+  // Asked again a few times, 20 s apart, while Books or Zoho is still loading.
+  function reloadOne(src, q, gen, n) {
+    n = n || 1;
     fetch(src.url + q.toString(), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { if (j && gen === GEN) TB.render($(src.id), src.model(j)); })
+      .then(function (j) {
+        if (!j || gen !== GEN) return;
+        var mdl = src.model(j), bm = (j.meta || {}).books;
+        TB.render($(src.id), mdl);
+        if (((bm && bm.loading) || mdl.retry) && n < 6) setTimeout(function () { if (gen === GEN) reloadOne(src, q, gen, n + 1); }, 20000);
+      })
       .catch(function () {});
   }
 
