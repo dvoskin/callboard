@@ -177,7 +177,9 @@ ck("the route carries counts only -- no numbers, no text", "3055550" not in str(
 
 # ---- the page ----
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
-ck("each rep's name carries its texts line", "'<span class=\"nm\" data-name=\"' + esc(a.name) + '\">' + esc(a.name) + smsLine(a.name) + '</span>'" in tpl, "name hook")
+ck("the texts line lives in each rep's panel; the name carries only the action line",
+   "'<span class=\"dsms\" data-name=\"' + esc(a.name) + '\">' + (smsLine(a.name) || '\\u2014') + '</span>'" in tpl
+   and "esc(a.name) + pressLine(a.name) + '</span>'" in tpl, "name hook")
 ck("the texts are fetched after every report, with the same window and token", "render(res.j);\n        smsPaint();" in tpl and "loadSms(q);" in tpl and "fetch('/api/v5/sms?' + key" in tpl, "fetch hook")
 ck("the line: sent (the typed / auto split when anything was automated), received, unread in red, waiting",
    "(split && s.sent_auto ? ' <i>(' + s.sent_typed + ' typed \\u00b7 ' + s.sent_auto + ' auto)</i>' : '')" in tpl

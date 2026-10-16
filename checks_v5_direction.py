@@ -65,13 +65,8 @@ ck("the totals carry the split", rep["totals"]["inbound"] == 3 and rep["totals"]
 w = [x for x in rep["warnings"] if x["kind"] == "unclassified_direction"]
 ck("an unreadable direction is surfaced, with the raw value", w and dict(w[0]["values"]).get("Voice") == 1, rep["warnings"])
 
-# ---- the page ----
+# ---- the page (in/out moved from the row to the panel on 2026-10-15) ----
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
-ck("a column after Dials on desktop; on a phone the call figures get their own row",
-   "grid-template-areas:\"rk nm tk d io t3 t10 q rt\"" in tpl and "<span class=\"a-io\"" in tpl
-   and "\".  d  io t3 t10 . .\" \".  q  rt .  .   . .\"" in tpl, "grid")
-ck("each row shows in . out with the answered/connected counts on hover",
-   "cell(a.attempts, f.attempts, 'd', ' dials') +\n           ioCell(a) +" in tpl and "' inbound (' + (a.inbound_answered || 0) + ' answered)" in tpl, "row")
 ck("the panel carries inbound answered and outbound connected",
    "cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>'" in tpl
    and "cell2('Outbound', w(a.outbound || 0) + ' <i>' + w(a.outbound_connected || 0) + ' connected</i>'" in tpl, "panel")
@@ -89,6 +84,54 @@ ck("data notes fold under one line, and the texts table sits above them",
    "<details class=\"notes\" id=\"datanotes\"><summary>Data notes'" in tpl and tpl.count("nNotes++, notes += '") == 4
    and "(dn ? dn : $('out')).insertAdjacentHTML(dn ? 'beforebegin' : 'beforeend'" in tpl, "notes")
 ck("a stale or stopped report still warns in the open", "if (x.kind === 'report_stale') h += '<div class=\"warn\">'" in tpl, "stale warn")
+
+# ---- missed calls (Danny, 2026-10-15: "add missed calls to sales call tracker") ----
+cx2 = [
+    # Interaction Report rows: Lead Phone (ani) is the lead both ways
+    {"agent_name": "Roman Gomez", "direction": "Inbound", "result": "Inbound Missed", "talk_time": 0, "duration": 10, "source": "ringcx_csv",
+     "start_time": "2026-10-15 10:00:00", "ani": "3055550101", "campaign_name": "New_Bilingual_IB", "channel": "New_Bilingual_IB", "queue_name": "", "call_type": "Voice"},
+    {"agent_name": "Ana Rep", "direction": "Outbound", "result": "Outbound Answered", "talk_time": 60, "duration": 70, "source": "ringcx_csv",
+     "start_time": "2026-10-15 10:30:00", "ani": "3055550101", "campaign_name": "v2 ENG - New Lead - Call Now", "channel": "v2 ENG - New Lead - Call Now", "queue_name": "", "call_type": "Voice"},
+    {"agent_name": "Roman Gomez", "direction": "Inbound", "result": "Inbound Missed", "talk_time": 0, "duration": 10, "source": "ringcx_csv",
+     "start_time": "2026-10-15 11:00:00", "ani": "3055550202", "campaign_name": "New_Bilingual_IB", "channel": "New_Bilingual_IB", "queue_name": "", "call_type": "Voice"},
+    {"agent_name": "Roman Gomez", "direction": "Inbound", "result": "Inbound Missed", "talk_time": 0, "duration": 10, "source": "ringcx_csv",
+     "start_time": "2026-10-15 12:00:00", "ani": "3055550303", "campaign_name": "New_Bilingual_IB", "channel": "New_Bilingual_IB", "queue_name": "", "call_type": "Voice"},
+    {"agent_name": "Roman Gomez", "direction": "Inbound", "result": "Inbound Accepted", "talk_time": 120, "duration": 130, "source": "ringcx_csv",
+     "start_time": "2026-10-15 12:20:00", "ani": "3055550303", "campaign_name": "New_Bilingual_IB", "channel": "New_Bilingual_IB", "queue_name": "", "call_type": "Voice"},
+    {"agent_name": "Roman Gomez", "direction": "Outbound", "result": "No Answer", "talk_time": 0, "duration": 30, "source": "ringcx_csv",
+     "start_time": "2026-10-15 09:00:00", "ani": "3055550404", "campaign_name": "v2 ENG - New Lead - Call Now", "channel": "v2 ENG - New Lead - Call Now", "queue_name": "", "call_type": "Voice"},
+]
+rep2 = V.build_report([], cx2, tz_offset_minutes=-240, window={"start": "2026-10-15", "end": "2026-10-15"})
+rg = next(a for a in rep2["ranked"] + rep2["unranked"] if a["name"] == "Roman Gomez")
+byn = {m["number"]: m for m in rg["missed_calls"]}
+ck("three missed inbound; an outbound no-answer is not a missed call", rg["missed_in"] == 3 and "(305) 555-0404" not in byn, rg["missed_calls"])
+ck("a teammate calling the number back clears it, and says who and when", byn["(305) 555-0101"]["resolved"] and byn["(305) 555-0101"]["back"]["by"] == "Ana Rep"
+   and byn["(305) 555-0101"]["back"]["at"] == "10:30 AM" and byn["(305) 555-0101"]["back"]["how"] == "called back", byn["(305) 555-0101"])
+ck("the number calling again and being answered clears it", byn["(305) 555-0303"]["resolved"] and byn["(305) 555-0303"]["back"]["how"] == "called again, answered", byn["(305) 555-0303"])
+ck("one stays open, newest first, in local time", rg["missed_open"] == 1 and not byn["(305) 555-0202"]["resolved"]
+   and [m["at"] for m in rg["missed_calls"]] == ["12:00 PM", "11:00 AM", "10:00 AM"], rg["missed_calls"])
+ck("the totals carry missed and still open", rep2["totals"]["missed_in"] == 3 and rep2["totals"]["missed_open"] == 1, rep2["totals"])
+ck("RingEX rows: the caller on an inbound, the callee on an outbound", V._party({"from_number": "+13055550101", "to_number": "+12125550100"}, "in") == "3055550101"
+   and V._party({"from_number": "+12125550100", "to_number": "+13055550101"}, "out") == "3055550101", "party")
+
+import app as A  # noqa: E402
+src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8").read()
+ck("the no-login share link gets counts, never a lead's number",
+   "if GOOGLE_CLIENT_ID and not session.get(\"user\") and not _word_authed():" in src and "a_.pop(\"missed_calls\", None)" in src, "share strip")
+
+# ---- the collapsed row: only what needs doing (2026-10-15) ----
+ck("the collapsed row is talk, dials, >3m, quotes, paid retainers",
+   "grid-template-areas:\"rk nm tk d t3 q rt\"" in tpl and "ioCell(a) +" not in tpl and "cell(a.over_10, f.over_10" not in tpl
+   and "\".  d  t3 q  rt . .\"" in tpl, "row")
+ck("under the name: missed, unread, waiting -- only when non-zero", "if (a.missed_open) bits.push('<b class=\"hot\">' + a.missed_open + '</b> missed');" in tpl
+   and "if (!bits.length) return '';" in tpl and "pressLine(a.name) + '</span>'" in tpl, "press line")
+ck("the panel carries in/out, over 10 min, texts and the missed list",
+   "cell2('Over 10 min', w(a.over_10 || 0), !a.over_10)" in tpl and "'<span class=\"dsms\" data-name=\"'" in tpl and "'</div>' + missedList(a) + '</div>';" in tpl
+   and "'<a class=\"ml-n\" href=\"tel:'" in tpl, "panel")
+# ---- retainers: the row shows PAID (Danny: "the actual paid retainer counts are off") ----
+ck("the row's retainer column is retainers PAID, sent moves to the panel",
+   "bcell(bk.retainers_paid, 'retainers_paid', 'rt', 'paid', 'paid')" in tpl and "bcell(bk.retainers_sent, 'retainers_sent', 'rt'" not in tpl
+   and "cell2('Retainers sent', booksHas('retainers_sent')" in tpl and "'</b> paid' : '')" in tpl, "paid column")
 
 for e in errors:
     print("  FAIL", e)

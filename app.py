@@ -6321,6 +6321,11 @@ def api_v5_report():
                           "and may not contain every interaction." + _last,
             })
         report["meta"]["share_mode"] = bool(_v5_token_ok() and not session.get("user"))
+        # The floor's no-login share link gets the counts, never a lead's
+        # number: the missed-call list is for signed-in viewers only.
+        if GOOGLE_CLIENT_ID and not session.get("user") and not _word_authed():
+            for a_ in (report.get("ranked") or []) + (report.get("unranked") or []):
+                a_.pop("missed_calls", None)
         return jsonify(report)
     except Exception as e:
         log.exception("/api/v5/report error")

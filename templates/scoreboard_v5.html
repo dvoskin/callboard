@@ -71,8 +71,8 @@
   /* Quotes and retainers follow the call figures in wider columns. They are
      Books counts, not calls, so they carry no arrow: the floor is a call median. */
   .hd,.r{display:grid;align-items:center;
-         grid-template-columns:22px minmax(0,1fr) 80px 54px 70px 46px 50px 64px 76px;
-         grid-template-areas:"rk nm tk d io t3 t10 q rt"}
+         grid-template-columns:22px minmax(0,1fr) 84px 64px 56px 70px 80px;
+         grid-template-areas:"rk nm tk d t3 q rt"}
   .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
       color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
   .r{padding:7px 0;border-bottom:1px solid var(--hair)}
@@ -127,6 +127,18 @@
            white-space:normal;line-height:1.35}
   .nm .sms b{font-weight:700;color:var(--ink-2)} .nm .sms i{font-style:normal;opacity:.85}
   .nm .sms b.hot,.smstot b.hot{color:var(--dn)}
+  /* the one line of action under a name: missed, unread, waiting */
+  .nm .press{display:block;margin-top:1px;font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted);white-space:normal}
+  .nm .press b{font-weight:700;color:var(--ink-2)} .nm .press b.hot{color:var(--dn)}
+  .r.low .nm .press{color:var(--muted)}
+  .dsms .sms{display:inline;margin:0;font-size:12px;color:var(--ink-2)}
+  /* the panel's missed calls */
+  .ml{margin:10px 0 2px;max-width:460px}
+  .ml-h{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-bottom:3px}
+  .ml-r{display:grid;grid-template-columns:64px 118px minmax(0,1fr);gap:0 10px;font-size:12.5px;padding:3px 0;border-top:1px solid var(--hair)}
+  .ml-t{color:var(--muted);font-variant-numeric:tabular-nums} .ml-n{font-weight:600;color:var(--ink);text-decoration:none;font-variant-numeric:tabular-nums}
+  .ml-s{color:var(--muted)} .ml-s.hot{color:var(--dn);font-weight:600}
+  .ml-r.done .ml-n{color:var(--muted);font-weight:500}
   .nm .sms.na{font-style:italic;font-weight:400}
   .smstot{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
   .smstot b{color:var(--ink);font-weight:700} .smstot i{font-style:normal;color:var(--muted)}
@@ -181,18 +193,18 @@
        down the page. Equal 1fr columns aligned them but pushed them apart, which
        made a list you scroll daily harder to read, not easier. The trailing
        column absorbs the slack. */
-    /* Three rows on a phone: name + talk, the call figures, then quotes and
-       retainers. Six figures on one row ran off a 390px screen once in/out
-       joined them, and the page scrolled sideways (2026-10-15). */
+    /* Two rows on a phone: name + talk, then dials, >3m, quotes, retainers.
+       In/out and >10m live in the panel (2026-10-15: "reduce amount of
+       information on collapsed state except for most pressing details"). */
     .r{grid-template-columns:16px auto auto auto auto minmax(0,1fr) auto;
-       grid-template-areas:"rk nm nm nm nm nm tk" ".  d  io t3 t10 . ." ".  q  rt .  .   . .";
+       grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 q  rt . .";
        row-gap:0;column-gap:9px;padding:6px 0}
     .rk{font-size:11px}
     .nm{font-size:14px;padding-right:6px}
     .tk{font-size:14px}
     .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
     .d,.t3,.t10,.q,.rt,.io{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
-    .io{grid-area:io} .q,.rt{margin-top:1px}
+    .io{grid-area:io}
     .sp-hd,.sp-r{grid-template-columns:16px minmax(0,1fr) 46px 52px 58px 54px}
     .sp-r{padding:6px 0} .sp-r .nm{font-size:14px}
     .sp-in,.sp-out,.sp-un,.sp-ur{font-size:12.5px}
@@ -319,12 +331,45 @@
       (s.unanswered ? ' \u00b7 ' + s.unanswered + ' waiting' : '') +
       (s.complete ? '' : ' <i>+</i>') + '</span>';
   }
+  // What needs doing, and nothing else: missed calls nobody got back to,
+  // texts not opened, conversations waiting on a reply. Empty when all clear.
+  var AG = {};
+  // Missed inbound calls, newest first: the number to call back, or who got
+  // back to it and when. Signed-in only (the share link gets counts).
+  function missedList(a) {
+    var L = a.missed_calls || [];
+    if (!L.length) return '';
+    return '<div class="ml"><div class="ml-h">Missed calls \u00b7 ' + (a.missed_open || 0) + ' not called back</div>' +
+      L.map(function (m) {
+        return '<div class="ml-r' + (m.resolved ? ' done' : '') + '"><span class="ml-t">' + esc(m.at) + '</span>' +
+          (m.resolved ? '<span class="ml-n">' + esc(m.number) + '</span><span class="ml-s">' + esc((m.back || {}).how || 'called back') + ' ' + esc((m.back || {}).at || '') +
+                        ((m.back || {}).by && (m.back || {}).by !== a.name ? ' \u00b7 ' + esc(m.back.by) : '') + '</span>'
+                      : '<a class="ml-n" href="tel:' + esc(m.number.replace(/[^0-9]/g, '')) + '">' + esc(m.number) + '</a><span class="ml-s hot">call back</span>') + '</div>';
+      }).join('') + '</div>';
+  }
+
+  function pressLine(name) {
+    var a = AG[name] || {}, s = smsFor(name) || {}, bits = [];
+    if (a.missed_open) bits.push('<b class="hot">' + a.missed_open + '</b> missed');
+    if (s.unread) bits.push('<b class="hot">' + s.unread + '</b> unread');
+    if (s.unanswered) bits.push(s.unanswered + ' waiting');
+    if (!bits.length) return '';
+    return '<span class="press" title="' + esc((a.missed_open ? a.missed_open + ' missed inbound call' + (a.missed_open === 1 ? '' : 's') + ' not called back \u00b7 ' : '') +
+           (s.unread ? s.unread + ' text' + (s.unread === 1 ? '' : 's') + ' not opened \u00b7 ' : '') +
+           (s.unanswered ? s.unanswered + ' text conversation' + (s.unanswered === 1 ? '' : 's') + ' waiting on a reply' : '')) + '">' +
+           bits.join(' \u00b7 ') + '</span>';
+  }
+
   function smsPaint() {
     var out = $('out'); if (!out) return;
     out.querySelectorAll('.nm[data-name]').forEach(function (el) {
-      var old = el.querySelector('.sms'); if (old) old.remove();
-      var html = smsLine(el.getAttribute('data-name'));
+      var old = el.querySelector('.press'); if (old) old.remove();
+      var html = pressLine(el.getAttribute('data-name'));
       if (html) el.insertAdjacentHTML('beforeend', html);
+    });
+    // the full texts line lives in the panel
+    out.querySelectorAll('.dsms[data-name]').forEach(function (el) {
+      el.innerHTML = smsLine(el.getAttribute('data-name')) || '\u2014';
     });
     var row = $('smsrow'), rv = $('smsrowv');
     if (SMS && SMS.totals && row && rv) {
@@ -376,17 +421,6 @@
         if (j.agents && Object.keys(j.agents).length) { SMS = j; smsPaint(); }
       })
       .catch(function () {});
-  }
-
-  // Inbound vs outbound, from each call's own direction (Danny, 2026-10-15).
-  // Calls whose direction could not be read count in Dials only, so in + out
-  // can be less than Dials -- the tooltip says how many.
-  function ioCell(a) {
-    var ib = a.inbound || 0, ob = a.outbound || 0, unk = a.dir_unknown || 0;
-    var tip = ib + ' inbound (' + (a.inbound_answered || 0) + ' answered) \u00b7 ' + ob + ' outbound (' +
-              (a.outbound_connected || 0) + ' connected)' + (unk ? ' \u00b7 ' + unk + ' with no direction in the report' : '');
-    return '<span class="io" title="' + esc(tip) + '">' + w(ib) + '<i>\u00b7</i>' + w(ob) +
-           '<span class="lbl"> in\u00b7out</span></span>';
   }
 
   function cell(v, med, cls, label) {
@@ -451,7 +485,7 @@
          '<span class="sep">·</span><b>' +
          (booksHas('retainers_sent') ? w(sumB('retainers_sent')) : '\u2014') + '</b> retainers' +
          (booksHas('retainers_paid')
-            ? '<span class="sep">·</span><b>' + w(sumB('retainers_paid')) + '</b> closed' : '') +
+            ? '<span class="sep">·</span><b>' + w(sumB('retainers_paid')) + '</b> paid' : '') +
          (bm && bm.loading ? '<span class="sep">·</span>loading from Books…' : '') +
          (booksHas('quotes_sent') && bm.quotes_by_books_date != null
             ? '<br><span class="alt">Books date filter: ' + w(bm.quotes_by_books_date) + ' quotes' +
@@ -464,6 +498,7 @@
       h += '<div class="srow" title="Every call on the board, by its own direction"><span class="sl">Calls</span><span class="sv">' +
            '<b>' + fmt(TT.inbound) + '</b> inbound <i>' + fmt(TT.inbound_answered) + ' answered</i>' +
            '<span class="sep">\u00b7</span><b>' + fmt(TT.outbound) + '</b> outbound <i>' + fmt(TT.outbound_connected) + ' connected</i>' +
+           (TT.missed_in ? '<span class="sep">\u00b7</span><b' + (TT.missed_open ? ' class="hot"' : '') + '>' + fmt(TT.missed_open) + '</b> missed not called back <i>of ' + fmt(TT.missed_in) + '</i>' : '') +
            (TT.dir_unknown ? '<span class="sep">\u00b7</span><i>' + fmt(TT.dir_unknown) + ' with no direction</i>' : '') + '</span></div>';
     }
     // Texts land after the report; smsPaint fills this row in place.
@@ -478,9 +513,10 @@
 
     h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">Rep</span>' +
          '<span class="a-tk">Talk</span><span class="a-d">Dials</span>' +
-         '<span class="a-io" title="Inbound and outbound calls, from each call\u2019s own direction">In \u00b7 Out</span>' +
-         '<span class="a-t3">&gt;3m</span><span class="a-t10">&gt;10m</span>' +
-         '<span class="a-q">Quotes</span><span class="a-rt">Retainers</span></div>';
+         '<span class="a-t3">&gt;3m</span>' +
+         '<span class="a-q" title="Quotes sent in this window (Books)">Quotes</span><span class="a-rt" title="Retainers paid in full in this window (Books)">Paid</span></div>';
+    AG = {};
+    ranked.forEach(function (a) { AG[a.name] = a; });
     ranked.forEach(function (a, i) {
       var up = a.talk >= f.talk;
       const bk = a.books || {};
@@ -490,18 +526,17 @@
       };
       h += '<div class="r ' + a.band + '" role="button" tabindex="0" aria-expanded="false"' +
            ' data-det="d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
-           '<span class="nm" data-name="' + esc(a.name) + '">' + esc(a.name) + smsLine(a.name) + '</span>' +
+           '<span class="nm" data-name="' + esc(a.name) + '">' + esc(a.name) + pressLine(a.name) + '</span>' +
            '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' +
              (up ? '▲' : '▼') + '</span>' + hm(a.talk) + '</span>' +
            cell(a.attempts, f.attempts, 'd', ' dials') +
-           ioCell(a) +
            // ">3m" not " over 3m": these labels appear on phones only -- above
            // 560px the column headers say it -- and the long form was most of
            // the width of the row it sat under.
            cell(a.over_3, f.over_3, 't3', ' >3m') +
-           cell(a.over_10, f.over_10, 't10', ' >10m') +
            bcell(bk.quotes_sent, 'quotes_sent', 'q', 'quote', 'quotes') +
-           bcell(bk.retainers_sent, 'retainers_sent', 'rt', 'retainer', 'retainers') +
+           // PAID retainers (Books, closed in the window) -- not sent. Sent lives in the panel.
+           bcell(bk.retainers_paid, 'retainers_paid', 'rt', 'paid', 'paid') +
            '</div>';
       h += '<div class="det" id="d' + i + '"><div class="dg">' +
              cell2('Campaign', hm(a.campaign), !a.campaign) +
@@ -509,6 +544,8 @@
              cell2('Longest', hm(a.longest)) +
              cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>', !a.inbound) +
              cell2('Outbound', w(a.outbound || 0) + ' <i>' + w(a.outbound_connected || 0) + ' connected</i>', !a.outbound) +
+             cell2('Over 10 min', w(a.over_10 || 0), !a.over_10) +
+             cell2('Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>') +
              '<span class="rule"></span>' +
              // Quotes sent is in the row now; the panel keeps what the row does not.
              cell2('Quotes invoiced', booksHas('quotes_sent') ? w(bk.quotes_invoiced || 0) : '\u2014',
@@ -524,10 +561,11 @@
              // well have been collected is worse than showing nothing, which is
              // why this was hidden rather than deleted while the token was
              // refusing. booksHas carries that distinction.
+             // The row shows retainers PAID; the panel keeps how many went out
+             // and what the paid ones were worth.
+             cell2('Retainers sent', booksHas('retainers_sent') ? w(bk.retainers_sent || 0) : '\u2014', !bk.retainers_sent) +
              (booksHas('retainers_paid')
-                ? cell2('Retainers closed', w(bk.retainers_paid || 0), !bk.retainers_paid) +
-                  cell2('Closed $', bk.paid_amount ? money(bk.paid_amount) : '—',
-                        !bk.paid_amount)
+                ? cell2('Paid $', bk.paid_amount ? money(bk.paid_amount) : '\u2014', !bk.paid_amount)
                 : '') +
              // Where the talk time actually went. Name and time only -- the point
              // is which queues a rep is living in, and a call count beside each
@@ -537,7 +575,7 @@
                   return '<div><span>' + esc(c.name) + '</span><b>' +
                          hm(c.talk) + '<i>' + w(c.calls) + '</i></b></div>';
                 }).join('') + '</div>' : '') +
-           '</div></div>';
+           '</div>' + missedList(a) + '</div>';
     });
 
     var low = ranked.filter(function (a) { return a.band === 'low'; });

@@ -140,6 +140,26 @@ def _row_direction(row, channel=""):
     return "unknown"
 
 
+def _party(row, dirn):
+    """The other party's ten digits: the patient or lead on the line.
+
+    The Interaction Report's Lead Phone (ani) is the lead in BOTH directions;
+    RingEX names the caller on an inbound and the callee on an outbound; the
+    live CDR's ANI is the caller, DNIS the callee."""
+    if row.get("source") == "ringcx_csv":
+        v = row.get("ani")
+    elif "from_number" in row or "to_number" in row:
+        v = row.get("from_number") if dirn == "in" else row.get("to_number")
+    else:
+        v = row.get("ani") if dirn == "in" else row.get("dnis")
+    d = "".join(ch for ch in str(v or "") if ch.isdigit())[-10:]
+    return d if len(d) == 10 else ""
+
+
+def _fmt_phone(d):
+    return "(%s) %s-%s" % (d[:3], d[3:6], d[6:]) if len(d) == 10 else d
+
+
 def norm_phone(v) -> str:
     """Last 10 digits, so +1 929 419-5259 / 9294195259 / (929) 419-5259 all match."""
     d = "".join(ch for ch in str(v or "") if ch.isdigit())
@@ -286,14 +306,16 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
 
     dir_unk = {}
 
-    def add(agent, src, talk, connected, missed, wrap=0.0, channel="", dirn="unknown", raw_dir=""):
+    def add(agent, src, talk, connected, missed, wrap=0.0, channel="", dirn="unknown", raw_dir="", row=None):
         name = (agent or "").strip() or "Unassigned"
         if dirn == "unknown":
             k = (raw_dir or "(blank)").strip() or "(blank)"
             dir_unk[k] = dir_unk.get(k, 0) + 1
         led.setdefault(name, []).append(
             {"src": src, "talk": max(0.0, talk), "conn": connected, "missed": missed,
-             "wrap": max(0.0, wrap), "chan": (channel or "").strip(), "dir": dirn})
+             "wrap": max(0.0, wrap), "chan": (channel or "").strip(), "dir": dirn,
+             # who was on the other end, and when -- for the missed-call list
+             "num": _party(row or {}, dirn), "ts": parse_ts((row or {}).get("start_time"), tz_offset_minutes)})
 
     def cx_talk(r):
         t = _num(r.get("talk_time"))
@@ -305,7 +327,7 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         # wrap column, so it is 0 there rather than wrong.
         add(r.get("agent_name"), "campaign", cx_talk(r), st == "connected", st == "missed",
             _num(r.get("wrap_time")), channel=r.get("channel") or r.get("campaign_name"),
-            dirn=_row_direction(r), raw_dir=r.get("direction"))
+            dirn=_row_direction(r), raw_dir=r.get("direction"), row=r)
     for e, u, _ in pairs:                      # counted ONCE, on the RingCX timing
         st = classify_result(e.get("result"))
         # RingEX knows the direction of the rep's own line for certain.
@@ -313,12 +335,12 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         add(u.get("agent_name") or e.get("agent_name"), "direct",
             cx_talk(u), st == "connected", st == "missed",
             channel=u.get("channel") or "UC",
-            dirn=d_ if d_ != "unknown" else _row_direction(u), raw_dir=e.get("direction") or u.get("direction"))
+            dirn=d_ if d_ != "unknown" else _row_direction(u), raw_dir=e.get("direction") or u.get("direction"), row=e)
     for u in uc_unmatched:
         st = classify_result(u.get("result"))
         add(u.get("agent_name"), "direct_cx_only", cx_talk(u),
             st == "connected" or cx_talk(u) > 0, st == "missed",
-            channel=u.get("channel") or "UC", dirn=_row_direction(u), raw_dir=u.get("direction"))
+            channel=u.get("channel") or "UC", dirn=_row_direction(u), raw_dir=u.get("direction"), row=u)
     for e in exrows:
         if id(e) in matched_ex:
             continue
@@ -326,13 +348,45 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         add(e.get("agent_name"), "direct_ex_only",
             _num(e.get("duration")) if st == "connected" else 0.0,
             st == "connected", st == "missed", channel="RingEX direct",
-            dirn=classify_direction(e.get("direction")), raw_dir=e.get("direction"))
+            dirn=classify_direction(e.get("direction")), raw_dir=e.get("direction"), row=e)
 
     if dir_unk:
         warn.append({"kind": "unclassified_direction",
                      "detail": "Calls whose direction could not be read; counted in Dials, "
                                "never as inbound or outbound.",
                      "values": sorted(dir_unk.items(), key=lambda kv: -kv[1])[:8]})
+
+    # Missed inbound calls and whether anyone got back to the number: a later
+    # outbound to it from ANY rep, or the number calling again and being
+    # answered. Danny, 2026-10-15: "add missed calls to sales call tracker".
+    by_num = {}
+    for nm_, L_ in led.items():
+        for x in L_:
+            if x.get("num") and x.get("ts"):
+                by_num.setdefault(x["num"], []).append((x["ts"], nm_, x.get("dir"), x["conn"]))
+    for v in by_num.values():
+        v.sort(key=lambda e: e[0])
+    loc = timedelta(minutes=tz_offset_minutes)
+
+    def _missed_for(name, L):
+        out = []
+        for x in L:
+            if x.get("dir") != "in" or not x["missed"] or x["conn"]:
+                continue
+            back = None
+            if x.get("num") and x.get("ts"):
+                for t2, who, d2, c2 in by_num.get(x["num"], []):
+                    if t2 > x["ts"] and (d2 == "out" or (d2 == "in" and c2)):
+                        back = {"at": (t2 + loc).strftime("%-I:%M %p"), "by": who,
+                                "how": "called back" if d2 == "out" else "called again, answered"}
+                        break
+            out.append({"ts": x.get("ts"), "at": (x["ts"] + loc).strftime("%-I:%M %p") if x.get("ts") else "",
+                        "number": _fmt_phone(x.get("num") or ""), "resolved": back is not None, "back": back})
+        out.sort(key=lambda m: m["ts"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        for m in out:
+            m.pop("ts", None)
+        return {"missed_in": len(out), "missed_open": sum(1 for m in out if not m["resolved"]),
+                "missed_calls": out[:25]}
 
     # "N/A" is what RingCX writes when a leg has no agent -- a queue leg nobody
     # picked up. It is not a person, and it is not a small row: 249 of them in a
@@ -366,6 +420,7 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
              "outbound": sum(1 for x in L if x.get("dir") == "out"),
              "outbound_connected": sum(1 for x in L if x.get("dir") == "out" and x["conn"]),
              "dir_unknown": sum(1 for x in L if x.get("dir") not in ("in", "out"))}
+        a.update(_missed_for(name, L))
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)
 
@@ -431,7 +486,7 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         "totals": {k: sum(a[k] for a in agents) for k in
                    ("talk", "campaign", "direct", "attempts", "missed",
                     "over_1", "over_3", "over_10", "inbound", "inbound_answered",
-                    "outbound", "outbound_connected", "dir_unknown")},
+                    "outbound", "outbound_connected", "dir_unknown", "missed_in", "missed_open")},
         "recon": {
             "matched": len(pairs),
             "ex_connected": ex_connected,
