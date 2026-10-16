@@ -270,7 +270,9 @@ if node:
        '<b class="hot">1</b> missed' in h and 'href="tel:3055550100"' in h, "missed")
     ck("the summary says the team's totals", "<b>3:56:00</b> talk" in h and "<b>310</b> dials" in h, "sum")
     ck("the title folds the team; a folded team keeps a one-line headline",
-       'class="bt tb-tog" role="button"' in h and '<p class="tb-hl">' in h and '<div class="tb-body">' in h, "fold")
+       'class="bt tb-tog" role="button"' in h and ('<div class="tb-stats">' in h or '<p class="tb-hl">' in h) and '<div class="tb-body">' in h, "fold")
+    ck("folded, a team shows four figures (value over label), and its board link sits on the title row",
+       h.count('<div><b') >= 4 and '<span>talk</span>' in h and 'class="tb-head"' in h, "stats")
     ck("on a desktop (no phone media match) a team starts open", '"tb-sec":1' in out.stderr and "collapsed" not in out.stderr, out.stderr[-120:])
     ck("the section's notes sit at its foot, folded", '<details class="notes tb-notes"><summary>Notes</summary>' in h
        and "<b>Delay.</b>" in h and "<b>Columns.</b>" in h and "<b>Marks.</b>" in h, "notes")

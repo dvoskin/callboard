@@ -6,6 +6,17 @@
 <title>All Teams</title>
 {% include "_board_style.html" %}
 <style>
+  /* the legend wraps instead of pushing the page sideways on a phone */
+  .key span{white-space:normal}
+  .sub b.hot{color:var(--dn)}
+  @media(max-width:560px){
+    .key span:nth-child(2){display:inline}
+    .ctl{flex-wrap:nowrap}
+    .ctl input{flex:1 1 0;min-width:0;font-size:12px;padding:4px 6px}
+    .ctl button{flex:0 0 auto}
+    #spin{flex:0 0 auto}
+    h1{font-size:18px}
+  }
   /* one wider result column here: "Calls done" and "Collected" are longer words than "Quotes" */
   @media(min-width:561px){.hd,.r{grid-template-columns:22px minmax(0,1fr) 84px 64px 56px 100px 80px}}
 </style>
@@ -24,10 +35,9 @@
     <button id="go">Refresh</button><span class="spin" id="spin"></span>
   </div>
   <div class="key">
-    <span><b class="u">▲</b><b class="d">▼</b> sales: vs the team’s median rep · coordinators and billing: vs their daily KPI target</span>
-    <span><b>Talk</b> excludes wrap</span>
-    <span><b>&gt;3m</b> = real conversations</span>
-    <span>Tap a team to fold it, a row for the detail</span>
+    <span><b class="u">▲</b><b class="d">▼</b> sales vs the median rep</span>
+    <span>coordinators and billing vs their daily target</span>
+    <span>tap a team to fold it, a row for detail</span>
   </div>
   <!-- Sales first, then coordinators and billing (Danny, 2026-10-16) -->
   <section class="tb-sec first" id="t-sales"><h2 class="bt">Sales Floor</h2><div class="msg">Loading…</div></section>
@@ -152,6 +162,7 @@
     var rows = (j.ranked || []).map(function (a) {
       var r = v6Row(a, team, T6, longLbl);
       r.unread = a.complete === false && !r.talk && !r.dials && !sum(a.days, 'inbound');
+      r.quiet = !r.unread && !!j.live && !sum(a.days, 'calls');
       return r;
     });
     // Seats the report could not read yet ("not known", not "no calls").
@@ -212,7 +223,12 @@
           'in the next 14 days and the day’s priorities.'
       ]).concat([marks]),
       sub: rows.length + ' ' + people + (rows.length === 1 ? '' : 's') +
-           (j.as_of ? ', calls through ' + esc(j.as_of) : '') + (n < rows.length ? ', ' + (rows.length - n) + ' not read yet' : ''),
+           (j.as_of ? ' \u00b7 calls through ' + esc(j.as_of) : '') + (n < rows.length ? ' \u00b7 ' + (rows.length - n) + ' not read yet' : ''),
+      stats: team === 'billing'
+        ? [[money(T.coll), 'collected'], [T.onT + '/' + T.people, 'on target'], [fmt(T.dials), 'calls'],
+           [T.crm ? fmt(T.od) : '\u2014', 'overdue', T.od > 0]]
+        : [[T.onT + '/' + T.people, 'on target'], [TB.hmShort(T.talk), 'talk'],
+           [T.crm ? fmt(T.done) + '/' + fmt(T.due) : '\u2014', 'calls done'], [T.crm ? fmt(T.od) : '\u2014', 'overdue', T.od > 0]],
       colA: team === 'billing' ? 'Collected' : 'Calls done', colB: 'Overdue',
       aLbl: team === 'billing' ? 'collected' : 'done', bLbl: 'overdue',
       aTitle: team === 'billing' ? 'Recorded as collected in this window' : 'Zoho calls completed / due in this window',
@@ -262,7 +278,10 @@
     var talk = all.reduce(function (s, a) { return s + (a.talk || 0); }, 0);
     return {
       key: 'sales', label: 'Sales Floor', href: '/v5', nameHead: 'Rep',
-      sub: rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ', RingCX and RingEX combined',
+      sub: rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ' \u00b7 RingCX and RingEX' +
+           (T.missed_open ? ' \u00b7 <b class="hot" style="font-weight:600">' + fmt(T.missed_open) + ' missed not called back</b>' : ''),
+      stats: [[TB.hmShort(talk), 'talk'], [fmt(T.attempts), 'dials'], [ok ? fmt(S('quotes_sent')) : '\u2014', 'quotes'],
+              [ok ? fmt(S('retainers_paid')) : '\u2014', 'paid']],
       openOnPhone: true,
       headline: '<b>' + hm(talk) + '</b> talk' + sep + '<b>' + fmt(T.attempts) + '</b> dials' +
         (ok ? sep + '<b>' + fmt(S('quotes_sent')) + '</b> quotes' + sep + '<b>' + fmt(S('retainers_paid')) + '</b> paid' : '') +

@@ -2,22 +2,50 @@
   /* One team per section, titled the way the Billing & Surgical Coordinator
      Dashboard titles its boards: a plain bold heading, one muted line under
      it, a rule between teams. */
-  .tb-sec{margin-top:34px;padding-top:22px;border-top:1px solid var(--rule)}
+  .tb-sec{margin-top:24px;padding-top:18px;border-top:1px solid var(--rule)}
   .tb-sec.first{margin-top:12px;padding-top:0;border-top:0}
   .tb-sec .bt{font-size:17px;font-weight:700;margin:0 0 2px;letter-spacing:-.01em;color:var(--ink);text-transform:none}
   .tb-sec>.sub{margin:0 0 8px}
   .tb-sec>.sub a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--rule)}
   .tb-sec>.sub a:hover{color:var(--up);border-color:var(--up)}
   .tb-sec>.sub .sep{opacity:.45;padding:0 5px}
-  .tb-sec .bt.tb-tog{cursor:pointer;display:flex;align-items:center;gap:7px;-webkit-user-select:none;user-select:none}
+  .tb-head{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .tb-sec .bt.tb-tog{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;margin:0;-webkit-user-select:none;user-select:none}
   .tb-sec .bt.tb-tog:focus-visible{outline:2px solid var(--up);outline-offset:3px;border-radius:3px}
-  .tb-sec .chev{display:inline-block;width:12px;flex:0 0 12px;font-size:13px;line-height:1;color:var(--muted);text-align:center;transition:transform .15s}
+  .tb-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tb-sec .chev{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;border-radius:4px;
+                font-size:12px;line-height:1;color:var(--muted);background:var(--tint);transition:transform .15s}
   .tb-sec.collapsed .chev{transform:rotate(-90deg)}
+  .tb-open{flex:0 0 auto;font-size:12px;font-weight:600;color:var(--muted);text-decoration:none;padding:4px 0 4px 8px;white-space:nowrap}
+  .tb-open:hover{color:var(--up)}
+  .tb-sec>.tb-sub{margin:3px 0 10px;padding-left:26px;font-size:12px}
+  .tb-sec.collapsed>.tb-sub{margin-bottom:0}
   .tb-sec.collapsed .tb-body{display:none}
-  .tb-sec>.sub{padding-left:18px}
-  .tb-hl{display:none;margin:2px 0 0;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .tb-hl{display:none;margin:4px 0 0;padding-left:26px;font-size:12.5px;color:var(--muted);line-height:1.5}
   .tb-hl b{color:var(--ink);font-weight:700} .tb-hl b.hot{color:var(--dn)} .tb-hl .sep{opacity:.45;padding:0 5px}
   .tb-sec.collapsed .tb-hl{display:block}
+  .tb-stats{display:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 12px;margin:10px 0 2px;padding-left:26px}
+  .tb-sec.collapsed .tb-stats{display:grid}
+  .tb-stats div{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .tb-stats b{font-size:16px;font-weight:700;letter-spacing:-.01em;color:var(--ink);font-variant-numeric:tabular-nums;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-stats b.hot{color:var(--dn)}
+  .tb-stats span{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
+                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* summary: a label column wide enough for TARGET / RESULT */
+  .tb-sec .sum{padding:8px 0 7px}
+  .tb-sec .sum .srow{grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:2px 0;line-height:1.45}
+  /* rows and their detail */
+  .tb-sec .r{padding:9px 0}
+  .tb-sec .nm .press,.tb-sec .nm .unr{margin-top:2px}
+  .tb-sec .nm .prog{margin-top:6px}
+  .tb-sec .det{padding:12px 0 14px 22px}
+  .tb-sec .dg{gap:12px 18px;max-width:560px}
+  .tb-sec .dg em{margin-bottom:2px}
+  .tb-sec .dg b{font-size:13px}
+  .tb-sec .dg b i{font-size:11.5px;font-weight:400;color:var(--muted)}
+  .tb-sec .ml{margin-top:12px}
+  .nm .qn{display:block;margin-top:2px;font-size:11.5px;font-weight:400;color:var(--muted)}
   details.tb-notes{margin-top:12px}
   /* the coordinators' progress hairline, as on their own board */
   .nm .prog{display:block;height:3px;max-width:240px;margin-top:4px;border-radius:2px;background:var(--hair);overflow:hidden}
@@ -28,7 +56,27 @@
   .tb-sec .dg b i{margin-left:0}
   .tb-sec .dg b i.hot{color:var(--dn)}
   details.tb-notes .note{margin:6px 0 0}
-  @media(max-width:560px){.tb-sec{margin-top:18px;padding-top:12px}.tb-sec.first{margin-top:6px;padding-top:0}.tb-sec .bt{font-size:15px}.tb-sec>.sub,.tb-hl{padding-left:18px;font-size:12px}}
+  details.tb-notes{border-top:1px solid var(--hair);padding-top:9px}
+  details.tb-notes>summary{padding:2px 0}
+  @media(max-width:560px){
+    .tb-sec{margin-top:0;padding:14px 0 12px;border-top:1px solid var(--rule)}
+    .tb-sec.first{margin-top:4px;padding-top:6px;border-top:0}
+    .tb-sec .bt{font-size:16px}
+    .tb-sec>.tb-sub{padding-left:26px;margin:2px 0 8px;font-size:11.5px}
+    .tb-stats{gap:4px 8px;margin-top:9px}
+    .tb-stats b{font-size:15px}
+    .tb-stats span{font-size:9.5px}
+    .tb-sec .sum{margin-top:2px;padding:7px 0 6px}
+    .tb-sec .sum .srow{grid-template-columns:54px minmax(0,1fr);gap:0 8px;font-size:12px}
+    .tb-sec .r{padding:8px 0;row-gap:3px}
+    .tb-sec .det{padding:10px 0 12px 16px}
+    .tb-sec .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+    .tb-sec .dg b{font-size:12.5px}
+    .tb-sec .dg b i{font-size:11px}
+    .tb-sec .nm .prog{max-width:none;margin-top:5px}
+    details.tb-notes{margin-top:8px;padding-top:8px}
+    details.tb-notes .note{font-size:12px;line-height:1.5}
+  }
   .q .hot,.rt .hot{color:var(--dn)}
   /* a seat not read yet: its own line, so the texts line never paints over it */
   .nm .unr{display:block;margin-top:1px;font-size:11px;font-weight:400;font-style:italic;letter-spacing:0;color:var(--muted);white-space:normal}
@@ -53,6 +101,11 @@ window.TB = (function () {
     return h ? h + ':' + p(m) + ':' + p(x) : m + ':' + p(x);
   }
   function w(n) { return Math.round(n || 0); }
+  // "10h 39m" / "42m": the folded figures' talk time, short enough for a phone
+  function hmShort(sec) {
+    var m = Math.round((sec || 0) / 60), h = Math.floor(m / 60);
+    return h ? h + 'h ' + (m % 60) + 'm' : m + 'm';
+  }
   function fmt(n) { return Math.round(n || 0).toLocaleString('en-US'); }
   function money(v) { return v == null ? '—' : '$' + Math.round(v).toLocaleString('en-US'); }
   function esc(t) {
@@ -68,7 +121,7 @@ window.TB = (function () {
   }
   // The floor: the median of the people who worked, not a target.
   function floorOf(rows) {
-    var on = rows.filter(function (r) { return !r.unread && (r.talk || r.dials); });
+    var on = rows.filter(function (r) { return !r.unread && !r.quiet && (r.talk || r.dials); });
     return { talk: median(on.map(function (r) { return r.talk || 0; })),
              dials: median(on.map(function (r) { return r.dials || 0; })),
              over3: median(on.map(function (r) { return r.over3 || 0; })) };
@@ -137,7 +190,7 @@ window.TB = (function () {
     // A seat RingEX has not been read for yet is "not known", never zero: it
     // sorts last, carries no arrows and no figures, and says so under the name.
     var rows = (m.rows || []).slice().sort(function (a, b) {
-      return (a.unread ? 1 : 0) - (b.unread ? 1 : 0) || (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0);
+      return (a.unread ? 2 : a.quiet ? 1 : 0) - (b.unread ? 2 : b.quiet ? 1 : 0) || (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0);
     });
     var f = m.floor || floorOf(rows), k = m.key || 'tb';
     el.classList.add('tb-sec');
@@ -147,13 +200,20 @@ window.TB = (function () {
     // choice is remembered per team on this device.
     var col = isCollapsed(m);
     el.classList.toggle('collapsed', col);
-    var subBits = [];
-    if (m.sub) subBits.push(m.sub);
-    if (m.href) subBits.push('<a href="' + esc(m.href) + '">Open board ↗</a>');
-    var head = '<h2 class="bt tb-tog" role="button" tabindex="0" aria-expanded="' + (!col) + '">' +
-               '<span class="chev" aria-hidden="true">▾</span>' + esc(m.label) + '</h2>' +
-               (subBits.length ? '<p class="sub">' + subBits.join('<span class="sep">·</span>') + '</p>' : '') +
-               (m.headline ? '<p class="tb-hl">' + m.headline + '</p>' : '');
+    // The title row: arrow + title (the fold control), the team's own board
+    // on the right. Under it one short muted line, then -- folded only -- four
+    // figures in a row, value over label, so a folded team still answers
+    // "how is it going" at a glance on a phone.
+    var head = '<div class="tb-head">' +
+               '<h2 class="bt tb-tog" role="button" tabindex="0" aria-expanded="' + (!col) + '">' +
+               '<span class="chev" aria-hidden="true">▾</span><span class="tb-t">' + esc(m.label) + '</span></h2>' +
+               (m.href ? '<a class="tb-open" href="' + esc(m.href) + '">Open ↗</a>' : '') + '</div>' +
+               (m.sub ? '<p class="sub tb-sub">' + m.sub + '</p>' : '') +
+               (m.stats && m.stats.length
+                 ? '<div class="tb-stats">' + m.stats.map(function (x) {
+                     return '<div><b' + (x[2] ? ' class="hot"' : '') + '>' + x[0] + '</b><span>' + esc(x[1]) + '</span></div>';
+                   }).join('') + '</div>'
+                 : (m.headline ? '<p class="tb-hl">' + m.headline + '</p>' : ''));
     var h = '';
     if (m.error) {
       h = '<div class="msg err">' + m.error + '</div>';
@@ -171,6 +231,19 @@ window.TB = (function () {
            '<span class="a-q"' + (m.aTitle ? ' title="' + esc(m.aTitle) + '"' : '') + '>' + esc(m.colA) + '</span>' +
            '<span class="a-rt"' + (m.bTitle ? ' title="' + esc(m.bTitle) + '"' : '') + '>' + esc(m.colB) + '</span></div>';
       rows.forEach(function (r, i) {
+        if (r.quiet) {
+          // On the live day a seat with no calls yet is one quiet line, the
+          // way the coordinators' and billers' own board shows it; their Zoho
+          // figures still stand.
+          h += '<div class="r" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
+               '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + '<span class="qn">no calls yet today</span>' + (r.press || '') + '</span>' +
+               '<span class="tk zero">\u2014</span><span class="d zero">\u2014</span><span class="t3 zero">\u2014</span>' +
+               res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';
+          h += '<div class="det" id="' + k + '-d' + i + '"><div class="dg">' +
+               (r.panel || []).map(function (p) { return p === 'rule' ? '<span class="rule"></span>' : cell2(p[0], p[1], p[2]); }).join('') +
+               '</div>' + missedList(r.missed, r.missedOpen, r.name) + '</div>';
+          return;
+        }
         if (r.unread) {
           var dash = function (cls) { return '<span class="' + cls + ' zero">—</span>'; };
           h += '<div class="r"><span class="rk">' + (i + 1) + '</span><span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) +
@@ -204,15 +277,15 @@ window.TB = (function () {
            m.notes.map(function (p) { return '<p class="note">' + p + '</p>'; }).join('') + '</details>';
     }
     el.innerHTML = head + '<div class="tb-body">' + h + '</div>';
-    var tog = el.querySelector('.tb-tog');
-    if (tog) {
+    var tog = el.querySelector('.tb-tog'), row0 = el.querySelector('.tb-head');
+    if (tog && row0) {
       var flip = function () {
         var now = !el.classList.contains('collapsed');
         el.classList.toggle('collapsed', now);
         tog.setAttribute('aria-expanded', String(!now));
         remember(m, now);
       };
-      tog.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a')) return; flip(); });
+      row0.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a')) return; flip(); });
       tog.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
     }
     if (m.error || !rows.length) return;
@@ -262,7 +335,7 @@ window.TB = (function () {
     var T = d.totals || {}, S = function (k) { return (d.ranked || []).reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
     return {
       key: opts.key || 'rx', label: opts.label || d.label || 'Sales Training Class', href: opts.href,
-      sub: opts.sub != null ? opts.sub : rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ', dialing from RingEX',
+      sub: opts.sub != null ? opts.sub : rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ' \u00b7 dialing from RingEX',
       openOnPhone: !!opts.openOnPhone,
       headline: allUnread ? 'not read yet' :
         '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +
@@ -270,6 +343,8 @@ window.TB = (function () {
         (booksOk ? '<span class="sep">·</span><b>' + fmt(S('quotes_sent')) + '</b> quotes' : '') +
         (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed' : ''),
       notes: opts.notes || TRAINING_NOTES,
+      stats: allUnread ? [['\u2014', 'not read yet']] : [[hmShort(T.talk), 'talk'], [fmt(T.attempts), 'dials'], [fmt(T.over_3), 'over 3m'],
+             [booksOk ? fmt(S('quotes_sent')) : '\u2014', 'quotes']],
       colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid', nameHead: 'Rep',
       aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
       rows: rows,
@@ -303,7 +378,7 @@ window.TB = (function () {
     return n ? '<span class="press"><b class="hot">' + w(n) + '</b> missed</span>' : '';
   }
 
-  return { render: render, ringexModel: ringexModel, MARKS: MARKS, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
+  return { render: render, ringexModel: ringexModel, MARKS: MARKS, hmShort: hmShort, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
            median: median, floorOf: floorOf, pressMissed: pressMissed };
 })();
 </script>
