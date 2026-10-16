@@ -3025,6 +3025,18 @@ _V5_SMS_TTL_LIVE = 180           # today: three minutes
 _V5_SMS_TTL_PAST = 1800          # a finished window: half an hour
 _V5_SMS_MAX_DAYS = 7
 _V5_SMS_NAMES = set()           # names the sales board has shown (?names=), read too
+# A small table under the sales board: texts on lines that are not sales reps.
+# Danny, 2026-10-15: "Ariel, Salome, Anna Parizher, Artem Bezkor, and Umed
+# Makhsumov (put first names)". Extension numbers from the RingEX line audit;
+# each is checked against the directory (the first name must match) and a
+# stale or missing one falls back to the name. A name not found is reported.
+_SALES_SMS_PANEL = [
+    {"label": "Ariel",  "name": "Ariel Voskin",        "ext": "689"},
+    {"label": "Salome", "name": "Salome",              "ext": "151"},
+    {"label": "Anna",   "name": "Anna Parizher",       "ext": "733", "ext_id": 683781035},
+    {"label": "Artem",  "name": "Artem Bezkorovainyi", "ext": "169", "ext_id": 701193035},
+    {"label": "Umed",   "name": "Umed Makhsumov",      "ext": ""},
+]
 _V5_SMS_PACE = 2.0              # seconds between lines: ~24 reads + pages inside a minute's budget
 
 
@@ -3052,6 +3064,55 @@ def _v5_sms_seat(rows, meta):
             "note": meta.get("note")}
 
 
+def _sms_panel_seats():
+    """(seats, unresolved) for _SALES_SMS_PANEL, resolved in the directory."""
+    directory, _m = _ringcx.fetch_extension_directory()
+    directory = directory or {}
+    norm = lambda v: " ".join(str(v or "").lower().replace(",", " ").replace(".", " ").split())
+    by_name = {}
+    for num, e in directory.items():
+        if e and norm(e.get("name")):
+            by_name[norm(e.get("name"))] = (e.get("id"), str(num), e.get("name"))
+    out, unresolved = [], []
+    for p in _SALES_SMS_PANEL:
+        s = dict(p)
+        first = norm(p["label"])
+        e = directory.get(str(p.get("ext") or "")) if p.get("ext") else None
+        if e and first in norm(e.get("name")).split():
+            s["ext_id"] = s.get("ext_id") or e.get("id")
+            s["name"] = e.get("name") or s["name"]
+        elif not s.get("ext_id"):
+            s["ext"] = ""
+            nm = norm(p["name"])
+            hit = by_name.get(nm)
+            if not hit:
+                toks = nm.split()
+                cands = [v for k, v in by_name.items()
+                         if toks and toks[0] in k.split() and (len(toks) == 1 or toks[-1] in k.split())]
+                hit = cands[0] if len(cands) == 1 else None
+            if hit:
+                s["ext_id"], s["ext"], s["name"] = hit
+        if s.get("ext_id"):
+            out.append(s)
+        else:
+            unresolved.append(p["label"])
+    return out, unresolved
+
+
+def _v5_sms_read(seat, start_dt, end_dt, grp):
+    """One line's rows, paced and patient (see _v5_sms_build)."""
+    for attempt in range(3):
+        try:
+            rows, meta = _ringcx.fetch_extension_messages(seat["ext_id"], start_dt, end_dt,
+                                                          max_pages=12, max_wait=0.0, timeout=15.0)
+        except Exception as e:  # noqa: BLE001
+            rows, meta = [], {"note": "%s: %s" % (type(e).__name__, str(e)[:120])}
+        if meta.get("http_error") != 429 or attempt == 2:
+            break
+        time.sleep(min(125.0, _ringcx.cooldown_remaining(grp) + 2.0))
+    return rows, meta
+
+
 def _v5_sms_build(start_iso, end_iso, tz_off):
     """{agents: {name: counts}, totals, unresolved} for the sales floor."""
     seats, unresolved = _sms_seats("sales", sorted(_V5_SMS_NAMES))
@@ -3065,15 +3126,7 @@ def _v5_sms_build(start_iso, end_iso, tz_off):
         # the opt-out scan share it). The first build read seven lines and
         # skipped eighteen in a cooldown, showing them as 0. Now a refused read
         # waits the cooldown out and tries again, up to three times.
-        for attempt in range(3):
-            try:
-                rows, meta = _ringcx.fetch_extension_messages(seat["ext_id"], start_dt, end_dt,
-                                                              max_pages=12, max_wait=0.0, timeout=15.0)
-            except Exception as e:  # noqa: BLE001
-                rows, meta = [], {"note": "%s: %s" % (type(e).__name__, str(e)[:120])}
-            if meta.get("http_error") != 429 or attempt == 2:
-                break
-            time.sleep(min(125.0, _ringcx.cooldown_remaining(grp) + 2.0))
+        rows, meta = _v5_sms_read(seat, start_dt, end_dt, grp)
         a = _v5_sms_seat(rows, meta)
         a["ext"] = str(seat.get("ext") or "")
         agents[seat["name"]] = a
@@ -3084,7 +3137,20 @@ def _v5_sms_build(start_iso, end_iso, tz_off):
     tot["sent_auto"] = sum(a["sent_auto"] for a in agents.values()) if split else None
     tot["incomplete_seats"] = sum(1 for a in agents.values() if not a["complete"] and not a["unknown"])
     tot["unknown_seats"] = sum(1 for a in agents.values() if a["unknown"])
+    # The other lines, in the order Danny named them.
+    panel = []
+    try:
+        pseats, punres = _sms_panel_seats()
+    except Exception as e:  # noqa: BLE001
+        pseats, punres = [], ["directory: %s" % type(e).__name__]
+    for seat in pseats:
+        rows, meta = _v5_sms_read(seat, start_dt, end_dt, grp)
+        a = _v5_sms_seat(rows, meta)
+        a.update({"label": seat["label"], "name": seat.get("name"), "ext": str(seat.get("ext") or "")})
+        panel.append(a)
+        time.sleep(_V5_SMS_PACE)
     return {"agents": agents, "totals": tot, "unresolved": unresolved,
+            "panel": panel, "panel_unresolved": punres,
             "window": {"start": start_iso, "end": end_iso}, "seats": len(agents)}
 
 

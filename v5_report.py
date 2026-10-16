@@ -102,6 +102,44 @@ def classify_result(result: str) -> str:
     return "unknown"
 
 
+_IN_WORDS = ("inbound", "incoming")
+_OUT_WORDS = ("outbound", "outgoing", "manual", "preview", "predictive", "progressive", "dialer")
+
+
+def classify_direction(raw: str) -> str:
+    """-> 'in' | 'out' | 'unknown'. Like classify_result it never guesses: an
+    unrecognised value is 'unknown' and is surfaced as a warning.
+
+    RingEX writes Inbound / Outbound; the Interaction Report's Call Type and
+    the live CDR's Call Direction carry the same words, and a dialer campaign
+    (manual, preview, predictive) is outbound by definition. Danny,
+    2026-10-15: "show inbound vs outbound calls on the sales call tracker".
+    """
+    r = (raw or "").strip().lower()
+    if not r:
+        return "unknown"
+    if any(w in r for w in _IN_WORDS) or r in ("in", "ib"):
+        return "in"
+    if any(w in r for w in _OUT_WORDS) or r in ("out", "ob"):
+        return "out"
+    return "unknown"
+
+
+def _row_direction(row, channel=""):
+    """A call's direction from its own field; the channel only when that is
+    silent -- an inbound queue (..._IB, DDR New Patient) is inbound, a New Lead
+    campaign (Scheduled Calls, Call Now) is outbound."""
+    d = classify_direction(row.get("direction") or row.get("call_direction"))
+    if d != "unknown":
+        return d
+    lab = channel_label(channel or row.get("channel") or row.get("campaign_name"), row.get("agent_name") or "")
+    if lab == "Inbound":
+        return "in"
+    if lab in ("Scheduled Calls", "Call Now"):
+        return "out"
+    return "unknown"
+
+
 def norm_phone(v) -> str:
     """Last 10 digits, so +1 929 419-5259 / 9294195259 / (929) 419-5259 all match."""
     d = "".join(ch for ch in str(v or "") if ch.isdigit())
@@ -246,11 +284,16 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
     # ---- one ledger, each call once
     led: dict[str, list] = {}
 
-    def add(agent, src, talk, connected, missed, wrap=0.0, channel=""):
+    dir_unk = {}
+
+    def add(agent, src, talk, connected, missed, wrap=0.0, channel="", dirn="unknown", raw_dir=""):
         name = (agent or "").strip() or "Unassigned"
+        if dirn == "unknown":
+            k = (raw_dir or "(blank)").strip() or "(blank)"
+            dir_unk[k] = dir_unk.get(k, 0) + 1
         led.setdefault(name, []).append(
             {"src": src, "talk": max(0.0, talk), "conn": connected, "missed": missed,
-             "wrap": max(0.0, wrap), "chan": (channel or "").strip()})
+             "wrap": max(0.0, wrap), "chan": (channel or "").strip(), "dir": dirn})
 
     def cx_talk(r):
         t = _num(r.get("talk_time"))
@@ -261,24 +304,35 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         # wrap comes from the emailed Interaction Report; the live CDR pull has no
         # wrap column, so it is 0 there rather than wrong.
         add(r.get("agent_name"), "campaign", cx_talk(r), st == "connected", st == "missed",
-            _num(r.get("wrap_time")), channel=r.get("channel") or r.get("campaign_name"))
+            _num(r.get("wrap_time")), channel=r.get("channel") or r.get("campaign_name"),
+            dirn=_row_direction(r), raw_dir=r.get("direction"))
     for e, u, _ in pairs:                      # counted ONCE, on the RingCX timing
         st = classify_result(e.get("result"))
+        # RingEX knows the direction of the rep's own line for certain.
+        d_ = classify_direction(e.get("direction"))
         add(u.get("agent_name") or e.get("agent_name"), "direct",
             cx_talk(u), st == "connected", st == "missed",
-            channel=u.get("channel") or "UC")
+            channel=u.get("channel") or "UC",
+            dirn=d_ if d_ != "unknown" else _row_direction(u), raw_dir=e.get("direction") or u.get("direction"))
     for u in uc_unmatched:
         st = classify_result(u.get("result"))
         add(u.get("agent_name"), "direct_cx_only", cx_talk(u),
             st == "connected" or cx_talk(u) > 0, st == "missed",
-            channel=u.get("channel") or "UC")
+            channel=u.get("channel") or "UC", dirn=_row_direction(u), raw_dir=u.get("direction"))
     for e in exrows:
         if id(e) in matched_ex:
             continue
         st = classify_result(e.get("result"))
         add(e.get("agent_name"), "direct_ex_only",
             _num(e.get("duration")) if st == "connected" else 0.0,
-            st == "connected", st == "missed", channel="RingEX direct")
+            st == "connected", st == "missed", channel="RingEX direct",
+            dirn=classify_direction(e.get("direction")), raw_dir=e.get("direction"))
+
+    if dir_unk:
+        warn.append({"kind": "unclassified_direction",
+                     "detail": "Calls whose direction could not be read; counted in Dials, "
+                               "never as inbound or outbound.",
+                     "values": sorted(dir_unk.items(), key=lambda kv: -kv[1])[:8]})
 
     # "N/A" is what RingCX writes when a leg has no agent -- a queue leg nobody
     # picked up. It is not a person, and it is not a small row: 249 of them in a
@@ -305,7 +359,13 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
              "missed": sum(1 for x in L if x["missed"]),
              "connected": sum(1 for x in L if x["conn"]),
              "wrap": round(sum(x.get("wrap", 0.0) for x in L)),
-             "longest": round(max((x["talk"] for x in L), default=0))}
+             "longest": round(max((x["talk"] for x in L), default=0)),
+             # Danny, 2026-10-15: inbound vs outbound on the sales board.
+             "inbound": sum(1 for x in L if x.get("dir") == "in"),
+             "inbound_answered": sum(1 for x in L if x.get("dir") == "in" and x["conn"]),
+             "outbound": sum(1 for x in L if x.get("dir") == "out"),
+             "outbound_connected": sum(1 for x in L if x.get("dir") == "out" and x["conn"]),
+             "dir_unknown": sum(1 for x in L if x.get("dir") not in ("in", "out"))}
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)
 
@@ -370,7 +430,8 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
         "ranked": ranked, "unranked": thin,
         "totals": {k: sum(a[k] for a in agents) for k in
                    ("talk", "campaign", "direct", "attempts", "missed",
-                    "over_1", "over_3", "over_10")},
+                    "over_1", "over_3", "over_10", "inbound", "inbound_answered",
+                    "outbound", "outbound_connected", "dir_unknown")},
         "recon": {
             "matched": len(pairs),
             "ex_connected": ex_connected,

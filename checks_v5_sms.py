@@ -50,6 +50,8 @@ ck("a capped read is incomplete and says why", s2["complete"] is False and "cap"
 
 # ---- the build: every sales seat, totals, unresolved names reported ----
 _real_seats, _real_fem = A._sms_seats, A._ringcx.fetch_extension_messages
+_real_panel = A._sms_panel_seats
+A._sms_panel_seats = lambda: ([], [])
 A._sms_seats = lambda team, extra_names=(): ([{"name": "Roman Gomez", "ext": "146", "ext_id": 1}, {"name": "Gabriel Johnson", "ext": "162", "ext_id": 2}], ["Nobody Here"])
 def _fem(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_text=False):
     assert keep_text is False, "the board never asks for text"
@@ -91,6 +93,47 @@ ck("a line refused three times stops trying and is unknown", _calls.count(2) == 
 # Gabriel); no cooldown is running in a check, so each wait is the 2 s margin.
 ck("reads are paced two seconds apart and each refusal waits its cooldown out", len(_slept) == 5 and A._V5_SMS_PACE == 2.0 and all(x == 2.0 for x in _slept), _slept)
 ck("names the directory lacks are passed on", b["unresolved"] == ["Nobody Here"], b["unresolved"])
+
+# ---- the other lines' table: resolved in the directory, in the order named ----
+A._sms_panel_seats = _real_panel
+_real_dir2 = A._ringcx.fetch_extension_directory
+A._ringcx.fetch_extension_directory = lambda **k: ({
+    "689": {"id": 9001, "name": "Voskin, Ariel"},           # ext matches, first name matches
+    "151": {"id": 9002, "name": "Salome Kvaratskhelia"},     # ext matches
+    "733": {"id": 9999, "name": "Somebody Else"},            # stale number; Anna has her own id
+    "169": {"id": 701193035, "name": "Artem Bezkorovainyi"},
+    "412": {"id": 9005, "name": "Makhsumov, Umed"},          # Umed has no number on file: found by name
+}, {})
+try:
+    _ps, _pu = A._sms_panel_seats()
+finally:
+    A._ringcx.fetch_extension_directory = _real_dir2
+_pl = {x["label"]: x for x in _ps}
+ck("the five lines in the order named", [x["label"] for x in _ps] == ["Ariel", "Salome", "Anna", "Artem", "Umed"], [x["label"] for x in _ps])
+ck("an extension on file is used when its first name matches the directory", _pl["Ariel"]["ext_id"] == 9001 and _pl["Salome"]["ext_id"] == 9002, _pl)
+ck("a stale number does not hand Anna someone else's texts", _pl["Anna"]["ext_id"] == 683781035, _pl["Anna"])
+ck("a line with no number on file is found by name ('Last, First' too)", _pl["Umed"]["ext_id"] == 9005 and _pl["Umed"]["ext"] == "412", _pl["Umed"])
+A._ringcx.fetch_extension_directory = lambda **k: ({}, {})
+try:
+    _ps2, _pu2 = A._sms_panel_seats()
+finally:
+    A._ringcx.fetch_extension_directory = _real_dir2
+ck("a name the directory lacks is reported, not guessed; ids on file still read",
+   [x["label"] for x in _ps2] == ["Anna", "Artem"] and _pu2 == ["Ariel", "Salome", "Umed"], (_ps2, _pu2))
+
+# the build reads them with the same paced, patient reader
+A._sms_seats = lambda team, extra_names=(): ([], [])
+A._sms_panel_seats = lambda: ([{"label": "Ariel", "name": "Ariel Voskin", "ext": "689", "ext_id": 1}], ["Umed"])
+A._ringcx.fetch_extension_messages = _fem
+A.time.sleep = lambda s_: None
+try:
+    b3 = A._v5_sms_build("2026-10-15", "2026-10-15", 240)
+finally:
+    A._sms_seats, A._ringcx.fetch_extension_messages, A._sms_panel_seats = _real_seats, _real_fem, _real_panel
+    A.time.sleep = _sleep
+ck("the build carries the table: in, out, unanswered, unread per line", b3["panel"] and b3["panel"][0]["label"] == "Ariel"
+   and (b3["panel"][0]["received"], b3["panel"][0]["sent"], b3["panel"][0]["unanswered"], b3["panel"][0]["unread"]) == (3, 3, 2, 1)
+   and b3["panel_unresolved"] == ["Umed"], b3.get("panel"))
 
 # ---- the route: auth, loading then cached, too long refused, nothing but counts ----
 c = A.app.test_client()
@@ -154,6 +197,9 @@ finally:
     A._ringcx.fetch_extension_directory = _real_dir
 ck("a board-only name is resolved and read; a roster name is not doubled",
    any(x["name"] == "Rothmel Example" and x["ext"] == "201" for x in _ss) and sum(1 for x in _ss if x["name"] == "Maia Pasifae Palma") <= 1, ([x["name"] for x in _ss], _un))
+ck("the table sits at the foot of the board: In, Out, Unanswered, Unread, first names",
+   "'<div id=\"smspanel\" class=\"smspanel\"><div class=\"sp-h\">Texts \\u00b7 other lines</div>'" in tpl
+   and "n(a.received) + n(a.sent) + n(a.unanswered, true) + n(a.unread, true)" in tpl and "esc(a.label)" in tpl and "no RingEX line found" in tpl, "panel")
 ck("a line that could not be read says so instead of 0", "texts not read yet</span>" in tpl and "' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>'" in tpl, "not-read")
 
 # ---- the message rows: read status on every inbound, the body only on request ----

@@ -69,8 +69,8 @@
   /* Quotes and retainers follow the call figures in wider columns. They are
      Books counts, not calls, so they carry no arrow: the floor is a call median. */
   .hd,.r{display:grid;align-items:center;
-         grid-template-columns:22px minmax(0,1fr) 80px 54px 46px 50px 64px 76px;
-         grid-template-areas:"rk nm tk d t3 t10 q rt"}
+         grid-template-columns:22px minmax(0,1fr) 80px 54px 70px 46px 50px 64px 76px;
+         grid-template-areas:"rk nm tk d io t3 t10 q rt"}
   .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
       color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
   .r{padding:7px 0;border-bottom:1px solid var(--hair)}
@@ -114,7 +114,7 @@
   .hd>*,.r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .hd .a-rk,.hd .a-nm,.r .rk,.r .nm{text-align:left}
   .a-rk{grid-area:rk} .a-nm{grid-area:nm} .a-tk{grid-area:tk}
-  .a-d{grid-area:d} .a-t3{grid-area:t3} .a-t10{grid-area:t10}
+  .a-d{grid-area:d} .a-io{grid-area:io} .a-t3{grid-area:t3} .a-t10{grid-area:t10}
   .a-q{grid-area:q} .a-rt{grid-area:rt}
   .rk{grid-area:rk;color:var(--muted);font-size:11.5px}
   .nm{grid-area:nm;font-weight:600;font-size:14.5px;letter-spacing:-.01em;
@@ -131,6 +131,22 @@
   .tk{grid-area:tk;font-weight:700;font-size:14.5px}
   .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
   .d,.t3,.t10,.q,.rt{font-weight:600;color:var(--ink-2);font-size:13px}
+  /* inbound . outbound: a count, not a contest -- no arrow against the floor */
+  .io{grid-area:io;font-weight:600;color:var(--ink-2);font-size:13px;cursor:help}
+  .io i{font-style:normal;color:var(--muted);font-weight:400;padding:0 2px}
+  .calls{font-size:12px;color:var(--ink-2);padding:6px 0 0}
+  .calls b{color:var(--ink);font-weight:700} .calls i{font-style:normal;color:var(--muted)}
+  .dg b i{font-style:normal;font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
+  /* the other lines' texts: a small table at the foot of the board */
+  .smspanel{margin:22px 0 4px;max-width:420px}
+  .sp-h{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding-bottom:5px;border-bottom:1px solid var(--rule)}
+  .smspanel table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+  .smspanel thead th{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);text-align:right;padding:6px 0 4px}
+  .smspanel tbody th{text-align:left;font-weight:600;padding:5px 0;cursor:help}
+  .smspanel tbody th i{font-style:normal;color:var(--muted);font-weight:400}
+  .smspanel td{text-align:right;padding:5px 0 5px 10px;font-weight:600;color:var(--ink-2)}
+  .smspanel td.hot{color:var(--dn)} .smspanel td.na{text-align:left;font-weight:400;font-style:italic;color:var(--muted)}
+  .smspanel tbody tr+tr{border-top:1px solid var(--hair)}
   .q.zero,.rt.zero{color:var(--muted);font-weight:500}
   .lbl{display:none;color:var(--muted);font-weight:400}
   .up{color:var(--up)} .down{color:var(--dn)}
@@ -144,14 +160,14 @@
        down the page. Equal 1fr columns aligned them but pushed them apart, which
        made a list you scroll daily harder to read, not easier. The trailing
        column absorbs the slack. */
-    .r{grid-template-columns:16px auto auto auto auto minmax(0,1fr) auto;
-       grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 t10 q rt .";
+    .r{grid-template-columns:16px auto auto auto auto auto minmax(0,1fr) auto;
+       grid-template-areas:"rk nm nm nm nm nm nm tk" ".  d  io t3 t10 q rt .";
        row-gap:0;column-gap:9px;padding:6px 0}
     .rk{font-size:11px}
     .nm{font-size:14px;padding-right:6px}
     .tk{font-size:14px}
     .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
-    .d,.t3,.t10,.q,.rt{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
+    .d,.t3,.t10,.q,.rt,.io{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
     /* The number carries the row; the word only says which number. */
     .lbl{display:inline;font-size:10.5px;opacity:.7}
     .mk{font-size:8px}
@@ -292,7 +308,29 @@
         (T.incomplete_seats ? ' \u00b7 <i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') +
         (T.unknown_seats ? ' \u00b7 <i>' + T.unknown_seats + ' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>' : '') + '</div>');
     }
+    smsPanel();
   }
+  // The other lines' texts, a small table at the foot of the board.
+  function smsPanel() {
+    var old = $('smspanel'); if (old) old.remove();
+    var P = (SMS && SMS.panel) || [], un = (SMS && SMS.panel_unresolved) || [];
+    if (!P.length && !un.length) return;
+    var n = function (v, hot) { return '<td' + (hot && v ? ' class="hot"' : '') + '>' + w(v) + '</td>'; };
+    var rows = P.map(function (a) {
+      if (a.unknown) return '<tr><th title="' + esc((a.name || a.label) + ' \u00b7 ext ' + (a.ext || '?')) + '">' + esc(a.label) + '</th>' +
+                            '<td colspan="4" class="na">not read yet</td></tr>';
+      return '<tr><th title="' + esc((a.name || a.label) + ' \u00b7 ext ' + (a.ext || '?') + (a.complete ? '' : ' \u00b7 partly read, a floor')) + '">' +
+             esc(a.label) + (a.complete ? '' : '<i>+</i>') + '</th>' +
+             n(a.received) + n(a.sent) + n(a.unanswered, true) + n(a.unread, true) + '</tr>';
+    }).join('') + un.map(function (l) {
+      return '<tr><th>' + esc(l) + '</th><td colspan="4" class="na">no RingEX line found</td></tr>';
+    }).join('');
+    $('out').insertAdjacentHTML('beforeend', '<div id="smspanel" class="smspanel"><div class="sp-h">Texts \u00b7 other lines</div>' +
+      '<table><thead><tr><th></th><th title="Received">In</th><th title="Sent">Out</th>' +
+      '<th title="Conversations where the other side wrote last">Unanswered</th><th title="Received and not opened">Unread</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>');
+  }
+
   function loadSms(q) {
     var key = q.toString();
     if (key !== SMS_KEY) { SMS = null; SMS_KEY = key; SMS_TRIES = 0; }
@@ -307,6 +345,17 @@
         if (j.agents && Object.keys(j.agents).length) { SMS = j; smsPaint(); }
       })
       .catch(function () {});
+  }
+
+  // Inbound vs outbound, from each call's own direction (Danny, 2026-10-15).
+  // Calls whose direction could not be read count in Dials only, so in + out
+  // can be less than Dials -- the tooltip says how many.
+  function ioCell(a) {
+    var ib = a.inbound || 0, ob = a.outbound || 0, unk = a.dir_unknown || 0;
+    var tip = ib + ' inbound (' + (a.inbound_answered || 0) + ' answered) \u00b7 ' + ob + ' outbound (' +
+              (a.outbound_connected || 0) + ' connected)' + (unk ? ' \u00b7 ' + unk + ' with no direction in the report' : '');
+    return '<span class="io" title="' + esc(tip) + '">' + w(ib) + '<i>\u00b7</i>' + w(ob) +
+           '<span class="lbl"> in \u00b7 out</span></span>';
   }
 
   function cell(v, med, cls, label) {
@@ -387,8 +436,16 @@
            '<span><b>&gt;3m/&gt;10m</b> = real conversations, not dialer touches</span>' +
          '</div>';
 
+    var TT = d.totals || {};
+    if ((TT.inbound || 0) + (TT.outbound || 0)) {
+      h += '<div class="calls" title="Every call on the board, by its own direction">Calls' +
+           ' <b>' + w(TT.inbound) + '</b> inbound <i>(' + w(TT.inbound_answered) + ' answered)</i>' +
+           ' \u00b7 <b>' + w(TT.outbound) + '</b> outbound <i>(' + w(TT.outbound_connected) + ' connected)</i>' +
+           (TT.dir_unknown ? ' \u00b7 <i>' + w(TT.dir_unknown) + ' with no direction</i>' : '') + '</div>';
+    }
     h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">Rep</span>' +
          '<span class="a-tk">Talk</span><span class="a-d">Dials</span>' +
+         '<span class="a-io" title="Inbound and outbound calls, from each call\u2019s own direction">In \u00b7 Out</span>' +
          '<span class="a-t3">&gt;3m</span><span class="a-t10">&gt;10m</span>' +
          '<span class="a-q">Quotes</span><span class="a-rt">Retainers</span></div>';
     ranked.forEach(function (a, i) {
@@ -404,6 +461,7 @@
            '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' +
              (up ? '▲' : '▼') + '</span>' + hm(a.talk) + '</span>' +
            cell(a.attempts, f.attempts, 'd', ' dials') +
+           ioCell(a) +
            // ">3m" not " over 3m": these labels appear on phones only -- above
            // 560px the column headers say it -- and the long form was most of
            // the width of the row it sat under.
@@ -416,6 +474,8 @@
              cell2('Campaign', hm(a.campaign), !a.campaign) +
              cell2('Direct', hm(a.direct), !a.direct) +
              cell2('Longest', hm(a.longest)) +
+             cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>', !a.inbound) +
+             cell2('Outbound', w(a.outbound || 0) + ' <i>' + w(a.outbound_connected || 0) + ' connected</i>', !a.outbound) +
              '<span class="rule"></span>' +
              // Quotes sent is in the row now; the panel keeps what the row does not.
              cell2('Quotes invoiced', booksHas('quotes_sent') ? w(bk.quotes_invoiced || 0) : '\u2014',
