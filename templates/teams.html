@@ -101,7 +101,7 @@
     var r = p.ratio[key], e = p.expected[key];
     if (r == null) return ' <i>too early to pace</i>';
     var pct = Math.round((r - 1) * 100);
-    return ' <i>expected ' + e + (unit || '') + ' by now (' + (pct > 0 ? '+' : '') + pct + '%)</i>';
+    return ' <i>expected ' + Math.round(e) + (unit || '') + ' by now (' + (pct > 0 ? '+' : '') + pct + '%)</i>';
   }
 
   function v6Row(a, team, T6, longLbl) {
@@ -133,7 +133,8 @@
       [longLbl + ' calls', w(row.over3) + '<br>' + tgt(T6, 'long_calls'), !row.over3],
       ['Inbound', w(sum(D, 'inbound')) + ' <i>' + w(sum(D, 'inbound_answered')) + ' answered</i>', !sum(D, 'inbound')],
       ['Outbound', w(sum(D, 'dials')), !sum(D, 'dials')],
-      ['Started', f.first ? esc(f.first) + (f.late_minutes ? ' <i class="hot">' + w(f.late_minutes) + ' min late</i>' : ' <i>on time</i>') : '—', !f.first],
+      // red past 5 minutes, the same rule as their own board
+      ['Started', f.first ? esc(f.first) + (f.late_minutes ? ' <i' + (f.late_minutes > 5 ? ' class="hot"' : '') + '>' + w(f.late_minutes) + ' min late</i>' : ' <i>on time</i>') : '—', !f.first],
       ['Longest gap', f.gap_minutes ? w(f.gap_minutes) + 'm <i>' + esc(f.gap_window || '') + '</i>' : '—', !f.gap_minutes],
       ['Texts', w(sum(D, 'sms_sent')) + ' sent <i>' + w(sum(D, 'sms_received')) + ' received</i>', !sum(D, 'sms_sent') && !sum(D, 'sms_received')],
       'rule',
@@ -235,10 +236,10 @@
       bTitle: 'Zoho calls past their time and still open',
       rows: rows,
       sum: [
-        ['Target', 'daily <b>' + one('talk_minutes') + 'm</b> talk' + sep + '<b>' + one('calls') + '</b> calls' + sep + '<b>' + one('connected') +
+        ['Target', '<b>' + one('talk_minutes') + 'm</b> talk' + sep + '<b>' + one('calls') + '</b> calls' + sep + '<b>' + one('connected') +
                    '</b> connected' + sep + '<b>' + one('long_calls') + '</b> ' + longLbl +
                    ((T6.talk_minutes || {}).floor ? ' <i>red is under ' + T6.talk_minutes.floor + 'm</i>' : '')],
-        ['Team', '<b>' + T.onT + '</b> of ' + T.people + ' on target' + sep + '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) +
+        ['Team', '<b>' + T.onT + '/' + T.people + '</b> on target' + sep + '<b>' + TB.hmShort(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) +
                  '</b> calls' + sep + '<b>' + fmt(T.over3) + '</b> ' + longLbl],
         ['Result', result],
         ['Calls', '<b>' + fmt(T.inb) + '</b> inbound <i>' + fmt(T.inbA) + ' answered</i>' + sep + '<b>' + fmt(T.conn) + '</b> connected' +
