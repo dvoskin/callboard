@@ -2219,7 +2219,7 @@ def _v6_fetch_ringex(roster, days, local_today, tz_offset_minutes):
                 # nine seats at once tripped RingEX's 10-a-minute limit and
                 # paused billing's and the coordinators' boards with it.
                 if seat.get("cache_only_today"):
-                    if c and time.time() - c["at"] < _RINGEX_TODAY_TTL:
+                    if c and time.time() - c["at"] < _TC_TODAY_TTL:
                         rows.extend(c["rows"]); stats["cached"] += 1
                     else:
                         missing.append(day); stats["missing"] += 1
@@ -4979,9 +4979,9 @@ def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
 # coordinators come first -- at two a minute this loop tipped the account
 # over and billing read "not known" for ten minutes, 2026-10-16). A full pass
 # takes about eight minutes; a request accepts a reading up to 20 minutes old.
-_RINGEX_TODAY_TTL = 1200.0       # what a request accepts
-_RINGEX_REFRESH_AFTER = 420.0    # what the loop refreshes
-_RINGEX_PAUSE = 60.0
+_TC_TODAY_TTL = 1200.0       # what a request accepts
+_TC_REFRESH_AFTER = 420.0    # what the loop refreshes
+_TC_PAUSE = 60.0
 
 
 def _ringex_should_yield(today):
@@ -5012,7 +5012,7 @@ def _ringex_warm_loop():
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
             for seat in _billing_roster("ringex")[0]:
                 c = _v6_today_cache.get((seat["ext_id"], today))
-                if c and time.time() - c["at"] < _RINGEX_REFRESH_AFTER:
+                if c and time.time() - c["at"] < _TC_REFRESH_AFTER:
                     continue
                 if _ringex_should_yield(today):
                     _ringex_warm_state["yielded"] = _ringex_warm_state.get("yielded", 0) + 1
@@ -5022,7 +5022,7 @@ def _ringex_warm_loop():
                     _v6_today_cache[(seat["ext_id"], today)] = {"at": time.time(), "rows": rows}
                     _ringex_warm_state["filled"] += 1
                     _ringex_warm_state["last_ok_at"] = time.time()
-                    time.sleep(_RINGEX_PAUSE)
+                    time.sleep(_TC_PAUSE)
                 else:
                     _ringex_warm_state["last_error"] = why
                     _ringex_warm_state["last_error_at"] = time.time()

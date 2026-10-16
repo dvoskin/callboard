@@ -101,7 +101,7 @@
     var r = p.ratio[key], e = p.expected[key];
     if (r == null) return ' <i>too early to pace</i>';
     var pct = Math.round((r - 1) * 100);
-    return ' <i>expected ' + Math.round(e) + (unit || '') + ' by now (' + (pct > 0 ? '+' : '') + pct + '%)</i>';
+    return ' <i>expected ' + e + (unit || '') + ' by now (' + (pct > 0 ? '+' : '') + pct + '%)</i>';
   }
 
   function v6Row(a, team, T6, longLbl) {
@@ -112,23 +112,54 @@
     // until they arrive, never a confident zero.
     var crmIn = !!(a.crm && a.crm.calls);
     var talkS = sum(D, 'talk_seconds'), talkM = Math.round(talkS / 60), handled = sum(D, 'handled_calls');
+    // What their own board shows, the way it shows it (Danny, 2026-10-16:
+    // "Not all the analytics match across the separated dashboards"): talk in
+    // minutes from the same field ("238.1m"), the coordinators' In / Out, the
+    // billers' pace against what a normal day looks like by now, the
+    // coordinators' progress (planner calls + tasks) and priorities line.
+    var tot = a.worked || a.totals || {};
+    var show = a.pace ? (a.pace.actual || {}) : (a.per_day || {});
+    var fmin = function (x) { if (x == null) return null; var v = Math.round(x * 10) / 10; return (v % 1 ? v.toFixed(1) : String(v)) + 'm'; };
+    var tdoneP = Math.max(0, (t.due || 0) - (t.open || 0));
+    var pDue = (jc.due || 0) + (t.due || 0), pDone = (jc.completed || 0) + tdoneP;
     var row = {
       name: a.name, talk: talkS, dials: handled, over3: sum(D, 'long_calls'), g: v6Grades(a),
-      press: press(ms.open) + (team === 'surgical' ? progressBar(a) : ''),
-      missed: a.missed_calls, missedOpen: ms.open,
-      b: crmIn ? { html: w(od), zero: !od, hot: od > 0, title: 'Zoho calls past their time and still open' }
-               : { html: '—', zero: true, title: 'Zoho counts are still loading' }
+      talkText: fmin(show.talk_minutes) || (talkM + 'm'),
+      missed: a.missed_calls, missedOpen: ms.open
     };
-    if (team === 'billing') {
+    if (team === 'surgical') {
+      // In / Out, graded on the KPI (handled calls) -- the board's own cell
+      row.dHtml = (show.inbound == null ? w(tot.inbound) : show.inbound) + ' in \u00b7 ' +
+                  (show.outbound == null ? w(tot.outbound) : show.outbound) + ' out';
+      row.dLbl = '';
+      // the board's priorities line, word for word, then the progress hairline
+      var qMiss = Math.max(0, (tot.inbound || 0) - (tot.inbound_answered || 0));
+      var qn = function (v, hot) { return '<b' + (hot && v ? ' class="hot"' : '') + '>' + w(v) + '</b>'; };
+      row.press = (jn.queue
+        ? '<span class="press">' + qn(q.to_schedule, true) + ' to schedule \u00b7 ' + qn(qMiss, true) + ' missed \u00b7 ' +
+          qn(q.tasks_open, true) + ' tasks \u00b7 ' + qn(q.calls_scheduled_today, false) + ' calls' +
+          (q.calls_overdue ? ' (' + qn(q.calls_overdue, true) + ' overdue)' : '') + '</span>'
+        : press(ms.open)) + progressBar(a);
+      row.a = { html: crmIn && pDue ? pDone + '<i style="font-style:normal;opacity:.6">/' + pDue + '</i>' : '—', zero: !pDone,
+                title: crmIn ? 'Planner calls and tasks due in this window: done / due (the progress bar)' : 'Zoho counts are still loading' };
+      row.b = crmIn ? { html: w(q.calls_overdue), zero: !q.calls_overdue, hot: q.calls_overdue > 0, title: 'Planner calls overdue from before' }
+                    : { html: '—', zero: true, title: 'Zoho counts are still loading' };
+    } else {
+      row.dHtml = show.calls == null ? null : String(show.calls);
+      // vs expected: talk against where a normal day is by this hour
+      var pr = a.pace && a.pace.ratio ? a.pace.ratio.talk_minutes : null;
+      row.t3Html = pr == null ? '—' : ((pr - 1) >= 0 ? '+' : '') + Math.round((pr - 1) * 100) + '%';
+      row.t3Lbl = ' vs exp';
+      row.g.over3 = pr == null ? '' : (pr >= 0.8 ? 'pace-ok' : 'pace-low');
+      row.press = press(ms.open);
       row.a = { html: a.collected_total ? money(a.collected_total) : '—', zero: !a.collected_total,
                 title: 'What this biller recorded as collected in this window' };
-    } else {
-      row.a = { html: crmIn && due ? done + '<i style="font-style:normal;opacity:.6">/' + due + '</i>' : '—', zero: !done,
-                title: crmIn ? 'Zoho calls completed / due in this window' : 'Zoho counts are still loading' };
+      row.b = crmIn ? { html: w(od), zero: !od, hot: od > 0, title: 'Zoho calls past their time and still open' }
+                    : { html: '—', zero: true, title: 'Zoho counts are still loading' };
     }
     var pane = [
-      ['Talk', talkM + 'm' + soFar(a, 'talk_minutes', 'm') + '<br>' + tgt(T6, 'talk_minutes', 'm'), !talkM],
-      ['Calls', w(handled) + soFar(a, 'calls') + '<br>' + tgt(T6, 'calls'), !handled],
+      ['Talk', row.talkText + soFar(a, 'talk_minutes', 'm') + '<br>' + tgt(T6, 'talk_minutes', 'm'), !talkM],
+      ['Calls', (show.calls == null ? w(handled) : show.calls) + soFar(a, 'calls') + '<br>' + tgt(T6, 'calls'), !handled],
       ['Connected', w(sum(D, 'connected')) + '<br>' + tgt(T6, 'connected'), !sum(D, 'connected')],
       [longLbl + ' calls', w(row.over3) + '<br>' + tgt(T6, 'long_calls'), !row.over3],
       ['Inbound', w(sum(D, 'inbound')) + ' <i>' + w(sum(D, 'inbound_answered')) + ' answered</i>', !sum(D, 'inbound')],
@@ -160,8 +191,9 @@
 
   function v6Model(j, team, label, href) {
     var T6 = j.targets || {}, longLbl = '≥' + Math.round((j.long_call_seconds || 120) / 60) + 'm';
-    var rows = (j.ranked || []).map(function (a) {
+    var rows = (j.ranked || []).map(function (a, i) {
       var r = v6Row(a, team, T6, longLbl);
+      r.ord = i;
       r.unread = a.complete === false && !r.talk && !r.dials && !sum(a.days, 'inbound');
       r.quiet = !r.unread && !!j.live && !sum(a.days, 'calls');
       return r;
@@ -170,7 +202,8 @@
     (j.unknown || []).forEach(function (a) {
       if (a && a.name) rows.push({ name: a.name, unread: true });
     });
-    var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0, crm: 0, onT: 0, people: 0 };
+    var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0, crm: 0, onT: 0, people: 0,
+              pDue: 0, pDone: 0, pOd: 0 };
     (j.ranked || []).forEach(function (a) {
       var D = a.days || [], calls = (a.crm || {}).calls || {};
       T.talk += sum(D, 'talk_seconds'); T.dials += sum(D, 'handled_calls'); T.over3 += sum(D, 'long_calls');
@@ -178,6 +211,9 @@
       T.mo += (a.missed_summary || {}).open || 0;
       T.due += calls.due || 0; T.done += calls.completed || 0; T.od += calls.overdue || 0;
       if (a.crm && a.crm.calls) T.crm++;
+      var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, t2 = (a.crm || {}).tasks || {};
+      T.pDue += (jc2.due || 0) + (t2.due || 0); T.pDone += (jc2.completed || 0) + Math.max(0, (t2.due || 0) - (t2.open || 0));
+      T.pOd += (jn2.queue || {}).calls_overdue || 0;
       T.coll += a.collected_total || 0;
       if (sum(D, 'calls')) { T.people++; var b = v6Grades(a).talk; if (b === 'target' || b === 'stretch') T.onT++; }
     });
@@ -186,7 +222,8 @@
       ? '<b>' + money(T.coll) + '</b> collected' +
         (((j.collections || {}).payments || {}).all_payments ? ' <i>Books: ' + money(j.collections.payments.all_payments) + ' in all payments</i>' : '') +
         sep + (T.crm ? '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> Zoho calls overdue' : '<i>Zoho counts loading…</i>')
-      : (T.crm ? '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' Zoho calls done' + sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue'
+      : (T.crm ? '<b>' + fmt(T.pDone) + '</b> of ' + fmt(T.pDue) + ' planner calls and tasks done' + sep + '<b' + (T.pOd ? ' class="hot"' : '') + '>' +
+                 fmt(T.pOd) + '</b> planner calls overdue'
                : '<i>Zoho counts loading…</i>');
     var n = rows.filter(function (r) { return !r.unread; }).length;
     var people = team === 'billing' ? 'biller' : 'coordinator';
@@ -196,21 +233,22 @@
       (team === 'surgical' ? ' The coloured bar under a name is the window’s planner calls and tasks done, red through amber to green.' : '') +
       ' “missed” is an inbound call that rang out and has not been returned yet.';
     return {
-      key: team, label: label, href: href, nameHead: 'Name', dialsHead: 'Calls', dialsLbl: ' calls',
-      t3Head: longLbl.replace('≥', '&ge;'), t3Lbl: ' ' + longLbl, grade: true,
+      key: team, label: label, href: href, nameHead: 'Name', dialsHead: team === 'surgical' ? 'In / Out' : 'Calls', dialsLbl: ' calls',
+      t3Head: team === 'billing' ? 'vs exp' : longLbl.replace('≥', '&ge;'), t3Lbl: ' ' + longLbl, grade: true, keepOrder: true,
       retry: !T.crm && (j.ranked || []).length > 0,
       headline: (team === 'billing' ? '<b>' + money(T.coll) + '</b> collected' + sep : '') +
         '<b>' + T.onT + '</b> of ' + T.people + ' on target' + sep + '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> calls' +
-        (team === 'surgical' && T.crm ? sep + '<b>' + fmt(T.done) + '</b> of ' + fmt(T.due) + ' done' : '') +
-        (T.crm ? sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' : '') +
+        (team === 'surgical' && T.crm ? sep + '<b>' + fmt(T.pDone) + '</b> of ' + fmt(T.pDue) + ' done' + sep + '<b' + (T.pOd ? ' class="hot"' : '') + '>' + fmt(T.pOd) + '</b> overdue' : '') +
+        (team === 'billing' && T.crm ? sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' : '') +
         (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed' : ''),
       notes: (team === 'billing' ? [
         '<b>Where.</b> Each biller’s RingEX extension, the billers’ collections sheets, and their Zoho calls.',
         '<b>Delay.</b> Calls refresh about every 2½ minutes; the subtitle says how far they reach (“calls through”). ' +
           'Collections refresh every 2 minutes and Zoho counts every 5. Someone shown “not read yet” has not been read from RingEX ' +
           'since a restart or a rate limit: not known, not zero.',
-        '<b>Columns.</b> Talk is time on connected calls. Calls are outbound dials plus inbound calls answered (the KPI). ' + longLbl +
-          ' counts connected calls that long or longer. Collected is what each biller recorded as collected in this window; the Books figure ' +
+        '<b>Columns.</b> Talk is minutes on connected calls so far, as on the billing board. Calls are outbound dials plus inbound calls ' +
+          'answered (the KPI). vs exp is talk against where a normal billing day is by this hour, red under 80%. ' +
+          'Collected is what each biller recorded as collected in this window; the Books figure ' +
           'in the Result line is every payment Books recorded, including ones no biller logged, so it runs higher. Overdue is Zoho calls ' +
           '(billing follow-ups) past their time and still open. Tap a row for each figure against its target.'
       ] : [
@@ -218,10 +256,11 @@
         '<b>Delay.</b> Calls refresh about every 2½ minutes; the subtitle says how far they reach (“calls through”). ' +
           'Zoho counts refresh every 5 minutes. Someone shown “not read yet” has not been read from RingEX since a restart or ' +
           'a rate limit: not known, not zero.',
-        '<b>Columns.</b> Talk is time on connected calls. Calls are outbound dials plus inbound calls answered (the KPI). ' + longLbl +
-          ' counts connected calls that long or longer. Calls done is Zoho calls completed out of those due in this window. Overdue is ' +
-          'Zoho calls past their time and still open. Tap a row for each figure against its target, planner calls, tasks, surgeries ' +
-          'in the next 14 days and the day’s priorities.'
+        '<b>Columns.</b> Talk is minutes on connected calls so far. In / Out is inbound and outbound calls, coloured on the KPI ' +
+          '(outbound plus inbound answered). ' + longLbl + ' counts connected calls that long or longer. Done is planner calls and tasks ' +
+          'done out of those due in this window, the same as the coloured bar. Overdue is planner calls overdue from before. The line under ' +
+          'each name is the coordinators’ board’s priorities, in order: deals to schedule, missed inbound, tasks open, planner ' +
+          'calls today. Tap a row for each figure against its target.'
       ]).concat([marks]),
       sub: rows.length + ' ' + people + (rows.length === 1 ? '' : 's') +
            (j.as_of ? ' \u00b7 calls through ' + esc(j.as_of) : '') + (n < rows.length ? ' \u00b7 ' + (rows.length - n) + ' not read yet' : ''),
@@ -229,11 +268,11 @@
         ? [[money(T.coll), 'collected'], [T.onT + '/' + T.people, 'on target'], [fmt(T.dials), 'calls'],
            [T.crm ? fmt(T.od) : '\u2014', 'overdue', T.od > 0]]
         : [[T.onT + '/' + T.people, 'on target'], [TB.hmShort(T.talk), 'talk'],
-           [T.crm ? fmt(T.done) + '/' + fmt(T.due) : '\u2014', 'calls done'], [T.crm ? fmt(T.od) : '\u2014', 'overdue', T.od > 0]],
-      colA: team === 'billing' ? 'Collected' : 'Calls done', colB: 'Overdue',
+           [T.crm ? fmt(T.pDone) + '/' + fmt(T.pDue) : '\u2014', 'done'], [T.crm ? fmt(T.pOd) : '\u2014', 'overdue', T.pOd > 0]],
+      colA: team === 'billing' ? 'Collected' : 'Done', colB: 'Overdue',
       aLbl: team === 'billing' ? '' : 'done', bLbl: 'overdue',   // "$9,350" needs no word on a phone
-      aTitle: team === 'billing' ? 'Recorded as collected in this window' : 'Zoho calls completed / due in this window',
-      bTitle: 'Zoho calls past their time and still open',
+      aTitle: team === 'billing' ? 'Recorded as collected in this window' : 'Planner calls and tasks due in this window: done / due',
+      bTitle: team === 'billing' ? 'Zoho calls past their time and still open' : 'Planner calls overdue from before',
       rows: rows,
       sum: [
         ['Target', '<b>' + one('talk_minutes') + 'm</b> talk' + sep + '<b>' + one('calls') + '</b> calls' + sep + '<b>' + one('connected') +
@@ -315,7 +354,7 @@
   var SOURCES = [
     { id: 't-sales', url: '/api/v5/report?', label: 'Sales Floor', model: v5Model },
     { id: 't-ringex', url: '/api/v5/ringex?', label: 'Sales Training Class',
-      model: function (j) { return TB.ringexModel(j, { key: 'ringex', label: 'Sales Training Class', href: '/sales-ringex' }); } },
+      model: function (j) { return TB.ringexModel(j, { key: 'ringex', label: 'Sales Training Class', href: '/v5' }); } },
     { id: 't-surgical', url: '/api/v6/report?team=surgical&', label: 'Surgical Coordinators',
       model: function (j) { return v6Model(j, 'surgical', 'Surgical Coordinators', '/surgical-coordinator'); } },
     { id: 't-billing', url: '/api/v6/report?team=billing&', label: 'Billing',

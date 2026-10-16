@@ -190,7 +190,7 @@
           return;
         }
         var model = TB.ringexModel(res.j, {
-          key: 'rx', label: 'Sales Training Class', href: SHARE ? '' : '/sales-ringex',
+          key: 'rx', label: 'Sales Training Class', href: '',   // it lives on this page
           press: function (a) { AG[a.name] = a; return pressLine(a.name); },
           panelExtra: function (a) {
             return [['Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>']];

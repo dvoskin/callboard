@@ -137,8 +137,9 @@ window.TB = (function () {
   // coordinators as on the separated link"). Below the floor is red and down;
   // at or above target is up; between floor and target carries a quiet dot.
   function gcell(v, band, cls, label, html) {
-    var m = band === 'below' ? ['down', '\u25BC'] : (band === 'target' || band === 'stretch') ? ['up', '\u25B2'] : band ? ['flr', '\u00b7'] : ['', ''];
-    return '<span class="' + cls + (m[0] ? ' ' + m[0] : '') + '"' + (band ? ' title="' + esc(band === 'below' ? 'under the floor' : band === 'floor' ? 'between floor and target' : 'at or above target') + '"' : '') + '>' +
+    var m = band === 'pace-low' ? ['down', ''] : band === 'pace-ok' ? ['', ''] :
+            band === 'below' ? ['down', '\u25BC'] : (band === 'target' || band === 'stretch') ? ['up', '\u25B2'] : band ? ['flr', '\u00b7'] : ['', ''];
+    return '<span class="' + cls + (m[0] ? ' ' + m[0] : '') + '"' + (band && band.indexOf('pace') !== 0 ? ' title="' + esc(band === 'below' ? 'under the floor' : band === 'floor' ? 'between floor and target' : 'at or above target') + '"' : '') + '>' +
            (m[1] ? '<span class="mk">' + m[1] + '</span>' : '') + (html != null ? html : w(v)) + '<span class="lbl">' + label + '</span></span>';
   }
   function res(x, cls, label) {
@@ -189,7 +190,11 @@ window.TB = (function () {
     if (!el) return;
     // A seat RingEX has not been read for yet is "not known", never zero: it
     // sorts last, carries no arrows and no figures, and says so under the name.
-    var rows = (m.rows || []).slice().sort(function (a, b) {
+    // A team whose own board ranks its people (coordinators, billing) keeps
+    // that order, so the two pages list everyone the same way.
+    var rows = (m.rows || []).slice().sort(m.keepOrder ? function (a, b) {
+      return (a.unread ? 2 : a.quiet ? 1 : 0) - (b.unread ? 2 : b.quiet ? 1 : 0) || (a.ord || 0) - (b.ord || 0);
+    } : function (a, b) {
       return (a.unread ? 2 : a.quiet ? 1 : 0) - (b.unread ? 2 : b.quiet ? 1 : 0) || (b.talk || 0) - (a.talk || 0) || (b.dials || 0) - (a.dials || 0);
     });
     var f = m.floor || floorOf(rows), k = m.key || 'tb';
@@ -259,8 +264,9 @@ window.TB = (function () {
              '<span class="rk">' + (i + 1) + '</span>' +
              '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + (r.press || '') + '</span>' +
              (m.grade
-               ? gcell(0, (r.g || {}).talk, 'tk', '', hm(r.talk)) +
-                 gcell(r.dials, (r.g || {}).dials, 'd', m.dialsLbl || ' calls') + gcell(r.over3, (r.g || {}).over3, 't3', m.t3Lbl || ' long')
+               ? gcell(0, (r.g || {}).talk, 'tk', '', r.talkText != null ? r.talkText : hm(r.talk)) +
+                 gcell(r.dials, (r.g || {}).dials, 'd', r.dLbl != null ? r.dLbl : (m.dialsLbl || ' calls'), r.dHtml) +
+                 gcell(r.over3, (r.g || {}).over3, 't3', r.t3Lbl != null ? r.t3Lbl : (m.t3Lbl || ' long'), r.t3Html)
                : '<span class="tk ' + (up ? 'up' : 'down') + '"><span class="mk">' + (up ? '\u25B2' : '\u25BC') + '</span>' + hm(r.talk) + '</span>' +
                  cell(r.dials, f.dials, 'd', m.dialsLbl || ' dials') + cell(r.over3, f.over3, 't3', ' >3m')) +
              res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';

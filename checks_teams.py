@@ -143,10 +143,11 @@ ck("...each team carries its own notes on delays and meanings", html.count("'<b>
    and "TRAINING_NOTES" in html and "15 to 20 minutes" in html and ("2\\u00bd minutes" in html or "2\u00bd minutes" in html), "notes")
 ck("coordinators and billing keep their own board's tracking: graded against the KPI target, paced, with the progress bar",
    "grade: true" in html and "function v6Grades(a)" in html and "pace.grades.talk_minutes" in html
-   and "function progressBar(a)" in html and "team === 'surgical' ? progressBar(a) : ''" in html
+   and "function progressBar(a)" in html and ": press(ms.open)) + progressBar(a);" in html
    and "['Target', '<b>' + one('talk_minutes')" in html and "soFar(a, 'talk_minutes', 'm')" in html, "kpi")
-ck("...and their Calls column is the KPI's handled calls (dials + inbound answered)", "dials: handled" in html
-   and "sum(D, 'handled_calls')" in html, "handled")
+ck("...and every figure reads as on their own board: minutes, In / Out, vs expected, planner+tasks done, planner overdue, the priorities line, their order",
+   "talkText: fmin(show.talk_minutes)" in html and "' in \\u00b7 '" in html and "row.t3Lbl = ' vs exp';" in html
+   and "pDone + '<i style" in html and "q.calls_overdue" in html and "' to schedule \\u00b7 '" in html and "keepOrder: true" in html, "match")
 ck("...the Sales Floor opens on a phone; the others start folded", "openOnPhone: true" in html
    and "return (FOLD[k] = phone && !m.openOnPhone);" in html, "fold")
 ck("...each from its own board's API", all(u in html for u in ("/api/v6/report?team=surgical&", "/api/v6/report?team=billing&",
@@ -221,7 +222,7 @@ finally:
     A._v6_fetch_day = real_fd
     A._v6_today_cache.pop((A._TEAM_ROSTERS["ringex"][0]["ext_id"], "2099-01-01"), None)
 ck("their own slow loop is a worker loop, LAST in line: one seat a minute, a 70 s back-off on a refusal",
-   any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._RINGEX_PAUSE == 60.0 and "time.sleep(70)" in _src, "loop")
+   any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._TC_PAUSE == 60.0 and A._RINGEX_REFRESH_AFTER == 300.0 and A._TC_REFRESH_AFTER == 420.0 and "time.sleep(70)" in _src, "loop")
 _today = "2099-01-02"
 for _s in A._billing_roster("billing")[0]:
     A._v6_today_cache.pop((_s["ext_id"], _today), None)
