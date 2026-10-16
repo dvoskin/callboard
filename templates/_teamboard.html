@@ -149,7 +149,6 @@ window.TB = (function () {
         panel: [
           ['Inbound', w(a.inbound) + ' <i>' + w(a.inbound_answered) + ' answered</i>', !a.inbound],
           ['Outbound', w(a.attempts), !a.attempts],
-          ['Connected', w(a.connected), !a.connected],
           ['Over 10 min', w(a.over_10), !a.over_10],
           ['Longest', hm(a.longest), !a.longest],
           ['First call', a.first ? esc(a.first) + (a.late_minutes ? ' <i>' + w(a.late_minutes) + ' min late</i>' : '') : '—', !a.first],
@@ -174,7 +173,6 @@ window.TB = (function () {
                  (S('paid_amount') ? ' <i>' + money(S('paid_amount')) + '</i>' : '') : 'loading from Books…'],
         ['Calls', '<b>' + fmt(T.inbound) + '</b> inbound <i>' + fmt(T.inbound_answered) + ' answered</i>' +
                   '<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> outbound' +
-                  '<span class="sep">·</span><b>' + fmt(T.connected) + '</b> connected' +
                   (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed not called back' : '')]
       ],
       note: opts.note
