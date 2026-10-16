@@ -254,7 +254,9 @@ window.TB = (function () {
           var dash = function (cls) { return '<span class="' + cls + ' zero">—</span>'; };
           h += '<div class="r"><span class="rk">' + (i + 1) + '</span><span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) +
                '<span class="unr">not read yet · RingEX fills this in within a few minutes</span></span>' +
-               dash('tk') + dash('d') + dash('t3') + dash('q') + dash('rt') + '</div>';
+               dash('tk') + dash('d') + dash('t3') +
+               // what is not read is the CALLS; a result that comes from elsewhere (a biller's collections sheet) still shows
+               (r.a ? res(r.a, 'q', m.aLbl || m.colA) : dash('q')) + (r.b ? res(r.b, 'rt', m.bLbl || m.colB) : dash('rt')) + '</div>';
           return;
         }
         var up = (r.talk || 0) >= f.talk;

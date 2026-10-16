@@ -148,6 +148,11 @@ ck("coordinators and billing keep their own board's tracking: graded against the
 ck("...and every figure reads as on their own board: minutes, In / Out, vs expected, planner+tasks done, planner overdue, the priorities line, their order",
    "talkText: fmin(show.talk_minutes)" in html and "' in \\u00b7 '" in html and "row.t3Lbl = ' vs exp';" in html
    and "pDone + '<i style" in html and "q.calls_overdue" in html and "' to schedule \\u00b7 '" in html and "keepOrder: true" in html, "match")
+ck("billing's total is the board's own (what billers logged), never a sum of the rows whose calls are read",
+   "T.coll = j.live && C.today != null ? C.today : (C.total || 0);" in html
+   and "(j.unknown || []).concat(j.silent || [], j.stalled || [])" in html, "billing total")
+ck("...and a biller not read yet on the phone still shows her collected amount",
+   "(r.a ? res(r.a, 'q', m.aLbl || m.colA) : dash('q'))" in html, "unread amount")
 ck("...the Sales Floor opens on a phone; the others start folded", "openOnPhone: true" in html
    and "return (FOLD[k] = phone && !m.openOnPhone);" in html, "fold")
 ck("...each from its own board's API", all(u in html for u in ("/api/v6/report?team=surgical&", "/api/v6/report?team=billing&",

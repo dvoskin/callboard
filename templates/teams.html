@@ -198,10 +198,21 @@
       r.quiet = !r.unread && !!j.live && !sum(a.days, 'calls');
       return r;
     });
-    // Seats the report could not read yet ("not known", not "no calls").
-    (j.unknown || []).forEach(function (a) {
-      if (a && a.name) rows.push({ name: a.name, unread: true });
+    // Seats the report could not read yet ("not known", not "no calls"). A
+    // biller's collected amount comes from the collections sheet, not the
+    // phone, so it still shows -- and still counts.
+    (j.unknown || []).concat(j.silent || [], j.stalled || []).forEach(function (a) {
+      if (a && a.name) rows.push({ name: a.name, unread: true,
+        a: team === 'billing' && a.collected_total ? { html: money(a.collected_total) } : null });
     });
+    if (team === 'billing') {
+      rows.forEach(function (r) {
+        if (r.unread && !r.a) {
+          var src = (j.ranked || []).filter(function (x) { return x.name === r.name; })[0];
+          if (src && src.collected_total) r.a = { html: money(src.collected_total) };
+        }
+      });
+    }
     var T = { talk: 0, dials: 0, over3: 0, inb: 0, inbA: 0, conn: 0, mo: 0, due: 0, done: 0, od: 0, coll: 0, crm: 0, onT: 0, people: 0,
               pDue: 0, pDone: 0, pOd: 0 };
     (j.ranked || []).forEach(function (a) {
@@ -214,12 +225,19 @@
       var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, t2 = (a.crm || {}).tasks || {};
       T.pDue += (jc2.due || 0) + (t2.due || 0); T.pDone += (jc2.completed || 0) + Math.max(0, (t2.due || 0) - (t2.open || 0));
       T.pOd += (jn2.queue || {}).calls_overdue || 0;
-      T.coll += a.collected_total || 0;
+      T.coll += a.collected_total || 0;   // replaced below by the board's own total
       if (sum(D, 'calls')) { T.people++; var b = v6Grades(a).talk; if (b === 'target' || b === 'stretch') T.onT++; }
     });
+    // Billing's total is the board's own figure -- what the billers recorded
+    // on their sheets in this window (collections.today on the live day) --
+    // never a sum of the rows whose calls happen to be read: a biller "not
+    // read yet" on the phone has still banked her money (Danny, 2026-10-16:
+    // "Billing total is not accurate from the trackers").
+    var C = j.collections || {};
+    if (team === 'billing' && (C.today != null || C.total != null)) T.coll = j.live && C.today != null ? C.today : (C.total || 0);
     var one = function (k) { return T6[k] ? T6[k].target : '—'; };
     var result = team === 'billing'
-      ? '<b>' + money(T.coll) + '</b> collected' +
+      ? '<b>' + money(T.coll) + '</b> logged by billers' +
         (((j.collections || {}).payments || {}).all_payments ? ' <i>Books: ' + money(j.collections.payments.all_payments) + ' in all payments</i>' : '') +
         sep + (T.crm ? '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> Zoho calls overdue' : '<i>Zoho counts loading…</i>')
       : (T.crm ? '<b>' + fmt(T.pDone) + '</b> of ' + fmt(T.pDue) + ' planner calls and tasks done' + sep + '<b' + (T.pOd ? ' class="hot"' : '') + '>' +
