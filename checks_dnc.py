@@ -89,7 +89,7 @@ ck("a moved deal gets Stage Unsubscribe, RC_SMS_Opt_Out and every Send_*_SMS off
    p["deals_move"])
 ck("a flag-only deal never carries a Stage", p["deals_flag"] == [dict({"id": "d3"}, **dd.SEND_OFF)], p["deals_flag"])
 ck("a cancelled call says why, with the DNC date", p["calls_cancel"][0]["Outgoing_Call_Status"] == "Cancelled"
-   and "do not call (DNC disposition 2026-10-15)" in p["calls_cancel"][0]["_note"], p["calls_cancel"])
+   and p["calls_cancel"][0]["_note"] == "Cancelled: do not call (DNC disposition 2026-10-15).", p["calls_cancel"])
 
 c2 = contact("c2", unsub="2026-09-01T10:00:00-04:00")
 p2 = dd.payloads([one(world([call("k", who="c2")], contacts=[c2]), "c2")], world([call("k", who="c2")], contacts=[c2]), "X")

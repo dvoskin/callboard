@@ -279,9 +279,10 @@ def decide(world):
     return out
 
 
-def payloads(decisions, world, now_iso, today=None):
-    """The writes for every "apply" decision, deduped across people."""
-    today = today or now_iso[:10]
+def payloads(decisions, world, now_iso):
+    """The writes for every "apply" decision, deduped across people. The note
+    on a cancelled call carries the DNC's own date only: the server's offset
+    is not Eastern, and Zoho keeps the modified time anyway."""
     contacts, move, flag, cancel = {}, {}, {}, {}
     for dec in decisions:
         if dec["result"] != "apply":
@@ -302,7 +303,7 @@ def payloads(decisions, world, now_iso, today=None):
         when = (dec.get("dnc_at") or "")[:10]
         for i in dec["calls_cancel"]:
             cancel[i] = {"id": i, "Outgoing_Call_Status": "Cancelled",
-                         "_note": "Cancelled %s: do not call (DNC disposition %s)." % (today, when)}
+                         "_note": "Cancelled: do not call (DNC disposition %s)." % when}
     return {"contacts": list(contacts.values()), "deals_move": list(move.values()),
             "deals_flag": list(flag.values()), "calls_cancel": list(cancel.values())}
 
