@@ -3027,13 +3027,13 @@ _V5_SMS_MAX_DAYS = 7
 _V5_SMS_NAMES = set()           # names the sales board has shown (?names=), read too
 # A small table under the sales board: texts on lines that are not sales reps.
 # Danny, 2026-10-15: "Ariel, Salome, Anna Parizher, Artem Bezkor, and Umed
-# Makhsumov (put first names)". Extension numbers from the RingEX line audit;
+# Makhsumov (put first names)"; Anna taken off the same evening ("remove Anna
+# from the texting board"). Extension numbers from the RingEX line audit;
 # each is checked against the directory (the first name must match) and a
 # stale or missing one falls back to the name. A name not found is reported.
 _SALES_SMS_PANEL = [
     {"label": "Ariel",  "name": "Ariel Voskin",        "ext": "689"},
     {"label": "Salome", "name": "Salome",              "ext": "151"},
-    {"label": "Anna",   "name": "Anna Parizher",       "ext": "733", "ext_id": 683781035},
     {"label": "Artem",  "name": "Artem Bezkorovainyi", "ext": "169", "ext_id": 701193035},
     {"label": "Umed",   "name": "Umed Makhsumov",      "ext": ""},
 ]

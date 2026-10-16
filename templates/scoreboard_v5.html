@@ -150,16 +150,24 @@
   details.notes>summary::before{content:'\25B8  '} details.notes[open]>summary::before{content:'\25BE  '}
   details.notes .warn,details.notes .recon,details.notes .note{font-size:12px}
   .dg b i{font-style:normal;font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
-  /* the other lines' texts: a small table at the foot of the board */
-  .smspanel{margin:22px 0 4px;max-width:420px}
-  .sp-h{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding-bottom:5px;border-bottom:1px solid var(--rule)}
-  .smspanel table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
-  .smspanel thead th{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);text-align:right;padding:6px 0 4px}
-  .smspanel tbody th{text-align:left;font-weight:600;padding:5px 0;cursor:help}
-  .smspanel tbody th i{font-style:normal;color:var(--muted);font-weight:400}
-  .smspanel td{text-align:right;padding:5px 0 5px 10px;font-weight:600;color:var(--ink-2)}
-  .smspanel td.hot{color:var(--dn)} .smspanel td.na{text-align:left;font-weight:400;font-style:italic;color:var(--muted)}
-  .smspanel tbody tr+tr{border-top:1px solid var(--hair)}
+  /* the other lines' texts: the main chart's own width, header and rows, names
+     lined up with the reps' names above (Danny, 2026-10-15: "match the width
+     and style of the top chart more closely") */
+  .smspanel{margin:0}
+  .sp-hd,.sp-r{display:grid;align-items:center;grid-template-columns:22px minmax(0,1fr) 80px 80px 110px 80px}
+  .sp-hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
+         padding:9px 0 5px;border-bottom:1px solid var(--rule)}
+  .sp-r{padding:7px 0;border-bottom:1px solid var(--hair)}
+  .sp-r:last-child{border-bottom:0}
+  .sp-hd>*,.sp-r>*{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .sp-hd>*,.sp-r>*{grid-area:auto}   /* .nm and .rk carry the main chart's named areas */
+  .sp-hd .nm{font-size:10.5px;font-weight:700;letter-spacing:.05em;color:var(--muted)}
+  .sp-hd .nm,.sp-r .nm,.sp-r .rk{text-align:left}
+  .sp-r .nm i{font-style:normal;color:var(--muted);font-weight:400}
+  .sp-in,.sp-out,.sp-un,.sp-ur{font-weight:600;color:var(--ink-2);font-size:13px}
+  .sp-hd .sp-in,.sp-hd .sp-out,.sp-hd .sp-un,.sp-hd .sp-ur{font-size:10.5px;font-weight:700;color:var(--muted);cursor:help}
+  .sp-r .hot{color:var(--dn)}
+  .sp-na{grid-column:3 / -1;text-align:left;font-style:italic;color:var(--muted);font-size:12.5px}
   .q.zero,.rt.zero{color:var(--muted);font-weight:500}
   .lbl{display:none;color:var(--muted);font-weight:400}
   .up{color:var(--up)} .down{color:var(--dn)}
@@ -185,6 +193,9 @@
     .d{grid-area:d} .t3{grid-area:t3} .t10{grid-area:t10} .q{grid-area:q} .rt{grid-area:rt}
     .d,.t3,.t10,.q,.rt,.io{font-size:11.5px;font-weight:600;text-align:left;justify-self:start}
     .io{grid-area:io} .q,.rt{margin-top:1px}
+    .sp-hd,.sp-r{grid-template-columns:16px minmax(0,1fr) 46px 52px 58px 54px}
+    .sp-r{padding:6px 0} .sp-r .nm{font-size:14px}
+    .sp-in,.sp-out,.sp-un,.sp-ur{font-size:12.5px}
     .sum .srow{grid-template-columns:38px minmax(0,1fr);font-size:12px;gap:0 8px}
     .sum .sv i.med{display:none}
     /* The number carries the row; the word only says which number. */
@@ -333,21 +344,22 @@
     var old = $('smspanel'); if (old) old.remove();
     var P = (SMS && SMS.panel) || [], un = (SMS && SMS.panel_unresolved) || [];
     if (!P.length && !un.length) return;
-    var n = function (v, hot) { return '<td' + (hot && v ? ' class="hot"' : '') + '>' + w(v) + '</td>'; };
+    var n = function (v, hot, cls) { return '<span class="' + cls + (hot && v ? ' hot' : '') + '">' + w(v) + '</span>'; };
     var rows = P.map(function (a) {
-      if (a.unknown) return '<tr><th title="' + esc((a.name || a.label) + ' \u00b7 ext ' + (a.ext || '?')) + '">' + esc(a.label) + '</th>' +
-                            '<td colspan="4" class="na">not read yet</td></tr>';
-      return '<tr><th title="' + esc((a.name || a.label) + ' \u00b7 ext ' + (a.ext || '?') + (a.complete ? '' : ' \u00b7 partly read, a floor')) + '">' +
-             esc(a.label) + (a.complete ? '' : '<i>+</i>') + '</th>' +
-             n(a.received) + n(a.sent) + n(a.unanswered, true) + n(a.unread, true) + '</tr>';
+      var who = '<span class="rk"></span><span class="nm" title="' + esc((a.name || a.label) + ' \u00b7 ext ' + (a.ext || '?') +
+                (a.complete ? '' : ' \u00b7 partly read, so these are a floor')) + '">' + esc(a.label) + (a.complete ? '' : '<i>+</i>') + '</span>';
+      if (a.unknown) return '<div class="sp-r">' + who + '<span class="sp-na">not read yet</span></div>';
+      return '<div class="sp-r">' + who + n(a.received, false, 'sp-in') + n(a.sent, false, 'sp-out') +
+             n(a.unanswered, true, 'sp-un') + n(a.unread, true, 'sp-ur') + '</div>';
     }).join('') + un.map(function (l) {
-      return '<tr><th>' + esc(l) + '</th><td colspan="4" class="na">no RingEX line found</td></tr>';
+      return '<div class="sp-r"><span class="rk"></span><span class="nm">' + esc(l) + '</span><span class="sp-na">no RingEX line found</span></div>';
     }).join('');
     var dn = $('datanotes');
-    (dn ? dn : $('out')).insertAdjacentHTML(dn ? 'beforebegin' : 'beforeend', '<div id="smspanel" class="smspanel"><div class="sp-h">Texts \u00b7 other lines</div>' +
-      '<table><thead><tr><th></th><th title="Received">In</th><th title="Sent">Out</th>' +
-      '<th title="Conversations where the other side wrote last">Unanswered</th><th title="Received and not opened">Unread</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table></div>');
+    (dn ? dn : $('out')).insertAdjacentHTML(dn ? 'beforebegin' : 'beforeend', '<div id="smspanel" class="smspanel"><h2>Texts \u00b7 other lines</h2>' +
+      '<div class="sp-hd"><span class="rk"></span><span class="nm">Line</span><span class="sp-in" title="Received">In</span>' +
+      '<span class="sp-out" title="Sent">Out</span>' +
+      '<span class="sp-un" title="Conversations where the other side wrote last"><span class="lead-long">Unanswered</span><span class="lead-short">Waiting</span></span>' +
+      '<span class="sp-ur" title="Received and not opened">Unread</span></div>' + rows + '</div>');
   }
 
   function loadSms(q) {

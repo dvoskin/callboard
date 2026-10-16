@@ -109,9 +109,8 @@ try:
 finally:
     A._ringcx.fetch_extension_directory = _real_dir2
 _pl = {x["label"]: x for x in _ps}
-ck("the five lines in the order named", [x["label"] for x in _ps] == ["Ariel", "Salome", "Anna", "Artem", "Umed"], [x["label"] for x in _ps])
+ck("the four lines in the order named (Anna taken off 2026-10-15)", [x["label"] for x in _ps] == ["Ariel", "Salome", "Artem", "Umed"], [x["label"] for x in _ps])
 ck("an extension on file is used when its first name matches the directory", _pl["Ariel"]["ext_id"] == 9001 and _pl["Salome"]["ext_id"] == 9002, _pl)
-ck("a stale number does not hand Anna someone else's texts", _pl["Anna"]["ext_id"] == 683781035, _pl["Anna"])
 ck("a line with no number on file is found by name ('Last, First' too)", _pl["Umed"]["ext_id"] == 9005 and _pl["Umed"]["ext"] == "412", _pl["Umed"])
 A._ringcx.fetch_extension_directory = lambda **k: ({}, {})
 try:
@@ -119,7 +118,7 @@ try:
 finally:
     A._ringcx.fetch_extension_directory = _real_dir2
 ck("a name the directory lacks is reported, not guessed; ids on file still read",
-   [x["label"] for x in _ps2] == ["Anna", "Artem"] and _pu2 == ["Ariel", "Salome", "Umed"], (_ps2, _pu2))
+   [x["label"] for x in _ps2] == ["Artem"] and _pu2 == ["Ariel", "Salome", "Umed"], (_ps2, _pu2))
 
 # the build reads them with the same paced, patient reader
 A._sms_seats = lambda team, extra_names=(): ([], [])
@@ -199,9 +198,11 @@ finally:
     A._ringcx.fetch_extension_directory = _real_dir
 ck("a board-only name is resolved and read; a roster name is not doubled",
    any(x["name"] == "Rothmel Example" and x["ext"] == "201" for x in _ss) and sum(1 for x in _ss if x["name"] == "Maia Pasifae Palma") <= 1, ([x["name"] for x in _ss], _un))
-ck("the table sits at the foot of the board: In, Out, Unanswered, Unread, first names",
-   "'<div id=\"smspanel\" class=\"smspanel\"><div class=\"sp-h\">Texts \\u00b7 other lines</div>'" in tpl
-   and "n(a.received) + n(a.sent) + n(a.unanswered, true) + n(a.unread, true)" in tpl and "esc(a.label)" in tpl and "no RingEX line found" in tpl, "panel")
+ck("the table is the main chart's shape: its heading, header row and rows, In, Out, Unanswered, Unread, first names",
+   "<div id=\"smspanel\" class=\"smspanel\"><h2>Texts \\u00b7 other lines</h2>" in tpl and "'<div class=\"sp-hd\"><span class=\"rk\"></span><span class=\"nm\">Line</span>" in tpl
+   and "n(a.received, false, 'sp-in') + n(a.sent, false, 'sp-out') +" in tpl and "n(a.unanswered, true, 'sp-un') + n(a.unread, true, 'sp-ur')" in tpl
+   and ".sp-hd,.sp-r{display:grid;align-items:center;grid-template-columns:22px minmax(0,1fr) 80px 80px 110px 80px}" in tpl
+   and ".smspanel{margin:0}" in tpl and ".sp-hd>*,.sp-r>*{grid-area:auto}" in tpl and "max-width:420px" not in tpl and "no RingEX line found" in tpl, "panel")
 ck("a line that could not be read says so instead of 0", "texts not read yet</span>" in tpl and "' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>'" in tpl, "not-read")
 
 # ---- the message rows: read status on every inbound, the body only on request ----
