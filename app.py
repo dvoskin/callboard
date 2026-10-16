@@ -2878,6 +2878,169 @@ def _v6_warm_loop():
             _v6_warm_state["cycles_ok"] = _v6_warm_state.get("cycles_ok", 0) + 1
 
 
+def _sms_seats(team):
+    """The extensions whose texts a team's people send and receive on.
+
+    The team's roster plus _SMS_EXTRA_SEATS. A RingCX-only seat (the sales
+    floor) names no RingEX extension, so its name is resolved in the
+    extension directory ("Carvajal, Maria" there, "Maria Carvajal" here); a
+    name the directory lacks is returned in `unresolved`, never guessed.
+    Returns (seats, unresolved).
+    """
+    roster, _ = _billing_roster(team)
+    roster = [dict(s) for s in (roster or [])] + [dict(s) for s in _SMS_EXTRA_SEATS.get(_team_key(team), [])]
+    unresolved = []
+    if any(not s.get("ext_id") for s in roster):
+        directory, _dm = _ringcx.fetch_extension_directory()
+        by_name = {}
+        _norm = lambda v: " ".join(str(v or "").lower().replace(",", " ").replace(".", " ").split())
+        for num, e in (directory or {}).items():
+            nm = _norm((e or {}).get("name"))
+            if nm:
+                by_name[nm] = ((e or {}).get("id"), num)
+        for s in roster:
+            if s.get("ext_id"):
+                continue
+            nm = _norm(s.get("name"))
+            hit = by_name.get(nm)
+            if not hit:
+                toks = nm.split()
+                cands = [v for k, v in by_name.items() if toks and toks[0] in k.split() and toks[-1] in k.split()]
+                hit = cands[0] if len(cands) == 1 else None
+            if hit and hit[0]:
+                s["ext_id"], s["ext"] = hit[0], str(hit[1])
+            else:
+                unresolved.append(s.get("name"))
+        roster = [s for s in roster if s.get("ext_id")]
+    return roster, unresolved
+
+
+# ---- STOP replies, honored (sms_opt_outs.py) ------------------------------
+# Every texting extension -- billing, the coordinators, the whole sales floor
+# -- is scanned for opt-out texts once an hour; every new number goes on the
+# list on disk and gets the org's opt-out fields set in Zoho (Contact, Lead,
+# Deal switches), with trigger: []. Danny, 2026-10-15: "make sure all stop
+# replies are getting honored".
+import sms_opt_outs as _optouts_mod
+_OPTOUT_TEAMS = ("billing", "surgical", "sales")
+_OPTOUT_FILE = _data_dir / "sms_opt_outs.json"
+_optouts = _optouts_mod.Store(_OPTOUT_FILE)
+_optouts_state = {"runs": 0, "running": False}
+_optouts_lock = threading.Lock()
+
+
+def _optouts_run(days=2):
+    """One pass: scan, fold in, mark the new numbers in Zoho. Never raises."""
+    if not _optouts_lock.acquire(blocking=False):
+        return {"skipped": "a run is in progress"}
+    t0 = time.time()
+    info = {"started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "days": days}
+    _optouts_state["running"] = True
+    try:
+        tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+        first = (today - timedelta(days=max(1, days) - 1)).isoformat()
+        start_dt = _parse_local_date_to_utc(first, 0, 0, 0, tz_off)
+        end_dt = _parse_local_date_to_utc(today.isoformat(), 23, 59, 59, tz_off)
+        seats, unresolved = [], []
+        for team in _OPTOUT_TEAMS:
+            s, u = _sms_seats(team)
+            seats += s
+            unresolved += u
+        seen = set()
+        seats = [s for s in seats if not (s["ext_id"] in seen or seen.add(s["ext_id"]))]
+        hits, problems = _optouts_mod.scan(_ringcx.fetch_extension_messages, seats, start_dt, end_dt)
+        new = _optouts.add(hits)
+        info.update({"seats": len(seats), "unresolved": unresolved, "hits": len(hits), "new": len(new),
+                     "problems": problems[:20]})
+        # Zoho: every number not yet marked, or whose last mark failed -- once
+        # the list is ARMED (/api/v6/opt-outs?arm=1, after a positive control
+        # on one number with ?mark=). Shipped disarmed: the first scans only
+        # collect. OPT_OUT_ZOHO_WRITE=0 stops writes whatever the flag says.
+        write = os.environ.get("OPT_OUT_ZOHO_WRITE", "1") != "0" and bool(_optouts.data.get("zoho_armed"))
+        marked = 0
+        if write and _zoho.refresh_token and _zoho.client_id:
+            now_iso = _optouts_mod.now_iso_local(tz_off)
+            for d, rec in list(_optouts.data["numbers"].items()):
+                z = rec.get("zoho")
+                if z and not z.get("errors"):
+                    continue
+                rec["zoho"] = _optouts_mod.mark_in_zoho(_zoho.base_url, _zoho._headers, d, now_iso, requests, log)
+                marked += 1
+        info["zoho_marked"] = marked
+        info["zoho_write"] = write
+        _optouts.note_run(info)
+        _optouts.save()
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("opt-out run failed")
+        try:
+            _optouts.note_run(info)
+            _optouts.save()
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        info["took"] = round(time.time() - t0, 1)
+        _optouts_state.update({"runs": _optouts_state.get("runs", 0) + 1, "last": info, "running": False,
+                               "last_at": time.time()})
+        _optouts_lock.release()
+    return info
+
+
+def _optouts_loop():
+    time.sleep(20)
+    while True:
+        _optouts_run(days=2)
+        time.sleep(3600)
+
+
+@app.route("/api/v6/opt-outs")
+def api_v6_opt_outs():
+    """Signed in only. The opt-out list and the last runs. ?kick=1 starts a
+    scan now (in a thread; poll again). Numbers only -- no text beyond the
+    first 40 characters of the STOP itself."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    # ?mark=<10 digits>: the positive control -- one number on the list,
+    # marked in Zoho now, the result stored on its record and returned.
+    mk = "".join(ch for ch in (request.args.get("mark") or "") if ch.isdigit())[-10:]
+    if mk:
+        rec = _optouts.data["numbers"].get(mk)
+        if not rec:
+            return jsonify({"error": "not on the list", "number": mk}), 404
+        tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+        rec["zoho"] = _optouts_mod.mark_in_zoho(_zoho.base_url, _zoho._headers, mk,
+                                                 _optouts_mod.now_iso_local(tz_off), requests, log)
+        _optouts.save()
+        return jsonify({"number": mk, "zoho": rec["zoho"]})
+    # ?arm=1: from now on every run marks every number not yet marked.
+    if request.args.get("arm") in ("1", "0"):
+        _optouts.data["zoho_armed"] = request.args.get("arm") == "1"
+        _optouts.save()
+        if _optouts.data["zoho_armed"] and not _optouts_state.get("running"):
+            threading.Thread(target=_optouts_run, kwargs={"days": 2}, daemon=True, name="optouts:kick").start()
+    if request.args.get("kick") and not _optouts_state.get("running"):
+        threading.Thread(target=_optouts_run, kwargs={"days": max(1, min(int(request.args.get("days", 2) or 2), 7))},
+                         daemon=True, name="optouts:kick").start()
+    st = dict(_optouts_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    nums = _optouts.data["numbers"]
+    rows = [{"number": d, "first_seen": r.get("first_seen"), "last_seen": r.get("last_seen"), "seat": r.get("seat"),
+             "ext": r.get("ext"), "text": r.get("text"), "messages": len(r.get("msg_ids") or []),
+             "zoho": r.get("zoho")} for d, r in sorted(nums.items(), key=lambda kv: kv[1].get("last_seen") or "", reverse=True)]
+    return jsonify({"count": len(rows), "armed": bool(_optouts.data.get("zoho_armed")), "state": st,
+                    "file": str(_OPTOUT_FILE), "numbers": rows, "runs": _optouts.data.get("runs", [])[-5:]})
+
+
+@app.route("/api/v6/opt-outs.txt")
+def api_v6_opt_outs_txt():
+    """Signed in only. One number per line, for any sender to exclude."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    return app.response_class("\n".join(_optouts.digits()) + "\n", mimetype="text/plain")
+
+
 @app.route("/api/v6/sms-unanswered")
 def api_v6_sms_unanswered():
     """Signed-in only. Every inbound text on a team's seats that has had no
@@ -2899,39 +3062,9 @@ def api_v6_sms_unanswered():
     if not _ringcx.configured:
         return jsonify({"error": "RingEX not configured"}), 503
     team = request.args.get("team", "billing")
-    roster, _ = _billing_roster(team)
-    roster = [dict(s) for s in (roster or [])] + [dict(s) for s in _SMS_EXTRA_SEATS.get(_team_key(team), [])]
-    if not roster:
+    roster, unresolved = _sms_seats(team)
+    if not roster and not unresolved:
         return jsonify({"error": "no roster for team %s" % team}), 400
-    # A RingCX-only seat (the sales floor) names no RingEX extension. Its
-    # texts still live on the person's RingEX extension, so the name is
-    # resolved in the extension directory; a name the directory does not
-    # carry is reported, not guessed.
-    unresolved = []
-    if any(not s.get("ext_id") for s in roster):
-        directory, _dm = _ringcx.fetch_extension_directory()
-        by_name = {}
-        # "Carvajal, Maria" in the directory, "Maria Carvajal" on the roster:
-        # punctuation goes, and first + last token must both appear.
-        _norm = lambda v: " ".join(str(v or "").lower().replace(",", " ").replace(".", " ").split())
-        for num, e in (directory or {}).items():
-            nm = _norm((e or {}).get("name"))
-            if nm:
-                by_name[nm] = ((e or {}).get("id"), num)
-        for s in roster:
-            if s.get("ext_id"):
-                continue
-            nm = _norm(s.get("name"))
-            hit = by_name.get(nm)
-            if not hit:
-                toks = nm.split()
-                cands = [v for k, v in by_name.items() if toks and toks[0] in k.split() and toks[-1] in k.split()]
-                hit = cands[0] if len(cands) == 1 else None
-            if hit and hit[0]:
-                s["ext_id"], s["ext"] = hit[0], str(hit[1])
-            else:
-                unresolved.append(s.get("name"))
-        roster = [s for s in roster if s.get("ext_id")]
     try:
         days_back = max(1, min(int(request.args.get("days", 2)), 7))
     except (TypeError, ValueError):
@@ -9122,7 +9255,8 @@ def _collections_loop():
 # exists to fix, reintroduced through a name collision.
 _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:v6-warm", lambda: _v6_warm_loop()),
-                 ("loop:collections", lambda: _collections_loop()))
+                 ("loop:collections", lambda: _collections_loop()),
+                 ("loop:optouts", lambda: _optouts_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 
