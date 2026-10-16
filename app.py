@@ -2860,6 +2860,80 @@ def _v6_warm_loop():
             _v6_warm_state["cycles_ok"] = _v6_warm_state.get("cycles_ok", 0) + 1
 
 
+@app.route("/api/v6/sms-unanswered")
+def api_v6_sms_unanswered():
+    """Signed-in only. Every inbound text on a team's seats that has had no
+    reply yet, WITH its text, so a manager can read what patients are asking
+    without opening four RingEX inboxes. Danny, 2026-10-15: "check unanswered
+    SMS across all 4 billing agents and determine if there's any payment
+    requests".
+
+    A thread is one patient number on one seat. It is open from the first
+    inbound after the seat's last outbound to that number; the seat's reply
+    closes it. The last outbound before the wait is returned as context.
+    Never cached, never on the board, never written to disk.
+
+    ?team=billing   roster (default billing)
+    ?days=N         today and N-1 days back (default 2, max 7)
+    """
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        return jsonify({"error": "RingEX not configured"}), 503
+    team = request.args.get("team", "billing")
+    roster, _ = _billing_roster(team)
+    if not roster:
+        return jsonify({"error": "no roster for team %s" % team}), 400
+    try:
+        days_back = max(1, min(int(request.args.get("days", 2)), 7))
+    except (TypeError, ValueError):
+        days_back = 2
+    from billing_report import _fmt_phone
+    tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date()
+    first = (today - timedelta(days=days_back - 1)).isoformat()
+    start_dt = _parse_local_date_to_utc(first, 0, 0, 0, tz_off)
+    end_dt = _parse_local_date_to_utc(today.isoformat(), 23, 59, 59, tz_off)
+
+    def _digits(s):
+        return "".join(ch for ch in str(s or "") if ch.isdigit())[-10:]
+
+    def _local(iso):
+        try:
+            t = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            return (t - timedelta(minutes=tz_off)).strftime("%a %-I:%M %p")
+        except (ValueError, TypeError):
+            return str(iso or "")
+
+    seats = []
+    for seat in roster:
+        rows, meta = _ringcx.fetch_extension_messages(
+            seat["ext_id"], start_dt, end_dt, max_pages=4, max_wait=0.0, timeout=15.0, keep_text=True)
+        ev = sorted((r for r in rows if r.get("direction") in ("Inbound", "Outbound")),
+                    key=lambda r: r.get("start_time") or "")
+        threads = {}
+        for r in ev:
+            num = _digits(r.get("from_number") if r["direction"] == "Inbound" else r.get("to_number"))
+            if len(num) != 10:
+                continue
+            t = threads.setdefault(num, {"number": _fmt_phone(num), "digits": num, "inbound": [],
+                                         "last_outbound": None, "last_outbound_at": None, "inbound_total": 0})
+            if r["direction"] == "Inbound":
+                t["inbound_total"] += 1
+                t["inbound"].append({"at": _local(r.get("start_time")), "text": r.get("text", "")})
+            else:
+                t["inbound"] = []                      # the reply closes the wait
+                t["last_outbound"] = r.get("text", "")
+                t["last_outbound_at"] = _local(r.get("start_time"))
+        unanswered = [t for t in threads.values() if t["inbound"]]
+        unanswered.sort(key=lambda t: t["inbound"][0]["at"])
+        seats.append({"seat": seat["name"], "ext": seat["ext"], "messages": len(rows),
+                      "threads": len(threads), "unanswered_count": len(unanswered),
+                      "note": meta.get("note"), "truncated": bool(meta.get("truncated")),
+                      "unanswered": unanswered})
+    return jsonify({"team": team, "window": {"start": first, "end": today.isoformat()}, "seats": seats})
+
+
 @app.route("/api/v6/sms-probe")
 def api_v6_sms_probe():
     """Read ONE seat-day of SMS and report exactly what RingEX said.

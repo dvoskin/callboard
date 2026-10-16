@@ -1824,7 +1824,7 @@ class RingCXClient:
 
     def fetch_extension_messages(self, ext_id, start_dt: datetime, end_dt: datetime,
                                  max_pages: int = 6, max_wait: float = 0.0,
-                                 timeout: float = 15.0) -> tuple[list[dict], dict]:
+                                 timeout: float = 15.0, keep_text: bool = False) -> tuple[list[dict], dict]:
         """Every SMS on ONE extension in [start_dt, end_dt].
 
         Mirrors fetch_extension_calls deliberately, including its honesty
@@ -1911,6 +1911,11 @@ class RingCXClient:
                     # unknown, never guessed.
                     if direction == "Outbound":
                         row["sent_by"] = classify_outbound_sms(rec.get("subject"))
+                    # The body itself stays out of the normal path (the board
+                    # counts and pairs, it never reads). Only the signed-in
+                    # unanswered-texts view asks for it. Danny, 2026-10-15.
+                    if keep_text:
+                        row["text"] = rec.get("subject", "") or ""
                     rows[rec.get("id") or f"{page}:{len(rows)}"] = row
                 if len(recs) < 250:
                     break

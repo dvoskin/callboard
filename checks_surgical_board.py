@@ -831,6 +831,39 @@ ck("...and so do the day strip and the panel's Progress line",
 ck("the strip's percentage is capped at 100 and the queue shows on the live day only",
    "Math.min(100, Math.round(100 * mdone / mdue))" in _tpl15 and "(d.live ? (mq.calls_overdue ?" in _tpl15 and "(d.live && mq.to_schedule ?" in _tpl15, "cap or live gating")
 
+# Danny, 2026-10-15: "check unanswered SMS across all 4 billing agents". A
+# signed-in view of each seat's open inbound threads WITH the text; the reply
+# closes a thread; the last outbound before the wait comes along as context.
+_real_fem = A._ringcx.fetch_extension_messages
+def _fem16(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_text=False):
+    r = lambda i, d, frm, to, at, txt: {"id": i, "direction": d, "type": "SMS", "start_time": at, "from_number": frm, "to_number": to,
+                                          "conversation_id": "", "status": "", "availability": "", "has_attachment": False, "source": "ringex_sms",
+                                          **({"text": txt} if keep_text else {})}
+    return [r("1", "Inbound", "+13055550101", "+12125550100", "2026-10-15T14:00:00Z", "Can I pay my balance today?"),
+            r("2", "Outbound", "+12125550100", "+13055550101", "2026-10-15T14:05:00Z", "Yes, I can take a card now."),
+            r("3", "Inbound", "+13055550101", "+12125550100", "2026-10-15T14:30:00Z", "ok how"),
+            r("4", "Inbound", "+13055550202", "+12125550100", "2026-10-15T15:00:00Z", "hola"),
+            r("5", "Outbound", "+12125550100", "+13055550303", "2026-10-15T15:10:00Z", "Reminder: balance due Friday.")], {"note": None, "truncated": False}
+A._ringcx.fetch_extension_messages = _fem16
+try:
+    _cls.configured = property(lambda self: True)
+    _su = c.get("/api/v6/sms-unanswered?team=billing&days=1").get_json() or {}
+finally:
+    A._ringcx.fetch_extension_messages = _real_fem
+    if _real_cfg is not None: _cls.configured = _real_cfg
+_s0 = (_su.get("seats") or [{}])[0]
+_byn = {t["digits"]: t for t in _s0.get("unanswered") or []}
+ck("every billing seat is read, with its message count", len(_su.get("seats") or []) >= 3 and _s0.get("messages") == 5, _su)
+ck("a reply closes the wait: only the inbound AFTER the last reply is open, with its text", _s0.get("unanswered_count") == 2 and _byn["3055550101"]["inbound"] == [{"at": "Thu 10:30 AM", "text": "ok how"}]
+   and _byn["3055550101"]["inbound_total"] == 2, _s0.get("unanswered"))
+ck("...and the seat's last reply comes along as context", _byn["3055550101"]["last_outbound"] == "Yes, I can take a card now." and _byn["3055550101"]["last_outbound_at"] == "Thu 10:05 AM", _byn.get("3055550101"))
+ck("a number that only ever wrote in is open; a number only written TO is not", _byn["3055550202"]["inbound"][0]["text"] == "hola" and "3055550303" not in _byn, sorted(_byn))
+ck("the number is formatted for dialling", _byn["3055550202"]["number"] == "(305) 555-0202", _byn.get("3055550202"))
+_rc_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ringcx_client.py"), encoding="utf-8").read()
+ck("the text body is kept ONLY when asked for; the board's own fetch never carries it",
+   "if keep_text:" in _rc_src and '["text"] = rec.get("subject", "") or ""' in _rc_src and _rc_src.count("keep_text") == 2
+   and "keep_text=True" not in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8").read().split("def api_v6_sms_unanswered")[0], "text leaks into the normal path")
+
 # the tally stays LAST: on 2026-10-13 it sat mid-file and nine later checks ran uncounted
 for e in errors:
     print("  FAIL", e)
