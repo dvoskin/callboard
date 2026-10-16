@@ -122,7 +122,7 @@
   .r.low .nm{color:var(--dn)}
   /* texts under the name: sent (typed / auto), received, unread, waiting */
   .nm .sms{display:block;margin-top:1px;font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted);
-           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+           white-space:normal;line-height:1.35}
   .nm .sms b{font-weight:700;color:var(--ink-2)} .nm .sms i{font-style:normal;opacity:.85}
   .nm .sms b.hot,.smstot b.hot{color:var(--dn)}
   .nm .sms.na{font-style:italic;font-weight:400}
@@ -266,7 +266,8 @@
               s.unanswered + ' conversation' + (s.unanswered === 1 ? '' : 's') + ' where the patient wrote last' +
               (s.complete ? '' : ' -- part of the window could not be read, so these are a floor') + '. RingEX extension ' + (s.ext || '?') + '.';
     return '<span class="sms" title="' + esc(tip) + '"><b>' + s.sent + '</b>\u2191' +
-      (split ? ' <i>(' + s.sent_typed + ' typed \u00b7 ' + s.sent_auto + ' auto)</i>' : '') +
+      (split ? (s.sent_auto ? ' <i>(' + s.sent_typed + ' typed \u00b7 ' + s.sent_auto + ' auto)</i>'
+                            : (s.sent ? ' <i>(all typed)</i>' : '')) : '') +
       ' <b>' + s.received + '</b>\u2193' +
       (s.unread ? ' \u00b7 <b class="hot">' + s.unread + '</b> unread' : '') +
       (s.unanswered ? ' \u00b7 ' + s.unanswered + ' waiting' : '') +
@@ -295,12 +296,13 @@
   function loadSms(q) {
     var key = q.toString();
     if (key !== SMS_KEY) { SMS = null; SMS_KEY = key; SMS_TRIES = 0; }
-    fetch('/api/v5/sms?' + key, { credentials: 'same-origin' })
+    var names = Array.prototype.map.call(document.querySelectorAll('.nm[data-name]'), function (el) { return el.getAttribute('data-name'); });
+    fetch('/api/v5/sms?' + key + (names.length && SMS_TRIES === 0 ? '&names=' + encodeURIComponent(names.join('|')) : ''), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
         if (!j || key !== SMS_KEY) return;
         if (j.loading || j.refreshing) {
-          if (++SMS_TRIES <= 12) setTimeout(function () { if (key === SMS_KEY) loadSms(q); }, 8000);
+          if (++SMS_TRIES <= 30) setTimeout(function () { if (key === SMS_KEY) loadSms(q); }, 8000);   // a cold build takes ~2 min
         }
         if (j.agents && Object.keys(j.agents).length) { SMS = j; smsPaint(); }
       })

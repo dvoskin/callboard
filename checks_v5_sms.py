@@ -50,7 +50,7 @@ ck("a capped read is incomplete and says why", s2["complete"] is False and "cap"
 
 # ---- the build: every sales seat, totals, unresolved names reported ----
 _real_seats, _real_fem = A._sms_seats, A._ringcx.fetch_extension_messages
-A._sms_seats = lambda team: ([{"name": "Roman Gomez", "ext": "146", "ext_id": 1}, {"name": "Gabriel Johnson", "ext": "162", "ext_id": 2}], ["Nobody Here"])
+A._sms_seats = lambda team, extra_names=(): ([{"name": "Roman Gomez", "ext": "146", "ext_id": 1}, {"name": "Gabriel Johnson", "ext": "162", "ext_id": 2}], ["Nobody Here"])
 def _fem(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_text=False):
     assert keep_text is False, "the board never asks for text"
     return (rows, {"note": None}) if ext_id == 1 else ([], {"note": "RingEX is rate limiting the message store (HTTP 429)"})
@@ -77,7 +77,7 @@ def _fem_retry(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_tex
         return [], {"note": "cooldown", "http_error": 429}
     return rows, {"note": None}
 _slept = []
-A._sms_seats = lambda team: ([{"name": "Roman Gomez", "ext": "146", "ext_id": 1}, {"name": "Gabriel Johnson", "ext": "162", "ext_id": 2}], [])
+A._sms_seats = lambda team, extra_names=(): ([{"name": "Roman Gomez", "ext": "146", "ext_id": 1}, {"name": "Gabriel Johnson", "ext": "162", "ext_id": 2}], [])
 A._ringcx.fetch_extension_messages = _fem_retry
 A.time.sleep = lambda s_: _slept.append(s_)
 try:
@@ -138,11 +138,22 @@ tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates",
 ck("each rep's name carries its texts line", "'<span class=\"nm\" data-name=\"' + esc(a.name) + '\">' + esc(a.name) + smsLine(a.name) + '</span>'" in tpl, "name hook")
 ck("the texts are fetched after every report, with the same window and token", "render(res.j);\n        smsPaint();" in tpl and "loadSms(q);" in tpl and "fetch('/api/v5/sms?' + key" in tpl, "fetch hook")
 ck("the line: sent with typed / auto, received, unread in red, waiting",
-   "' <i>(' + s.sent_typed + ' typed \\u00b7 ' + s.sent_auto + ' auto)</i>'" in tpl and "' <b>' + s.received + '</b>\\u2193'" in tpl
+   "' <i>(' + s.sent_typed + ' typed \\u00b7 ' + s.sent_auto + ' auto)</i>'" in tpl and "' <i>(all typed)</i>'" in tpl and "' <b>' + s.received + '</b>\\u2193'" in tpl
    and "<b class=\"hot\">' + s.unread + '</b> unread'" in tpl and "s.unanswered + ' waiting'" in tpl, "line")
 ck("a team total sits above the list", "id=\"smstot\" class=\"smstot\"" in tpl and "</b> waiting on a reply'" in tpl, "totals")
 ck("names match exactly, then by first + last name", "kt.indexOf(t[0]) >= 0 && kt.indexOf(t[t.length - 1]) >= 0" in tpl, "matching")
-ck("while loading it asks again, a dozen times at most", "if (++SMS_TRIES <= 12) setTimeout" in tpl, "retry")
+ck("while loading it asks again, for up to four minutes", "if (++SMS_TRIES <= 30) setTimeout" in tpl, "retry")
+ck("the page passes the names it shows, once per window", "'&names=' + encodeURIComponent(names.join('|'))" in tpl and "SMS_TRIES === 0" in tpl, "names")
+ck("the line wraps rather than cutting off", "white-space:normal;line-height:1.35}" in tpl, "wrap")
+# A name the board shows and no roster carries is read too, resolved in the directory.
+_real_dir = A._ringcx.fetch_extension_directory
+A._ringcx.fetch_extension_directory = lambda **k: ({"201": {"id": 777001, "name": "Rothmel Example", "type": "User", "status": "Enabled"}}, {})
+try:
+    _ss, _un = A._sms_seats("sales", ["Rothmel Example", "Maia Pasifae Palma"])
+finally:
+    A._ringcx.fetch_extension_directory = _real_dir
+ck("a board-only name is resolved and read; a roster name is not doubled",
+   any(x["name"] == "Rothmel Example" and x["ext"] == "201" for x in _ss) and sum(1 for x in _ss if x["name"] == "Maia Pasifae Palma") <= 1, ([x["name"] for x in _ss], _un))
 ck("a line that could not be read says so instead of 0", "texts not read yet</span>" in tpl and "' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>'" in tpl, "not-read")
 
 # ---- the message rows: read status on every inbound, the body only on request ----

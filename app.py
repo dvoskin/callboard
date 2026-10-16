@@ -2878,7 +2878,7 @@ def _v6_warm_loop():
             _v6_warm_state["cycles_ok"] = _v6_warm_state.get("cycles_ok", 0) + 1
 
 
-def _sms_seats(team):
+def _sms_seats(team, extra_names=()):
     """The extensions whose texts a team's people send and receive on.
 
     The team's roster plus _SMS_EXTRA_SEATS. A RingCX-only seat (the sales
@@ -2889,6 +2889,13 @@ def _sms_seats(team):
     """
     roster, _ = _billing_roster(team)
     roster = [dict(s) for s in (roster or [])] + [dict(s) for s in _SMS_EXTRA_SEATS.get(_team_key(team), [])]
+    # Names a board shows that no roster carries (the sales board is built
+    # from the RingCX report, which names people the roster does not).
+    have = {" ".join(str(s.get("name") or "").lower().split()) for s in roster}
+    for n in extra_names or ():
+        if n and " ".join(str(n).lower().split()) not in have:
+            roster.append({"name": n, "ext": "", "ext_id": None})
+            have.add(" ".join(str(n).lower().split()))
     unresolved = []
     if any(not s.get("ext_id") for s in roster):
         directory, _dm = _ringcx.fetch_extension_directory()
@@ -3017,6 +3024,7 @@ _V5_SMS_LOCK = threading.Lock()
 _V5_SMS_TTL_LIVE = 180           # today: three minutes
 _V5_SMS_TTL_PAST = 1800          # a finished window: half an hour
 _V5_SMS_MAX_DAYS = 7
+_V5_SMS_NAMES = set()           # names the sales board has shown (?names=), read too
 _V5_SMS_PACE = 2.0              # seconds between lines: ~24 reads + pages inside a minute's budget
 
 
@@ -3046,7 +3054,7 @@ def _v5_sms_seat(rows, meta):
 
 def _v5_sms_build(start_iso, end_iso, tz_off):
     """{agents: {name: counts}, totals, unresolved} for the sales floor."""
-    seats, unresolved = _sms_seats("sales")
+    seats, unresolved = _sms_seats("sales", sorted(_V5_SMS_NAMES))
     start_dt = _parse_local_date_to_utc(start_iso, 0, 0, 0, tz_off)
     end_dt = _parse_local_date_to_utc(end_iso, 23, 59, 59, tz_off)
     agents = {}
@@ -3121,12 +3129,20 @@ def api_v5_sms():
         s, e = e, s
     if (e - s).days + 1 > _V5_SMS_MAX_DAYS:
         return jsonify({"agents": {}, "too_long": True, "max_days": _V5_SMS_MAX_DAYS})
+    # The page passes the names it shows; one the build has not read yet is
+    # added and the window is read again (bounded: a board has a few dozen).
+    fresh_names = False
+    for n in (request.args.get("names") or "").split("|"):
+        n = " ".join(n.split())[:60]
+        if n and n not in _V5_SMS_NAMES and len(_V5_SMS_NAMES) < 80:
+            _V5_SMS_NAMES.add(n)
+            fresh_names = True
     live = e >= today
     key = (s.isoformat(), e.isoformat(), tz)
     ttl = _V5_SMS_TTL_LIVE if live else _V5_SMS_TTL_PAST
     with _V5_SMS_LOCK:
         c = _V5_SMS_CACHE.get(key)
-        fresh = bool(c and time.time() - c["at"] < ttl)
+        fresh = bool(c and time.time() - c["at"] < ttl) and not fresh_names
         start_it = not fresh and key not in _V5_SMS_INFLIGHT
         if start_it:
             _V5_SMS_INFLIGHT.add(key)
