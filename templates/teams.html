@@ -231,7 +231,7 @@
         : [[T.onT + '/' + T.people, 'on target'], [TB.hmShort(T.talk), 'talk'],
            [T.crm ? fmt(T.done) + '/' + fmt(T.due) : '\u2014', 'calls done'], [T.crm ? fmt(T.od) : '\u2014', 'overdue', T.od > 0]],
       colA: team === 'billing' ? 'Collected' : 'Calls done', colB: 'Overdue',
-      aLbl: team === 'billing' ? 'collected' : 'done', bLbl: 'overdue',
+      aLbl: team === 'billing' ? '' : 'done', bLbl: 'overdue',   // "$9,350" needs no word on a phone
       aTitle: team === 'billing' ? 'Recorded as collected in this window' : 'Zoho calls completed / due in this window',
       bTitle: 'Zoho calls past their time and still open',
       rows: rows,
