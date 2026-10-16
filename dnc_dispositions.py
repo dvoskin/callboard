@@ -338,6 +338,7 @@ def apply(put, plan, describe=None, log=None):
              ("Deals", plan["deals_move"], [], "deals_moved"),
              ("Deals", plan["deals_flag"], [], "deals_flagged"),
              ("Calls", calls, [], "calls_cancelled"))
+    res["stage_kept"] = 0
     for module, rows, trigger, name in steps:
         for i in range(0, len(rows), 100):
             part = rows[i:i + 100]
@@ -347,12 +348,30 @@ def apply(put, plan, describe=None, log=None):
                 res["errors"].append({"module": module, "ids": [r["id"] for r in part],
                                       "detail": "%s: %s" % (type(e).__name__, str(e)[:160])})
                 continue
+            retry = []
             for rid, ok, detail in results:
                 if ok:
                     res[name] += 1
                     res["ids"][name].append(rid)
+                elif name == "deals_moved" and "pipeline" in str(detail).lower():
+                    # An old pipeline (Lumelan, 2023) has no Unsubscribe stage:
+                    # the deal keeps its stage and gets the switches; the
+                    # Contact's Do_Not_Contact is what the rules read anyway.
+                    retry.append(dict({"id": rid}, **SEND_OFF))
                 else:
                     res["errors"].append({"module": module, "id": rid, "detail": str(detail)[:160]})
+            if retry:
+                try:
+                    for rid, ok, detail in put("Deals", retry, []):
+                        if ok:
+                            res["deals_flagged"] += 1
+                            res["stage_kept"] += 1
+                            res["ids"]["deals_flagged"].append(rid)
+                        else:
+                            res["errors"].append({"module": "Deals", "id": rid, "detail": str(detail)[:160]})
+                except Exception as e:  # noqa: BLE001
+                    res["errors"].append({"module": "Deals", "ids": [r["id"] for r in retry],
+                                          "detail": "%s: %s" % (type(e).__name__, str(e)[:160])})
     if log and res["errors"]:
         log.warning("dnc apply: %d write errors", len(res["errors"]))
     return res

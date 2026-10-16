@@ -210,6 +210,21 @@ ck("a cancelled call keeps its notes and gains one line, and no private key leak
    seen[-1][3] == [{"id": "o1", "Outgoing_Call_Status": "Cancelled", "Description": "old notes\n\nN."}], seen[-1][3])
 ck("the counts add up", res["deals_moved"] == 150 and res["contacts"] == 1 and res["calls_cancelled"] == 1 and not res["errors"], res)
 
+# ---- an old pipeline without Unsubscribe: the deal keeps its stage, gets the switches ----
+seen2 = []
+
+
+def pipe_put(module, rows, trigger):
+    seen2.append((module, rows))
+    return [(r["id"], not (r.get("Stage") and r["id"] == "old"), "Pipeline doesn't contain the Stage") for r in rows]
+
+
+res2 = dd.apply(pipe_put, {"contacts": [], "deals_move": [{"id": "old", "Stage": "Unsubscribe"}, {"id": "new", "Stage": "Unsubscribe"}],
+                           "deals_flag": [], "calls_cancel": []})
+ck("a deal whose pipeline has no Unsubscribe is retried with the switches only, not an error",
+   res2["deals_moved"] == 1 and res2["deals_flagged"] == 1 and res2["stage_kept"] == 1 and not res2["errors"]
+   and seen2[-1] == ("Deals", [dict({"id": "old"}, **dd.SEND_OFF)]), (res2, seen2))
+
 # ---- the ledger: a settled call is not done twice; a failed write is retried ----
 path = os.path.join(tempfile.mkdtemp(), "dnc.json")
 st = dd.Store(path)

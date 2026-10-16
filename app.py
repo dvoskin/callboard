@@ -3146,7 +3146,7 @@ def _dnc_run(since=None, until=None, days=3, write=None, control=None, chunk=400
                         sub[kk] = sub.get(kk, 0) + vv
                 else:
                     tot["summary"][k] = tot["summary"].get(k, 0) + v
-            for k in ("contacts", "deals_moved", "deals_flagged", "calls_cancelled"):
+            for k in ("contacts", "deals_moved", "deals_flagged", "calls_cancelled", "stage_kept"):
                 tot["written"][k] = tot["written"].get(k, 0) + (res.get(k) or 0)
                 if control:
                     tot["written"].setdefault("ids", {}).setdefault(k, []).extend((res.get("ids") or {}).get(k) or [])
