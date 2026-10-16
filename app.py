@@ -3017,6 +3017,7 @@ _V5_SMS_LOCK = threading.Lock()
 _V5_SMS_TTL_LIVE = 180           # today: three minutes
 _V5_SMS_TTL_PAST = 1800          # a finished window: half an hour
 _V5_SMS_MAX_DAYS = 7
+_V5_SMS_PACE = 2.0              # seconds between lines: ~24 reads + pages inside a minute's budget
 
 
 def _v5_sms_seat(rows, meta):
@@ -3038,6 +3039,8 @@ def _v5_sms_seat(rows, meta):
             "unread": sum(1 for r in ib if r.get("read") == "Unread"),
             "unanswered": sum(1 for v in last.values() if v == "Inbound"),
             "complete": not meta.get("note") and not meta.get("truncated"),
+            # Nothing read at all because the store refused: unknown, never 0.
+            "unknown": not rows and bool(meta.get("http_error") or meta.get("note")),
             "note": meta.get("note")}
 
 
@@ -3047,21 +3050,32 @@ def _v5_sms_build(start_iso, end_iso, tz_off):
     start_dt = _parse_local_date_to_utc(start_iso, 0, 0, 0, tz_off)
     end_dt = _parse_local_date_to_utc(end_iso, 23, 59, 59, tz_off)
     agents = {}
+    grp = getattr(_ringcx, "SMS_RATE_GROUP", None)
     for seat in seats:
-        try:
-            rows, meta = _ringcx.fetch_extension_messages(seat["ext_id"], start_dt, end_dt,
-                                                          max_pages=12, max_wait=0.0, timeout=15.0)
-        except Exception as e:  # noqa: BLE001
-            rows, meta = [], {"note": "%s: %s" % (type(e).__name__, str(e)[:120])}
+        # Paced, and patient: the message store allows about forty reads a
+        # minute for the whole account (the billing and coordinator boards and
+        # the opt-out scan share it). The first build read seven lines and
+        # skipped eighteen in a cooldown, showing them as 0. Now a refused read
+        # waits the cooldown out and tries again, up to three times.
+        for attempt in range(3):
+            try:
+                rows, meta = _ringcx.fetch_extension_messages(seat["ext_id"], start_dt, end_dt,
+                                                              max_pages=12, max_wait=0.0, timeout=15.0)
+            except Exception as e:  # noqa: BLE001
+                rows, meta = [], {"note": "%s: %s" % (type(e).__name__, str(e)[:120])}
+            if meta.get("http_error") != 429 or attempt == 2:
+                break
+            time.sleep(min(125.0, _ringcx.cooldown_remaining(grp) + 2.0))
         a = _v5_sms_seat(rows, meta)
         a["ext"] = str(seat.get("ext") or "")
         agents[seat["name"]] = a
-        time.sleep(0.25)
+        time.sleep(_V5_SMS_PACE)
     tot = {k: sum(a[k] for a in agents.values()) for k in ("sent", "received", "unread", "unanswered")}
     split = all(a["sent_typed"] is not None for a in agents.values())
     tot["sent_typed"] = sum(a["sent_typed"] for a in agents.values()) if split else None
     tot["sent_auto"] = sum(a["sent_auto"] for a in agents.values()) if split else None
-    tot["incomplete_seats"] = sum(1 for a in agents.values() if not a["complete"])
+    tot["incomplete_seats"] = sum(1 for a in agents.values() if not a["complete"] and not a["unknown"])
+    tot["unknown_seats"] = sum(1 for a in agents.values() if a["unknown"])
     return {"agents": agents, "totals": tot, "unresolved": unresolved,
             "window": {"start": start_iso, "end": end_iso}, "seats": len(agents)}
 
@@ -3071,7 +3085,7 @@ def _v5_sms_refresh(key):
         data = _v5_sms_build(key[0], key[1], key[2])
         at = time.time()
         # Mostly unread (rate limited): try again in half a minute, not three.
-        if data["seats"] and data["totals"]["incomplete_seats"] * 4 > data["seats"]:
+        if data["seats"] and (data["totals"].get("incomplete_seats", 0) + data["totals"].get("unknown_seats", 0)) * 4 > data["seats"]:
             at -= max(0, (_V5_SMS_TTL_LIVE if key[3] else _V5_SMS_TTL_PAST) - 30)
         with _V5_SMS_LOCK:
             _V5_SMS_CACHE[key[:3]] = {"at": at, "data": data}

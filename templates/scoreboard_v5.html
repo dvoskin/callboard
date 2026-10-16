@@ -125,6 +125,7 @@
            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .nm .sms b{font-weight:700;color:var(--ink-2)} .nm .sms i{font-style:normal;opacity:.85}
   .nm .sms b.hot,.smstot b.hot{color:var(--dn)}
+  .nm .sms.na{font-style:italic;font-weight:400}
   .smstot{font-size:12px;color:var(--ink-2);padding:6px 0 2px}
   .smstot b{color:var(--ink);font-weight:700} .smstot i{font-style:normal;color:var(--muted)}
   .tk{grid-area:tk;font-weight:700;font-size:14.5px}
@@ -258,6 +259,7 @@
   function smsLine(name) {
     var s = smsFor(name);
     if (!s) return '';
+    if (s.unknown) return '<span class="sms na" title="' + esc('The message store refused this read (rate limited); it will be read on the next refresh. Unknown, not zero.') + '">texts not read yet</span>';
     var split = s.sent_typed != null && s.sent_auto != null;
     var tip = s.sent + ' texts sent' + (split ? ' (' + s.sent_typed + ' typed by hand, ' + s.sent_auto + ' automated)' : '') +
               ', ' + s.received + ' received, ' + s.unread + ' received and not opened yet, ' +
@@ -286,7 +288,8 @@
         ' \u00b7 <b>' + T.received + '</b> received' +
         ' \u00b7 <b' + (T.unread ? ' class="hot"' : '') + '>' + T.unread + '</b> unread' +
         ' \u00b7 <b>' + T.unanswered + '</b> waiting on a reply' +
-        (T.incomplete_seats ? ' \u00b7 <i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') + '</div>');
+        (T.incomplete_seats ? ' \u00b7 <i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') +
+        (T.unknown_seats ? ' \u00b7 <i>' + T.unknown_seats + ' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>' : '') + '</div>');
     }
   }
   function loadSms(q) {

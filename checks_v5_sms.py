@@ -63,7 +63,33 @@ finally:
     A._sms_seats, A._ringcx.fetch_extension_messages = _real_seats, _real_fem
     A.time.sleep = _sleep
 ck("every sales seat is in the build", sorted(b["agents"]) == ["Gabriel Johnson", "Roman Gomez"] and b["agents"]["Roman Gomez"]["ext"] == "146", b["agents"])
-ck("totals add up, and a rate-limited seat is counted as partly read", b["totals"]["sent"] == 3 and b["totals"]["unread"] == 1 and b["totals"]["incomplete_seats"] == 1, b["totals"])
+ck("totals add up, and a seat read as NOTHING is unknown, not zero", b["totals"]["sent"] == 3 and b["totals"]["unread"] == 1
+   and b["totals"]["unknown_seats"] == 1 and b["totals"]["incomplete_seats"] == 0 and b["agents"]["Gabriel Johnson"]["unknown"] is True
+   and b["agents"]["Roman Gomez"]["unknown"] is False, b["totals"])
+
+# A refused read (429) waits the cooldown out and tries again, up to three times.
+_calls = []
+def _fem_retry(ext_id, s_, e_, max_pages=6, max_wait=0.0, timeout=15.0, keep_text=False):
+    _calls.append(ext_id)
+    if ext_id == 1 and _calls.count(1) == 1:
+        return [], {"note": "cooldown", "http_error": 429}
+    if ext_id == 2:
+        return [], {"note": "cooldown", "http_error": 429}
+    return rows, {"note": None}
+_slept = []
+A._sms_seats = lambda team: ([{"name": "Roman Gomez", "ext": "146", "ext_id": 1}, {"name": "Gabriel Johnson", "ext": "162", "ext_id": 2}], [])
+A._ringcx.fetch_extension_messages = _fem_retry
+A.time.sleep = lambda s_: _slept.append(s_)
+try:
+    b2 = A._v5_sms_build("2026-10-15", "2026-10-15", 240)
+finally:
+    A._sms_seats, A._ringcx.fetch_extension_messages = _real_seats, _real_fem
+    A.time.sleep = _sleep
+ck("a line refused once is read on the retry", b2["agents"]["Roman Gomez"]["sent"] == 3 and b2["agents"]["Roman Gomez"]["unknown"] is False and _calls.count(1) == 2, (_calls, b2["agents"]["Roman Gomez"]))
+ck("a line refused three times stops trying and is unknown", _calls.count(2) == 3 and b2["agents"]["Gabriel Johnson"]["unknown"] is True, _calls)
+# two paces (one per line) + three cooldown waits (one for Roman, two for
+# Gabriel); no cooldown is running in a check, so each wait is the 2 s margin.
+ck("reads are paced two seconds apart and each refusal waits its cooldown out", len(_slept) == 5 and A._V5_SMS_PACE == 2.0 and all(x == 2.0 for x in _slept), _slept)
 ck("names the directory lacks are passed on", b["unresolved"] == ["Nobody Here"], b["unresolved"])
 
 # ---- the route: auth, loading then cached, too long refused, nothing but counts ----
@@ -117,6 +143,7 @@ ck("the line: sent with typed / auto, received, unread in red, waiting",
 ck("a team total sits above the list", "id=\"smstot\" class=\"smstot\"" in tpl and "</b> waiting on a reply'" in tpl, "totals")
 ck("names match exactly, then by first + last name", "kt.indexOf(t[0]) >= 0 && kt.indexOf(t[t.length - 1]) >= 0" in tpl, "matching")
 ck("while loading it asks again, a dozen times at most", "if (++SMS_TRIES <= 12) setTimeout" in tpl, "retry")
+ck("a line that could not be read says so instead of 0", "texts not read yet</span>" in tpl and "' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>'" in tpl, "not-read")
 
 # ---- the message rows: read status on every inbound, the body only on request ----
 rc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ringcx_client.py"), encoding="utf-8").read()
