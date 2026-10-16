@@ -138,7 +138,9 @@
       row.press = (jn.queue
         ? '<span class="press">' + qn(q.to_schedule, true) + ' to schedule \u00b7 ' + qn(qMiss, true) + ' missed \u00b7 ' +
           qn(q.tasks_open, true) + ' tasks \u00b7 ' + qn(q.calls_scheduled_today, false) + ' calls' +
-          (q.calls_overdue ? ' (' + qn(q.calls_overdue, true) + ' overdue)' : '') + '</span>'
+          (q.calls_overdue ? ' (' + qn(q.calls_overdue, true) + ' overdue)' : '') +
+          ((((a.sms || {}).replies || {}).unanswered) ? ' \u00b7 ' + qn(a.sms.replies.unanswered, true) + ' text' +
+            (a.sms.replies.unanswered === 1 ? '' : 's') + ' unanswered' : '') + '</span>'
         : press(ms.open)) + progressBar(a);
       row.a = { html: crmIn && pDue ? pDone + '<i style="font-style:normal;opacity:.6">/' + pDue + '</i>' : '—', zero: !pDone,
                 title: crmIn ? 'Planner calls and tasks due in this window: done / due (the progress bar)' : 'Zoho counts are still loading' };
@@ -148,7 +150,8 @@
       row.dHtml = show.calls == null ? null : String(show.calls);
       // vs expected: talk against where a normal day is by this hour
       var pr = a.pace && a.pace.ratio ? a.pace.ratio.talk_minutes : null;
-      row.t3Html = pr == null ? '—' : ((pr - 1) >= 0 ? '+' : '') + Math.round((pr - 1) * 100) + '%';
+      // the board's own format: "+69%", "0%", "-56%"
+      row.t3Html = pr == null ? '—' : (Math.round((pr - 1) * 100) > 0 ? '+' : '') + Math.round((pr - 1) * 100) + '%';
       row.t3Lbl = ' vs exp';
       row.g.over3 = pr == null ? '' : (pr >= 0.8 ? 'pace-ok' : 'pace-low');
       row.press = press(ms.open);
