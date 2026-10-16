@@ -199,6 +199,13 @@
       r.ord = i;
       r.unread = a.complete === false && !r.talk && !r.dials && !sum(a.days, 'inbound');
       r.quiet = !r.unread && !!j.live && !sum(a.days, 'calls');
+      // a scheduled day off is neither quiet nor late: say so, as their board's
+      // "Off Today" pill does (the shift table's days off ride on the row)
+      var w0 = (j.window || {}).start, offs = ((a.shift || {}).off || []).map(function (d) { return String(d).toLowerCase().slice(0, 3); });
+      if (w0 && (j.window || {}).end === w0 && !sum(a.days, 'calls')) {
+        var dow = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(w0 + 'T12:00:00').getDay()];
+        if (offs.indexOf(dow) >= 0) { r.quiet = true; r.unread = false; r.quietLabel = 'off today'; r.off = true; }
+      }
       return r;
     });
     // Seats the report could not read yet ("not known", not "no calls"). A

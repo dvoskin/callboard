@@ -242,7 +242,7 @@ window.TB = (function () {
           // way the coordinators' and billers' own board shows it; their Zoho
           // figures still stand.
           h += '<div class="r" role="button" tabindex="0" aria-expanded="false" data-det="' + k + '-d' + i + '"><span class="rk">' + (i + 1) + '</span>' +
-               '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + '<span class="qn">no calls yet today</span>' + (r.press || '') + '</span>' +
+               '<span class="nm" data-name="' + esc(r.name) + '">' + esc(r.name) + '<span class="qn">' + esc(r.quietLabel || 'no calls yet today') + '</span>' + (r.press || '') + '</span>' +
                '<span class="tk zero">\u2014</span><span class="d"></span><span class="t3"></span>' +
                res(r.a, 'q', m.aLbl || m.colA) + res(r.b, 'rt', m.bLbl || m.colB) + '</div>';
           h += '<div class="det" id="' + k + '-d' + i + '"><div class="dg">' +

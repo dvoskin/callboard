@@ -2166,10 +2166,10 @@ SHIFTS = {
     "Ariel Ramirez":      {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
     "Judith Merlo":       {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
     "Oscar Caballero":    {"start": "10:00", "end": "19:00", "off": ["sun", "mon"]},
-    # Johana was on a call on Monday 2026-10-12 while the sheet said Sat/Mon off;
-    # a wrong "Off Today" hides a quiet seat, so Monday is dropped until Danny
-    # confirms her days.
-    "Johana Duron":       {"start": "10:00", "end": "19:00", "off": ["sat"]},
+    # Off Friday and Saturday -- Danny, 2026-10-16: "Johana should be off
+    # Friday Saturday". (The sheet had said Sat/Mon; she was on a call on
+    # Monday 2026-10-12, so Monday was dropped and only Saturday kept.)
+    "Johana Duron":       {"start": "10:00", "end": "19:00", "off": ["fri", "sat"]},
     "Jorge Mier":         {"start": "12:00", "end": "21:00", "off": ["sat", "sun"]},
     "Alex Morales":       {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]},
     "Gabriela Maldonado": {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]},

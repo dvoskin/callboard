@@ -243,6 +243,16 @@ A._ringcx.rate_limited = _rl
 for _s in A._billing_roster("billing")[0]:
     A._v6_today_cache.pop((_s["ext_id"], _today), None)
 
+# ---- Johana: off Friday and Saturday (Danny, 2026-10-16) ----
+from datetime import datetime as _D
+ck("Johana Duron is off Friday and Saturday on every board (the shift table they all read)",
+   A.SHIFTS["Johana Duron"]["off"] == ["fri", "sat"]
+   and A._shift_phase("Johana Duron", _D(2026, 10, 16, 12, 0)) == ("off", "Off Today")
+   and A._shift_phase("Johana Duron", _D(2026, 10, 17, 12, 0)) == ("off", "Off Today")
+   and A._shift_phase("Johana Duron", _D(2026, 10, 15, 12, 0)) is None, A.SHIFTS["Johana Duron"])
+ck("/teams says 'off today' for a scheduled day off with no calls, not 'no calls yet today'",
+   "r.quietLabel = 'off today'" in html and "esc(r.quietLabel || 'no calls yet today')" in html, "off today")
+
 # ---- /v5: the board under the roster ----
 with A.app.test_request_context("/v5"):
     v5 = A.render_template("scoreboard_v5.html", share_mode=False, share_token="")
