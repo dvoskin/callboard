@@ -1620,8 +1620,10 @@ def _billing_roster(team=DEFAULT_TEAM):
         # which would silently turn a RingCX-sourced seat back into a RingEX one
         # and score it on a dead handset. Optional keys are carried only when
         # present, so a plain seat stays exactly the three-key shape it was.
+        # cache_only_today too: dropped here, the training class was fetched
+        # in every page request -- nine heavy reads at once (2026-10-16).
         for k in ("source", "source_team", "always_rank",
-                  "group", "targets", "default_curve"):
+                  "group", "targets", "default_curve", "cache_only_today"):
             if r.get(k):
                 seat[k] = r[k]
         clean.append(seat)

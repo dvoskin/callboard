@@ -210,7 +210,9 @@ calls = []
 real_fd = A._v6_fetch_day
 try:
     A._v6_fetch_day = lambda eid, day, tz: (calls.append(eid), ([], True))[1]
-    seat = dict(A._TEAM_ROSTERS["ringex"][0])
+    # through the real roster loader, which rebuilds every seat field by field
+    seat = dict(A._billing_roster("ringex")[0][0])
+    ck("the roster loader keeps the training class's cache-only flag (it dropped it)", seat.get("cache_only_today") is True, seat)
     A._v6_today_cache.pop((seat["ext_id"], "2099-01-01"), None)
     got, stats = A._v6_fetch_ringex([seat], ["2099-01-01"], "2099-01-01", 240)
     ck("a RingEX rep with no fresh cache is 'not read yet', and the request made no RingEX call",
@@ -244,7 +246,7 @@ try:
     A._v6_fetch_day = lambda eid, day, tz: ([{"id": "fresh"}], True)
     got, st = A._v6_fetch_ringex([bseat], [D0], D0, 240)
     ck("...and a fresh read, when RingEX answers, always wins", got[bseat["name"]]["rows"] == [{"id": "fresh"}] and not st["stale_seats"], st)
-    tseat = dict(A._TEAM_ROSTERS["ringex"][0])
+    tseat = dict(A._billing_roster("ringex")[0][0])
     A._v6_today_cache[(tseat["ext_id"], D0)] = {"at": _t.time() - 1800, "rows": [{"id": "t"}]}
     got, st = A._v6_fetch_ringex([tseat], [D0], D0, 240)
     ck("a training-class rep's last reading stands however old, marked (their loop is last in line for RingEX)",
