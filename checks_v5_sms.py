@@ -175,6 +175,34 @@ ck("more than seven days is refused, not read", jl.get("too_long") is True and j
 ck("a bad date is a 400", jb.status_code == 400, jb.status_code)
 ck("the route carries counts only -- no numbers, no text", "3055550" not in str(j2) and "text" not in str(j2.get("agents")), j2)
 
+# ---- a board asking for a rep the cached read never covered rebuilds ----
+A._v5_allowed = lambda: True
+_cls.configured = property(lambda self: True)
+_built2 = []
+A._v5_sms_build = lambda s_, e_, tz: (_built2.append(1) or {"agents": {"Roman Gomez": {"sent": 1, "sent_typed": 1, "sent_auto": 0, "received": 0, "unread": 0, "unanswered": 0, "complete": True, "note": None, "ext": "1"}},
+                                                         "totals": {"sent": 1, "received": 0, "unread": 0, "unanswered": 0, "sent_typed": 1, "sent_auto": 0, "incomplete_seats": 0, "unknown_seats": 0},
+                                                         "unresolved": ["Nobody Here"], "window": {"start": s_, "end": e_}, "seats": 1, "panel": [], "panel_unresolved": []})
+A._V5_SMS_CACHE.clear(); A._V5_SMS_INFLIGHT.clear(); A._V5_SMS_NAMES.clear()
+def _settle():
+    for _ in range(60):
+        if not A._V5_SMS_INFLIGHT:
+            return
+        time.sleep(0.05)
+try:
+    c.get("/api/v5/sms?start=2026-10-13&end=2026-10-13&tz=240"); _settle()
+    n1 = len(_built2)
+    c.get("/api/v5/sms?start=2026-10-13&end=2026-10-13&tz=240&names=" + "Roman Gomez|Nobody Here"); _settle()
+    n2 = len(_built2)
+    c.get("/api/v5/sms?start=2026-10-13&end=2026-10-13&tz=240&names=" + "Roman Gomez|Rothmel Foncham"); _settle()
+    n3 = len(_built2)
+finally:
+    A._v5_sms_build = _real_build
+    A._v5_allowed = _real_allowed
+    if _real_cfg is not None:
+        _cls.configured = _real_cfg
+ck("names the cache already covers (read or unresolved) do not rebuild", (n1, n2) == (1, 1), (n1, n2))
+ck("a name the cache never read does", n3 == 2, n3)
+
 # ---- the page ----
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
 ck("the texts line lives in each rep's panel; the name carries only the action line",
@@ -205,6 +233,8 @@ ck("the table is the main chart's shape: its heading, header row and rows, In, O
    and "n(a.received, false, 'sp-in') + n(a.sent, false, 'sp-out') +" in tpl and "n(a.unanswered, true, 'sp-un') + n(a.unread, true, 'sp-ur')" in tpl
    and ".sp-hd,.sp-r{display:grid;align-items:center;grid-template-columns:22px minmax(0,1fr) 80px 80px 110px 80px}" in tpl
    and ".smspanel{margin:0}" in tpl and ".sp-hd>*,.sp-r>*{grid-area:auto}" in tpl and "max-width:420px" not in tpl and "no RingEX line found" in tpl, "panel")
+ck("the texts row stays hidden until the texts land; a phone drops the sub-notes",
+   ".sum .srow[hidden]{display:none}" in tpl and ".sum .sv i,.sum .tot .alt{display:none}" in tpl, "hidden + phone")
 ck("a line that could not be read says so instead of 0", "texts not read yet</span>" in tpl and "' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>'" in tpl, "not-read")
 
 # ---- the message rows: read status on every inbound, the body only on request ----

@@ -3020,6 +3020,7 @@ def _optouts_loop():
 # no numbers leave the server.
 _V5_SMS_CACHE = {}               # (start, end, tz) -> {"at": ts, "data": {...}}
 _V5_SMS_INFLIGHT = set()
+_V5_SMS_AGAIN = set()            # windows to read again when their running build lands
 _V5_SMS_LOCK = threading.Lock()
 _V5_SMS_TTL_LIVE = 180           # today: three minutes
 _V5_SMS_TTL_PAST = 1800          # a finished window: half an hour
@@ -3169,7 +3170,12 @@ def _v5_sms_refresh(key):
         log.exception("v5 sms build failed")
     finally:
         with _V5_SMS_LOCK:
-            _V5_SMS_INFLIGHT.discard(key[:3])
+            again = key[:3] in _V5_SMS_AGAIN
+            _V5_SMS_AGAIN.discard(key[:3])
+            if not again:
+                _V5_SMS_INFLIGHT.discard(key[:3])
+        if again:
+            threading.Thread(target=_v5_sms_refresh, args=(key,), daemon=True, name="v5sms:again").start()
 
 
 @app.route("/api/v5/sms")
@@ -3198,20 +3204,28 @@ def api_v5_sms():
     # The page passes the names it shows; one the build has not read yet is
     # added and the window is read again (bounded: a board has a few dozen).
     fresh_names = False
-    for n in (request.args.get("names") or "").split("|"):
-        n = " ".join(n.split())[:60]
-        if n and n not in _V5_SMS_NAMES and len(_V5_SMS_NAMES) < 80:
-            _V5_SMS_NAMES.add(n)
-            fresh_names = True
+    asked = [" ".join(n.split())[:60] for n in (request.args.get("names") or "").split("|") if n.strip()]
+    for n in asked:
+        if n not in _V5_SMS_NAMES and len(_V5_SMS_NAMES) < 80:
+            _V5_SMS_NAMES.add(n)      # read from the next build on; coverage below decides staleness
     live = e >= today
     key = (s.isoformat(), e.isoformat(), tz)
     ttl = _V5_SMS_TTL_LIVE if live else _V5_SMS_TTL_PAST
     with _V5_SMS_LOCK:
         c = _V5_SMS_CACHE.get(key)
+        # A board asking for a rep the cached read never covered (a build
+        # started by a request without names) is stale for that board.
+        if c and asked:
+            covered = {" ".join(k.lower().split()) for k in (c["data"].get("agents") or {})}
+            covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("unresolved") or [])}
+            if any(" ".join(n.lower().split()) not in covered for n in asked):
+                fresh_names = True
         fresh = bool(c and time.time() - c["at"] < ttl) and not fresh_names
         start_it = not fresh and key not in _V5_SMS_INFLIGHT
         if start_it:
             _V5_SMS_INFLIGHT.add(key)
+        elif fresh_names and key in _V5_SMS_INFLIGHT:
+            _V5_SMS_AGAIN.add(key)        # read again once the running build lands
     if start_it:
         threading.Thread(target=_v5_sms_refresh, args=(key + (live,),), daemon=True, name="v5sms:build").start()
     if not c:
