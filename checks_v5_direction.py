@@ -67,12 +67,12 @@ ck("an unreadable direction is surfaced, with the raw value", w and dict(w[0]["v
 
 # ---- the page (in/out moved from the row to the panel on 2026-10-15) ----
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "scoreboard_v5.html"), encoding="utf-8").read()
-ck("the panel carries inbound answered and outbound connected",
+ck("the panel carries inbound with answered, and outbound as a plain count",
    "cell2('Inbound', w(a.inbound || 0) + ' <i>' + w(a.inbound_answered || 0) + ' answered</i>'" in tpl
-   and "cell2('Outbound', w(a.outbound || 0) + ' <i>' + w(a.outbound_connected || 0) + ' connected</i>'" in tpl, "panel")
-ck("a Calls row in the summary block, with answered and connected",
+   and "cell2('Outbound', w(a.outbound || 0), !a.outbound)" in tpl, "panel")
+ck("a Calls row in the summary block: inbound with answered, outbound with NO connected count (it only means no error)",
    "<span class=\"sl\">Calls</span>" in tpl and "'</b> inbound <i>' + fmt(TT.inbound_answered) + ' answered</i>'" in tpl
-   and "'</b> outbound <i>' + fmt(TT.outbound_connected) + ' connected</i>'" in tpl, "team line")
+   and "'</b> outbound' +" in tpl and "outbound_connected" not in tpl and "' connected</i>'" not in tpl, "team line")
 
 # ---- design pass, 2026-10-15: "accommodate all the data more efficiently on desktop and mobile"
 ck("the board widens on a desktop so a rep's texts fit on one line", "@media(min-width:900px){.wrap{max-width:920px}}" in tpl, "width")
@@ -132,6 +132,15 @@ ck("the panel carries in/out, over 10 min, texts and the missed list",
 ck("the row's retainer column is retainers PAID, sent moves to the panel",
    "bcell(bk.retainers_paid, 'retainers_paid', 'rt', 'paid', 'paid')" in tpl and "bcell(bk.retainers_sent, 'retainers_sent', 'rt'" not in tpl
    and "cell2('Retainers sent', booksHas('retainers_sent')" in tpl and "'</b> paid' : '')" in tpl, "paid column")
+
+# ---- dispositions, carried as written (Danny, 2026-10-15) ----
+cx3 = [dict(cx2[0], agent_disposition="Left Voicemail"), dict(cx2[1], agent_disposition="Interested - Quote Sent"),
+       dict(cx2[2], agent_disposition="Left Voicemail"), dict(cx2[3], agent_disposition="")]
+rep3 = V.build_report([], cx3, tz_offset_minutes=-240, window={"start": "2026-10-15", "end": "2026-10-15"})
+rg3 = next(a for a in rep3["ranked"] + rep3["unranked"] if a["name"] == "Roman Gomez")
+ck("each rep carries their dispositions with direction and count, blanks left out",
+   rg3["dispositions"] == [["Left Voicemail", "in", 2]], rg3["dispositions"])
+ck("the floor-wide tally sums every rep", ["Left Voicemail", "in", 2] in rep3["dispositions"] and ["Interested - Quote Sent", "out", 1] in rep3["dispositions"], rep3["dispositions"])
 
 for e in errors:
     print("  FAIL", e)

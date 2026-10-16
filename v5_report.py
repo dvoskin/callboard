@@ -86,6 +86,15 @@ _MISSED = ("missed", "voicemail", "vm/", "no answer", "abandon", "rejected",
            "declined", "busy", "unavailable", "congestion", "intercept")
 
 
+def _all_dispositions(agents):
+    """[[disposition, direction, count], ...] over every rep, most frequent first."""
+    tot = {}
+    for a in agents:
+        for d, dr, n in a.get("dispositions") or []:
+            tot[(d, dr)] = tot.get((d, dr), 0) + n
+    return [[d, dr, n] for (d, dr), n in sorted(tot.items(), key=lambda kv: -kv[1])][:40]
+
+
 def classify_result(result: str) -> str:
     """-> 'connected' | 'missed' | 'unknown'. Never guesses: an unrecognised value
     returns 'unknown' and is surfaced as a warning, never folded into 'missed'."""
@@ -315,7 +324,9 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
             {"src": src, "talk": max(0.0, talk), "conn": connected, "missed": missed,
              "wrap": max(0.0, wrap), "chan": (channel or "").strip(), "dir": dirn,
              # who was on the other end, and when -- for the missed-call list
-             "num": _party(row or {}, dirn), "ts": parse_ts((row or {}).get("start_time"), tz_offset_minutes)})
+             "num": _party(row or {}, dirn), "ts": parse_ts((row or {}).get("start_time"), tz_offset_minutes),
+             # what the rep recorded on the call, as RingCX wrote it (RingCX rows only)
+             "disp": ((row or {}).get("agent_disposition") or "").strip()})
 
     def cx_talk(r):
         t = _num(r.get("talk_time"))
@@ -421,6 +432,15 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
              "outbound_connected": sum(1 for x in L if x.get("dir") == "out" and x["conn"]),
              "dir_unknown": sum(1 for x in L if x.get("dir") not in ("in", "out"))}
         a.update(_missed_for(name, L))
+        # Agent dispositions as written, most frequent first -- surfaced to
+        # learn what the floor actually records before it is turned into a
+        # measure (Danny, 2026-10-15: "idk how to use the disposition data").
+        dc = {}
+        for x in L:
+            if x.get("disp"):
+                k = (x["disp"], x.get("dir") or "unknown")
+                dc[k] = dc.get(k, 0) + 1
+        a["dispositions"] = [[k[0], k[1], v] for k, v in sorted(dc.items(), key=lambda kv: -kv[1])][:15]
         for m in CONV_MARKS:
             a["over_%d" % (m // 60)] = sum(1 for x in L if x["talk"] >= m)
 
@@ -483,6 +503,9 @@ def build_report(exrows, cxrows, tz_offset_minutes=0, window=None, roster=None):
                  "not_sales": sorted(set(not_sales))},
         "floor": med,
         "ranked": ranked, "unranked": thin,
+        # Every disposition on the floor with its count and direction -- the
+        # raw material for deciding what is worth showing.
+        "dispositions": _all_dispositions(agents),
         "totals": {k: sum(a[k] for a in agents) for k in
                    ("talk", "campaign", "direct", "attempts", "missed",
                     "over_1", "over_3", "over_10", "inbound", "inbound_answered",
