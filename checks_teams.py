@@ -303,6 +303,13 @@ ck("Johana Duron is off Friday and Saturday on every board (the shift table they
 ck("/teams says 'off today' for a scheduled day off with no calls, not 'no calls yet today'",
    "r.quietLabel = 'off today'" in html and "esc(r.quietLabel || 'no calls yet today')" in html, "off today")
 
+# ---- a missed call that was called back no longer counts ----
+_v6src = open(os.path.join(HERE, "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+ck("the coordinators' priorities count only missed calls still to call back -- dashboard row, its panel, and /teams",
+   "var missed = ms.open != null ? ms.open :" in _v6src and "var missed = msP.open != null ? msP.open : missedAll;" in _v6src
+   and "var qMiss = ms.open != null ? ms.open :" in html, "missed open")
+ck("...and the panel says how many were called back", "backP + ' called back'" in _v6src and "'every missed call called back'" in _v6src, "called back")
+
 # ---- /v5: the board under the roster ----
 with A.app.test_request_context("/v5"):
     v5 = A.render_template("scoreboard_v5.html", share_mode=False, share_token="")

@@ -133,7 +133,8 @@
                   (show.outbound == null ? w(tot.outbound) : show.outbound) + ' out';
       row.dLbl = '';
       // the board's priorities line, word for word, then the progress hairline
-      var qMiss = Math.max(0, (tot.inbound || 0) - (tot.inbound_answered || 0));
+      // still to call back -- a missed call that was called back no longer counts (as on their board)
+      var qMiss = ms.open != null ? ms.open : Math.max(0, (tot.inbound || 0) - (tot.inbound_answered || 0));
       var qn = function (v, hot) { return '<b' + (hot && v ? ' class="hot"' : '') + '>' + w(v) + '</b>'; };
       row.press = (jn.queue
         ? '<span class="press">' + qn(q.to_schedule, true) + ' to schedule \u00b7 ' + qn(qMiss, true) + ' missed \u00b7 ' +
