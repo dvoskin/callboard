@@ -3653,6 +3653,250 @@ def _paid_loop():
         time.sleep(900)
 
 
+# ---- Stale tasks and reminders, deleted slowly (task_sweep.py) ------------
+# Danny, 2026-10-19: "delete any open reminders and tasks on completely
+# unrelated records" ... "without exhausting crazy API limits". Shipped
+# DISARMED (?arm=1 starts it). One page a minute, at most
+# TASK_SWEEP_CREDITS_PER_DAY Zoho credits a local day, and the first 429
+# stops the step for ten minutes. TASK_SWEEP_WRITE=0 stops every delete.
+import task_sweep as _sweep_mod
+_SWEEP_FILE = _data_dir / "task_sweep.json"
+_sweep = _sweep_mod.Store(_SWEEP_FILE)
+_sweep_state = {"steps": 0, "running": False}
+_sweep_lock = threading.Lock()
+_SWEEP_CAP = int(os.environ.get("TASK_SWEEP_CREDITS_PER_DAY", "5000"))
+_SWEEP_PAUSE = float(os.environ.get("TASK_SWEEP_PAUSE", "60"))
+_SWEEP_RESWEEP_HOURS = 24        # a finished sweep starts over a day later
+
+
+class _SweepThrottled(Exception):
+    pass
+
+
+def _sweep_today():
+    _, b, zone, _ = _dnc_window()
+    return datetime.strptime(b, "%Y-%m-%d").date(), zone
+
+
+def _sweep_coql(q):
+    r = requests.post(f"{_zoho.base_url}/crm/v6/coql", headers=_zoho._headers(), json={"select_query": q}, timeout=60)
+    if r.status_code == 429:
+        raise _SweepThrottled("COQL 429")
+    if r.status_code == 204:
+        return []
+    if not r.ok:
+        raise RuntimeError("COQL HTTP %d %s" % (r.status_code, (r.text or "")[:160]))
+    return (r.json() or {}).get("data") or []
+
+
+def _sweep_delete(module, ids):
+    """The ids Zoho deleted. Workflows off: a delete fires nothing."""
+    r = requests.delete(f"{_zoho.base_url}/crm/v6/{module}", headers=_zoho._headers(),
+                        params={"ids": ",".join(ids), "wf_trigger": "false"}, timeout=90)
+    if r.status_code == 429:
+        raise _SweepThrottled("DELETE 429")
+    data = (r.json() or {}).get("data") if r.content else None
+    if not data:
+        raise RuntimeError("DELETE %s HTTP %d %s" % (module, r.status_code, (r.text or "")[:160]))
+    return {str((x.get("details") or {}).get("id")) for x in data if (x or {}).get("code") == "SUCCESS"}
+
+
+_sweep_keep = {"at": 0.0, "owners": None}
+
+
+def _sweep_protected(day, spend):
+    """Owners whose open work is never deleted: every Team Schedules person
+    (coordinators, billers, pre-op) and every current scheduling owner, plus
+    TASK_SWEEP_KEEP_OWNERS. Read again hourly. No coordinator rows read means
+    no step at all."""
+    if _sweep_keep["owners"] is not None and time.time() - _sweep_keep["at"] < 3600:
+        return _sweep_keep["owners"]
+    rows = _sweep_coql("select Team, Staff_User from Team_Schedules where Team is not null limit 200")
+    spend(_sweep_mod.coql_credits(len(rows)))
+    if not any(r.get("Team") == "Coordinator" for r in rows):
+        raise RuntimeError("Team Schedules returned no coordinators")
+    owners = _sweep_coql("select Scheduling_Owner from Deals where Stage = '%s' limit 2000" % _paid_mod.PAYMENT_RECEIVED)
+    spend(_sweep_mod.coql_credits(len(owners)))
+    keep = {_sweep_mod._id(r.get("Staff_User")) for r in rows}
+    keep |= {_sweep_mod._id(r.get("Scheduling_Owner")) for r in owners}
+    keep |= {x.strip() for x in os.environ.get("TASK_SWEEP_KEEP_OWNERS", "").split(",") if x.strip()}
+    keep.discard("")
+    _sweep_keep.update({"at": time.time(), "owners": keep})
+    return keep
+
+
+def _sweep_page(pass_name, cursor, c, protected, spend, limit=None):
+    """One page of a pass and what to do with each row: (rows, [(row, act, why)])."""
+    rows = _sweep_coql(_sweep_mod.query(pass_name, c, cursor, limit or _sweep_mod.PAGE))
+    spend(_sweep_mod.coql_credits(len(rows)))
+    deals = {}
+    if pass_name.startswith("deal_"):
+        ids = _sweep_mod.deal_ids(rows)
+        for i in range(0, len(ids), 100):
+            got = _sweep_coql("select id, Stage, Retainer_Paid from Deals where id in (%s)" % ",".join(ids[i:i + 100]))
+            spend(_sweep_mod.coql_credits(len(got)))
+            deals.update({d["id"]: d for d in got})
+    return rows, [(r,) + _sweep_mod.decide(r, pass_name, c, protected, deals) for r in rows]
+
+
+def _sweep_step(write=None, label="auto"):
+    """One page of the current pass: read, decide, and -- armed -- delete.
+    write=None: delete when armed. Never raises."""
+    if not _sweep_lock.acquire(blocking=False):
+        return {"skipped": "a step is running"}
+    _sweep_state["running"] = True
+    info = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "label": label}
+    try:
+        armed = os.environ.get("TASK_SWEEP_WRITE", "1") != "0" and bool(_sweep.data.get("armed"))
+        write = armed if write is None else (bool(write) and armed)
+        today, zone = _sweep_today()
+        day = today.isoformat()
+        sw = _sweep.data.get("sweep")
+        if not sw or (_sweep.current() is None and sw.get("finished") and
+                      datetime.fromisoformat(sw["finished"]) < datetime.now(timezone.utc) - timedelta(hours=_SWEEP_RESWEEP_HOURS)):
+            _sweep.start(_sweep_mod.cutoffs(today, zone), info["at"])
+        cur = _sweep.current()
+        if cur is None:
+            info["idle"] = "sweep finished"
+            return info
+        if _SWEEP_CAP - _sweep.spent(day) < 50:
+            info["waiting"] = "today's credit cap reached"
+            return info
+        p, module, st = cur
+        c = _sweep.data["sweep"]["cutoffs"]
+        used = [0]
+
+        def spend(n):
+            used[0] += n
+            _sweep.spend(day, n)
+        info.update({"pass": p, "write": bool(write)})
+        rows, decided = _sweep_page(p, st["cursor"], c, _sweep_protected(day, spend), spend)
+        drop = {r["id"]: why for r, act, why in decided if act == "delete"}
+        kept = {}
+        for r, act, why in decided:
+            if act == "keep":
+                kept[why] = kept.get(why, 0) + 1
+        info.update({"read": len(rows), "to_delete": len(drop), "kept": kept})
+        if write:
+            ids, gone = sorted(drop), set()
+            try:
+                for i in range(0, len(ids), _sweep_mod.DELETE_CHUNK):
+                    gone |= _sweep_delete(module, ids[i:i + _sweep_mod.DELETE_CHUNK])
+                    spend(1)
+            finally:
+                # A 429 halfway still counts what went; the page is read again.
+                for i in gone:
+                    _sweep.count("totals", drop[i])
+                st["deleted"] += len(gone)
+                info["deleted"] = len(gone)
+            for why, n in kept.items():
+                _sweep.count("kept", why, n)
+            st["read"] += len(rows)
+            if len(gone) < len(drop):
+                info["not_deleted"] = len(drop) - len(gone)
+            if rows:
+                st["cursor"] = rows[-1]["id"]
+            if len(rows) < _sweep_mod.PAGE:
+                st["done"] = True
+                if _sweep.current() is None:
+                    _sweep.data["sweep"]["finished"] = info["at"]
+        info["credits"] = used[0]
+    except _SweepThrottled as e:
+        info["throttled"] = str(e)
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        _sweep.data["last_error"] = info["error"]
+        log.exception("task sweep step failed")
+    finally:
+        if info.get("write") or info.get("error") or info.get("throttled"):
+            _sweep.note_run(info)
+        try:
+            _sweep.save()
+        except Exception:  # noqa: BLE001
+            log.exception("task sweep ledger save failed")
+        _sweep_state.update({"steps": _sweep_state["steps"] + 1, "running": False, "last": info,
+                             "last_at": time.time()})
+        _sweep_lock.release()
+    return info
+
+
+def _sweep_preview():
+    """The next 200 rows of every pass, decided and never deleted, plus how
+    many open rows each pass still has. About 15 credits."""
+    today, zone = _sweep_today()
+    day = today.isoformat()
+    sw = _sweep.data.get("sweep") or {}
+    c = sw.get("cutoffs") or _sweep_mod.cutoffs(today, zone)
+
+    def spend(n):
+        _sweep.spend(day, n)
+    out = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cutoffs": c, "passes": {}}
+    try:
+        protected = _sweep_protected(day, spend)
+        out["protected_owners"] = len(protected)
+        for p, module in _sweep_mod.PASSES:
+            cursor = ((sw.get("passes") or {}).get(p) or {}).get("cursor") or "0"
+            rows, decided = _sweep_page(p, cursor, c, protected, spend, limit=200)
+            by = {}
+            for _, act, why in decided:
+                by["%s: %s" % (act, why)] = by.get("%s: %s" % (act, why), 0) + 1
+            where = _sweep_mod.query(p, c, cursor).split(" where ", 1)[1].rsplit(" order by", 1)[0]
+            n = _sweep_coql("select COUNT(id) from %s where %s" % (module, where))
+            spend(1)
+            out["passes"][p] = {"open_in_range": (n[0] if n else {}).get("COUNT(id)"), "sample": len(rows),
+                                "sample_decisions": dict(sorted(by.items()))}
+    except _SweepThrottled as e:
+        out["throttled"] = str(e)
+    except Exception as e:  # noqa: BLE001
+        out["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("task sweep preview failed")
+    _sweep.save()
+    _sweep_state["preview"] = out
+    return out
+
+
+def _sweep_loop():
+    # Seven minutes after a boot, clear of the other loops' first reads.
+    time.sleep(420)
+    while True:
+        wait = 900
+        if _sweep.data.get("armed") and os.environ.get("TASK_SWEEP_WRITE", "1") != "0":
+            info = _sweep_step(label="auto")
+            wait = (600 if info.get("throttled") else 900 if (info.get("idle") or info.get("waiting"))
+                    else 300 if info.get("error") else _SWEEP_PAUSE)
+        time.sleep(wait)
+
+
+@app.route("/api/v6/task-sweep")
+def api_v6_task_sweep():
+    """Signed in only. The stale task and reminder sweep: where each pass
+    stands, what it deleted by kind, what it kept and why, today's credits.
+      ?dry=1          decide the next 200 of every pass, delete nothing (in a thread)
+      ?arm=1 / ?arm=0 start or stop deleting
+      ?step=1         one step now (deletes only when armed)"""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.args.get("arm") in ("1", "0"):
+        _sweep.data["armed"] = request.args.get("arm") == "1"
+        _sweep.save()
+    if not _sweep_state.get("running"):
+        if request.args.get("dry"):
+            threading.Thread(target=_sweep_preview, daemon=True, name="task-sweep:preview").start()
+        elif request.args.get("step"):
+            threading.Thread(target=_sweep_step, kwargs={"label": "manual"}, daemon=True,
+                             name="task-sweep:step").start()
+    today, _ = _sweep_today()
+    st = dict(_sweep_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    return jsonify({"armed": bool(_sweep.data.get("armed")),
+                    "write_switch": os.environ.get("TASK_SWEEP_WRITE", "1") != "0",
+                    "credits": {"today": _sweep.spent(today.isoformat()), "cap": _SWEEP_CAP},
+                    "sweep": _sweep.data.get("sweep"), "deleted": _sweep.data.get("totals"),
+                    "kept": _sweep.data.get("kept"), "last_error": _sweep.data.get("last_error"),
+                    "runs": _sweep.data.get("runs", [])[-10:], "state": st, "file": str(_SWEEP_FILE)})
+
+
 # ---- Texts on the sales board (/v5) ---------------------------------------
 # Danny, 2026-10-15: "add inbound outbound sms sent auto and manual and unread
 # to the sales call board". Read from each rep's RingEX extension (the floor's
@@ -10505,7 +10749,8 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
                  ("loop:paid-guard", lambda: _paid_loop()),
                  ("loop:ringex", lambda: _ringex_warm_loop()),
-                 ("loop:catalog", lambda: _catalog_loop()))
+                 ("loop:catalog", lambda: _catalog_loop()),
+                 ("loop:task-sweep", lambda: _sweep_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 
