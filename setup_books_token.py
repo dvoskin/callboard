@@ -1,8 +1,7 @@
 """Mint the Books-capable refresh token the catalog sync needs. Run once, locally.
 
-The token on Render reads estimates and invoices (ZohoBooks.estimates.READ,
-.invoices.READ) and nothing under Settings -- and Items live under
-ZohoBooks.settings.*. GET /books/v3/items with it answers 401 code 57, so
+The CRM token reads estimates and invoices and nothing under Settings --
+and Items live under ZohoBooks.settings.*. GET /books/v3/items with it answers 401 code 57, so
 catalog_sync can plan from quotes but cannot write an item until a token
 with the settings scopes exists.
 
@@ -26,10 +25,12 @@ from dotenv import load_dotenv
 HERE = Path(__file__).parent
 load_dotenv(HERE / ".env")
 
-SCOPES = ",".join([
-    "ZohoBooks.settings.READ", "ZohoBooks.settings.CREATE", "ZohoBooks.settings.UPDATE",   # items
-    "ZohoBooks.estimates.READ", "ZohoBooks.invoices.READ", "ZohoBooks.customerpayments.READ",
-])
+# One Books token serves the whole app, so it must keep every read the
+# boards already make. Retainer invoices are covered by no narrow scope
+# (see the /api/v5/diag probe), so a token minted with settings + estimates
+# + invoices + payments would have fixed the catalog and blanked the
+# retainers column. fullaccess is what the estimator's own app holds.
+SCOPES = "ZohoBooks.fullaccess.all"
 OUT = HERE / ".books_token"
 
 
@@ -60,6 +61,11 @@ def main():
                      timeout=20)
     print("\nScopes granted: %s" % data.get("scope"))
     print("GET /items -> HTTP %d %s" % (r.status_code, "(items readable)" if r.ok else r.text[:120]))
+    r2 = requests.get("https://www.zohoapis.com/books/v3/retainerinvoices",
+                      headers={"Authorization": "Zoho-oauthtoken " + data["access_token"]},
+                      params={"organization_id": os.environ.get("ZOHO_BOOKS_ORG_ID", "773501182"), "per_page": 1},
+                      timeout=20)
+    print("GET /retainerinvoices -> HTTP %d %s" % (r2.status_code, "(the boards keep their retainers)" if r2.ok else r2.text[:120]))
     print("\nRefresh token written to %s (not printed). Set it on Render as ZOHO_BOOKS_REFRESH_TOKEN." % OUT)
 
 
