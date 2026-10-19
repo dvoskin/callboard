@@ -72,7 +72,12 @@ Rules
     the patient's time zone, never on Sunday, and only while the coordinator
     is on shift to read the reply; only while the quoted date is at least
     two weeks ahead -- a passed or close date is a conversation, not a text.
-    A deal tagged "No Intro Text" or "Do not Call" is never texted.
+    A deal tagged "No Intro Text" or "Do not Call" is never texted. Before a
+    coordinator's first intro text of the day, the same line texts the owner
+    a copy marked SAMPLE, without the patient's name (PAID_GUARD_INTRO_SAMPLE_TO;
+    Danny, 2026-10-19: "Include my number ... as a sample in each
+    coordinators blast to verify it sent"); a sample that does not go holds
+    that line's texts.
 
 Names and numbers stay out of the logs.
 """
@@ -553,6 +558,7 @@ def decide_owner(deal, schedules, active, load, local_now, now):
 
 # ---- the coordinator's intro text ----------------------------------------------
 INTRO_TEMPLATE = "coordinator-intro-v1"
+INTRO_SAMPLE_TEMPLATE = "coordinator-intro-v1-sample"
 INTRO_HOURS = (9, 19)           # patient's local time; Sunday never
 INTRO_MIN_LEAD_DAYS = 14        # a quoted date closer than this is for a call, not a "reply YES"
 INTRO_STOP_TAGS = ("No Intro Text", "Do not Call")  # a deal tagged either is never texted
@@ -653,7 +659,16 @@ def decide_intro(deal, contact, sender, now, on_now=True):
     if _id(deal.get("Contact_Name")):
         row["Contact"] = {"id": _id(deal.get("Contact_Name"))}
     return _decision("send", "intro text", deal["id"], note="Intro text sent from %s's line: \"%s\"" % (sender, text),
-                     outbox=row)
+                     outbox=row, sample_text=intro_text("", sender, tent, deal.get("Surgeon"), where))
+
+
+def intro_sample(dec, to):
+    """The owner's copy of a coordinator's intro text, from the same line:
+    the same words without the patient's name, on no deal or contact."""
+    sender = dec["outbox"]["Sender"]
+    row = {"Name": "Intro sample - %s" % sender, "Phone": to, "SMS_Text": "[SAMPLE] " + dec["sample_text"],
+           "Sender": sender, "Template": INTRO_SAMPLE_TEMPLATE}
+    return _decision("send", "intro sample to the owner", None, outbox=row)
 
 
 def summarize(decisions):

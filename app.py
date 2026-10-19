@@ -3326,7 +3326,9 @@ def _dnc_loop():
 #   - each paid deal in Payment Received with no working coordinator after 30
 #     minutes -- the round robin still held a disabled user (Ana Castro)
 #   - one intro text per paid patient from their coordinator's own line, once
-#     PAID_GUARD_INTRO_SENDERS names the lines that are set up in SMS Outbox
+#     PAID_GUARD_INTRO_SENDERS names the lines that are set up in SMS Outbox;
+#     each line's first of the day goes as a SAMPLE to PAID_GUARD_INTRO_SAMPLE_TO
+#     first
 # The fix is the write paymentmadeupdatedeal makes, sent WITH workflows, so the
 # coordinator is assigned as on any payment; a note on the deal says what was
 # done. Anything unclear goes to the review list on /api/v6/paid-guard.
@@ -3430,6 +3432,7 @@ def _paid_apply(key, dec, write, now_iso, tot):
     if dec["result"] in ("fix", "flag", "review", "send"):
         tot["decisions"].append({"key": key, "result": dec["result"], "reason": dec["reason"], "deal": dec["deal"],
                                  "old": dec.get("old"), "fields": sorted(dec["write"]), "ok": ok})
+    return ok
 
 
 def _paid_payments(a, b, now, write, now_iso, tot):
@@ -3561,7 +3564,10 @@ def _paid_intro_senders(local_now):
 
 def _paid_intros(now, tz_off, write, now_iso, tot):
     """One intro text per paid patient in Payment Received, from their own
-    coordinator's line (paid_guard.decide_intro)."""
+    coordinator's line (paid_guard.decide_intro). With
+    PAID_GUARD_INTRO_SAMPLE_TO set, each line's first text of the office's day
+    goes to that number first, marked SAMPLE; until the sample goes, that
+    line's patients wait."""
     senders = _paid_intro_senders((now - timedelta(minutes=tz_off)).replace(tzinfo=None))
     tot["checked"]["intro_senders"] = len(senders)
     if not senders:
@@ -3578,12 +3584,22 @@ def _paid_intros(now, tz_off, write, now_iso, tot):
         for c in _dnc_coql_all(f"select {_paid_mod.INTRO_CONTACT_FIELDS} from Contacts where id in ({','.join(cids[i:i + 50])})",
                                page=50):
             contacts[c["id"]] = c
+    sample_to = _paid_mod.phone10(os.environ.get("PAID_GUARD_INTRO_SAMPLE_TO"))
+    day = (now - timedelta(minutes=tz_off)).date().isoformat()
+    sampled = {}                      # sender -> the sample went (this pass)
     sent = 0
     for d in sorted(pending, key=lambda d: d.get("Retainer_Paid_Date") or ""):
         sender, on_now = senders[_paid_mod._id(d.get("Scheduling_Owner"))]
         dec = _paid_mod.decide_intro(d, contacts.get(_paid_mod._id(d.get("Contact_Name"))), sender, now, on_now)
         if dec["result"] == "send" and sent >= _PAID_INTRO_CAP:
             dec = _paid_mod._decision("wait", "this pass's cap reached", d["id"])
+        if dec["result"] == "send" and sample_to:
+            key = "intro-sample:%s:%s" % (sender, day)
+            if sender not in sampled:
+                sampled[sender] = _paid.settled(key) or _paid_apply(key, _paid_mod.intro_sample(dec, sample_to),
+                                                                    write, now_iso, tot)
+            if write and not sampled[sender]:
+                dec = _paid_mod._decision("wait", "the sample to the owner did not go", d["id"])
         _paid_apply("intro:%s" % d["id"], dec, write, now_iso, tot)
         sent += dec["result"] == "send"
 
@@ -3701,6 +3717,19 @@ def _sweep_delete(module, ids):
     return {str((x.get("details") or {}).get("id")) for x in data if (x or {}).get("code") == "SUCCESS"}
 
 
+def _sweep_cancel(module, rows):
+    """Hand-booked calls set Cancelled with a note: the ids Zoho took.
+    Workflows off, like the delete."""
+    r = requests.put(f"{_zoho.base_url}/crm/v6/{module}", headers=_zoho._headers(),
+                     json={"data": rows, "trigger": []}, timeout=90)
+    if r.status_code == 429:
+        raise _SweepThrottled("PUT 429")
+    data = (r.json() or {}).get("data") if r.content else None
+    if not data:
+        raise RuntimeError("PUT %s HTTP %d %s" % (module, r.status_code, (r.text or "")[:160]))
+    return {str((x.get("details") or {}).get("id")) for x in data if (x or {}).get("code") == "SUCCESS"}
+
+
 _sweep_keep = {"at": 0.0, "owners": None}
 
 
@@ -3740,8 +3769,9 @@ def _sweep_page(pass_name, cursor, c, protected, spend, limit=None):
 
 
 def _sweep_step(write=None, label="auto"):
-    """One page of the current pass: read, decide, and -- armed -- delete.
-    write=None: delete when armed. Never raises."""
+    """One page of the current pass: read, decide, and -- armed -- delete
+    (a hand-booked call: cancel with a note). write=None: write when armed.
+    Never raises."""
     if not _sweep_lock.acquire(blocking=False):
         return {"skipped": "a step is running"}
     _sweep_state["running"] = True
@@ -3772,28 +3802,37 @@ def _sweep_step(write=None, label="auto"):
         info.update({"pass": p, "write": bool(write)})
         rows, decided = _sweep_page(p, st["cursor"], c, _sweep_protected(day, spend), spend)
         drop = {r["id"]: why for r, act, why in decided if act == "delete"}
+        close = {r["id"]: (r, why) for r, act, why in decided if act == "cancel"}
         kept = {}
         for r, act, why in decided:
             if act == "keep":
                 kept[why] = kept.get(why, 0) + 1
-        info.update({"read": len(rows), "to_delete": len(drop), "kept": kept})
+        info.update({"read": len(rows), "to_delete": len(drop), "to_cancel": len(close), "kept": kept})
         if write:
-            ids, gone = sorted(drop), set()
+            ids, gone, shut = sorted(drop), set(), set()
             try:
                 for i in range(0, len(ids), _sweep_mod.DELETE_CHUNK):
                     gone |= _sweep_delete(module, ids[i:i + _sweep_mod.DELETE_CHUNK])
+                    spend(1)
+                cids = sorted(close)
+                for i in range(0, len(cids), _sweep_mod.DELETE_CHUNK):
+                    shut |= _sweep_cancel(module, [_sweep_mod.cancel_row(close[k][0], close[k][1], day)
+                                                   for k in cids[i:i + _sweep_mod.DELETE_CHUNK]])
                     spend(1)
             finally:
                 # A 429 halfway still counts what went; the page is read again.
                 for i in gone:
                     _sweep.count("totals", drop[i])
+                for i in shut:
+                    _sweep.count("cancelled", close[i][1])
                 st["deleted"] += len(gone)
-                info["deleted"] = len(gone)
+                st["cancelled"] = st.get("cancelled", 0) + len(shut)
+                info["deleted"], info["cancelled"] = len(gone), len(shut)
             for why, n in kept.items():
                 _sweep.count("kept", why, n)
             st["read"] += len(rows)
-            if len(gone) < len(drop):
-                info["not_deleted"] = len(drop) - len(gone)
+            if len(gone) + len(shut) < len(drop) + len(close):
+                info["not_done"] = len(drop) + len(close) - len(gone) - len(shut)
             if rows:
                 st["cursor"] = rows[-1]["id"]
             if len(rows) < _sweep_mod.PAGE:
@@ -3870,7 +3909,8 @@ def _sweep_loop():
 @app.route("/api/v6/task-sweep")
 def api_v6_task_sweep():
     """Signed in only. The stale task and reminder sweep: where each pass
-    stands, what it deleted by kind, what it kept and why, today's credits.
+    stands, what it deleted and what calls it cancelled by kind, what it kept
+    and why, today's credits.
       ?dry=1          decide the next 200 of every pass, delete nothing (in a thread)
       ?arm=1 / ?arm=0 start or stop deleting
       ?step=1         one step now (deletes only when armed)"""
@@ -3893,7 +3933,7 @@ def api_v6_task_sweep():
                     "write_switch": os.environ.get("TASK_SWEEP_WRITE", "1") != "0",
                     "credits": {"today": _sweep.spent(today.isoformat()), "cap": _SWEEP_CAP},
                     "sweep": _sweep.data.get("sweep"), "deleted": _sweep.data.get("totals"),
-                    "kept": _sweep.data.get("kept"), "last_error": _sweep.data.get("last_error"),
+                    "cancelled": _sweep.data.get("cancelled"), "kept": _sweep.data.get("kept"), "last_error": _sweep.data.get("last_error"),
                     "runs": _sweep.data.get("runs", [])[-10:], "state": st, "file": str(_SWEEP_FILE)})
 
 

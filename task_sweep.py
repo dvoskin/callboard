@@ -22,6 +22,13 @@ Never deleted, whatever the kind:
     a current scheduling owner (Yevgen Briks is not in Team Schedules)
   - anything due today or later, and every call still Scheduled
 
+A call a person booked by hand is the paper trail of a conversation, so it is
+not deleted: it is marked Cancelled with a line saying why, and leaves every
+overdue list (Danny, 2026-10-19: "Only leave scheduled calls that were
+manually created ... so there's a paper trail"). A call is automatic when Zoho
+Admin (the account automations run as) or RCC (the RingCX dialer) created it,
+or its subject is one the automations write; every other call is manual.
+
 The work is split into passes, each read in id order (so deleting behind the
 cursor never shifts a page) and resumed from its cursor after a restart:
 
@@ -29,10 +36,10 @@ cursor never shifts a page) and resumed from its cursor after a restart:
   orphan_tasks             no deal, no contact
   stale_tasks, stale_calls due STALE_DAYS ago or more, on anything
 
-A step reads one page and deletes what it decided, 100 ids a call, with
-workflows off. Zoho prices a COQL read by its size (1 credit to 200 rows, 2 to
-1,000, 3 to 2,000) and a delete at 1 credit per 100 ids, so a full page costs
-23 credits. Steps stop at the day's credit cap and on the first 429.
+A step reads one page and deletes (or cancels) what it decided, 100 records a
+call, with workflows off. Zoho prices a COQL read by its size (1 credit to 200
+rows, 2 to 1,000, 3 to 2,000) and a delete or update at 1 credit per 100, so a
+full page costs 23 credits. Steps stop at the day's credit cap and on the first 429.
 
 Shipped DISARMED: nothing is deleted until a signed-in person arms it.
 Counts only in the ledger and the logs -- no names, no subjects.
@@ -51,7 +58,13 @@ DEAD_STAGES = frozenset({"Unsubscribe", "Duplicates / Junk"})
 TASK_OPEN = "Status not in ('Completed', 'Complete')"
 CALL_OPEN = "Outgoing_Call_Status = 'Overdue'"
 TASK_FIELDS = "id, Subject, Owner, What_Id, Who_Id, $se_module, Due_Date, Created_Time"
-CALL_FIELDS = "id, Subject, Owner, What_Id, Who_Id, $se_module, Call_Start_Time"
+CALL_FIELDS = "id, Subject, Owner, Created_By, What_Id, Who_Id, $se_module, Call_Start_Time, Description"
+# Zoho Admin (automations, the apps' API user) and RCC (the RingCX dialer).
+AUTOMATION_USERS = frozenset({"5212466000000357001", "5212466000078931001"})
+AUTOMATED_SUBJECTS = ("quote follow up", "dialer call -", "scheduled call: automated", "scheduled call - best contact time",
+                      "follow-up call")
+WHY = {"paid": "the patient had already paid", "dead": "the deal is on Unsubscribe or Junk",
+       "stale": "it was more than %d days overdue" % STALE_DAYS}
 
 # (pass, module) in the order they run: the small, certain ones first.
 PASSES = (("deal_tasks", "Tasks"), ("deal_calls", "Calls"), ("orphan_tasks", "Tasks"),
@@ -105,9 +118,32 @@ def deal_ids(rows) -> list:
     return sorted({_id(r.get("What_Id")) for r in rows if _module(r) == "Deals" and _id(r.get("What_Id"))})
 
 
-def decide(row: dict, pass_name: str, c: dict, protected: set, deals: dict | None = None):
-    """("delete", kind) or ("keep", why). deals: {id: {"Stage", "Retainer_Paid"}}
-    for the deal_* passes."""
+def manual_call(row: dict, automation_users=AUTOMATION_USERS) -> bool:
+    if _id(row.get("Created_By")) in automation_users:
+        return False
+    return not str(row.get("Subject") or "").strip().lower().startswith(AUTOMATED_SUBJECTS)
+
+
+def decide(row: dict, pass_name: str, c: dict, protected: set, deals: dict | None = None,
+           automation_users=AUTOMATION_USERS):
+    """("delete", kind), ("cancel", kind) for a call a person booked, or
+    ("keep", why). deals: {id: {"Stage", "Retainer_Paid"}} for the deal_*
+    passes."""
+    act, why = _decide(row, pass_name, c, protected, deals)
+    if act == "delete" and pass_name.endswith("_calls") and manual_call(row, automation_users):
+        return "cancel", why
+    return act, why
+
+
+def cancel_row(row: dict, kind: str, today: str) -> dict:
+    """The update that closes a hand-booked call and says why, under whatever
+    the call already said."""
+    note = "Closed by the CRM cleanup on %s: %s." % (today, WHY.get(kind, kind))
+    old = str(row.get("Description") or "").rstrip()
+    return {"id": row["id"], "Outgoing_Call_Status": "Cancelled", "Description": (old + "\n\n" + note) if old else note}
+
+
+def _decide(row, pass_name, c, protected, deals):
     if str(row.get("Subject") or "").strip().lower().startswith("intro call"):
         return "keep", "intro call"
     if _module(row) == "Journeys":
@@ -143,14 +179,15 @@ def decide(row: dict, pass_name: str, c: dict, protected: set, deals: dict | Non
 
 class Store:
     """/data/task_sweep.json: {armed, sweep: {cutoffs, passes: {name: {cursor,
-    done, read, deleted}}, started, finished}, totals: {kind: n},
-    kept: {why: n}, credits: {day, used}, runs: [...], last_error}. Counts
+    done, read, deleted, cancelled}}, started, finished}, totals: {kind: n},
+    cancelled: {kind: n}, kept: {why: n}, credits: {day, used}, runs: [...], last_error}. Counts
     and record ids only."""
 
     def __init__(self, path):
         self.path = path
         self._lock = threading.Lock()
-        self.data = {"armed": False, "sweep": None, "totals": {}, "kept": {}, "credits": {"day": None, "used": 0},
+        self.data = {"armed": False, "sweep": None, "totals": {}, "cancelled": {}, "kept": {},
+                     "credits": {"day": None, "used": 0},
                      "runs": [], "last_error": None}
         self.load()
 
@@ -175,7 +212,7 @@ class Store:
 
     def start(self, c: dict, now_iso: str):
         self.data["sweep"] = {"cutoffs": c, "started": now_iso, "finished": None,
-                              "passes": {p: {"cursor": "0", "done": False, "read": 0, "deleted": 0}
+                              "passes": {p: {"cursor": "0", "done": False, "read": 0, "deleted": 0, "cancelled": 0}
                                          for p, _ in PASSES}}
 
     def current(self):

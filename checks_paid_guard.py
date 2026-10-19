@@ -318,6 +318,13 @@ ck("... another tag does not stop it", pg.decide_intro(dict(ID, Tag=[{"name": "V
                                                        MON_2PM)["result"] == "send")
 ck("a quoted date under two weeks out: held for the intro call",
    pg.decide_intro(dict(ID, Tentative_Procedure_Date="2026-10-31"), CON, "Oscar", MON_2PM)["result"] == "hold")
+smp = pg.intro_sample(d, "2125550199")
+ck("the owner's sample: the same text from the same line, SAMPLE on it, the patient's name out",
+   smp["result"] == "send" and smp["deal"] is None and smp["outbox"] == {
+       "Name": "Intro sample - Oscar", "Phone": "2125550199", "Sender": "Oscar", "Template": pg.INTRO_SAMPLE_TEMPLATE,
+       "SMS_Text": "[SAMPLE] " + d["outbox"]["SMS_Text"].replace("Hi Pat, ", "Hi, ")}, smp)
+ck("... on no deal and no contact, and no note", "Deal" not in smp["outbox"] and "Contact" not in smp["outbox"]
+   and not smp["note"] and "Pat" not in smp["outbox"]["SMS_Text"])
 ck("coordinator off shift: waits for them, not settled", pg.decide_intro(ID, CON, "Oscar", MON_2PM, on_now=False)["result"] == "wait")
 judith, mier, alex = TEAM[3], TEAM[0], TEAM[1]
 ck("on shift: Judith at 2 PM Monday", pg.on_shift(judith, MON_1400))
@@ -462,6 +469,7 @@ try:
 
     # Intro texts: off until the live lines are named; then once per deal, through SMS Outbox with workflows.
     _env = os.environ.pop("PAID_GUARD_INTRO_SENDERS", None)
+    os.environ.pop("PAID_GUARD_INTRO_SAMPLE_TO", None)
     _saved_coql2 = A._dnc_coql_all
     try:
         asked = []
@@ -499,9 +507,54 @@ try:
         calls["post"].clear()
         A._paid_intros(MON_2PM, 240, True, "now", t4)
         ck("never twice", not calls["post"] and t4["checked"]["intro_pending"] == 1, calls["post"])
+
+        # The owner's sample: once a line, once a day, before its first patient text.
+        os.environ["PAID_GUARD_INTRO_SAMPLE_TO"] = "(212) 555-0199"
+        A._paid = pg.Store(os.path.join(tdir, "paid_guard4.json"))
+        A._paid_deals = lambda where, page=200: [dict(ID, Scheduling_Owner={"id": "u-judith"}),
+                                                 dict(ID, id="i4", Scheduling_Owner={"id": "u-judith"}),
+                                                 dict(ID, id="i3", Scheduling_Owner={"id": "u-caballero"})]
+        calls["post"].clear()
+        t5 = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        A._paid_intros(MON_2PM, 240, True, "now", t5)
+        out = [(u.rsplit("/", 1)[-1] if "Notes" not in u else "note", (j or {}).get("data", [{}])[0]) for u, j in calls["post"]]
+        ck("the sample goes first, from Judith's line to the owner, then her two patients",
+           [(k, r.get("Phone"), r.get("Template")) for k, r in out if k == "SMS_Outbox"]
+           == [("SMS_Outbox", "2125550199", pg.INTRO_SAMPLE_TEMPLATE), ("SMS_Outbox", "4045550101", pg.INTRO_TEMPLATE),
+               ("SMS_Outbox", "4045550101", pg.INTRO_TEMPLATE)] and out[0][1]["Sender"] == "Judith"
+           and out[0][1]["SMS_Text"].startswith("[SAMPLE] Hi, this is Judith"), out)
+        ck("... no sample for Oscar, who sent nothing", sum(1 for k, r in out if r.get("Template") == pg.INTRO_SAMPLE_TEMPLATE) == 1)
+        ck("... settled for the day, by line", A._paid.settled("intro-sample:Judith:2026-10-19")
+           and not A._paid.settled("intro-sample:Oscar:2026-10-19"), sorted(A._paid.data["seen"]))
+        A._paid_deals = lambda where, page=200: [dict(ID, id="i5", Scheduling_Owner={"id": "u-judith"})]
+        calls["post"].clear()
+        A._paid_intros(MON_2PM, 240, True, "now", t5)
+        ck("... and not again that day", [(j or {}).get("data", [{}])[0].get("Template") for u, j in calls["post"]
+                                           if u.endswith("SMS_Outbox")] == [pg.INTRO_TEMPLATE], calls["post"])
+
+        class _NO:
+            ok, status_code, content = False, 400, b"x"
+
+            def json(self):
+                return {"data": [{"code": "INVALID_DATA"}]}
+        A._paid = pg.Store(os.path.join(tdir, "paid_guard5.json"))
+        calls["post"].clear()
+        A.requests.post = lambda url, **kw: calls["post"].append((url, kw.get("json"))) or _NO()
+        t6 = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        A._paid_intros(MON_2PM, 240, True, "now", t6)
+        ck("a sample that does not go: no patient text from that line, both looked at again",
+           len(calls["post"]) == 1 and not A._paid.settled("intro:i5") and not A._paid.settled("intro-sample:Judith:2026-10-19")
+           and A._paid.data["seen"]["intro:i5"]["reason"] == "the sample to the owner did not go", (calls["post"], t6))
+        A.requests.post = lambda url, **kw: calls["post"].append((url, kw.get("json"))) or _OK()
+        calls["post"].clear()
+        t7 = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        A._paid_intros(MON_2PM, 240, False, "now", t7)
+        ck("a dry pass sends nothing, and shows the sample and the text it would send",
+           not calls["post"] and [x["reason"] for x in t7["decisions"]] == ["intro sample to the owner", "intro text"], t7)
     finally:
         A._dnc_coql_all = _saved_coql2
         os.environ.pop("PAID_GUARD_INTRO_SENDERS", None)
+        os.environ.pop("PAID_GUARD_INTRO_SAMPLE_TO", None)
         if _env is not None:
             os.environ["PAID_GUARD_INTRO_SENDERS"] = _env
     ck("the intro step runs every pass", '("intro_texts", lambda: _paid_intros(now, tz_off, write, now_iso, tot))' in _src)
