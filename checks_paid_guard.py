@@ -108,6 +108,19 @@ for st in ("ON HOLD", "Duplicates / Junk", "Cancelled or Disputed", "Folli", "So
 d = pg.decide_payment(pay(), None, False, NOW, candidate="d9")
 ck("no deal carries the retainer: a person, shown the customer's deal, nothing written",
    d["result"] == "review" and d["deal"] == "d9" and not d["write"], d)
+# createretainerinvoice wrote Janel Keys's retainer onto Lacresha Jones's deal.
+LACRESHA = deal(Zoho_Books_Customer_ID="3136880000164353042")
+d = pg.decide_payment(pay(customer_id="3136880000161469356"), LACRESHA, False, NOW)
+ck("another patient's payment on the deal's retainer: a person, nothing written",
+   d["result"] == "review" and d["deal"] == "d1" and not d["write"] and "different Books customer" in d["reason"], d)
+ck("... the deal's own customer paying moves it as before",
+   pg.decide_payment(pay(customer_id="3136880000164353042"), LACRESHA, False, NOW)["result"] == "fix")
+ck("... either customer unknown: as before", pg.decide_payment(pay(customer_id=""), LACRESHA, False, NOW)["result"] == "fix"
+   and pg.decide_payment(pay(customer_id="3136880000161469356"), deal(), False, NOW)["result"] == "fix")
+ck("... a paid deal paid for by a friend stays quiet",
+   pg.decide_payment(pay(customer_id="x9"), dict(LACRESHA, Stage=PR, Retainer_Paid=True), False, NOW)["result"] == "ok")
+ck("... but its unticked box is not ticked for someone else",
+   pg.decide_payment(pay(customer_id="x9"), dict(LACRESHA, Stage=PR), False, NOW)["result"] == "review")
 d = pg.decide_payment(pay(bcy_refunded_amount=500), deal(), False, NOW)
 ck("a refunded payment moves nothing", d["result"] == "skip", d)
 
@@ -155,7 +168,7 @@ ck("... but not the silent box", d["result"] == "flag", d)
 SNAP = deal("old1", stage=PR, paid=True, Retainer_Paid_Date="2026-10-17T10:00:00-04:00", Amount=9800,
             Procedure="FlexSculpt", Promos_Description="Fall promo", Scheduling_Owner={"name": "Mier", "id": "u5"},
             Owner={"id": "u1"}, Retainer_Sent=True, Invoice_URL="https://books.zoho.com/app#/invoices/77",
-            Zoho_Books_Customer_ID="c1")
+            Zoho_Books_Customer_ID="3136880000161627632")
 note = ("AUTO-MERGED duplicate Deal (deleted)\nOld DealID old1\nFULL RECORD JSON:" +
         json.dumps(SNAP).replace("Fall promo", "Fall\npromo"))
 ck("the snapshot reads, raw newlines and all", (pg.parse_snapshot(note) or {}).get("Promos_Description") == "Fall\npromo")
@@ -191,6 +204,10 @@ d = pg.decide_payment_merged(pay(), dict(SNAP, Stage="Retainer Invoice Sent", Re
 ck("a payment on a deal already merged away lands on the survivor, dated by Books",
    d["result"] == "fix" and d["deal"] == "new1" and d["write"]["Retainer_Paid_Date"] == "2026-10-18T10:40:51-04:00"
    and d["write"]["Stage"] == PR and "84001" in d["note"], d)
+d = pg.decide_payment_merged(pay(customer_id="x9"), dict(SNAP, Stage="Retainer Invoice Sent", Retainer_Paid=False), BARE,
+                             False, NOW)
+ck("a merged deal paid for by another Books customer: a person, nothing written",
+   d["result"] == "review" and not d["write"] and d.get("old") == "old1", d)
 d = pg.decide_payment_merged(pay(), dict(SNAP, Stage="Duplicates / Junk"), BARE, False, NOW)
 ck("... unless the merged deal sat in a stage nobody listed", d["result"] == "review" and not d["write"], d)
 

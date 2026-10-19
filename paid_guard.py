@@ -55,6 +55,9 @@ Rules
     with the box unticked gets the box only, silently; everything else
     (ON HOLD, DND, Cancelled or Disputed, Duplicates / Junk, an unknown stage)
     is "review".
+  - Never move a deal for someone else's payment: a deal whose Books
+    customer is not the payer goes to a person (createretainerinvoice has
+    linked one patient's retainer to another patient's deal).
   - Leave the normal flow its chance: a payment younger than GRACE_MINUTES is
     not looked at yet.
   - Opt-outs stay. A deal brought back from Unsubscribe keeps RC_SMS_Opt_Out and
@@ -284,6 +287,18 @@ def _line(p):
     return "Books retainer payment #%s, $%s on %s" % (p.get("payment_number"), p.get("amount"), p.get("date"))
 
 
+def wrong_customer(p, deal) -> bool:
+    """The deal's Books customer is not the one who paid. createretainerinvoice
+    has written another patient's retainer onto a deal: Lacresha Jones's deal
+    carried Janel Keys's (Sep 17), Jennel October's carried Keisha Jones's
+    (Oct 15), and each payer's own deal never moved. Someone paying for a
+    friend looks the same, so a person decides. Unknown on either side: not
+    wrong."""
+    a = str(p.get("customer_id") or "").strip()
+    b = str((deal or {}).get("Zoho_Books_Customer_ID") or "").strip()
+    return bool(a and b and a != b)
+
+
 def pick_deal(hits):
     """The deal a retainer belongs to, from every deal whose Retainer_Invoice_URL
     names it: (deal, None), or (None, reason) when it cannot be told. A paid
@@ -309,6 +324,8 @@ def decide_payment(p, deal, is_handled, now, candidate=None):
         return _decision("review", "no CRM deal carries this retainer", candidate)
     at = paid_at(p)
     stage = deal.get("Stage") or ""
+    if wrong_customer(p, deal) and not (stage in PAID_STAGES and deal.get("Retainer_Paid")):
+        return _decision("review", "paid by a different Books customer than the deal's", deal["id"])
     paid = {"Retainer_Paid": True, "Retainer_Paid_Date": _iso(at)}
     if stage in PAID_STAGES:
         if deal.get("Retainer_Paid"):
@@ -347,6 +364,9 @@ def decide_payment_merged(p, snap, survivor, is_handled, now):
         return gate
     if not snap:
         return _decision("review", "no CRM deal carries this retainer")
+    if wrong_customer(p, snap):
+        return _decision("review", "paid by a different Books customer than the merged deal's", _id(survivor) or None,
+                         old=snap.get("id"))
     stage = snap.get("Stage") or ""
     paid = dict(snap, Retainer_Paid=True, Retainer_Paid_Date=_iso(paid_at(p)))
     if stage in MOVE_STAGES:
