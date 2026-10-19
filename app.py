@@ -3311,6 +3311,229 @@ def _dnc_loop():
         time.sleep(900)
 
 
+# ---- Paid retainers, honored in the CRM ----------------------------------
+# Danny, 2026-10-19: "Fix them all fully" / "Make sure it doesn't happen again
+# too". Every fifteen minutes, three checks (paid_guard.py has the why):
+#   - each Books retainer payment of the last week, against the deal whose
+#     Retainer_Invoice_URL names it -- the payment Books never told the CRM about
+#   - each "Merged duplicate:" note of the last three days -- a paid deal the
+#     dedup deleted into a bare new one
+#   - each paid deal put on Unsubscribe in the last three days -- a STOP reply
+# The fix is the write paymentmadeupdatedeal makes, sent WITH workflows, so the
+# coordinator is assigned as on any payment; a note on the deal says what was
+# done. Anything unclear goes to the review list on /api/v6/paid-guard.
+# PAID_GUARD_WRITE=0 or ?arm=0 stops the writes.
+import paid_guard as _paid_mod
+_PAID_FILE = _data_dir / "paid_guard.json"
+_paid = _paid_mod.Store(_PAID_FILE)
+_paid_state = {"runs": 0, "running": False}
+_paid_lock = threading.Lock()
+
+
+def _paid_deals(where, page=200):
+    return _dnc_coql_all(f"select {_paid_mod.DEAL_FIELDS} from Deals where {where}", page=page)
+
+
+def _paid_handled(deal, since):
+    """(handled, by_name) for paid_guard: is a coordinator already on this
+    deal's patient for a payment made at `since`?"""
+    if not deal:
+        return False, False
+    cid = _paid_mod._id(deal.get("Contact_Name"))
+    deals = _paid_deals(f"Contact_Name.id = '{cid}'") if cid else []
+    ids = sorted({d["id"] for d in deals} | {deal["id"]})[:50]
+    where = "Deal in (%s)" % ",".join(ids)
+    if cid:
+        where = f"(Contact = {cid} or {where})"
+    journeys = _dnc_coql_all(f"select {_paid_mod.JOURNEY_FIELDS} from Journeys where {where}", page=200)
+    if _paid_mod.handled([cid], deals, journeys, since, exclude_deal=deal["id"]):
+        return True, False
+    name = str((deal.get("Contact_Name") or {}).get("name") or "")
+    # Searched by the longest word, quote-free (O'Neal needs no escaping, and a
+    # Journey can be "Last First"); same_name then compares the whole name.
+    part = max(re.split(r"[\s,']+", name), key=len)
+    if len(part) < 3:
+        return False, False
+    journeys = _dnc_coql_all(f"select {_paid_mod.JOURNEY_FIELDS} from Journeys where Name like '%{part}%'", page=200)
+    return False, _paid_mod.same_name(journeys, name, since)
+
+
+def _paid_deal(deal_id):
+    rows = _paid_deals(f"id = '{deal_id}'", page=5) if deal_id else []
+    return rows[0] if rows else None
+
+
+def _paid_merge_notes(where, page=200):
+    return _dnc_coql_all("select id, Note_Title, Note_Content, Parent_Id, Created_Time from Notes "
+                         f"where (Note_Title like 'Merged duplicate:%' and {where})", page=page)
+
+
+def _paid_apply(key, dec, write, now_iso, tot):
+    """Write one decision (when writing), record it, count it."""
+    ok = None
+    if write and dec["result"] in ("fix", "flag"):
+        try:
+            res = _dnc_put("Deals", [dict(dec["write"], id=dec["deal"])], dec["trigger"])
+            ok = bool(res and res[0][1])
+            if not ok:
+                tot["errors"].append({"key": key, "deal": dec["deal"], "error": (res[0][2] if res else "no answer")})
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            tot["errors"].append({"key": key, "deal": dec["deal"], "error": "%s: %s" % (type(e).__name__, str(e)[:160])})
+        if ok and dec.get("note"):
+            try:
+                requests.post(f"{_zoho.base_url}/crm/v6/Deals/{dec['deal']}/Notes",
+                              headers={**_zoho._headers(), "Content-Type": "application/json"},
+                              json={"data": [{"Note_Title": "Paid retainer check", "Note_Content": dec["note"]}]},
+                              timeout=30)
+            except Exception as e:  # noqa: BLE001
+                log.warning("paid guard: note on %s failed: %s", dec["deal"], e)
+    if write:
+        _paid.record(key, dec, ok, now_iso)
+    res = dec["result"] if dec["result"] != "review" else "review: " + dec["reason"]
+    if ok is not None:
+        res = {"fix": "fixed", "flag": "flagged"}[dec["result"]] if ok else "error"
+    tot["summary"][res] = tot["summary"].get(res, 0) + 1
+    if dec["result"] in ("fix", "flag", "review"):
+        tot["decisions"].append({"key": key, "result": dec["result"], "reason": dec["reason"], "deal": dec["deal"],
+                                 "old": dec.get("old"), "fields": sorted(dec["write"]), "ok": ok})
+
+
+def _paid_payments(a, b, now, write, now_iso, tot):
+    pays = [p for p in _books.list_customer_payments(a, b) if _paid_mod.is_retainer_payment(p)]
+    pending = [p for p in pays if not _paid.settled("pay:%s" % p["payment_id"])]
+    tot["checked"]["payments"] = len(pays)
+    tot["checked"]["payments_pending"] = len(pending)
+    for p in sorted(pending, key=lambda p: p.get("created_time") or ""):
+        dec = _paid_mod._gate(p, now)
+        if not dec:
+            dec = _paid_payment(p, now)
+        _paid_apply("pay:%s" % p["payment_id"], dec, write, now_iso, tot)
+
+
+def _paid_payment(p, now):
+    """The deal whose Retainer_Invoice_URL names this retainer; else the
+    "Merged duplicate:" note that does; else review, with the Books customer's
+    latest deal shown to the person."""
+    rid = "".join(ch for ch in str(p["retainerinvoice_id"]) if ch.isdigit())
+    at = _paid_mod.paid_at(p)
+    deal, why = _paid_mod.pick_deal(_paid_deals(f"Retainer_Invoice_URL like '%retainerinvoices/{rid}%'"))
+    if why:
+        return _paid_mod._decision("review", why)
+    if deal:
+        h, by_name = _paid_handled(deal, at) if deal.get("Stage") not in _paid_mod.PAID_STAGES else (False, False)
+        return _paid_mod.hold_for_name(_paid_mod.decide_payment(p, deal, h, now), by_name)
+    notes = sorted(_paid_merge_notes(f"Note_Content like '%retainerinvoices/{rid}%'", page=20),
+                   key=lambda n: n.get("Created_Time") or "", reverse=True)
+    if notes:
+        survivor = _paid_deal(_paid_mod._id(notes[0].get("Parent_Id")))
+        h, by_name = _paid_handled(survivor, at)
+        dec = _paid_mod.decide_payment_merged(p, _paid_mod.parse_snapshot(notes[0].get("Note_Content")), survivor,
+                                              h, now)
+        return _paid_mod.hold_for_name(dec, by_name)
+    cust = "".join(ch for ch in str(p.get("customer_id") or "") if ch.isdigit())
+    cand = _paid_deals(f"Zoho_Books_Customer_ID = '{cust}'", page=20) if cust else []
+    cand.sort(key=lambda d: d.get("Modified_Time") or "", reverse=True)
+    return _paid_mod.decide_payment(p, None, False, now, candidate=cand[0]["id"] if cand else None)
+
+
+def _paid_merges(a, b, zone, now, write, now_iso, tot):
+    heads = _dnc_coql_all("select id, Parent_Id, Created_Time from Notes where (Note_Title like 'Merged duplicate:%' "
+                          f"and Created_Time between '{a}T00:00:00{zone}' and '{b}T23:59:59{zone}')")
+    pending = [n for n in heads if not _paid.settled("merge:%s" % n["id"])]
+    tot["checked"]["merges"] = len(heads)
+    tot["checked"]["merges_pending"] = len(pending)
+    for i in range(0, len(pending), 50):
+        notes = _paid_merge_notes("id in (%s)" % ",".join(n["id"] for n in pending[i:i + 50]), page=50)
+        for n in sorted(notes, key=lambda n: n.get("Created_Time") or ""):
+            snap = _paid_mod.parse_snapshot(n.get("Note_Content"))
+            # Without a survivor decide_merge settles every merge that needs
+            # none (most of them: the deleted deal was not paid) -- no look-up.
+            dec = _paid_mod.decide_merge(snap, None, False, now)
+            if dec["result"] == "review":
+                survivor = _paid_deal(_paid_mod._id(n.get("Parent_Id")))
+                h, by_name = _paid_handled(survivor, _paid_mod._t(snap.get("Retainer_Paid_Date")))
+                dec = _paid_mod.hold_for_name(_paid_mod.decide_merge(snap, survivor, h, now), by_name)
+            _paid_apply("merge:%s" % n["id"], dec, write, now_iso, tot)
+
+
+def _paid_unsubs(a, zone, now, write, now_iso, tot):
+    rows = _paid_deals(f"((Retainer_Paid = true and Stage = '{_paid_mod.UNSUB}') and "
+                       f"Modified_Time >= '{a}T00:00:00{zone}')")
+    pending = [d for d in rows if not _paid.settled("unsub:%s" % d["id"])]
+    tot["checked"]["unsubscribed"] = len(rows)
+    tot["checked"]["unsubscribed_pending"] = len(pending)
+    for d in pending:
+        dec = _paid_mod.decide_unsub(d, False, now)
+        if dec["result"] == "fix":
+            h, by_name = _paid_handled(d, _paid_mod._t(d.get("Retainer_Paid_Date")))
+            dec = _paid_mod.hold_for_name(_paid_mod.decide_unsub(d, h, now), by_name)
+        _paid_apply("unsub:%s" % d["id"], dec, write, now_iso, tot)
+
+
+def _paid_run(since=None, until=None, days=3, write=None, label="auto"):
+    """One pass of the three checks over the window, skipping what the ledger
+    has settled. write=None: write when armed. Never raises."""
+    if not _paid_lock.acquire(blocking=False):
+        return {"skipped": "a run is in progress"}
+    t0 = time.time()
+    info = {"started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "label": label}
+    _paid_state["running"] = True
+    try:
+        if not (_zoho.refresh_token and _zoho.client_id):
+            raise RuntimeError("no Zoho credentials")
+        a, b, zone, tz_off = _dnc_window(since, until, days)
+        # A payment keyed in late carries its own earlier date: a week back.
+        pa, _, _, _ = _dnc_window(since, until, max(days, 7))
+        armed = os.environ.get("PAID_GUARD_WRITE", "1") != "0" and bool(_paid.data.get("armed"))
+        write = armed if write is None else (bool(write) and armed)
+        info.update({"window": [a, b], "payments_from": pa, "write": bool(write)})
+        now = datetime.now(timezone.utc)
+        now_iso = _optouts_mod.now_iso_local(tz_off)
+        tot = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        for name, step in (("payments", lambda: _paid_payments(pa, b, now, write, now_iso, tot)),
+                           ("merges", lambda: _paid_merges(a, b, zone, now, write, now_iso, tot)),
+                           ("unsubscribed", lambda: _paid_unsubs(a, zone, now, write, now_iso, tot))):
+            # One check failing (Books down, a COQL refusal) does not stop the others.
+            try:
+                step()
+            except Exception as e:  # noqa: BLE001
+                tot["errors"].append({"step": name, "error": "%s: %s" % (type(e).__name__, str(e)[:200])})
+                log.exception("paid guard %s failed", name)
+            if write:
+                _paid.save()
+            _paid_state["last"] = dict(info, **tot)
+        info.update(tot)
+        info["errors"] = tot["errors"][:40]
+        info["decisions"] = tot["decisions"][:300]
+        _paid.note_run({k: v for k, v in info.items() if k != "decisions"})
+        _paid.save()
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("paid guard run failed")
+        try:
+            _paid.note_run(info)
+            _paid.save()
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        info["took"] = round(time.time() - t0, 1)
+        _paid_state.update({"runs": _paid_state.get("runs", 0) + 1, "last": info, "running": False,
+                            "last_at": time.time()})
+        _paid_lock.release()
+    return info
+
+
+def _paid_loop():
+    # Five minutes after a boot, then every fifteen. A quiet pass is one Books
+    # page and two COQL queries.
+    time.sleep(300)
+    while True:
+        if _paid.data.get("armed"):
+            _paid_run(days=3, label="auto")
+        time.sleep(900)
+
+
 # ---- Texts on the sales board (/v5) ---------------------------------------
 # Danny, 2026-10-15: "add inbound outbound sms sent auto and manual and unread
 # to the sales call board". Read from each rep's RingEX extension (the floor's
@@ -3603,6 +3826,36 @@ def api_v6_dnc():
     return jsonify({"armed": bool(_dnc.data.get("armed")), "ledger": {"calls": len(led), "by_result": by},
                     "state": st, "runs": _dnc.data.get("runs", [])[-10:], "review_count": len(rev),
                     "review": rev[:500], "file": str(_DNC_FILE)})
+
+
+@app.route("/api/v6/paid-guard")
+def api_v6_paid_guard():
+    """Signed in only. The paid-retainer ledger: counts, the last runs and the
+    review list (record ids and reasons, no names). ?dry=1&since=&until= plans
+    without writing; ?run=1&since=&until= writes when armed; ?arm=1|0."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.args.get("arm") in ("1", "0"):
+        _paid.data["armed"] = request.args.get("arm") == "1"
+        _paid.save()
+    day = lambda k: (request.args.get(k) or "")[:10] if re.match(r"^\d{4}-\d{2}-\d{2}$", (request.args.get(k) or "")[:10]) else None
+    if (request.args.get("dry") or request.args.get("run")) and not _paid_state.get("running"):
+        threading.Thread(target=_paid_run, kwargs={"since": day("since"), "until": day("until"),
+                                                   "write": bool(request.args.get("run")) and not request.args.get("dry"),
+                                                   "label": "manual"}, daemon=True, name="paid-guard:kick").start()
+    st = dict(_paid_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    by = {}
+    for v in _paid.data["seen"].values():
+        by[v.get("result")] = by.get(v.get("result"), 0) + 1
+    rev = sorted(({"key": k, **v} for k, v in _paid.data["review"].items()), key=lambda r: r.get("seen") or "",
+                 reverse=True)
+    return jsonify({"armed": bool(_paid.data.get("armed")),
+                    "write_switch": os.environ.get("PAID_GUARD_WRITE", "1") != "0",
+                    "ledger": {"records": len(_paid.data["seen"]), "by_result": by}, "state": st,
+                    "runs": _paid.data.get("runs", [])[-10:], "review_count": len(rev), "review": rev[:500],
+                    "file": str(_PAID_FILE)})
 
 
 @app.route("/api/v6/opt-outs.txt")
@@ -10064,6 +10317,7 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:collections", lambda: _collections_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
+                 ("loop:paid-guard", lambda: _paid_loop()),
                  ("loop:ringex", lambda: _ringex_warm_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
