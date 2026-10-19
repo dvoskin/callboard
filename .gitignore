@@ -19,3 +19,6 @@ ringcx_inbox/
 
 # Billing board day snapshots (runtime data, lives on the Render disk)
 v6_days/
+.books_token
+# catalog sync state (runtime data, lives on the Render disk)
+catalog_sync.json
