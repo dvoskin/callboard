@@ -3257,7 +3257,8 @@ class ZohoClient:
     # counted as follow-ups they would read as 1,300 done follow-ups.
     _LOGGED_CALL = re.compile(r"^\s*(outbound|outgoing|inbound|incoming|missed)\s+call\b", re.I)
 
-    def follow_up_breakdown(self, start_iso: str, end_iso: str, owner_ids: list, now=None) -> dict:
+    def follow_up_breakdown(self, start_iso: str, end_iso: str, owner_ids: list, now=None,
+                            grace_minutes: int = 60) -> dict:
         """Each owner's scheduled follow-up calls whose time falls in the
         window (Danny, 2026-10-19: "Add a follow up tracker to track scheduled
         calls assigned to each coordinator on the sales trackers").
@@ -3269,14 +3270,19 @@ class ZohoClient:
           done       Completed in Zoho (marked), or still open in Zoho but the
                      owner dialed the same deal or contact after it was made
                      and no earlier than 30 minutes before its time (called)
-          overdue    its time has passed and it is not done
+          due_now    its time came less than grace_minutes ago and it is not
+                     done. Zoho books the automated ones ON THE HOUR -- 162 for
+                     3:00 PM on 2026-10-19 -- and marks each Overdue a minute
+                     later; nobody calls ten people at 3:00 sharp, so an hour's
+                     grace before one counts as overdue
+          overdue    its time passed more than grace_minutes ago, not done
           upcoming   its time has not come yet
           cancelled  Cancelled. Zoho's own automation cancels most of them (a
                      ladder that stops, a deal that moves); not the owner's
                      work, so in no other count
 
-        Returns {owner_id: {due, done, marked, called, overdue, upcoming,
-        cancelled}} where due = done + overdue + upcoming. One read of the
+        Returns {owner_id: {due, done, marked, called, due_now, overdue,
+        upcoming, cancelled}} where due = done + due_now + overdue + upcoming. One read of the
         owners' calls in the window, 2,000 rows a page (the logged dials are
         needed for "called"). Raises on an HTTP failure.
         """
@@ -3336,7 +3342,7 @@ class ZohoClient:
         for r in follow:
             uid = _uid(r)
             c = out.setdefault(uid, {"due": 0, "done": 0, "marked": 0, "called": 0,
-                                     "overdue": 0, "upcoming": 0, "cancelled": 0})
+                                     "due_now": 0, "overdue": 0, "upcoming": 0, "cancelled": 0})
             st = (r.get("Outgoing_Call_Status") or "").strip().lower()
             if st == "cancelled":
                 c["cancelled"] += 1
@@ -3354,6 +3360,8 @@ class ZohoClient:
                             hit = True
             if hit:
                 c["done"] += 1; c["called"] += 1
+            elif due and due <= now < due + timedelta(minutes=grace_minutes):
+                c["due_now"] += 1
             elif st == "overdue" or (due and due <= now):
                 c["overdue"] += 1
             else:

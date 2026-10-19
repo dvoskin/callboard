@@ -100,9 +100,12 @@ ck("Completed in Zoho is done (marked)", u1.get("marked") == 1, u1)
 ck("open in Zoho but dialed after it was made and no earlier than 30 min before its time: done (called)",
    u1.get("called") == 1 and u1.get("done") == 2, u1)
 ck("the dial that made a follow-up, a dial two hours early, and somebody else's dial do not complete it",
-   u1.get("overdue") == 3, u1)
+   u1.get("overdue", 0) + u1.get("due_now", 0) == 3, u1)
+ck("overdue is over an hour late: due 13:30 at 14:00 is due now; due 13:00 at 14:00 is overdue (Zoho books them on the hour)",
+   u1.get("due_now") == 1 and u1.get("overdue") == 2, u1)
 ck("a follow-up whose time has not come is still to come", u1.get("upcoming") == 1, u1)
-ck("due = done + overdue + still to come", u1.get("due") == u1.get("done", 0) + u1.get("overdue", 0) + u1.get("upcoming", 0), u1)
+ck("due = done + due now + overdue + still to come",
+   u1.get("due") == u1.get("done", 0) + u1.get("due_now", 0) + u1.get("overdue", 0) + u1.get("upcoming", 0), u1)
 ck("matched through the contact as well as the deal", u2.get("called") == 1 and u2.get("due") == 1, u2)
 ck("one COQL read per 50 owners, 2,000 rows a page, bounded by the owners and the window",
    len(SENT) == 1 and "Owner.id in ('U1','U2')" in SENT[0] and "limit 2000 offset 0" in SENT[0]
@@ -223,6 +226,9 @@ if node:
           "o.reading = TB.fuLine(undefined, 'loading');\n"
           "o.sum = TB.fuSum({A: {done: 2, overdue: 2, upcoming: 2, called: 1}, B: {done: 1, overdue: 0, upcoming: 3}}, ['A', 'B', 'C']);\n"
           "o.sumNone = TB.fuSum({}, ['A']);\n"
+          "o.dueNow = TB.fuBar({due: 12, done: 1, overdue: 1, due_now: 10, upcoming: 0});\n"
+          "o.dueNowLine = TB.fuLine({due: 10, done: 0, overdue: 0, due_now: 10, upcoming: 0});\n"
+          "o.dueNowSum = TB.fuSum({A: {done: 1, overdue: 1, due_now: 10, upcoming: 4}}, ['A']);\n"
           "var m = TB.ringexModel({ranked: [{name: 'Roman Gomez', talk: 60, attempts: 3, over_3: 0}], totals: {}, meta: {books: {}}},"
           " {bar: function (a) { return '<BAR ' + a.name + '>'; }, sumExtra: function () { return [['Follow-ups', 'x']]; }, notesExtra: ['FU']});\n"
           "o.press = m.rows[0].press; o.sumRows = m.sum.map(function (s) { return s[0]; }); o.notes = m.notes[m.notes.length - 1];\n"
@@ -253,9 +259,14 @@ if node:
            o["zero"].startswith("0 ") and "not a CRM user" in o["notcrm"] and "reading Zoho" in o["reading"],
            (o["zero"], o["notcrm"], o["reading"]))
         ck("the team line adds up the known reps only, and names what it counts (its label is just 'Due')",
-           "<b>3</b> of 5 follow-ups done" in o["sum"] and '<span class="sep">\u00b7</span><i>1 called, not marked</i>' in o["sum"]
+           "<b>3</b> of 5 follow-ups done" in o["sum"]
+           and '<i><span class="sep">\u00b7</span>1 called, not marked</i>' in o["sum"]   # a phone hides the <i>: no dangling dot
            and '<b class="hot">2</b> overdue' in o["sum"] and "<b>5</b> still to come" in o["sum"] and o["sumNone"] == "",
            (o["sum"], o["sumNone"]))
+        ck("due now is not held against the bar: 1 done of 2 come due is 50%, the 10 due now are in words",
+           'aria-label="50% done"' in o["dueNow"] and "10 due within the hour" in o["dueNow"]
+           and o["dueNowLine"].startswith("0 done") and "10 due now" in o["dueNowLine"]
+           and "<b>10</b> due now" in o["dueNowSum"], (o["dueNow"], o["dueNowLine"], o["dueNowSum"]))
         ck("the training board takes the bar LAST under the name, a summary row and a note",
            o["press"].endswith("<BAR Roman Gomez>") and o["sumRows"][-1] == "Follow-ups" and o["notes"] == "FU", o)
 else:

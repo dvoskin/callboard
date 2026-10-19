@@ -399,6 +399,9 @@ window.TB = (function () {
   // The ones still to come are counted in words, not in the bar: Zoho books
   // the next follow-up after every unanswered call, all day, so a whole-day
   // denominator would read red at noon for a rep who is fully caught up.
+  // "Due now" (its time came within the hour) is in words too: Zoho books
+  // them on the hour, 162 at 3:00 PM on 2026-10-19, so without that hour of
+  // grace the bar would drop every hour on the hour.
   function gradient(pct) {
     var stops = [[176, 58, 49], [217, 119, 6], [22, 163, 74]];
     var t = pct / 50, i = Math.min(1, Math.floor(t)), f = t - i;
@@ -414,7 +417,8 @@ window.TB = (function () {
   function fuTip(f) {
     return 'Follow-ups whose time has come: ' + w(f.done) + ' of ' + w(fuCame(f)) + ' done (' + fuPct(f) + '%)' +
       (f.called ? ', ' + w(f.called) + ' of them called but not marked complete in Zoho' : '') +
-      ' \u00b7 ' + w(f.overdue) + ' overdue' + (f.upcoming ? ' \u00b7 ' + w(f.upcoming) + ' still to come' : '') +
+      ' \u00b7 ' + w(f.overdue) + ' overdue (over an hour late)' + (f.due_now ? ' \u00b7 ' + w(f.due_now) + ' due within the hour' : '') +
+      (f.upcoming ? ' \u00b7 ' + w(f.upcoming) + ' still to come' : '') +
       (f.cancelled ? ' \u00b7 ' + w(f.cancelled) + ' cancelled by Zoho, not counted' : '');
   }
   function fuBar(f) {
@@ -428,17 +432,19 @@ window.TB = (function () {
     if (!f.due) return '0 <i>none due</i>';
     var bits = [];
     if (f.overdue) bits.push('<span class="hot">' + w(f.overdue) + ' overdue</span>');
+    if (f.due_now) bits.push(w(f.due_now) + ' due now');
     if (f.upcoming) bits.push(w(f.upcoming) + ' still to come');
     if (f.called) bits.push(w(f.called) + ' called, not marked');
-    return (fuCame(f) ? w(f.done) + ' of ' + w(fuCame(f)) + ' done' : 'none due yet') + (bits.length ? ' <i>' + bits.join(' \u00b7 ') + '</i>' : '');
+    return (fuCame(f) ? w(f.done) + ' of ' + w(fuCame(f)) + ' done' : '0 done') + (bits.length ? ' <i>' + bits.join(' \u00b7 ') + '</i>' : '');
   }
   // A team's follow-ups in one summary line, or '' when none are known.
   function fuSum(by, names) {
-    var T = { done: 0, overdue: 0, upcoming: 0, called: 0, n: 0 };
+    var T = { done: 0, overdue: 0, due_now: 0, upcoming: 0, called: 0, n: 0 };
     (names || []).forEach(function (n) {
       var f = (by || {})[n];
       if (!f) return;
-      T.n++; T.done += f.done || 0; T.overdue += f.overdue || 0; T.upcoming += f.upcoming || 0; T.called += f.called || 0;
+      T.n++; T.done += f.done || 0; T.overdue += f.overdue || 0; T.due_now += f.due_now || 0;
+      T.upcoming += f.upcoming || 0; T.called += f.called || 0;
     });
     if (!T.n) return '';
     var sep = '<span class="sep">\u00b7</span>';
@@ -446,13 +452,17 @@ window.TB = (function () {
     // so the line itself says what it counts
     return '<b>' + fmt(T.done) + '</b> of ' + fmt(T.done + T.overdue) + ' follow-ups done' + sep +
            '<b' + (T.overdue ? ' class="hot"' : '') + '>' + fmt(T.overdue) + '</b> overdue' + sep +
+           (T.due_now ? '<b>' + fmt(T.due_now) + '</b> due now' + sep : '') +
            '<b>' + fmt(T.upcoming) + '</b> still to come' +
-           (T.called ? sep + '<i>' + fmt(T.called) + ' called, not marked</i>' : '');
+           // the separator rides inside the <i>: a phone hides the <i>, and a dot must not dangle
+           (T.called ? '<i>' + sep + fmt(T.called) + ' called, not marked</i>' : '');
   }
   var FU_NOTE = '<b>Follow-ups.</b> The hairline under a name is that rep’s scheduled follow-up calls in Zoho (Automated Follow Up, ' +
     'Quote Follow Up, Call scheduled with) whose time has come: done over due, red through amber to green. Done is marked Completed in ' +
-    'Zoho, or called: the rep dialed that deal or contact no earlier than 30 minutes before its time. Follow-ups still to come are ' +
-    'counted in the row panel, not in the bar, and ones Zoho cancelled are not counted. Read from Zoho every 5 minutes.';
+    'Zoho, or called: the rep dialed that deal or contact no earlier than 30 minutes before its time. Overdue means over an hour ' +
+    'late: Zoho books the automated ones on the hour, so one whose time came within the hour is “due now” and not yet held against ' +
+    'the bar. Follow-ups still to come are counted in the row panel, not in the bar, and ones Zoho cancelled are not counted. ' +
+    'Read from Zoho every 5 minutes.';
 
   function pressMissed(n) {
     return n ? '<span class="press"><b class="hot">' + w(n) + '</b> missed</span>' : '';

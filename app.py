@@ -5782,7 +5782,7 @@ def _followups_read(key, names, start_iso, end_iso):
             id_by_name = {_norm_name(full): uid for uid, full in users.items()}
             wanted = {n: id_by_name.get(_norm_name(_CRM_NAME_ALIASES.get(n, n))) for n in names}
             raw = _zoho.follow_up_breakdown(start_iso, end_iso, sorted({u for u in wanted.values() if u}))
-            zero = {"due": 0, "done": 0, "marked": 0, "called": 0, "overdue": 0, "upcoming": 0, "cancelled": 0}
+            zero = {"due": 0, "done": 0, "marked": 0, "called": 0, "due_now": 0, "overdue": 0, "upcoming": 0, "cancelled": 0}
             by = {n: dict(raw.get(uid) or zero) for n, uid in wanted.items() if uid}
             meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
     except BaseException as e:  # noqa: BLE001  -- a thread must never die holding the in-flight key
