@@ -205,7 +205,7 @@
       if (!line) { if (row) row.remove(); return; }
       if (!row) {
         sum.insertAdjacentHTML('beforeend', '<div class="srow fu-sum" title="Scheduled follow-up calls in Zoho whose time has come, and the ones still to come">' +
-                                            '<span class="sl">Follow-ups</span><span class="sv"></span></div>');
+                                            '<span class="sl">Due</span><span class="sv"></span></div>');
         row = sum.querySelector('.srow.fu-sum');
       }
       row.querySelector('.sv').innerHTML = line.replace(/<\/b> /g, '</b>\u00a0');

@@ -442,10 +442,12 @@ window.TB = (function () {
     });
     if (!T.n) return '';
     var sep = '<span class="sep">\u00b7</span>';
-    return '<b>' + fmt(T.done) + '</b> of ' + fmt(T.done + T.overdue) + ' done' + sep +
+    // labelled "Due" in the summary (the label columns are 44 to 62px wide),
+    // so the line itself says what it counts
+    return '<b>' + fmt(T.done) + '</b> of ' + fmt(T.done + T.overdue) + ' follow-ups done' + sep +
            '<b' + (T.overdue ? ' class="hot"' : '') + '>' + fmt(T.overdue) + '</b> overdue' + sep +
            '<b>' + fmt(T.upcoming) + '</b> still to come' +
-           (T.called ? ' <i>' + fmt(T.called) + ' called, not marked</i>' : '');
+           (T.called ? sep + '<i>' + fmt(T.called) + ' called, not marked</i>' : '');
   }
   var FU_NOTE = '<b>Follow-ups.</b> The hairline under a name is that rep’s scheduled follow-up calls in Zoho (Automated Follow Up, ' +
     'Quote Follow Up, Call scheduled with) whose time has come: done over due, red through amber to green. Done is marked Completed in ' +

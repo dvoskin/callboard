@@ -63,7 +63,7 @@
   }
   function fuRow(names) {
     var line = FU ? TB.fuSum(FU.by, names) : '';
-    return line ? [['Follow-ups', line]] : [];
+    return line ? [['Due', line]] : [];
   }
 
   function sum(days, k) { return (days || []).reduce(function (s, d) { return s + (+d[k] || 0); }, 0); }

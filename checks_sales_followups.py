@@ -202,7 +202,8 @@ ck("/v5: a Follow-ups line in both panels", v5.count("cell2('Follow-ups'") == 1 
 ck("/v5: the texts line stays above the hairline", "bar.insertAdjacentHTML('beforebegin', html)" in v5, "order")
 ck("/teams: both sales sections carry the bar, the panel line and a summary row",
    "TB.fuBar(fuOf(a.name))" in tm and "bar: function (a) { return TB.fuBar(fuOf(a.name)); }" in tm
-   and "sumExtra:" in tm and ".concat(fuRow(" in tm and "loadFu(q, gen," in tm, "teams")
+   and "sumExtra:" in tm and ".concat(fuRow(" in tm and "loadFu(q, gen," in tm and "[['Due', line]]" in tm, "teams")
+ck("/v5: the summary row is labelled Due (44px label column)", '<span class="sl">Due</span>' in v5, "v5 label")
 ck("/teams: another day's follow-ups are dropped when the window changes", "if (win !== FU_WIN) { FU = null; FU_WIN = win; }" in tm, "win")
 
 # ---- the bar itself, run in node ----
@@ -251,7 +252,8 @@ if node:
         ck("none due reads 0, an unmatched name says so, a read in flight says reading",
            o["zero"].startswith("0 ") and "not a CRM user" in o["notcrm"] and "reading Zoho" in o["reading"],
            (o["zero"], o["notcrm"], o["reading"]))
-        ck("the team line adds up the known reps only", "<b>3</b> of 5 done" in o["sum"]
+        ck("the team line adds up the known reps only, and names what it counts (its label is just 'Due')",
+           "<b>3</b> of 5 follow-ups done" in o["sum"] and '<span class="sep">\u00b7</span><i>1 called, not marked</i>' in o["sum"]
            and '<b class="hot">2</b> overdue' in o["sum"] and "<b>5</b> still to come" in o["sum"] and o["sumNone"] == "",
            (o["sum"], o["sumNone"]))
         ck("the training board takes the bar LAST under the name, a summary row and a note",
