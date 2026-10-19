@@ -2198,7 +2198,8 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
 # than on its team's curve, and the shift is shown on its row. Someone not here
 # is paced on the team curve as before -- no shift is not a 24-hour shift.
 SHIFTS = {
-    "Ana Castro":         {"start": "08:00", "end": "17:00", "off": ["sat", "sun"]},
+    # Ana Castro was here (08:00-17:00, off Sat/Sun). Her CRM user was disabled
+    # on 2026-10-07; Danny, 2026-10-19: "remove ana castro from the rotation".
     "Vivian Martinez":    {"start": "08:00", "end": "18:00", "off": ["sun"]},
     "Ana Salazar":        {"start": "10:00", "end": "19:00", "off": ["sat"]},
     "Yareth Pavon":       {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
@@ -3319,6 +3320,8 @@ def _dnc_loop():
 #   - each "Merged duplicate:" note of the last three days -- a paid deal the
 #     dedup deleted into a bare new one
 #   - each paid deal put on Unsubscribe in the last three days -- a STOP reply
+#   - each paid deal in Payment Received with no working coordinator after 30
+#     minutes -- the round robin still held a disabled user (Ana Castro)
 # The fix is the write paymentmadeupdatedeal makes, sent WITH workflows, so the
 # coordinator is assigned as on any payment; a note on the deal says what was
 # done. Anything unclear goes to the review list on /api/v6/paid-guard.
@@ -3380,6 +3383,16 @@ def _paid_apply(key, dec, write, now_iso, tot):
         except Exception as e:  # noqa: BLE001
             ok = False
             tot["errors"].append({"key": key, "deal": dec["deal"], "error": "%s: %s" % (type(e).__name__, str(e)[:160])})
+        if ok and dec.get("task"):
+            # The intro call the coordinator works from (paid_guard.decide_owner).
+            try:
+                r = requests.post(f"{_zoho.base_url}/crm/v6/Tasks",
+                                  headers={**_zoho._headers(), "Content-Type": "application/json"},
+                                  json={"data": [dec["task"]], "trigger": []}, timeout=30)
+                if not r.ok:
+                    tot["errors"].append({"key": key, "deal": dec["deal"], "error": "task HTTP %d" % r.status_code})
+            except Exception as e:  # noqa: BLE001
+                tot["errors"].append({"key": key, "deal": dec["deal"], "error": "task %s: %s" % (type(e).__name__, str(e)[:120])})
         if ok and dec.get("note"):
             try:
                 requests.post(f"{_zoho.base_url}/crm/v6/Deals/{dec['deal']}/Notes",
@@ -3471,6 +3484,38 @@ def _paid_unsubs(a, zone, now, write, now_iso, tot):
         _paid_apply("unsub:%s" % d["id"], dec, write, now_iso, tot)
 
 
+def _paid_owners(now, tz_off, write, now_iso, tot):
+    """Paid deals in Payment Received with no coordinator, or one who is no
+    longer an active CRM user (Ana Castro, Sarahi Rivera). Every such deal,
+    whatever its age: there are only a few dozen in the stage at a time."""
+    rows = _paid_deals(f"(Stage = '{_paid_mod.PAYMENT_RECEIVED}' and Retainer_Paid = true)")
+    load = {}
+    for d in rows:
+        o = _paid_mod._id(d.get("Scheduling_Owner"))
+        if o:
+            load[o] = load.get(o, 0) + 1
+    # Empty when the users could not be read: then only a deal with no
+    # coordinator at all is touched, never one that names somebody.
+    active = set(_zoho.list_users())
+    need = []
+    for d in rows:
+        o = _paid_mod._id(d.get("Scheduling_Owner"))
+        if (not o or (active and o not in active)) and not _paid.settled("owner:%s" % d["id"]):
+            need.append(d)
+    tot["checked"]["no_coordinator"] = len(need)
+    if not need:
+        return
+    schedules = _dnc_coql_all("select id, Name, Team, Active, Staff_User, Start_Hour, End_Hour, Days_Off, "
+                              "Saturday_Hours, Sunday_Hours, Out_From, Out_To from Team_Schedules "
+                              "where Team = 'Coordinator'", page=200)
+    local_now = (now - timedelta(minutes=tz_off)).replace(tzinfo=None)
+    for d in sorted(need, key=lambda d: d.get("Retainer_Paid_Date") or ""):
+        dec = _paid_mod.decide_owner(d, schedules, active, load, local_now, now)
+        _paid_apply("owner:%s" % d["id"], dec, write, now_iso, tot)
+        if dec["result"] == "fix":
+            load[dec["to"]] = load.get(dec["to"], 0) + 1
+
+
 def _paid_run(since=None, until=None, days=3, write=None, label="auto"):
     """One pass of the three checks over the window, skipping what the ledger
     has settled. write=None: write when armed. Never raises."""
@@ -3493,7 +3538,8 @@ def _paid_run(since=None, until=None, days=3, write=None, label="auto"):
         tot = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
         for name, step in (("payments", lambda: _paid_payments(pa, b, now, write, now_iso, tot)),
                            ("merges", lambda: _paid_merges(a, b, zone, now, write, now_iso, tot)),
-                           ("unsubscribed", lambda: _paid_unsubs(a, zone, now, write, now_iso, tot))):
+                           ("unsubscribed", lambda: _paid_unsubs(a, zone, now, write, now_iso, tot)),
+                           ("no_coordinator", lambda: _paid_owners(now, tz_off, write, now_iso, tot))):
             # One check failing (Books down, a COQL refusal) does not stop the others.
             try:
                 step()

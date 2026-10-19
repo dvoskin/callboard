@@ -12,7 +12,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paid_guard as pg  # noqa: E402
@@ -207,6 +207,69 @@ ck("no paid date: left alone", pg.decide_unsub(dict(UD, Retainer_Paid_Date=None)
 ck("summarize counts reviews by reason", pg.summarize([pg._decision("review", "stage X"), pg._decision("ok", ""),
                                                        pg._decision("ok", "")]) == {"ok": 2, "review: stage X": 1})
 
+# ---- a paid deal with no working coordinator (Ana Castro) --------------------
+def sched(name, uid, start=10, end=19, off=("Sat", "Sun"), sat=None, sun=None, out_from=None, out_to=None,
+          team="Coordinator", active=True):
+    return {"Name": name, "Staff_User": {"id": uid}, "Start_Hour": start, "End_Hour": end, "Days_Off": list(off),
+            "Saturday_Hours": sat, "Sunday_Hours": sun, "Out_From": out_from, "Out_To": out_to, "Team": team,
+            "Active": active}
+
+
+# The Team Schedules rows as they stood on 2026-10-19.
+TEAM = [sched("Jorge Mier", "u-mier", 12, 21, out_from="2026-10-07"), sched("Alex Morales", "u-morales", 13, 22),
+        sched("Oscar Caballero", "u-caballero", off=("Sun", "Mon"), sat="10-17"), sched("Judith Merlo", "u-judith"),
+        sched("Ariel Ramirez", "u-ramirez"), sched("Johana Duron", "u-duron", off=("Fri", "Sat"), sun="10-17"),
+        sched("Vivian Martinez", "u-vivian", 8, 18, off=("Sun",), team="Biller")]
+ACTIVE = {"u-mier", "u-morales", "u-caballero", "u-judith", "u-ramirez", "u-duron", "u-vivian"}
+MON_0926 = datetime(2026, 10, 19, 9, 26)       # local; the morning of the 9:26 batch
+MON_1400 = datetime(2026, 10, 19, 14, 0)
+duron, caballero = TEAM[5], TEAM[2]
+ck("weekday hours", pg._hours(duron, "Mon") == (10, 19))
+ck("Sunday hours override", pg._hours(duron, "Sun") == (10, 17))
+ck("a day off has no hours", pg._hours(duron, "Fri") is None and pg._hours(caballero, "Mon") is None)
+ck("out from a date with no end is out", pg._out(TEAM[0], "2026-10-19") and not pg._out(TEAM[0], "2026-10-06"))
+ck("Oscar, off Mondays, is next in on Tuesday", pg.next_shift(caballero, MON_1400) == date(2026, 10, 20))
+ck("a shift that has ended today moves to the next day",
+   pg.next_shift(TEAM[3], datetime(2026, 10, 19, 19, 30)) == date(2026, 10, 20))
+load = {"u-judith": 6, "u-ramirez": 3, "u-duron": 4, "u-morales": 3}
+ck("before 10 AM: the next one in at 10 with the fewest waiting -- never a disabled user",
+   pg.pick_coordinator(TEAM, ACTIVE, load, MON_0926) == ("u-ramirez", "Ariel Ramirez", date(2026, 10, 19)),
+   pg.pick_coordinator(TEAM, ACTIVE, load, MON_0926))
+ck("at 2 PM: on shift, fewest waiting, then the name (Alex before Ariel)",
+   pg.pick_coordinator(TEAM, ACTIVE, load, MON_1400)[0] == "u-morales", pg.pick_coordinator(TEAM, ACTIVE, load, MON_1400))
+ck("out (Jorge Mier) and billers are never picked",
+   all(pg.pick_coordinator(TEAM, ACTIVE, {**load, "u-mier": 0, "u-vivian": 0}, t)[0] not in ("u-mier", "u-vivian")
+       for t in (MON_0926, MON_1400)))
+ck("a schedule whose CRM user is no longer active is skipped",
+   pg.pick_coordinator([sched("Ana Castro", "u-ana", 8, 17)], ACTIVE, {}, MON_0926) is None)
+ck("nobody on the schedules: None", pg.pick_coordinator([], ACTIVE, {}, MON_1400) is None)
+NOW_1400 = datetime(2026, 10, 19, 18, 0, tzinfo=timezone.utc)
+PRD = deal("p1", stage=PR, paid=True, Scheduling_Owner={"id": "u-ana"}, Retainer_Paid_Date="2026-10-19T09:01:51-04:00",
+           Tentative_Procedure_Date="2026-11-18", Deal_Name="Liposuction: Full Front: Nov 18, 2026")
+d = pg.decide_owner(PRD, TEAM, ACTIVE, load, MON_1400, NOW_1400)
+ck("a disabled coordinator: reassigned, silently", d["result"] == "fix" and d["write"] == {"Scheduling_Owner": {"id": "u-morales"}}
+   and d["trigger"] == [] and d["to"] == "u-morales", d)
+ck("... with an intro call the 'Intro Call Completed' rule recognises",
+   d["task"]["Subject"] == "Intro Call - Pat Example · Deal Nov 18" and d["task"]["Owner"] == {"id": "u-morales"}
+   and d["task"]["Due_Date"] == "2026-10-19" and d["task"]["What_Id"] == {"id": "p1"} and d["task"]["$se_module"] == "Deals",
+   d["task"])
+ck("... and a note that says who and why", "Alex Morales" in d["note"] and "no longer an active" in d["note"], d["note"])
+d = pg.decide_owner(dict(PRD, Scheduling_Owner=None, Tentative_Procedure_Date="2026-10-01"), TEAM, ACTIVE, load, MON_1400,
+                    NOW_1400)
+ck("no coordinator at all: assigned, a past date flagged", d["result"] == "fix" and "is in the past" in d["task"]["Description"]
+   and "left it without one" in d["note"], d)
+ck("inside 30 minutes: the normal assignment gets its go",
+   pg.decide_owner(dict(PRD, Scheduling_Owner=None, Retainer_Paid_Date="2026-10-19T13:45:00-04:00"), TEAM, ACTIVE, load,
+                   MON_1400, NOW_1400)["result"] == "wait")
+ck("a working coordinator: left alone", pg.decide_owner(dict(PRD, Scheduling_Owner={"id": "u-duron"}), TEAM, ACTIVE, load,
+                                                         MON_1400, NOW_1400)["result"] == "ok")
+ck("users unreadable: a named coordinator is never second-guessed",
+   pg.decide_owner(PRD, TEAM, set(), load, MON_1400, NOW_1400)["result"] == "ok")
+ck("not in Payment Received: none of this check's business",
+   pg.decide_owner(dict(PRD, Stage="Closed Won - Surgery Scheduled"), TEAM, ACTIVE, load, MON_1400, NOW_1400)["result"] == "skip")
+ck("nobody to give it to: a person",
+   pg.decide_owner(PRD, [], ACTIVE, load, MON_1400, NOW_1400)["result"] == "review")
+
 # ---- the ledger ------------------------------------------------------------
 with tempfile.TemporaryDirectory() as td:
     path = os.path.join(td, "paid_guard.json")
@@ -303,6 +366,46 @@ try:
     A._paid_apply("pay:p2", dec, True, "now", tot)
     ck("a refused write is an error, tried again next run, no note",
        not A._paid.settled("pay:p2") and len(calls["post"]) == 1 and tot["errors"][-1]["error"] == "INVALID_DATA", tot)
+
+    # A coordinator fix: the deal, then the intro call task, then the note.
+    A._dnc_put = lambda module, rows, trigger: (calls["put"].append((module, rows, trigger)) or
+                                                [(rows[0]["id"], True, "SUCCESS")])
+
+    class _R:
+        ok, status_code = True, 201
+    A.requests.post = lambda url, **kw: calls["post"].append((url, kw.get("json"))) or _R()
+    calls["put"].clear(), calls["post"].clear()
+    own = pg.decide_owner(PRD, TEAM, ACTIVE, load, MON_1400, NOW_1400)
+    A._paid_apply("owner:p1", own, True, "now", tot)
+    ck("a coordinator fix writes the deal without workflows",
+       calls["put"] == [("Deals", [{"Scheduling_Owner": {"id": "u-morales"}, "id": "p1"}], [])], calls["put"])
+    ck("... creates the intro call task, then the note",
+       [u.rsplit("/", 2)[-2:] for u, _ in calls["post"]] == [["v6", "Tasks"], ["p1", "Notes"]]
+       and calls["post"][0][1] == {"data": [own["task"]], "trigger": []}, calls["post"])
+    ck("... and settles it", A._paid.settled("owner:p1"))
+
+    # The run step: which deals it looks at, and that an unreadable user list protects named coordinators.
+    _saved_users, _saved_coql = A._zoho.list_users, A._dnc_coql_all
+    try:
+        A._paid = pg.Store(os.path.join(tdir, "paid_guard2.json"))
+        A._paid_deals = lambda where, page=200: [
+            dict(PRD, id="a1"), dict(PRD, id="a2", Scheduling_Owner={"id": "u-duron"}),
+            dict(PRD, id="a3", Scheduling_Owner=None)] if "Payment Received" in where else []
+        A._dnc_coql_all = lambda q, page=2000: TEAM if "Team_Schedules" in q else []
+        A._zoho.list_users = lambda: {u: u for u in ACTIVE}
+        t2 = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        A._paid_owners(NOW_1400, 240, False, "now", t2)
+        ck("the step finds the disabled one and the empty one, not the working one",
+           t2["checked"]["no_coordinator"] == 2 and sorted(x["deal"] for x in t2["decisions"]) == ["a1", "a3"], t2)
+        A._zoho.list_users = lambda: {}
+        t3 = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        A._paid_owners(NOW_1400, 240, False, "now", t3)
+        ck("users unreadable: only the deal with no coordinator at all", t3["checked"]["no_coordinator"] == 1
+           and [x["deal"] for x in t3["decisions"]] == ["a3"], t3)
+    finally:
+        A._zoho.list_users, A._dnc_coql_all = _saved_users, _saved_coql
+    ck("the step runs every pass", '("no_coordinator", lambda: _paid_owners(now, tz_off, write, now_iso, tot))' in _src)
+    ck("Ana Castro is off the shift table", "Ana Castro" not in A.SHIFTS, sorted(A.SHIFTS))
 
     A._v6_allowed = lambda: False
     r401 = A.app.test_client().get("/api/v6/paid-guard")

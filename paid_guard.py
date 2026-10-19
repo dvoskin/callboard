@@ -21,14 +21,21 @@ three things left a paying patient with no coordinator:
   3. A STOP reply (detect_sms_stop, st_backfill_auto) moves the deal to
      Unsubscribe whatever its stage, paid included, which takes it off every
      coordinator queue.
+  4. The stage moved but nobody got the patient. dealSchedulingAssign's round
+     robin still held Ana Castro, disabled on 2026-10-07: 22 paid patients from
+     Oct 6 to Oct 19 got the "Meet your coordinator" email and no coordinator,
+     no intro call. Before 10 AM she was the only one "on shift", so every
+     early payment went to her.
 
-Every fifteen minutes this module checks the three, one record at a time:
+Every fifteen minutes this module checks the four, one record at a time:
 
   decide_payment(p, deal, handled, now)   a Books retainer payment
   decide_payment_merged(p, snapshot, survivor, handled, now)
                                           one whose deal was already merged away
   decide_merge(snapshot, survivor, handled)  a "Merged duplicate:" note
   decide_unsub(deal, handled, now)        a paid deal sitting on Unsubscribe
+  decide_owner(deal, schedules, active, load, local_now, now)
+                                          a paid deal with no working coordinator
 
 and returns the exact write, or "review" for a person.
 
@@ -50,6 +57,12 @@ Rules
     not looked at yet.
   - Opt-outs stay. A deal brought back from Unsubscribe keeps RC_SMS_Opt_Out and
     the contact's flags; only its stage changes.
+  - A coordinator from the CRM's own Team Schedules (Team Coordinator, Active,
+    not out, an active CRM user), the one on shift now with the fewest
+    patients waiting -- or, with nobody on shift, the next one in. Only after
+    COORD_GRACE_MINUTES, so dealSchedulingAssign always has the first go. The
+    intro call task is named "Intro Call - ..." so completing it fires
+    "Intro Call Completed" and the Journey is made as usual.
 
 Names and numbers stay out of the logs.
 """
@@ -59,7 +72,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 PAYMENT_RECEIVED = "Payment Received, Needs Surgery Scheduled"
 GOALS_FINANCING = "Goals Financing Program"
@@ -89,12 +102,15 @@ MOVE_STAGES = frozenset({
 })
 
 GRACE_MINUTES = 30
+# A paid deal with no working coordinator this long after it was paid gets one.
+COORD_GRACE_MINUTES = 30
 # A paid deal on Unsubscribe is brought back only when the payment is this
 # recent. An older one is a past patient who opted out of marketing.
 RECENT_DAYS = 180
 
 DEAL_FIELDS = ("id, Deal_Name, Stage, Retainer_Paid, Retainer_Paid_Date, Retainer_Invoice_URL, Payment_Method, "
-               "Estimate_Sent, Contact_Name, Scheduling_Owner, Zoho_Books_Customer_ID, Created_Time, Modified_Time")
+               "Estimate_Sent, Contact_Name, Scheduling_Owner, Zoho_Books_Customer_ID, Tentative_Procedure_Date, "
+               "Created_Time, Modified_Time")
 JOURNEY_FIELDS = "id, Name, Case_Status, Journey_Stage, Contact, Deal, Created_Time"
 
 # Copied from a merge snapshot onto a survivor that has no quote of its own.
@@ -407,6 +423,117 @@ def decide_unsub(deal, is_handled, now):
                      "This deal was paid on %s and then moved to Unsubscribe (a STOP reply). A paid patient stays in the "
                      "coordinator pipeline: moved to %s. The text opt-out stays in place." % (at.date().isoformat(), to))
 
+_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _hours(sched, day):
+    """(start, end) hours a Team Schedules row works on `day` ("Mon".."Sun"),
+    or None when that is a day off. Saturday_Hours / Sunday_Hours ("10-17")
+    override the weekday hours on those days."""
+    if day in (sched.get("Days_Off") or []):
+        return None
+    special = {"Sat": sched.get("Saturday_Hours"), "Sun": sched.get("Sunday_Hours")}.get(day)
+    m = re.match(r"^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$", str(special or ""))
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    try:
+        return int(sched.get("Start_Hour")), int(sched.get("End_Hour"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _out(sched, day_iso):
+    a, b = sched.get("Out_From"), sched.get("Out_To")
+    return bool(a) and a <= day_iso and (not b or day_iso <= b)
+
+
+def next_shift(sched, local_now, horizon=8):
+    """The local date the coordinator is next working at or after local_now
+    (today while the shift has not ended), or None within `horizon` days."""
+    for i in range(horizon):
+        d = (local_now + timedelta(days=i)).date()
+        h = _hours(sched, _DAYS[d.weekday()])
+        if not h or _out(sched, d.isoformat()):
+            continue
+        if i == 0 and local_now.hour >= h[1]:
+            continue
+        return d
+    return None
+
+
+def pick_coordinator(schedules, active, load, local_now):
+    """(user id, name, due date) of the coordinator a stranded patient goes to:
+    on shift now first, else the next one in (earliest day, then earliest
+    start), then the fewest patients waiting, then the name. None when nobody
+    qualifies."""
+    best = None
+    for s in schedules:
+        uid = _id(s.get("Staff_User"))
+        if s.get("Team") != "Coordinator" or not s.get("Active") or not uid or uid not in active:
+            continue
+        day = next_shift(s, local_now)
+        if not day:
+            continue
+        on_now = False
+        h = _hours(s, _DAYS[local_now.weekday()])
+        if day == local_now.date() and h and h[0] <= local_now.hour < h[1]:
+            on_now = True
+        start = 0 if on_now else (_hours(s, _DAYS[day.weekday()]) or (0, 0))[0]
+        key = (0 if on_now else 1, day, start, load.get(uid, 0), str(s.get("Name") or ""))
+        if best is None or key < best[0]:
+            best = (key, uid, str(s.get("Name") or uid), day)
+    return (best[1], best[2], best[3]) if best else None
+
+
+def decide_owner(deal, schedules, active, load, local_now, now):
+    """A paid deal in Payment Received with no coordinator, or one whose
+    coordinator is no longer an active CRM user. active: the set of active
+    CRM user ids -- empty when it could not be read, and then a deal that
+    names a coordinator is left alone."""
+    if deal.get("Stage") != PAYMENT_RECEIVED or not deal.get("Retainer_Paid"):
+        return _decision("skip", "not a paid deal waiting for scheduling", deal.get("id"))
+    owner = _id(deal.get("Scheduling_Owner"))
+    if owner and (not active or owner in active):
+        return _decision("ok", "", deal["id"])
+    since = _t(deal.get("Retainer_Paid_Date")) or _t(deal.get("Modified_Time"))
+    if since and now - since < timedelta(minutes=COORD_GRACE_MINUTES):
+        return _decision("wait", "inside the grace period", deal["id"])
+    pick = pick_coordinator(schedules, active, load, local_now)
+    if not pick:
+        return _decision("review", "no coordinator on the Team Schedules to assign", deal["id"])
+    uid, cname, due = pick
+    patient = str((deal.get("Contact_Name") or {}).get("name") or "the patient")
+    try:
+        tent = date.fromisoformat(str(deal.get("Tentative_Procedure_Date") or ""))
+    except ValueError:
+        tent = None
+    short = "%s %d" % (tent.strftime("%b"), tent.day) if tent else ""
+    why = ("its coordinator is no longer an active CRM user" if owner else "the automatic assignment left it without one")
+    flags = []
+    if tent and tent < local_now.date():
+        flags.append("- Tentative date %s is in the past: agree a new date with the patient" % short)
+    task = {
+        # "Intro Call - ..." is what the Tasks rule "Intro Call Completed" looks for.
+        "Subject": "Intro Call - %s" % patient + (" \u00b7 Deal %s" % short if short else ""),
+        "Owner": {"id": uid}, "Due_Date": due.isoformat(), "Status": "Not Started", "Priority": "High",
+        "What_Id": {"id": deal["id"]}, "$se_module": "Deals",
+        "Description": ("SCHEDULING CALL - follow the New Deals Scheduling Protocol.\n"
+                        "WHY YOU HAVE THIS: paid, but %s, so nobody had the patient. Assigned by the paid-retainer check.\n"
+                        "RED FLAGS:\n%s\n\n"
+                        "1. BEFORE CALLING review the whole deal: patient info, procedure, surgeon, location, tentative date "
+                        "(must be inside the promo deadline), price + promotion, deposit/payment, invoice, extra fees, special notes.\n"
+                        "2. ANY ISSUE: DO NOT BOOK. Move the Deal to Manager Support Needed and escalate to Daniel Voskin.\n"
+                        "3. ALL CORRECT: book surgery + pre-op + post-op in DrChrono, allocate the payment, explain payment "
+                        "deadlines and photo / ID / labs / medical clearance requirements, send the surgery info.\n"
+                        "4. NO ANSWER: if the deal is fully correct, book on the invoice date anyway, send the surgery info and log the attempt.\n"
+                        "WHEN DONE: put the booked date in Surgery Date/Time on the Deal, then mark this task Completed. "
+                        "That creates the patient's Journey with YOU as the owner.\nDeal: %s")
+                       % (why, "\n".join(flags) if flags else "- none found", deal.get("Deal_Name") or ""),
+    }
+    return _decision("fix", "no working coordinator", deal["id"], {"Scheduling_Owner": {"id": uid}}, [],
+                     "Paid, but %s. Assigned to %s with an intro call task due %s." % (why, cname, due.isoformat()),
+                     task=task, to=uid)
+
 
 def summarize(decisions):
     """Counts only -- safe to print and to keep."""
@@ -420,8 +547,9 @@ def summarize(decisions):
 class Store:
     """The ledger on disk. {seen: {key: {result, at, deal, reason}}, review:
     {key: {...}}, runs: [...], armed: bool}. A key is "pay:<payment id>",
-    "merge:<note id>" or "unsub:<deal id>" -- once per deal: a person who puts
-    it back on Unsubscribe after this module moved it is not overruled."""
+    "merge:<note id>", "unsub:<deal id>" or "owner:<deal id>" -- the last two
+    once per deal: a person who puts it back on Unsubscribe, or clears the
+    coordinator, after this module acted is not overruled."""
 
     SETTLED = ("ok", "fixed", "flagged", "skip", "review")
 
