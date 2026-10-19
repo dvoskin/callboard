@@ -3325,6 +3325,8 @@ def _dnc_loop():
 #   - each paid deal put on Unsubscribe in the last three days -- a STOP reply
 #   - each paid deal in Payment Received with no working coordinator after 30
 #     minutes -- the round robin still held a disabled user (Ana Castro)
+#   - one intro text per paid patient from their coordinator's own line, once
+#     PAID_GUARD_INTRO_SENDERS names the lines that are set up in SMS Outbox
 # The fix is the write paymentmadeupdatedeal makes, sent WITH workflows, so the
 # coordinator is assigned as on any payment; a note on the deal says what was
 # done. Anything unclear goes to the review list on /api/v6/paid-guard.
@@ -3377,7 +3379,22 @@ def _paid_merge_notes(where, page=200):
 def _paid_apply(key, dec, write, now_iso, tot):
     """Write one decision (when writing), record it, count it."""
     ok = None
-    if write and dec["result"] in ("fix", "flag"):
+    if write and dec["result"] == "send":
+        # The coordinator's intro text: a row in SMS Outbox, sent WITH workflows
+        # so "SMS Outbox - send" hands it to that coordinator's HelloSend line.
+        try:
+            r = requests.post(f"{_zoho.base_url}/crm/v6/SMS_Outbox",
+                              headers={**_zoho._headers(), "Content-Type": "application/json"},
+                              json={"data": [dec["outbox"]], "trigger": ["workflow"]}, timeout=30)
+            row = ((r.json() if r.content else {}).get("data") or [{}])[0]
+            ok = bool(r.ok and row.get("code") == "SUCCESS")
+            if not ok:
+                tot["errors"].append({"key": key, "deal": dec["deal"],
+                                      "error": "outbox HTTP %d %s" % (r.status_code, row.get("code") or "")})
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            tot["errors"].append({"key": key, "deal": dec["deal"], "error": "outbox %s: %s" % (type(e).__name__, str(e)[:120])})
+    elif write and dec["result"] in ("fix", "flag"):
         try:
             res = _dnc_put("Deals", [dict(dec["write"], id=dec["deal"])], dec["trigger"])
             ok = bool(res and res[0][1])
@@ -3396,21 +3413,21 @@ def _paid_apply(key, dec, write, now_iso, tot):
                     tot["errors"].append({"key": key, "deal": dec["deal"], "error": "task HTTP %d" % r.status_code})
             except Exception as e:  # noqa: BLE001
                 tot["errors"].append({"key": key, "deal": dec["deal"], "error": "task %s: %s" % (type(e).__name__, str(e)[:120])})
-        if ok and dec.get("note"):
-            try:
-                requests.post(f"{_zoho.base_url}/crm/v6/Deals/{dec['deal']}/Notes",
-                              headers={**_zoho._headers(), "Content-Type": "application/json"},
-                              json={"data": [{"Note_Title": "Paid retainer check", "Note_Content": dec["note"]}]},
-                              timeout=30)
-            except Exception as e:  # noqa: BLE001
-                log.warning("paid guard: note on %s failed: %s", dec["deal"], e)
+    if ok and dec.get("note"):
+        try:
+            requests.post(f"{_zoho.base_url}/crm/v6/Deals/{dec['deal']}/Notes",
+                          headers={**_zoho._headers(), "Content-Type": "application/json"},
+                          json={"data": [{"Note_Title": "Paid retainer check", "Note_Content": dec["note"]}]},
+                          timeout=30)
+        except Exception as e:  # noqa: BLE001
+            log.warning("paid guard: note on %s failed: %s", dec["deal"], e)
     if write:
         _paid.record(key, dec, ok, now_iso)
     res = dec["result"] if dec["result"] != "review" else "review: " + dec["reason"]
     if ok is not None:
-        res = {"fix": "fixed", "flag": "flagged"}[dec["result"]] if ok else "error"
+        res = {"fix": "fixed", "flag": "flagged", "send": "sent"}[dec["result"]] if ok else "error"
     tot["summary"][res] = tot["summary"].get(res, 0) + 1
-    if dec["result"] in ("fix", "flag", "review"):
+    if dec["result"] in ("fix", "flag", "review", "send"):
         tot["decisions"].append({"key": key, "result": dec["result"], "reason": dec["reason"], "deal": dec["deal"],
                                  "old": dec.get("old"), "fields": sorted(dec["write"]), "ok": ok})
 
@@ -3519,6 +3536,58 @@ def _paid_owners(now, tz_off, write, now_iso, tot):
             load[dec["to"]] = load.get(dec["to"], 0) + 1
 
 
+_PAID_INTRO_CAP = 25          # intro texts per pass, at most
+
+
+def _paid_intro_senders(local_now):
+    """Coordinator user id -> (SMS Outbox Sender, on shift now), for the lines
+    that are live.
+
+    PAID_GUARD_INTRO_SENDERS names the senders whose HelloSend line and
+    "SMS Outbox - send" condition exist, as Team Schedules spells them
+    ("Judith,Johana,Ariel Ramirez,Alex,Oscar,Jorge"). Unset: no intro texts."""
+    live = {x.strip() for x in os.environ.get("PAID_GUARD_INTRO_SENDERS", "").split(",") if x.strip()}
+    if not live:
+        return {}
+    out = {}
+    for r in _dnc_coql_all("select id, Team, Active, Staff_User, SMS_Sender_Name, Start_Hour, End_Hour, Days_Off, "
+                           "Saturday_Hours, Sunday_Hours, Out_From, Out_To from Team_Schedules "
+                           "where Team = 'Coordinator'", page=200):
+        uid, name = _paid_mod._id(r.get("Staff_User")), str(r.get("SMS_Sender_Name") or "").strip()
+        if uid and name in live and r.get("Active"):
+            out[uid] = (name, _paid_mod.on_shift(r, local_now))
+    return out
+
+
+def _paid_intros(now, tz_off, write, now_iso, tot):
+    """One intro text per paid patient in Payment Received, from their own
+    coordinator's line (paid_guard.decide_intro)."""
+    senders = _paid_intro_senders((now - timedelta(minutes=tz_off)).replace(tzinfo=None))
+    tot["checked"]["intro_senders"] = len(senders)
+    if not senders:
+        return
+    deals = _paid_deals(f"(Stage = '{_paid_mod.PAYMENT_RECEIVED}' and Retainer_Paid = true)")
+    pending = [d for d in deals if _paid_mod._id(d.get("Scheduling_Owner")) in senders
+               and not _paid.settled("intro:%s" % d["id"])]
+    tot["checked"]["intro_pending"] = len(pending)
+    if not pending:
+        return
+    cids = sorted({c for c in (_paid_mod._id(d.get("Contact_Name")) for d in pending) if c})
+    contacts = {}
+    for i in range(0, len(cids), 50):
+        for c in _dnc_coql_all(f"select {_paid_mod.INTRO_CONTACT_FIELDS} from Contacts where id in ({','.join(cids[i:i + 50])})",
+                               page=50):
+            contacts[c["id"]] = c
+    sent = 0
+    for d in sorted(pending, key=lambda d: d.get("Retainer_Paid_Date") or ""):
+        sender, on_now = senders[_paid_mod._id(d.get("Scheduling_Owner"))]
+        dec = _paid_mod.decide_intro(d, contacts.get(_paid_mod._id(d.get("Contact_Name"))), sender, now, on_now)
+        if dec["result"] == "send" and sent >= _PAID_INTRO_CAP:
+            dec = _paid_mod._decision("wait", "this pass's cap reached", d["id"])
+        _paid_apply("intro:%s" % d["id"], dec, write, now_iso, tot)
+        sent += dec["result"] == "send"
+
+
 def _paid_run(since=None, until=None, days=3, write=None, label="auto"):
     """One pass of the three checks over the window, skipping what the ledger
     has settled. write=None: write when armed. Never raises."""
@@ -3542,7 +3611,8 @@ def _paid_run(since=None, until=None, days=3, write=None, label="auto"):
         for name, step in (("payments", lambda: _paid_payments(pa, b, now, write, now_iso, tot)),
                            ("merges", lambda: _paid_merges(a, b, zone, now, write, now_iso, tot)),
                            ("unsubscribed", lambda: _paid_unsubs(a, zone, now, write, now_iso, tot)),
-                           ("no_coordinator", lambda: _paid_owners(now, tz_off, write, now_iso, tot))):
+                           ("no_coordinator", lambda: _paid_owners(now, tz_off, write, now_iso, tot)),
+                           ("intro_texts", lambda: _paid_intros(now, tz_off, write, now_iso, tot))):
             # One check failing (Books down, a COQL refusal) does not stop the others.
             try:
                 step()

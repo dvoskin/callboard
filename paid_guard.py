@@ -36,6 +36,8 @@ Every fifteen minutes this module checks the four, one record at a time:
   decide_unsub(deal, handled, now)        a paid deal sitting on Unsubscribe
   decide_owner(deal, schedules, active, load, local_now, now)
                                           a paid deal with no working coordinator
+  decide_intro(deal, contact, sender, now, on_now)
+                                          the coordinator's intro text
 
 and returns the exact write, or "review" for a person.
 
@@ -63,6 +65,14 @@ Rules
     COORD_GRACE_MINUTES, so dealSchedulingAssign always has the first go. The
     intro call task is named "Intro Call - ..." so completing it fires
     "Intro Call Completed" and the Journey is made as usual.
+  - One intro text per paid patient, from their own coordinator's line,
+    through SMS Outbox (Danny, 2026-10-19: "have an intro message go out from
+    the coordinators instead of having them dial all of it"). Never to a deal
+    or contact that opted out of texts or is Do Not Contact; 9 AM to 7 PM in
+    the patient's time zone, never on Sunday, and only while the coordinator
+    is on shift to read the reply; only while the quoted date is at least
+    two weeks ahead -- a passed or close date is a conversation, not a text.
+    A deal tagged "No Intro Text" or "Do not Call" is never texted.
 
 Names and numbers stay out of the logs.
 """
@@ -72,6 +82,7 @@ import json
 import os
 import re
 import threading
+import zoneinfo
 from datetime import date, datetime, timedelta
 
 PAYMENT_RECEIVED = "Payment Received, Needs Surgery Scheduled"
@@ -110,7 +121,8 @@ RECENT_DAYS = 180
 
 DEAL_FIELDS = ("id, Deal_Name, Stage, Retainer_Paid, Retainer_Paid_Date, Retainer_Invoice_URL, Payment_Method, "
                "Estimate_Sent, Contact_Name, Scheduling_Owner, Zoho_Books_Customer_ID, Tentative_Procedure_Date, "
-               "Created_Time, Modified_Time")
+               "Location, Surgeon, RC_SMS_Opt_Out, Tag, Created_Time, Modified_Time")
+INTRO_CONTACT_FIELDS = "id, First_Name, Phone, Mobile, Do_Not_Contact, ringcentralextensionabr__SMS_OPT_OUT"
 JOURNEY_FIELDS = "id, Name, Case_Status, Journey_Stage, Contact, Deal, Created_Time"
 
 # Copied from a merge snapshot onto a survivor that has no quote of its own.
@@ -461,6 +473,13 @@ def next_shift(sched, local_now, horizon=8):
     return None
 
 
+def on_shift(sched, local_now):
+    """True while the coordinator is working right now (their hours today,
+    not out)."""
+    h = _hours(sched, _DAYS[local_now.weekday()])
+    return bool(h) and not _out(sched, local_now.date().isoformat()) and h[0] <= local_now.hour < h[1]
+
+
 def pick_coordinator(schedules, active, load, local_now):
     """(user id, name, due date) of the coordinator a stranded patient goes to:
     on shift now first, else the next one in (earliest day, then earliest
@@ -474,10 +493,7 @@ def pick_coordinator(schedules, active, load, local_now):
         day = next_shift(s, local_now)
         if not day:
             continue
-        on_now = False
-        h = _hours(s, _DAYS[local_now.weekday()])
-        if day == local_now.date() and h and h[0] <= local_now.hour < h[1]:
-            on_now = True
+        on_now = on_shift(s, local_now)
         start = 0 if on_now else (_hours(s, _DAYS[day.weekday()]) or (0, 0))[0]
         key = (0 if on_now else 1, day, start, load.get(uid, 0), str(s.get("Name") or ""))
         if best is None or key < best[0]:
@@ -535,6 +551,111 @@ def decide_owner(deal, schedules, active, load, local_now, now):
                      task=task, to=uid)
 
 
+# ---- the coordinator's intro text ----------------------------------------------
+INTRO_TEMPLATE = "coordinator-intro-v1"
+INTRO_HOURS = (9, 19)           # patient's local time; Sunday never
+INTRO_MIN_LEAD_DAYS = 14        # a quoted date closer than this is for a call, not a "reply YES"
+INTRO_STOP_TAGS = ("No Intro Text", "Do not Call")  # a deal tagged either is never texted
+_TZ = {"Houston": "America/Chicago", "Los Angeles": "America/Los_Angeles"}
+# Where each surgeon actually operates (DrChrono, May 2026 on). A deal naming
+# a surgeon at an office they never work at gets neither in the text.
+SURGEON_CITIES = {
+    "Nguyen": {"Houston"}, "Narh-Martey": {"Atlanta"}, "Zemlyak": {"Atlanta"}, "Johnson": {"the Bronx"},
+    "Perkins": {"the Bronx", "Brooklyn", "New Jersey", "New York"}, "Hsu": {"Los Angeles", "the Bronx", "Brooklyn", "New York"},
+    "Erwin": {"New Jersey", "the Bronx"}, "Douyon": {"New Jersey", "the Bronx"}, "Stafford": {"Los Angeles"},
+    "Morrow": {"Maryland"}, "Iskander": {"Maryland"}, "Voskin": {"Philadelphia", "the Bronx", "Atlanta"},
+}
+
+
+def city(location):
+    """A deal's free-text Location as the patient would say it, or ""."""
+    l = str(location or "").strip().lower()
+    for keys, name in ((("bronx", "bx"), "the Bronx"), (("houston", "texas", "tx"), "Houston"), (("atlanta", "atl", "ga"), "Atlanta"),
+                       (("brooklyn",), "Brooklyn"), (("philadelphia", "philly"), "Philadelphia"), (("los angeles", "la", "beverly"), "Los Angeles"),
+                       (("new jersey", "nj", "ridgefield"), "New Jersey"), (("maryland", "md", "gaithersburg"), "Maryland"),
+                       (("miami",), "Miami"), (("new york", "ny", "harlem", "manhattan"), "New York")):
+        if any(re.search(r"\b%s\b" % re.escape(k), l) for k in keys):
+            return name
+    return ""
+
+
+def surgeon_short(surgeon):
+    """'Dr. Phuong X. Nguyen' -> 'Dr. Nguyen'; '' when none."""
+    words = [w for w in re.split(r"\s+", str(surgeon or "").strip()) if w and w.lower() not in ("dr", "dr.")]
+    return "Dr. " + words[-1] if words else ""
+
+
+def phone10(*values):
+    for v in values:
+        d = re.sub(r"\D", "", str(v or ""))
+        if len(d) == 11 and d[0] == "1":
+            d = d[1:]
+        if len(d) == 10 and d[0] not in "01":
+            return d
+    return ""
+
+
+def intro_text(first, coordinator, tent, surgeon, where):
+    """The text itself. tent: a date in the future."""
+    doc = surgeon_short(surgeon)
+    last = doc.split()[-1] if doc else ""
+    if doc and where and last in SURGEON_CITIES and where not in SURGEON_CITIES[last]:
+        doc, where = "", ""                       # the deal contradicts itself: say neither
+    with_ = (" with %s" % doc if doc else "") + (" in %s" % where if where else "")
+    hi = ("Hi %s, " % first) if first else "Hi, "
+    return ("%sthis is %s from GOALS Plastic Surgery, your surgical coordinator. Thank you for your deposit! "
+            "Your quote has you down for %s %d%s. Reply YES to lock in that date, or reply with a better week "
+            "and I'll find you a spot. Reply STOP to opt out." % (hi, coordinator, tent.strftime("%b"), tent.day, with_))
+
+
+def decide_intro(deal, contact, sender, now, on_now=True):
+    """One coordinator intro text for a paid deal waiting in Payment Received.
+    sender: the coordinator's SMS Outbox Sender ("Judith") -- None when their
+    line is not set up yet. on_now: the coordinator is on shift, so a reply
+    reaches someone. contact: the deal's Contact row."""
+    if deal.get("Stage") != PAYMENT_RECEIVED or not deal.get("Retainer_Paid"):
+        return _decision("skip", "not a paid deal waiting for scheduling", deal.get("id"))
+    if not sender:
+        return _decision("hold", "coordinator has no texting line set up", deal["id"])
+    contact = contact or {}
+    if (deal.get("RC_SMS_Opt_Out") or contact.get("ringcentralextensionabr__SMS_OPT_OUT")
+            or contact.get("Do_Not_Contact")):
+        return _decision("skip", "opted out or Do Not Contact", deal["id"])
+    stop = {x.lower() for x in INTRO_STOP_TAGS}
+    tagged = [str((t or {}).get("name") or "").strip() for t in deal.get("Tag") or []]
+    if any(t.lower() in stop for t in tagged):
+        return _decision("skip", "tagged %s" % next(t for t in tagged if t.lower() in stop), deal["id"])
+    phone = phone10(contact.get("Mobile"), contact.get("Phone"))
+    if not phone:
+        return _decision("skip", "no phone", deal["id"])
+    where = city(deal.get("Location"))
+    tz = zoneinfo.ZoneInfo(_TZ.get(where, "America/New_York"))
+    local = now.astimezone(tz)
+    try:
+        tent = date.fromisoformat(str(deal.get("Tentative_Procedure_Date") or ""))
+    except ValueError:
+        tent = None
+    if not tent or tent <= local.date():
+        return _decision("hold", "quoted date passed or missing", deal["id"])
+    if (tent - local.date()).days < INTRO_MIN_LEAD_DAYS:
+        return _decision("hold", "quoted date too close to text -- the intro call covers it", deal["id"])
+    if not on_now:
+        return _decision("wait", "coordinator not on shift", deal["id"])
+    if local.weekday() == 6 or not (INTRO_HOURS[0] <= local.hour < INTRO_HOURS[1]):
+        return _decision("wait", "outside texting hours", deal["id"])
+    first = str(contact.get("First_Name") or "").strip()
+    if first.lower() == "unknown" or len(first) < 2:
+        first = ""
+    text = intro_text(first.title() if first.isupper() or first.islower() else first, sender, tent,
+                      deal.get("Surgeon"), where)
+    row = {"Name": "Intro - %s" % (str((deal.get("Contact_Name") or {}).get("name") or "patient"))[:110],
+           "Deal": {"id": deal["id"]}, "Phone": phone, "SMS_Text": text, "Sender": sender, "Template": INTRO_TEMPLATE}
+    if _id(deal.get("Contact_Name")):
+        row["Contact"] = {"id": _id(deal.get("Contact_Name"))}
+    return _decision("send", "intro text", deal["id"], note="Intro text sent from %s's line: \"%s\"" % (sender, text),
+                     outbox=row)
+
+
 def summarize(decisions):
     """Counts only -- safe to print and to keep."""
     by = {}
@@ -551,7 +672,7 @@ class Store:
     once per deal: a person who puts it back on Unsubscribe, or clears the
     coordinator, after this module acted is not overruled."""
 
-    SETTLED = ("ok", "fixed", "flagged", "skip", "review")
+    SETTLED = ("ok", "fixed", "flagged", "skip", "review", "sent")
 
     def __init__(self, path):
         self.path = path
@@ -591,13 +712,15 @@ class Store:
             result = "fixed" if ok else "error"
         elif result == "flag":
             result = "flagged" if ok else "error"
+        elif result == "send":
+            result = "sent" if ok else "error"
         with self._lock:
             self.data["seen"][key] = {"result": result, "at": now_iso, "deal": decision.get("deal"),
                                       "reason": decision.get("reason") or None}
             if result == "review":
                 self.data["review"][key] = {"deal": decision.get("deal"), "reason": decision["reason"],
                                             "seen": now_iso}
-            elif result in ("fixed", "flagged", "ok"):
+            elif result in ("fixed", "flagged", "ok", "sent"):
                 self.data["review"].pop(key, None)
 
     def note_run(self, info):

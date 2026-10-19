@@ -270,6 +270,60 @@ ck("not in Payment Received: none of this check's business",
 ck("nobody to give it to: a person",
    pg.decide_owner(PRD, [], ACTIVE, load, MON_1400, NOW_1400)["result"] == "review")
 
+# ---- the coordinator's intro text ---------------------------------------------
+ck("cities as the patient says them", [pg.city(x) for x in ("Bronx, New York", "bx", "Houston,Texas", "atl", "NEW YORK", "TBD", None)]
+   == ["the Bronx", "the Bronx", "Houston", "Atlanta", "New York", "", ""])
+ck("surgeon short", pg.surgeon_short("Dr. Phuong X. Nguyen") == "Dr. Nguyen" and pg.surgeon_short(None) == "")
+ck("phones: 10 digits, a leading 1 dropped, junk refused",
+   pg.phone10("+1 (940) 299-2039") == "9402992039" and pg.phone10("+118323622504") == "" and pg.phone10("", "7734947507") == "7734947507")
+t = pg.intro_text("Wanda", "Alex", date(2026, 10, 31), "Dr. Phuong X. Nguyen", "Houston")
+ck("the text names the coordinator, date, surgeon and city, and how to stop",
+   t.startswith("Hi Wanda, this is Alex from GOALS Plastic Surgery") and "Oct 31 with Dr. Nguyen in Houston." in t
+   and t.endswith("Reply STOP to opt out."), t)
+ck("a surgeon at an office they never work at: neither is said",
+   "Feb 19. Reply" in pg.intro_text("Kahmille", "Johana", date(2027, 2, 19), "Dr. Anthony Perkins", "Atlanta"))
+MON_2PM = datetime(2026, 10, 19, 18, 0, tzinfo=timezone.utc)
+ID = deal("i1", stage=PR, paid=True, Tentative_Procedure_Date="2026-12-21", Location="Atlanta", Surgeon="Dr. Patrick Narh-Martey",
+          RC_SMS_Opt_Out=False)
+CON = {"id": "k1", "First_Name": "PAT", "Phone": "(404) 555-0101", "Mobile": None, "Do_Not_Contact": False,
+       "ringcentralextensionabr__SMS_OPT_OUT": False}
+d = pg.decide_intro(ID, CON, "Oscar", MON_2PM)
+ck("a paid patient with a coordinator line: one intro text through SMS Outbox", d["result"] == "send"
+   and d["outbox"]["Sender"] == "Oscar" and d["outbox"]["Phone"] == "4045550101" and d["outbox"]["Deal"] == {"id": "i1"}
+   and d["outbox"]["Contact"] == {"id": "k1"} and d["outbox"]["Template"] == pg.INTRO_TEMPLATE
+   and d["outbox"]["SMS_Text"].startswith("Hi Pat, this is Oscar") and "Dec 21 with Dr. Narh-Martey in Atlanta" in d["outbox"]["SMS_Text"], d)
+ck("... and the note on the deal quotes it", d["outbox"]["SMS_Text"] in d["note"])
+ck("a coordinator whose line is not set up: held, not settled", pg.decide_intro(ID, CON, None, MON_2PM)["result"] == "hold")
+for label, dd, cc in (("deal opted out", dict(ID, RC_SMS_Opt_Out=True), CON),
+                      ("contact opted out", ID, dict(CON, ringcentralextensionabr__SMS_OPT_OUT=True)),
+                      ("Do Not Contact", ID, dict(CON, Do_Not_Contact=True)), ("no phone", ID, dict(CON, Phone=None))):
+    ck("%s: never texted" % label, pg.decide_intro(dd, cc, "Oscar", MON_2PM)["result"] == "skip")
+ck("a quoted date already passed: held for a person", pg.decide_intro(dict(ID, Tentative_Procedure_Date="2026-10-01"), CON,
+                                                                      "Oscar", MON_2PM)["result"] == "hold")
+ck("Sunday: waits", pg.decide_intro(ID, CON, "Oscar", datetime(2026, 10, 18, 18, 0, tzinfo=timezone.utc))["result"] == "wait")
+ck("before 9 AM in Atlanta: waits", pg.decide_intro(ID, CON, "Oscar", datetime(2026, 10, 19, 12, 30, tzinfo=timezone.utc))["result"] == "wait")
+HOU = dict(ID, Location="Houston, Texas", Surgeon="Dr. Phuong X. Nguyen")
+ck("9:30 AM in New York is 8:30 in Houston: waits",
+   pg.decide_intro(HOU, CON, "Oscar", datetime(2026, 10, 19, 13, 30, tzinfo=timezone.utc))["result"] == "wait")
+ck("... and goes at 9 in Houston", pg.decide_intro(HOU, CON, "Oscar", datetime(2026, 10, 19, 14, 5, tzinfo=timezone.utc))["result"] == "send")
+ck("a contact named Unknown is not greeted by it",
+   pg.decide_intro(ID, dict(CON, First_Name="Unknown"), "Oscar", MON_2PM)["outbox"]["SMS_Text"].startswith("Hi, this is Oscar"))
+ck("not in Payment Received: none of this", pg.decide_intro(dict(ID, Stage="Closed Won - Surgery Scheduled"), CON, "Oscar",
+                                                             MON_2PM)["result"] == "skip")
+ck("tagged No Intro Text: never texted", pg.decide_intro(dict(ID, Tag=[{"name": "No Intro Text", "id": "t1"}]), CON, "Oscar",
+                                                         MON_2PM)["result"] == "skip")
+ck("... nor Do not Call", pg.decide_intro(dict(ID, Tag=[{"name": "Do not Call", "id": "t3"}]), CON, "Oscar",
+                                          MON_2PM)["result"] == "skip")
+ck("... another tag does not stop it", pg.decide_intro(dict(ID, Tag=[{"name": "VIP", "id": "t2"}]), CON, "Oscar",
+                                                       MON_2PM)["result"] == "send")
+ck("a quoted date under two weeks out: held for the intro call",
+   pg.decide_intro(dict(ID, Tentative_Procedure_Date="2026-10-31"), CON, "Oscar", MON_2PM)["result"] == "hold")
+ck("coordinator off shift: waits for them, not settled", pg.decide_intro(ID, CON, "Oscar", MON_2PM, on_now=False)["result"] == "wait")
+judith, mier, alex = TEAM[3], TEAM[0], TEAM[1]
+ck("on shift: Judith at 2 PM Monday", pg.on_shift(judith, MON_1400))
+ck("... not Oscar on his Monday off, nor Jorge while out", not pg.on_shift(caballero, MON_1400) and not pg.on_shift(mier, MON_1400))
+ck("... Alex from 1 PM, not at 9:26", pg.on_shift(alex, MON_1400) and not pg.on_shift(alex, MON_0926))
+
 # ---- the ledger ------------------------------------------------------------
 with tempfile.TemporaryDirectory() as td:
     path = os.path.join(td, "paid_guard.json")
@@ -405,6 +459,52 @@ try:
     finally:
         A._zoho.list_users, A._dnc_coql_all = _saved_users, _saved_coql
     ck("the step runs every pass", '("no_coordinator", lambda: _paid_owners(now, tz_off, write, now_iso, tot))' in _src)
+
+    # Intro texts: off until the live lines are named; then once per deal, through SMS Outbox with workflows.
+    _env = os.environ.pop("PAID_GUARD_INTRO_SENDERS", None)
+    _saved_coql2 = A._dnc_coql_all
+    try:
+        asked = []
+        A._dnc_coql_all = lambda q, page=2000: asked.append(q) or []
+        ck("no senders named: no intro texts and not even a query", A._paid_intro_senders(MON_1400) == {} and not asked)
+        os.environ["PAID_GUARD_INTRO_SENDERS"] = "Oscar, Judith, Jorge"
+        A._dnc_coql_all = lambda q, page=2000: (
+            [dict(caballero, SMS_Sender_Name="Oscar"), dict(judith, SMS_Sender_Name="Judith"),
+             dict(duron, SMS_Sender_Name="Johana"), dict(mier, SMS_Sender_Name="Jorge", Active=False)]
+            if "Team_Schedules" in q else [CON] if "from Contacts" in q else [])
+        ck("only the named lines of active rows, with who is on shift",
+           A._paid_intro_senders(MON_1400) == {"u-caballero": ("Oscar", False), "u-judith": ("Judith", True)},
+           A._paid_intro_senders(MON_1400))
+        A._paid = pg.Store(os.path.join(tdir, "paid_guard3.json"))
+        A._paid_deals = lambda where, page=200: [dict(ID, Scheduling_Owner={"id": "u-judith"}),
+                                                 dict(ID, id="i2", Scheduling_Owner={"id": "u-duron"}),
+                                                 dict(ID, id="i3", Scheduling_Owner={"id": "u-caballero"})]
+        calls["post"].clear()
+
+        class _OK:
+            ok, status_code, content = True, 201, b"x"
+
+            def json(self):
+                return {"data": [{"code": "SUCCESS"}]}
+        A.requests.post = lambda url, **kw: calls["post"].append((url, kw.get("json"))) or _OK()
+        t4 = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        A._paid_intros(MON_2PM, 240, True, "now", t4)
+        ck("one text, for the coordinator whose line is live and who is on shift", t4["checked"]["intro_pending"] == 2
+           and len(calls["post"]) == 2
+           and calls["post"][0][0].endswith("/crm/v6/SMS_Outbox") and calls["post"][0][1]["trigger"] == ["workflow"]
+           and calls["post"][0][1]["data"][0]["Sender"] == "Judith", (t4, calls["post"][:1]))
+        ck("... a note on the deal, and it is settled", calls["post"][1][0].endswith("/crm/v6/Deals/i1/Notes")
+           and A._paid.settled("intro:i1") and t4["summary"].get("sent") == 1, t4)
+        ck("... Oscar's patient waits for his shift", not A._paid.settled("intro:i3"), A._paid.data["seen"].get("intro:i3"))
+        calls["post"].clear()
+        A._paid_intros(MON_2PM, 240, True, "now", t4)
+        ck("never twice", not calls["post"] and t4["checked"]["intro_pending"] == 1, calls["post"])
+    finally:
+        A._dnc_coql_all = _saved_coql2
+        os.environ.pop("PAID_GUARD_INTRO_SENDERS", None)
+        if _env is not None:
+            os.environ["PAID_GUARD_INTRO_SENDERS"] = _env
+    ck("the intro step runs every pass", '("intro_texts", lambda: _paid_intros(now, tz_off, write, now_iso, tot))' in _src)
     ck("Ana Castro is off the shift table", "Ana Castro" not in A.SHIFTS, sorted(A.SHIFTS))
 
     A._v6_allowed = lambda: False
