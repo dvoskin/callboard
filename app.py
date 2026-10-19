@@ -1366,7 +1366,10 @@ _SMS_EXTRA_SEATS = {
 # "remove Roberto Castillo from the new reps board"). His extension stays in
 # _SMS_EXTRA_SEATS so the STOP scan still reads it. Shown as the sales
 # TRAINING CLASS ("make new sales show as training class for sales").
-_RINGEX_OFF_BOARD = {"Roberto Castillo"}
+# Howard Salmon and Javier Perez off too (Danny, 2026-10-19: "remove Howard
+# and Javier from the sales training class rosters"); their lines stay in
+# the STOP scan like Roberto's.
+_RINGEX_OFF_BOARD = {"Roberto Castillo", "Howard Salmon", "Javier Perez"}
 _TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True, cache_only_today=True) for s in _SMS_EXTRA_SEATS["sales"]
                            if s["name"] not in _RINGEX_OFF_BOARD]
 TEAM_LABELS["ringex"] = "Sales Training Class"
@@ -3910,6 +3913,69 @@ def api_v6_opt_outs_txt():
     if not _v6_allowed():
         return jsonify({"error": "unauthorized"}), 401
     return app.response_class("\n".join(_optouts.digits()) + "\n", mimetype="text/plain")
+
+
+
+# ---------------------------------------------------------------------------
+# The Books item catalog, kept equal to the estimator's quotes (catalog_sync)
+# ---------------------------------------------------------------------------
+import catalog_sync as _catalog_mod
+_CATALOG_FILE = _data_dir / "catalog_sync.json"
+_catalog = _catalog_mod.Store(_CATALOG_FILE)
+_catalog_state = {"runs": 0, "running": False}
+_catalog_lock = threading.Lock()
+
+
+def _catalog_run(days=3):
+    """One pass: read the quotes of the window, plan, and -- armed only --
+    write the catalog. Never raises."""
+    if not _catalog_lock.acquire(blocking=False):
+        return {"skipped": "a run is in progress"}
+    _catalog_state["running"] = True
+    try:
+        armed = os.environ.get("CATALOG_SYNC_WRITE", "1") != "0" and bool(_catalog.data.get("armed"))
+        info = _catalog_mod.run_once(_books, _catalog, days=days, armed=armed, log=log)
+    finally:
+        _catalog_state.update({"runs": _catalog_state.get("runs", 0) + 1, "running": False,
+                               "last_at": time.time()})
+        _catalog_lock.release()
+    _catalog_state["last"] = info
+    return info
+
+
+def _catalog_loop():
+    time.sleep(40)
+    while True:
+        _catalog_run(days=3)
+        time.sleep(3600)
+
+
+@app.route("/api/v6/catalog-sync")
+def api_v6_catalog_sync():
+    """Signed in only. The estimator's price table as read from its quotes,
+    the plan against the Books items, and the last runs.
+      ?kick=1&days=N  read the last N days now (in a thread; poll again)
+      ?arm=1 / ?arm=0 from now on every run writes the plan / only plans
+      ?table=1        the full table, every name with rate, count, last seen
+    """
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.args.get("arm") in ("1", "0"):
+        _catalog.data["armed"] = request.args.get("arm") == "1"
+        _catalog.save()
+    if request.args.get("kick") and not _catalog_state.get("running"):
+        days = max(1, min(int(request.args.get("days", 3) or 3), 120))
+        threading.Thread(target=_catalog_run, kwargs={"days": days}, daemon=True, name="catalog:kick").start()
+    st = dict(_catalog_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    out = {"armed": bool(_catalog.data.get("armed")), "state": st, "file": str(_CATALOG_FILE),
+           "quotes_remembered": len(_catalog.data.get("estimates") or {}),
+           "plan": _catalog.data.get("last_plan"), "last_apply": _catalog.data.get("last_apply"),
+           "runs": _catalog.data.get("runs", [])[-5:]}
+    if request.args.get("table"):
+        out["table"] = sorted(_catalog.data.get("table", {}).values(), key=lambda r: r["name"].lower())
+    return jsonify(out)
 
 
 @app.route("/api/v6/sms-unanswered")
@@ -6782,7 +6848,9 @@ def api_v5_diag():
                 for _name, _path in (("estimates", "estimates"),
                                      ("invoices", "invoices"),
                                      ("retainerinvoices", "retainerinvoices"),
-                                     ("customerpayments", "customerpayments")):
+                                     ("customerpayments", "customerpayments"),
+                                     # catalog_sync reads and writes Items: ZohoBooks.settings.*
+                                     ("items", "items")):
                     try:
                         _r = requests.get(
                             f"{_books.base_url}/{_path}",
@@ -6798,12 +6866,14 @@ def api_v5_diag():
                         _denied.append(_name)
                 probe["scopes"] = _scopes
                 probe["result"] = (
-                    "Books works - estimates, invoices, retainer invoices and "
-                    "payments are all readable."
+                    "Books works - estimates, invoices, retainer invoices, "
+                    "payments and items are all readable."
                     if not _denied else
                     "Token is valid but cannot read: %s. Retainer invoices are not "
                     "covered by ZohoBooks.invoices.READ; a token with "
-                    "ZohoBooks.fullaccess.ALL reads all four. Set it as "
+                    "ZohoBooks.fullaccess.ALL reads all four. Items (the catalog sync) "
+                    "need ZohoBooks.settings.READ/CREATE/UPDATE; setup_books_token.py "
+                    "mints a token with every scope here. Set it as "
                     "ZOHO_BOOKS_REFRESH_TOKEN." % ", ".join(_denied))
         out["books_probe"] = probe
     except Exception as e:  # noqa: BLE001
@@ -10364,7 +10434,8 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
                  ("loop:paid-guard", lambda: _paid_loop()),
-                 ("loop:ringex", lambda: _ringex_warm_loop()))
+                 ("loop:ringex", lambda: _ringex_warm_loop()),
+                 ("loop:catalog", lambda: _catalog_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 

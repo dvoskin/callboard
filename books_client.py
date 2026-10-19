@@ -722,3 +722,60 @@ class BooksClient:
         log.info("Books: %d %s between %s and %s",
                  len(results), doc_type, date_start, date_end)
         return results[:max_records]
+
+    # ---- the item catalog (catalog_sync) ------------------------------------
+    # Items live under ZohoBooks.settings.* -- a token that reads estimates
+    # says 401 code 57 here until it carries settings.READ/CREATE/UPDATE.
+
+    def _raise_for(self, resp, what: str):
+        if resp.status_code in (401, 403):
+            raise RuntimeError(
+                f"Books API auth error {resp.status_code} on {what} -- the refresh token "
+                f"likely lacks a ZohoBooks.settings scope. ({resp.text[:120]})"
+            )
+        if not resp.ok:
+            raise RuntimeError(f"Books {what} HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.json() or {}
+
+    def list_estimates_window(self, date_start: str, date_end: str, max_records: int = 2000) -> list[dict]:
+        """Every estimate dated in [date_start, date_end], any status.
+
+        Newest first with stop_before, so paging ends at the first page that
+        is wholly older than the window even when the date filter is not
+        honoured. The caller still filters on `date`."""
+        return self._list_documents("estimates", date_start, date_end, max_records,
+                                    sort_column="created_time", sort_order="D", stop_before=date_start)
+
+    def get_estimate(self, estimate_id: str) -> dict:
+        resp = requests.get(f"{self.base_url}/estimates/{estimate_id}", headers=self._headers(),
+                            params={"organization_id": self.org_id}, timeout=20)
+        return self._raise_for(resp, f"estimate {estimate_id}")["estimate"]
+
+    def list_items_all(self) -> list[dict]:
+        """Every item, active and inactive."""
+        out, page = [], 1
+        while True:
+            resp = requests.get(f"{self.base_url}/items", headers=self._headers(),
+                                params={"organization_id": self.org_id, "filter_by": "Status.All",
+                                        "per_page": 200, "page": page}, timeout=20)
+            data = self._raise_for(resp, "items")
+            out.extend(data.get("items") or [])
+            if not (data.get("page_context") or {}).get("has_more_page"):
+                return out
+            page += 1
+
+    def create_item(self, body: dict) -> dict:
+        resp = requests.post(f"{self.base_url}/items", headers=self._headers(),
+                             params={"organization_id": self.org_id}, json=body, timeout=20)
+        return self._raise_for(resp, "create item")["item"]
+
+    def update_item(self, item_id: str, body: dict) -> dict:
+        resp = requests.put(f"{self.base_url}/items/{item_id}", headers=self._headers(),
+                            params={"organization_id": self.org_id}, json=body, timeout=20)
+        return self._raise_for(resp, f"update item {item_id}")["item"]
+
+    def activate_item(self, item_id: str) -> dict:
+        resp = requests.post(f"{self.base_url}/items/{item_id}/active", headers=self._headers(),
+                             params={"organization_id": self.org_id}, timeout=20)
+        self._raise_for(resp, f"activate item {item_id}")
+        return {"item_id": item_id}

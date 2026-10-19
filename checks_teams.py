@@ -44,8 +44,8 @@ ck("a 200 s and a 700 s call: two over 3m, one over 10m; ring time never counts"
 # ---- the team ----
 NINE = ["Annyta Santiago", "Ramon Gallardo", "Roberto Castillo", "Roman Gomez", "Jabes Perdomo",
         "Howard Salmon", "Javier Perez", "Seydi Medrano", "Ambar Luciano"]
-ck("the training class is the October RingEX reps by extension, Roberto Castillo off the board (let go 10-15)",
-   [s["name"] for s in A._TEAM_ROSTERS["ringex"]] == [n for n in NINE if n != "Roberto Castillo"]
+ck("the training class is the October RingEX reps by extension -- Roberto Castillo (let go 10-15), Howard Salmon and Javier Perez (10-19) off",
+   [s["name"] for s in A._TEAM_ROSTERS["ringex"]] == [n for n in NINE if n not in ("Roberto Castillo", "Howard Salmon", "Javier Perez")]
    and all(s["ext_id"] for s in A._TEAM_ROSTERS["ringex"]), [s["name"] for s in A._TEAM_ROSTERS["ringex"]])
 ck("...and shown as the Sales Training Class", A.TEAM_LABELS["ringex"] == "Sales Training Class", A.TEAM_LABELS["ringex"])
 ck("...read from RingEX on demand, NOT warmed: no 90-day backfill competing with billing's live day",
