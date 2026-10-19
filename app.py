@@ -5759,6 +5759,99 @@ def _attach_crm_created(report, start_iso, end_iso):
                           if k in ("cached", "error", "attribution", "not_crm_users")}
 
 
+# Sales follow-ups (Danny, 2026-10-19: "Add a follow up tracker to track
+# scheduled calls assigned to each coordinator on the sales trackers in a
+# progress bar format like the others"). Its own cache, read the way the
+# coordinators' CRM breakdown is: off the request path, one read per window
+# and name set every 5 minutes, a failure kept briefly and never shown as 0.
+_FU_TTL = 300.0
+_FU_STUCK = 180.0
+_fu_cache: dict = {}
+_fu_inflight: dict = {}
+_fu_lock = threading.Lock()
+_FU_ASYNC = True
+
+
+def _followups_read(key, names, start_iso, end_iso):
+    by, meta = None, {}
+    try:
+        users = _zoho.list_users()                       # id -> full name
+        if not users:
+            meta["error"] = "CRM users could not be read, so nothing can be attributed"
+        else:
+            id_by_name = {_norm_name(full): uid for uid, full in users.items()}
+            wanted = {n: id_by_name.get(_norm_name(_CRM_NAME_ALIASES.get(n, n))) for n in names}
+            raw = _zoho.follow_up_breakdown(start_iso, end_iso, sorted({u for u in wanted.values() if u}))
+            zero = {"due": 0, "done": 0, "marked": 0, "called": 0, "overdue": 0, "upcoming": 0, "cancelled": 0}
+            by = {n: dict(raw.get(uid) or zero) for n, uid in wanted.items() if uid}
+            meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
+    except BaseException as e:  # noqa: BLE001  -- a thread must never die holding the in-flight key
+        by, meta = None, {"error": "CRM read failed: %s: %s" % (type(e).__name__, str(e)[:160])}
+    finally:
+        with _fu_lock:
+            # an error is kept only a minute, so the next poll tries again
+            _fu_cache[key] = {"at": time.time() - (_FU_TTL - 60 if by is None else 0), "by": by, "meta": meta}
+            _fu_inflight.pop(key, None)
+    return by, meta
+
+
+def _followups_for(names, start_iso, end_iso):
+    """(by, meta) for these names; by is None while the first read is in flight."""
+    names = sorted({n for n in names if n})
+    key = (start_iso, end_iso, tuple(names))
+    now = time.time()
+    with _fu_lock:
+        hit = _fu_cache.get(key)
+        fresh = bool(hit and now - hit["at"] < _FU_TTL)
+        started = _fu_inflight.get(key)
+        start_read = not fresh and (started is None or now - started > _FU_STUCK)
+        if start_read:
+            _fu_inflight[key] = now
+    if fresh:
+        return hit["by"], dict(hit["meta"], cached=True)
+    if start_read and not _FU_ASYNC:
+        return _followups_read(key, names, start_iso, end_iso)
+    if start_read:
+        threading.Thread(target=_followups_read, args=(key, names, start_iso, end_iso),
+                         name="followups", daemon=True).start()
+    if hit and hit["by"] is not None:
+        return hit["by"], dict(hit["meta"], cached=True, stale=True)
+    return None, dict((hit or {}).get("meta") or {}, loading=True)
+
+
+@app.route("/api/v5/followups")
+def api_v5_followups():
+    """Each sales rep's scheduled Zoho follow-up calls in the window -- done,
+    overdue, still to come (zoho_client.follow_up_breakdown) -- for the
+    follow-up progress bar on the sales boards (Danny,
+    2026-10-19: "Add a follow up tracker to track scheduled calls assigned to
+    each coordinator on the sales trackers in a progress bar format like the
+    others"). Counts only. Same gate as /api/v5/report, plus the /teams key."""
+    if not (_v5_allowed() or _teams_token_ok()):
+        return jsonify({"error": "unauthorized"}), 401
+    tz_param = request.args.get("tz")
+    _off = int(tz_param) if tz_param is not None else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
+    date_start = (request.args.get("start") or local_today)[:10]
+    date_end = (request.args.get("end") or date_start)[:10]
+    if not (re.match(r"^\d{4}-\d{2}-\d{2}$", date_start) and re.match(r"^\d{4}-\d{2}-\d{2}$", date_end)):
+        return jsonify({"error": "bad_date"}), 400
+    east = -_off
+    tz = "%s%02d:%02d" % ("+" if east >= 0 else "-", abs(east) // 60, abs(east) % 60)
+    # The page's own rows plus both declared sales rosters, so /v5 and /teams
+    # usually ask for the same set and share one read.
+    asked = [n.strip() for n in (request.args.get("names") or "").split("|") if n.strip()][:60]
+    names = sorted(set(asked) | {x["name"] for x in _TEAM_ROSTERS["sales"]}
+                   | {x["name"] for x in _TEAM_ROSTERS["ringex"]})
+    by, meta = _followups_for(names, "%sT00:00:00%s" % (date_start, tz), "%sT23:59:59%s" % (date_end, tz))
+    meta = meta or {}
+    return jsonify({"window": {"start": date_start, "end": date_end},
+                    "by": {n: (by or {}).get(n) for n in names} if by is not None else {},
+                    "loading": by is None and not meta.get("error"),
+                    "not_crm_users": meta.get("not_crm_users") or [],
+                    "stale": bool(meta.get("stale")), "error": meta.get("error")})
+
+
 def _v5_activities_created(start_iso, end_iso, agent_names=None):
     """Per agent, CRM activities they CREATED inside the report's own window.
 

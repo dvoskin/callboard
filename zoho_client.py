@@ -3250,6 +3250,116 @@ class ZohoClient:
             if _uid(r): _slot(_uid(r))["tasks"]["completed"] += 1
         return out
 
+    # A call the phone system LOGGED, not one somebody scheduled: RingCX writes
+    # "Outbound call ..." / "Inbound call ...", the RingEX app "Outgoing call
+    # ..." / "Incoming call ...". Read 2026-10-19 on the sales floor's day:
+    # 1,148 "Outbound call" + 150 "Outgoing call" rows, every one Completed --
+    # counted as follow-ups they would read as 1,300 done follow-ups.
+    _LOGGED_CALL = re.compile(r"^\s*(outbound|outgoing|inbound|incoming|missed)\s+call\b", re.I)
+
+    def follow_up_breakdown(self, start_iso: str, end_iso: str, owner_ids: list, now=None) -> dict:
+        """Each owner's scheduled follow-up calls whose time falls in the
+        window (Danny, 2026-10-19: "Add a follow up tracker to track scheduled
+        calls assigned to each coordinator on the sales trackers").
+
+        A follow-up is an Outbound call that was SCHEDULED -- "Scheduled Call :
+        Automated Follow Up ...", "Scheduled Call : Quote Follow Up ...", "Call
+        scheduled with ..." -- not one the phone system logged (_LOGGED_CALL).
+
+          done       Completed in Zoho (marked), or still open in Zoho but the
+                     owner dialed the same deal or contact after it was made
+                     and no earlier than 30 minutes before its time (called)
+          overdue    its time has passed and it is not done
+          upcoming   its time has not come yet
+          cancelled  Cancelled. Zoho's own automation cancels most of them (a
+                     ladder that stops, a deal that moves); not the owner's
+                     work, so in no other count
+
+        Returns {owner_id: {due, done, marked, called, overdue, upcoming,
+        cancelled}} where due = done + overdue + upcoming. One read of the
+        owners' calls in the window, 2,000 rows a page (the logged dials are
+        needed for "called"). Raises on an HTTP failure.
+        """
+        if not owner_ids:
+            return {}
+        now = now or datetime.now(timezone.utc)
+        rows = []
+        for i in range(0, len(owner_ids), 50):              # COQL `in` takes 50 at most
+            ids = ",".join("'%s'" % str(x) for x in owner_ids[i:i + 50])
+            q = ("select id, Owner, Subject, Call_Type, Outgoing_Call_Status, Call_Start_Time, Created_Time, "
+                 "What_Id, Who_Id from Calls where Owner.id in (%s) and Call_Start_Time between '%s' and '%s'"
+                 % (ids, start_iso, end_iso))
+            offset = 0
+            while offset < 20000:
+                resp = requests.post(f"{self.base_url}/crm/v6/coql", headers=self._headers(),
+                                     json={"select_query": q + " limit 2000 offset %d" % offset}, timeout=30)
+                if resp.status_code == 204:
+                    break
+                if not resp.ok:
+                    raise RuntimeError("CRM COQL returned HTTP %d. %s" % (resp.status_code, (resp.text or "")[:160]))
+                body = resp.json() or {}
+                rows.extend(body.get("data") or [])
+                if not (body.get("info") or {}).get("more_records"):
+                    break
+                offset += 2000
+
+        def _t(v):
+            try:
+                return datetime.fromisoformat(str(v)) if v else None
+            except ValueError:
+                return None
+
+        def _ref(r, f):
+            v = r.get(f)
+            return str(v.get("id") or "") if isinstance(v, dict) else ""
+
+        def _uid(r):
+            o = r.get("Owner") or {}
+            return str(o.get("id") or "") if isinstance(o, dict) else ""
+
+        dials = {}                                          # (owner, record id) -> [dial times]
+        follow = []
+        for r in rows:
+            uid = _uid(r)
+            if not uid or (r.get("Call_Type") or "") != "Outbound":
+                continue
+            if self._LOGGED_CALL.match(r.get("Subject") or ""):
+                at = _t(r.get("Call_Start_Time"))
+                if at:
+                    for f in ("What_Id", "Who_Id"):
+                        if _ref(r, f):
+                            dials.setdefault((uid, _ref(r, f)), []).append(at)
+            else:
+                follow.append(r)
+
+        out = {}
+        for r in follow:
+            uid = _uid(r)
+            c = out.setdefault(uid, {"due": 0, "done": 0, "marked": 0, "called": 0,
+                                     "overdue": 0, "upcoming": 0, "cancelled": 0})
+            st = (r.get("Outgoing_Call_Status") or "").strip().lower()
+            if st == "cancelled":
+                c["cancelled"] += 1
+                continue
+            c["due"] += 1
+            if st == "completed":
+                c["done"] += 1; c["marked"] += 1
+                continue
+            due, made = _t(r.get("Call_Start_Time")), _t(r.get("Created_Time"))
+            hit = False
+            if due:
+                for f in ("What_Id", "Who_Id"):
+                    for at in dials.get((uid, _ref(r, f)), ()):
+                        if at >= due - timedelta(minutes=30) and (not made or at >= made + timedelta(minutes=2)):
+                            hit = True
+            if hit:
+                c["done"] += 1; c["called"] += 1
+            elif st == "overdue" or (due and due <= now):
+                c["overdue"] += 1
+            else:
+                c["upcoming"] += 1
+        return out
+
     # Lab / medical-clearance values that mean "still open". A blank is NOT
     # counted: on most Journeys MC Status was never set, and a blank cannot be
     # told from "not needed". Only an explicit pending value is a finding.

@@ -51,6 +51,9 @@
   // the sales call board". Fetched beside the report, never in its way: the
   // line under a name appears when the texts land and is repainted in place.
   var SMS = null, SMS_KEY = '', SMS_TRIES = 0;
+  // Each rep's scheduled Zoho follow-ups (/api/v5/followups), painted in place
+  // like the texts: a hairline under the name, a line in the panel, a summary row.
+  var FU = null, FU_KEY = '', FU_TRIES = 0;
   function smsNorm(n) { return String(n || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim(); }
   function smsFor(name) {
     if (!SMS || !SMS.agents) return null;
@@ -114,7 +117,8 @@
       box.querySelectorAll('.nm[data-name]').forEach(function (el) {
         var old = el.querySelector('.press'); if (old) old.remove();
         var html = pressLine(el.getAttribute('data-name'));
-        if (html) el.insertAdjacentHTML('beforeend', html);
+        var bar = el.querySelector('.prog.fu');
+        if (html) { if (bar) bar.insertAdjacentHTML('beforebegin', html); else el.insertAdjacentHTML('beforeend', html); }
       });
       // the full texts line lives in the panel
       box.querySelectorAll('.dsms[data-name]').forEach(function (el) {
@@ -173,6 +177,60 @@
       .catch(function () {});
   }
 
+  function fuState(name) {
+    if (!FU) return 'loading';
+    if ((FU.not_crm_users || []).indexOf(name) !== -1) return 'not_crm';
+    return FU.error ? 'error' : 'loading';
+  }
+  function fuPaint() {
+    if (!window.TB) return;
+    var by = (FU && FU.by) || {};
+    [$('out'), $('exout')].forEach(function (box) {
+      if (!box) return;
+      var names = [];
+      box.querySelectorAll('.nm[data-name]').forEach(function (el) {
+        var n = el.getAttribute('data-name'); names.push(n);
+        var old = el.querySelector('.prog.fu'); if (old) old.remove();
+        var html = TB.fuBar(by[n]);
+        if (html) el.insertAdjacentHTML('beforeend', html);
+      });
+      box.querySelectorAll('.dfu[data-name]').forEach(function (el) {
+        var n = el.getAttribute('data-name');
+        el.innerHTML = TB.fuLine(by[n], fuState(n));
+      });
+      // the team's line in its own summary
+      var sum = box.querySelector('.sum'), line = FU ? TB.fuSum(by, names) : '';
+      if (!sum) return;
+      var row = sum.querySelector('.srow.fu-sum');
+      if (!line) { if (row) row.remove(); return; }
+      if (!row) {
+        sum.insertAdjacentHTML('beforeend', '<div class="srow fu-sum" title="Scheduled follow-up calls in Zoho whose time has come, and the ones still to come">' +
+                                            '<span class="sl">Follow-ups</span><span class="sv"></span></div>');
+        row = sum.querySelector('.srow.fu-sum');
+      }
+      row.querySelector('.sv').innerHTML = line.replace(/<\/b> /g, '</b>\u00a0');
+    });
+  }
+  function loadFu(q) {
+    var key = q.toString();
+    if (key !== FU_KEY) { FU = null; FU_KEY = key; FU_TRIES = 0; }
+    var names = [];
+    [$('out'), $('exout')].forEach(function (box) {
+      if (box) box.querySelectorAll('.nm[data-name]').forEach(function (el) { names.push(el.getAttribute('data-name')); });
+    });
+    fetch('/api/v5/followups?' + key + (names.length ? '&names=' + encodeURIComponent(names.join('|')) : ''), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || key !== FU_KEY) return;
+        if (j.loading) {
+          if (++FU_TRIES <= 15) setTimeout(function () { if (key === FU_KEY) loadFu(q); }, 8000);
+          return;
+        }
+        FU = j; fuPaint();
+      })
+      .catch(function () {});
+  }
+
   // The nine reps who dial from RingEX (/api/v5/ringex), as a second board in
   // the same design under the roster. Danny, 2026-10-16: "Add a new board below
   // the current roster for the 9 new RingEX reps on the sales page".
@@ -193,7 +251,8 @@
           key: 'rx', label: 'Sales Training Class', href: '',   // it lives on this page
           press: function (a) { AG[a.name] = a; return pressLine(a.name); },
           panelExtra: function (a) {
-            return [['Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>']];
+            return [['Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>'],
+                    ['Follow-ups', '<span class="dfu" data-name="' + esc(a.name) + '">' + TB.fuLine((FU && FU.by || {})[a.name], fuState(a.name)) + '</span>']];
           },
           note: 'The training class dials from RingEX (the roster above is RingCX). ' +
                 '\u25B2\u25BC compare with the class\u2019s own median rep.'
@@ -201,6 +260,7 @@
         EX_MODEL = model;
         TB.render(box, model);
         smsPaint();
+        fuPaint();
         var bm = (res.j.meta || {}).books;
         if (bm && bm.loading) setTimeout(function () { if (key === EX_KEY) loadEx(q); }, 10000);
       })
@@ -338,6 +398,7 @@
              (a.dnc ? cell2('Do not call', '<span class="hot">' + w(a.dnc) + '</span>') : '') +
              cell2('Over 10 min', w(a.over_10 || 0), !a.over_10) +
              cell2('Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>') +
+             cell2('Follow-ups', '<span class="dfu" data-name="' + esc(a.name) + '">' + (window.TB ? TB.fuLine((FU && FU.by || {})[a.name], fuState(a.name)) : '\u2014') + '</span>') +
              '<span class="rule"></span>' +
              // Quotes sent is in the row now; the panel keeps what the row does not.
              cell2('Quotes invoiced', booksHas('quotes_sent') ? w(bk.quotes_invoiced || 0) : '\u2014',
@@ -435,6 +496,7 @@
              '</div>';
       });
     }
+    if (window.TB) nNotes++, notes += '<p class="note">' + TB.FU_NOTE + '</p>';
     nNotes++, notes += '<p class="note">Both phone systems combined, no call counted twice. Talk time only — ' +
          'wrap and admin excluded. Shift length isn’t in the data, so a half day sits beside a full one.</p>';
     h += '<details class="notes" id="datanotes"><summary>Data notes' + (nNotes ? ' (' + nNotes + ')' : '') + '</summary>' + notes + '</details>';
@@ -572,6 +634,8 @@
         render(res.j);
         smsPaint();            // what is already known, at once
         loadSms(q);            // and the window's own texts, when they land
+        loadFu(q);             // each rep's scheduled follow-ups in Zoho (forgets another window's at once)
+        fuPaint();
         loadEx(q);             // the RingEX reps' board under the roster
         // Books is fetched in the background, so the first load of a day usually
         // lands before it has. Waiting out the five-minute timer left Quotes and

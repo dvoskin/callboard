@@ -82,7 +82,7 @@ ck("the summary is one labelled block: Floor, Sent, Calls, Texts",
    and "id=\"smsrow\" hidden><span class=\"sl\">Texts</span>" in tpl and ".sum .srow{display:grid;grid-template-columns:44px minmax(0,1fr)" in tpl, "summary")
 ck("big totals are written 3,095 not 3095", "function fmt(n) { return Math.round(n || 0).toLocaleString('en-US'); }" in tpl, "fmt")
 ck("data notes fold under one line, and the texts table sits above them",
-   "<details class=\"notes\" id=\"datanotes\"><summary>Data notes'" in tpl and tpl.count("nNotes++, notes += '") == 4
+   "<details class=\"notes\" id=\"datanotes\"><summary>Data notes'" in tpl and tpl.count("nNotes++, notes += '") == 5   # the fifth: follow-ups, 2026-10-19
    and "(dn ? dn : $('out')).insertAdjacentHTML(dn ? 'beforebegin' : 'beforeend'" in tpl, "notes")
 ck("a stale or stopped report still warns in the open", "if (x.kind === 'report_stale') h += '<div class=\"warn\">'" in tpl, "stale warn")
 
