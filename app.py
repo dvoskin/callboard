@@ -1366,7 +1366,10 @@ _SMS_EXTRA_SEATS = {
 # "remove Roberto Castillo from the new reps board"). His extension stays in
 # _SMS_EXTRA_SEATS so the STOP scan still reads it. Shown as the sales
 # TRAINING CLASS ("make new sales show as training class for sales").
-_RINGEX_OFF_BOARD = {"Roberto Castillo"}
+# Howard Salmon and Javier Perez off too (Danny, 2026-10-19: "remove Howard
+# and Javier from the sales training class rosters"); their lines stay in
+# the STOP scan like Roberto's.
+_RINGEX_OFF_BOARD = {"Roberto Castillo", "Howard Salmon", "Javier Perez"}
 _TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True, cache_only_today=True) for s in _SMS_EXTRA_SEATS["sales"]
                            if s["name"] not in _RINGEX_OFF_BOARD]
 TEAM_LABELS["ringex"] = "Sales Training Class"
