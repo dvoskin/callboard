@@ -195,9 +195,9 @@ finally:
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 src = open(os.path.join(HERE, "app.py"), encoding="utf-8").read()
-ck("the loop is registered, waits a minute after start, and yields to billing",
+ck("the loop is registered, waits a minute after start, and stands down in a RingEX cooldown -- not on billing's stale test, true all night",
    '("loop:company", lambda: _company_loop())' in src and "def _company_loop():\n    time.sleep(60)" in src
-   and "if _ringex_should_yield(today):\n                _co_state[\"yielded\"] += 1" in src, "loop")
+   and "if _ringcx.rate_limited():\n                _co_state[\"yielded\"] += 1" in src, "loop")
 ck("every v6 report is built with the feed and says how far it reaches",
    "sms_by_agent=sms_by_agent, company_rows=company_rows," in src and 'report["company_feed"] = company_feed' in src, "wired")
 

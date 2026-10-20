@@ -5205,7 +5205,7 @@ def _ringex_warm_loop():
 # ACCOUNT call log in small slices -- the minutes since the last read, about
 # one request every 5 minutes; a cold day is filled in 90-minute slices -- and
 # keeps only time, direction, result, the outside number and our side's name,
-# on disk per day. It yields to billing like the training-class loop.
+# on disk per day. It stands down while RingEX is refusing (shared cooldown).
 _CO_DIR = V6_SNAP_DIR / "_company"
 _CO_POLL = 300.0
 _CO_SLICE = timedelta(minutes=90)
@@ -5308,7 +5308,12 @@ def _company_loop():
                 continue
             tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
-            if _ringex_should_yield(today):
+            # Only a real refusal stops it. Billing's "a seat is stale" test
+            # (the training-class loop's) is true all night, when no biller
+            # is reading -- it held a cold day's fill to one slice in 7 min.
+            # Steady state is one request per 5 minutes; a cold fill runs
+            # once per day and per lost disk.
+            if _ringcx.rate_limited():
                 _co_state["yielded"] += 1
             else:
                 _co_tick(today, tz_off)
