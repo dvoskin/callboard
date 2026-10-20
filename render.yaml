@@ -58,6 +58,20 @@ services:
       # the "Distributed by Bot" card renders an explanation instead of data.
       - key: BACKOFFICE_URL
         sync: false
+      # ── My Day (/my-day, build plan step 21) ──
+      # Result buttons POST to $BACKOFFICE_URL/api/call-outcome with OVERDUE_API_KEY
+      # (proxied, the key never reaches a browser). Until that endpoint is live the
+      # page says "Results are coming soon".
+      # Google emails that may open any rep's page (comma-separated). The admin
+      # password session is always a manager.
+      - key: MY_DAY_MANAGERS
+        sync: false
+      # Zoho user ids that hold unassigned new leads (the queue). Set it to show
+      # the shared "call now" list; the first rep to tap Call claims a lead.
+      - key: MY_DAY_QUEUE_OWNER_IDS
+        sync: false
+      - key: MY_DAY_TZ
+        value: America/New_York
       # ── RingCentral (RingEX) — required by the /v6 billing KPI board ──
       # Without all three of these /api/v6/report returns 503 and says so; it does
       # NOT render an empty board, because an empty board and a quiet phone look

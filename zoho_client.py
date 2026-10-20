@@ -3710,3 +3710,150 @@ class ZohoClient:
             })
         return out
 
+
+    # ------------------------------------------------------------ My Day
+    # Build plan step 21. Everything the /my-day page needs for one rep, in a
+    # handful of COQL reads (no RingCentral): the rep's open calls, today's
+    # calls, fresh deals, and the calls on those deals for history. my_day.py
+    # turns the rows into the page.
+
+    _MD_CALL_FIELDS = ("id, Subject, Call_Type, Outgoing_Call_Status, Call_Start_Time, "
+                       "Call_Duration_in_seconds, Call_Result, Outgoing_call_disposition, "
+                       "DialerDisposition, Description, What_Id, Who_Id, Owner, Created_Time")
+    _MD_DEAL_FIELDS = ("id, Deal_Name, Contact_Name, Phone, Stage, Amount, Lead_Source, Language, "
+                       "Timezone, Created_Time, Procedure, Location, Quote_Sent_Date, Owner")
+
+    def _coql_all(self, query: str, page: int = 200, cap: int = 4000) -> list:
+        """Every row of a COQL query, paged. Raises on an HTTP failure: a page
+        that silently shows nobody reads as a rep with nothing to do."""
+        out, offset = [], 0
+        while offset < cap:
+            resp = requests.post(f"{self.base_url}/crm/v6/coql", headers=self._headers(),
+                                 json={"select_query": query + " limit %d offset %d" % (page, offset)},
+                                 timeout=25)
+            if resp.status_code == 204:
+                break
+            if not resp.ok:
+                raise RuntimeError("CRM COQL returned HTTP %d. %s"
+                                   % (resp.status_code, (resp.text or "")[:160]))
+            body = resp.json() or {}
+            out.extend(body.get("data") or [])
+            if not (body.get("info") or {}).get("more_records"):
+                break
+            offset += page
+        return out
+
+    def list_users_detail(self) -> list:
+        """CRM users with their email, for matching a Google sign-in to a Zoho
+        user id. [{id, name, email}]. Raises on failure.
+
+        The users API needs ZohoCRM.users.READ, which this app's token does not
+        always carry (OAUTH_SCOPE_MISMATCH on 2026-10-20). COQL can still read a
+        record owner's id, names and email, so without the scope the list is
+        everyone who owned a call in the last 30 days."""
+        resp = requests.get(f"{self.base_url}/crm/v6/users", headers=self._headers(),
+                            params={"type": "ActiveUsers", "per_page": 200}, timeout=20)
+        if resp.ok:
+            out = []
+            for u in (resp.json().get("users") or []):
+                uid = str(u.get("id") or "")
+                name = (u.get("full_name")
+                        or " ".join(x for x in (u.get("first_name"), u.get("last_name")) if x) or "").strip()
+                if uid:
+                    out.append({"id": uid, "name": name, "email": (u.get("email") or "").strip().lower()})
+            return out
+        if resp.status_code not in (401, 403):
+            raise RuntimeError("CRM users returned HTTP %d." % resp.status_code)
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        rows = self._coql_all(
+            "select Owner.id, Owner.first_name, Owner.last_name, Owner.email, COUNT(id) from Calls "
+            f"where Call_Start_Time >= '{since}' group by Owner.id, Owner.first_name, Owner.last_name, "
+            "Owner.email", cap=1000)
+        out = []
+        for r in rows:
+            uid = str(r.get("Owner.id") or "")
+            name = " ".join(x for x in (r.get("Owner.first_name"), r.get("Owner.last_name")) if x).strip()
+            if uid:
+                out.append({"id": uid, "name": name, "email": (r.get("Owner.email") or "").strip().lower()})
+        return out
+
+    @staticmethod
+    def _md_iso(dt) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%S") + (dt.strftime("%z")[:3] + ":" + dt.strftime("%z")[3:]
+                                                    if dt.utcoffset() is not None else "+00:00")
+
+    def my_day_world(self, owner_id: str, day_start, day_end, late_from, new_from, hist_from,
+                     queue_owner_ids=()) -> dict:
+        """Raw rows for one rep's My Day. All datetimes aware; sent with their
+        offset. COQL here rejects three bare ANDs, so conditions nest in pairs."""
+        uid = str(owner_id).replace("'", "")
+        F, D, iso = self._MD_CALL_FIELDS, self._MD_DEAL_FIELDS, self._md_iso
+        calls_open = self._coql_all(
+            f"select {F} from Calls where ((Owner.id = '{uid}' and Outgoing_Call_Status in "
+            f"('Scheduled','Overdue')) and Call_Start_Time between '{iso(late_from)}' and '{iso(day_end)}')",
+            cap=2000)
+        calls_today = self._coql_all(
+            f"select {F} from Calls where (Owner.id = '{uid}' and Call_Start_Time between "
+            f"'{iso(day_start)}' and '{iso(day_end)}')", cap=2000)
+        deals_new = self._coql_all(
+            f"select {D} from Deals where (Owner.id = '{uid}' and Created_Time >= '{iso(new_from)}')", cap=600)
+        deals_queue = []
+        q_ids = [str(q).replace("'", "") for q in (queue_owner_ids or ()) if str(q).strip()]
+        if q_ids:
+            ids = ",".join("'%s'" % q for q in q_ids[:50])
+            deals_queue = self._coql_all(
+                f"select {D} from Deals where (Owner.id in ({ids}) and Created_Time >= '{iso(new_from)}')", cap=600)
+
+        deals = {str(d.get("id")): d for d in deals_new + deals_queue if d.get("id")}
+        want = set()
+        contact_only = set()
+        for c in calls_open + calls_today:
+            w = c.get("What_Id")
+            did = str(w.get("id") or "") if isinstance(w, dict) else ""
+            if did:
+                want.add(did)
+            else:
+                who = c.get("Who_Id")
+                if isinstance(who, dict) and who.get("id"):
+                    contact_only.add(str(who["id"]))
+        missing = sorted(want - set(deals))
+        for i in range(0, len(missing), 50):
+            ids = ",".join("'%s'" % x for x in missing[i:i + 50])
+            for d in self._coql_all(f"select {D} from Deals where id in ({ids})", cap=400):
+                deals[str(d.get("id"))] = d
+        all_ids = sorted(set(deals))
+        deal_calls = []
+        for i in range(0, len(all_ids), 50):
+            ids = ",".join("'%s'" % x for x in all_ids[i:i + 50])
+            deal_calls.extend(self._coql_all(
+                f"select {F} from Calls where (What_Id in ({ids}) and Call_Start_Time >= '{iso(hist_from)}')",
+                page=2000, cap=6000))
+        contacts = {}
+        cids = sorted(contact_only)
+        for i in range(0, len(cids), 50):
+            ids = ",".join("'%s'" % x for x in cids[i:i + 50])
+            for ct in self._coql_all(f"select id, First_Name, Last_Name, Phone, Mobile from Contacts "
+                                     f"where id in ({ids})", cap=400):
+                contacts[str(ct.get("id"))] = ct
+        return {"calls_open": calls_open, "calls_today": calls_today, "deals_new": deals_new,
+                "deals_queue": deals_queue, "deals": deals, "deal_calls": deal_calls,
+                "contacts": contacts}
+
+    def my_day_busy(self, owner_id: str, start, end) -> list:
+        """The rep's booked calls and meetings in [start, end], for the time
+        picker. The automated follow-up ladder is left out: Zoho books it on
+        the hour by the hundred and it does not make the rep busy."""
+        uid = str(owner_id).replace("'", "")
+        iso = self._md_iso
+        rows = self._coql_all(
+            f"select id, Subject, Call_Start_Time, Call_Duration_in_seconds from Calls where "
+            f"((Owner.id = '{uid}' and Outgoing_Call_Status = 'Scheduled') and Call_Start_Time between "
+            f"'{iso(start)}' and '{iso(end)}')", cap=2000)
+        rows = [r for r in rows if "automated follow up" not in (r.get("Subject") or "").lower()]
+        try:
+            rows += self._coql_all(
+                f"select id, Event_Title, Start_DateTime, End_DateTime from Events where "
+                f"(Owner.id = '{uid}' and Start_DateTime between '{iso(start)}' and '{iso(end)}')", cap=400)
+        except RuntimeError:
+            pass                    # Events may not be readable on this token; calls still count
+        return rows
