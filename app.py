@@ -2201,7 +2201,8 @@ def _v6_build(date_start, date_end, tz_offset_minutes, local_today, team=DEFAULT
 # than on its team's curve, and the shift is shown on its row. Someone not here
 # is paced on the team curve as before -- no shift is not a 24-hour shift.
 SHIFTS = {
-    "Ana Castro":         {"start": "08:00", "end": "17:00", "off": ["sat", "sun"]},
+    # Ana Castro was here (08:00-17:00, off Sat/Sun). Her CRM user was disabled
+    # on 2026-10-07; Danny, 2026-10-19: "remove ana castro from the rotation".
     "Vivian Martinez":    {"start": "08:00", "end": "18:00", "off": ["sun"]},
     "Ana Salazar":        {"start": "10:00", "end": "19:00", "off": ["sat"]},
     "Yareth Pavon":       {"start": "10:00", "end": "19:00", "off": ["sat", "sun"]},
@@ -3323,6 +3324,628 @@ def _dnc_loop():
         time.sleep(900)
 
 
+# ---- Paid retainers, honored in the CRM ----------------------------------
+# Danny, 2026-10-19: "Fix them all fully" / "Make sure it doesn't happen again
+# too". Every fifteen minutes, three checks (paid_guard.py has the why):
+#   - each Books retainer payment of the last week, against the deal whose
+#     Retainer_Invoice_URL names it -- the payment Books never told the CRM about
+#   - each "Merged duplicate:" note of the last three days -- a paid deal the
+#     dedup deleted into a bare new one
+#   - each paid deal put on Unsubscribe in the last three days -- a STOP reply
+#   - each paid deal in Payment Received with no working coordinator after 30
+#     minutes -- the round robin still held a disabled user (Ana Castro)
+#   - one intro text per paid patient from their coordinator's own line, once
+#     PAID_GUARD_INTRO_SENDERS names the lines that are set up in SMS Outbox;
+#     each line's first of the day goes as a SAMPLE to PAID_GUARD_INTRO_SAMPLE_TO
+#     first
+# The fix is the write paymentmadeupdatedeal makes, sent WITH workflows, so the
+# coordinator is assigned as on any payment; a note on the deal says what was
+# done. Anything unclear goes to the review list on /api/v6/paid-guard.
+# PAID_GUARD_WRITE=0 or ?arm=0 stops the writes.
+import paid_guard as _paid_mod
+_PAID_FILE = _data_dir / "paid_guard.json"
+_paid = _paid_mod.Store(_PAID_FILE)
+_paid_state = {"runs": 0, "running": False}
+_paid_lock = threading.Lock()
+
+
+def _paid_deals(where, page=200):
+    return _dnc_coql_all(f"select {_paid_mod.DEAL_FIELDS} from Deals where {where}", page=page)
+
+
+def _paid_handled(deal, since):
+    """(handled, by_name) for paid_guard: is a coordinator already on this
+    deal's patient for a payment made at `since`?"""
+    if not deal:
+        return False, False
+    cid = _paid_mod._id(deal.get("Contact_Name"))
+    deals = _paid_deals(f"Contact_Name.id = '{cid}'") if cid else []
+    ids = sorted({d["id"] for d in deals} | {deal["id"]})[:50]
+    where = "Deal in (%s)" % ",".join(ids)
+    if cid:
+        where = f"(Contact = {cid} or {where})"
+    journeys = _dnc_coql_all(f"select {_paid_mod.JOURNEY_FIELDS} from Journeys where {where}", page=200)
+    if _paid_mod.handled([cid], deals, journeys, since, exclude_deal=deal["id"]):
+        return True, False
+    name = str((deal.get("Contact_Name") or {}).get("name") or "")
+    # Searched by the longest word, quote-free (O'Neal needs no escaping, and a
+    # Journey can be "Last First"); same_name then compares the whole name.
+    part = max(re.split(r"[\s,']+", name), key=len)
+    if len(part) < 3:
+        return False, False
+    journeys = _dnc_coql_all(f"select {_paid_mod.JOURNEY_FIELDS} from Journeys where Name like '%{part}%'", page=200)
+    return False, _paid_mod.same_name(journeys, name, since)
+
+
+def _paid_deal(deal_id):
+    rows = _paid_deals(f"id = '{deal_id}'", page=5) if deal_id else []
+    return rows[0] if rows else None
+
+
+def _paid_merge_notes(where, page=200):
+    return _dnc_coql_all("select id, Note_Title, Note_Content, Parent_Id, Created_Time from Notes "
+                         f"where (Note_Title like 'Merged duplicate:%' and {where})", page=page)
+
+
+def _paid_apply(key, dec, write, now_iso, tot):
+    """Write one decision (when writing), record it, count it."""
+    ok = None
+    if write and dec["result"] == "send":
+        # The coordinator's intro text: a row in SMS Outbox, sent WITH workflows
+        # so "SMS Outbox - send" hands it to that coordinator's HelloSend line.
+        try:
+            r = requests.post(f"{_zoho.base_url}/crm/v6/SMS_Outbox",
+                              headers={**_zoho._headers(), "Content-Type": "application/json"},
+                              json={"data": [dec["outbox"]], "trigger": ["workflow"]}, timeout=30)
+            row = ((r.json() if r.content else {}).get("data") or [{}])[0]
+            ok = bool(r.ok and row.get("code") == "SUCCESS")
+            if not ok:
+                tot["errors"].append({"key": key, "deal": dec["deal"],
+                                      "error": "outbox HTTP %d %s" % (r.status_code, row.get("code") or "")})
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            tot["errors"].append({"key": key, "deal": dec["deal"], "error": "outbox %s: %s" % (type(e).__name__, str(e)[:120])})
+    elif write and dec["result"] in ("fix", "flag"):
+        try:
+            res = _dnc_put("Deals", [dict(dec["write"], id=dec["deal"])], dec["trigger"])
+            ok = bool(res and res[0][1])
+            if not ok:
+                tot["errors"].append({"key": key, "deal": dec["deal"], "error": (res[0][2] if res else "no answer")})
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            tot["errors"].append({"key": key, "deal": dec["deal"], "error": "%s: %s" % (type(e).__name__, str(e)[:160])})
+        if ok and dec.get("task"):
+            # The intro call the coordinator works from (paid_guard.decide_owner).
+            try:
+                r = requests.post(f"{_zoho.base_url}/crm/v6/Tasks",
+                                  headers={**_zoho._headers(), "Content-Type": "application/json"},
+                                  json={"data": [dec["task"]], "trigger": []}, timeout=30)
+                if not r.ok:
+                    tot["errors"].append({"key": key, "deal": dec["deal"], "error": "task HTTP %d" % r.status_code})
+            except Exception as e:  # noqa: BLE001
+                tot["errors"].append({"key": key, "deal": dec["deal"], "error": "task %s: %s" % (type(e).__name__, str(e)[:120])})
+    if ok and dec.get("note"):
+        try:
+            requests.post(f"{_zoho.base_url}/crm/v6/Deals/{dec['deal']}/Notes",
+                          headers={**_zoho._headers(), "Content-Type": "application/json"},
+                          json={"data": [{"Note_Title": "Paid retainer check", "Note_Content": dec["note"]}]},
+                          timeout=30)
+        except Exception as e:  # noqa: BLE001
+            log.warning("paid guard: note on %s failed: %s", dec["deal"], e)
+    if write:
+        _paid.record(key, dec, ok, now_iso)
+    res = dec["result"] if dec["result"] != "review" else "review: " + dec["reason"]
+    if ok is not None:
+        res = {"fix": "fixed", "flag": "flagged", "send": "sent"}[dec["result"]] if ok else "error"
+    tot["summary"][res] = tot["summary"].get(res, 0) + 1
+    if dec["result"] in ("fix", "flag", "review", "send"):
+        tot["decisions"].append({"key": key, "result": dec["result"], "reason": dec["reason"], "deal": dec["deal"],
+                                 "old": dec.get("old"), "fields": sorted(dec["write"]), "ok": ok})
+    return ok
+
+
+def _paid_payments(a, b, now, write, now_iso, tot):
+    pays = [p for p in _books.list_customer_payments(a, b) if _paid_mod.is_retainer_payment(p)]
+    pending = [p for p in pays if not _paid.settled("pay:%s" % p["payment_id"])]
+    tot["checked"]["payments"] = len(pays)
+    tot["checked"]["payments_pending"] = len(pending)
+    for p in sorted(pending, key=lambda p: p.get("created_time") or ""):
+        dec = _paid_mod._gate(p, now)
+        if not dec:
+            dec = _paid_payment(p, now)
+        _paid_apply("pay:%s" % p["payment_id"], dec, write, now_iso, tot)
+
+
+def _paid_payment(p, now):
+    """The deal whose Retainer_Invoice_URL names this retainer; else the
+    "Merged duplicate:" note that does; else review, with the Books customer's
+    latest deal shown to the person."""
+    rid = "".join(ch for ch in str(p["retainerinvoice_id"]) if ch.isdigit())
+    at = _paid_mod.paid_at(p)
+    deal, why = _paid_mod.pick_deal(_paid_deals(f"Retainer_Invoice_URL like '%retainerinvoices/{rid}%'"))
+    if why:
+        return _paid_mod._decision("review", why)
+    if deal:
+        h, by_name = _paid_handled(deal, at) if deal.get("Stage") not in _paid_mod.PAID_STAGES else (False, False)
+        return _paid_mod.hold_for_name(_paid_mod.decide_payment(p, deal, h, now), by_name)
+    notes = sorted(_paid_merge_notes(f"Note_Content like '%retainerinvoices/{rid}%'", page=20),
+                   key=lambda n: n.get("Created_Time") or "", reverse=True)
+    if notes:
+        survivor = _paid_deal(_paid_mod._id(notes[0].get("Parent_Id")))
+        h, by_name = _paid_handled(survivor, at)
+        dec = _paid_mod.decide_payment_merged(p, _paid_mod.parse_snapshot(notes[0].get("Note_Content")), survivor,
+                                              h, now)
+        return _paid_mod.hold_for_name(dec, by_name)
+    cust = "".join(ch for ch in str(p.get("customer_id") or "") if ch.isdigit())
+    cand = _paid_deals(f"Zoho_Books_Customer_ID = '{cust}'", page=20) if cust else []
+    cand.sort(key=lambda d: d.get("Modified_Time") or "", reverse=True)
+    return _paid_mod.decide_payment(p, None, False, now, candidate=cand[0]["id"] if cand else None)
+
+
+def _paid_merges(a, b, zone, now, write, now_iso, tot):
+    heads = _dnc_coql_all("select id, Parent_Id, Created_Time from Notes where (Note_Title like 'Merged duplicate:%' "
+                          f"and Created_Time between '{a}T00:00:00{zone}' and '{b}T23:59:59{zone}')")
+    pending = [n for n in heads if not _paid.settled("merge:%s" % n["id"])]
+    tot["checked"]["merges"] = len(heads)
+    tot["checked"]["merges_pending"] = len(pending)
+    for i in range(0, len(pending), 50):
+        notes = _paid_merge_notes("id in (%s)" % ",".join(n["id"] for n in pending[i:i + 50]), page=50)
+        for n in sorted(notes, key=lambda n: n.get("Created_Time") or ""):
+            snap = _paid_mod.parse_snapshot(n.get("Note_Content"))
+            # Without a survivor decide_merge settles every merge that needs
+            # none (most of them: the deleted deal was not paid) -- no look-up.
+            dec = _paid_mod.decide_merge(snap, None, False, now)
+            if dec["result"] == "review":
+                survivor = _paid_deal(_paid_mod._id(n.get("Parent_Id")))
+                h, by_name = _paid_handled(survivor, _paid_mod._t(snap.get("Retainer_Paid_Date")))
+                dec = _paid_mod.hold_for_name(_paid_mod.decide_merge(snap, survivor, h, now), by_name)
+            _paid_apply("merge:%s" % n["id"], dec, write, now_iso, tot)
+
+
+def _paid_unsubs(a, zone, now, write, now_iso, tot):
+    rows = _paid_deals(f"((Retainer_Paid = true and Stage = '{_paid_mod.UNSUB}') and "
+                       f"Modified_Time >= '{a}T00:00:00{zone}')")
+    pending = [d for d in rows if not _paid.settled("unsub:%s" % d["id"])]
+    tot["checked"]["unsubscribed"] = len(rows)
+    tot["checked"]["unsubscribed_pending"] = len(pending)
+    for d in pending:
+        dec = _paid_mod.decide_unsub(d, False, now)
+        if dec["result"] == "fix":
+            h, by_name = _paid_handled(d, _paid_mod._t(d.get("Retainer_Paid_Date")))
+            dec = _paid_mod.hold_for_name(_paid_mod.decide_unsub(d, h, now), by_name)
+        _paid_apply("unsub:%s" % d["id"], dec, write, now_iso, tot)
+
+
+def _paid_owners(now, tz_off, write, now_iso, tot):
+    """Paid deals in Payment Received with no coordinator, or one who is no
+    longer an active CRM user (Ana Castro, Sarahi Rivera). Every such deal,
+    whatever its age: there are only a few dozen in the stage at a time."""
+    rows = _paid_deals(f"(Stage = '{_paid_mod.PAYMENT_RECEIVED}' and Retainer_Paid = true)")
+    load = {}
+    for d in rows:
+        o = _paid_mod._id(d.get("Scheduling_Owner"))
+        if o:
+            load[o] = load.get(o, 0) + 1
+    # Empty when the users could not be read: then only a deal with no
+    # coordinator at all is touched, never one that names somebody.
+    active = set(_zoho.list_users())
+    need = []
+    for d in rows:
+        o = _paid_mod._id(d.get("Scheduling_Owner"))
+        if (not o or (active and o not in active)) and not _paid.settled("owner:%s" % d["id"]):
+            need.append(d)
+    tot["checked"]["no_coordinator"] = len(need)
+    if not need:
+        return
+    schedules = _dnc_coql_all("select id, Name, Team, Active, Staff_User, Start_Hour, End_Hour, Days_Off, "
+                              "Saturday_Hours, Sunday_Hours, Out_From, Out_To from Team_Schedules "
+                              "where Team = 'Coordinator'", page=200)
+    local_now = (now - timedelta(minutes=tz_off)).replace(tzinfo=None)
+    for d in sorted(need, key=lambda d: d.get("Retainer_Paid_Date") or ""):
+        dec = _paid_mod.decide_owner(d, schedules, active, load, local_now, now)
+        _paid_apply("owner:%s" % d["id"], dec, write, now_iso, tot)
+        if dec["result"] == "fix":
+            load[dec["to"]] = load.get(dec["to"], 0) + 1
+
+
+_PAID_INTRO_CAP = 25          # intro texts per pass, at most
+
+
+def _paid_intro_senders(local_now):
+    """Coordinator user id -> (SMS Outbox Sender, on shift now), for the lines
+    that are live.
+
+    PAID_GUARD_INTRO_SENDERS names the senders whose HelloSend line and
+    "SMS Outbox - send" condition exist, as Team Schedules spells them
+    ("Judith,Johana,Ariel Ramirez,Alex,Oscar,Jorge"). Unset: no intro texts."""
+    live = {x.strip() for x in os.environ.get("PAID_GUARD_INTRO_SENDERS", "").split(",") if x.strip()}
+    if not live:
+        return {}
+    out = {}
+    for r in _dnc_coql_all("select id, Team, Active, Staff_User, SMS_Sender_Name, Start_Hour, End_Hour, Days_Off, "
+                           "Saturday_Hours, Sunday_Hours, Out_From, Out_To from Team_Schedules "
+                           "where Team = 'Coordinator'", page=200):
+        uid, name = _paid_mod._id(r.get("Staff_User")), str(r.get("SMS_Sender_Name") or "").strip()
+        if uid and name in live and r.get("Active"):
+            out[uid] = (name, _paid_mod.on_shift(r, local_now))
+    return out
+
+
+def _paid_intros(now, tz_off, write, now_iso, tot):
+    """One intro text per paid patient in Payment Received, from their own
+    coordinator's line (paid_guard.decide_intro). With
+    PAID_GUARD_INTRO_SAMPLE_TO set, each line's first text of the office's day
+    goes to that number first, marked SAMPLE; until the sample goes, that
+    line's patients wait."""
+    senders = _paid_intro_senders((now - timedelta(minutes=tz_off)).replace(tzinfo=None))
+    tot["checked"]["intro_senders"] = len(senders)
+    if not senders:
+        return
+    deals = _paid_deals(f"(Stage = '{_paid_mod.PAYMENT_RECEIVED}' and Retainer_Paid = true)")
+    pending = [d for d in deals if _paid_mod._id(d.get("Scheduling_Owner")) in senders
+               and not _paid.settled("intro:%s" % d["id"])]
+    tot["checked"]["intro_pending"] = len(pending)
+    if not pending:
+        return
+    cids = sorted({c for c in (_paid_mod._id(d.get("Contact_Name")) for d in pending) if c})
+    contacts = {}
+    for i in range(0, len(cids), 50):
+        for c in _dnc_coql_all(f"select {_paid_mod.INTRO_CONTACT_FIELDS} from Contacts where id in ({','.join(cids[i:i + 50])})",
+                               page=50):
+            contacts[c["id"]] = c
+    sample_to = _paid_mod.phone10(os.environ.get("PAID_GUARD_INTRO_SAMPLE_TO"))
+    day = (now - timedelta(minutes=tz_off)).date().isoformat()
+    sampled = {}                      # sender -> the sample went (this pass)
+    sent = 0
+    for d in sorted(pending, key=lambda d: d.get("Retainer_Paid_Date") or ""):
+        sender, on_now = senders[_paid_mod._id(d.get("Scheduling_Owner"))]
+        dec = _paid_mod.decide_intro(d, contacts.get(_paid_mod._id(d.get("Contact_Name"))), sender, now, on_now)
+        if dec["result"] == "send" and sent >= _PAID_INTRO_CAP:
+            dec = _paid_mod._decision("wait", "this pass's cap reached", d["id"])
+        if dec["result"] == "send" and sample_to:
+            key = "intro-sample:%s:%s" % (sender, day)
+            if sender not in sampled:
+                sampled[sender] = _paid.settled(key) or _paid_apply(key, _paid_mod.intro_sample(dec, sample_to),
+                                                                    write, now_iso, tot)
+            if write and not sampled[sender]:
+                dec = _paid_mod._decision("wait", "the sample to the owner did not go", d["id"])
+        _paid_apply("intro:%s" % d["id"], dec, write, now_iso, tot)
+        sent += dec["result"] == "send"
+
+
+def _paid_run(since=None, until=None, days=3, write=None, label="auto"):
+    """One pass of the three checks over the window, skipping what the ledger
+    has settled. write=None: write when armed. Never raises."""
+    if not _paid_lock.acquire(blocking=False):
+        return {"skipped": "a run is in progress"}
+    t0 = time.time()
+    info = {"started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "label": label}
+    _paid_state["running"] = True
+    try:
+        if not (_zoho.refresh_token and _zoho.client_id):
+            raise RuntimeError("no Zoho credentials")
+        a, b, zone, tz_off = _dnc_window(since, until, days)
+        # A payment keyed in late carries its own earlier date: a week back.
+        pa, _, _, _ = _dnc_window(since, until, max(days, 7))
+        armed = os.environ.get("PAID_GUARD_WRITE", "1") != "0" and bool(_paid.data.get("armed"))
+        write = armed if write is None else (bool(write) and armed)
+        info.update({"window": [a, b], "payments_from": pa, "write": bool(write)})
+        now = datetime.now(timezone.utc)
+        now_iso = _optouts_mod.now_iso_local(tz_off)
+        tot = {"checked": {}, "summary": {}, "errors": [], "decisions": []}
+        for name, step in (("payments", lambda: _paid_payments(pa, b, now, write, now_iso, tot)),
+                           ("merges", lambda: _paid_merges(a, b, zone, now, write, now_iso, tot)),
+                           ("unsubscribed", lambda: _paid_unsubs(a, zone, now, write, now_iso, tot)),
+                           ("no_coordinator", lambda: _paid_owners(now, tz_off, write, now_iso, tot)),
+                           ("intro_texts", lambda: _paid_intros(now, tz_off, write, now_iso, tot))):
+            # One check failing (Books down, a COQL refusal) does not stop the others.
+            try:
+                step()
+            except Exception as e:  # noqa: BLE001
+                tot["errors"].append({"step": name, "error": "%s: %s" % (type(e).__name__, str(e)[:200])})
+                log.exception("paid guard %s failed", name)
+            if write:
+                _paid.save()
+            _paid_state["last"] = dict(info, **tot)
+        info.update(tot)
+        info["errors"] = tot["errors"][:40]
+        info["decisions"] = tot["decisions"][:300]
+        _paid.note_run({k: v for k, v in info.items() if k != "decisions"})
+        _paid.save()
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("paid guard run failed")
+        try:
+            _paid.note_run(info)
+            _paid.save()
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        info["took"] = round(time.time() - t0, 1)
+        _paid_state.update({"runs": _paid_state.get("runs", 0) + 1, "last": info, "running": False,
+                            "last_at": time.time()})
+        _paid_lock.release()
+    return info
+
+
+def _paid_loop():
+    # Five minutes after a boot, then every fifteen. A quiet pass is one Books
+    # page and two COQL queries.
+    time.sleep(300)
+    while True:
+        if _paid.data.get("armed"):
+            _paid_run(days=3, label="auto")
+        time.sleep(900)
+
+
+# ---- Stale tasks and reminders, deleted slowly (task_sweep.py) ------------
+# Danny, 2026-10-19: "delete any open reminders and tasks on completely
+# unrelated records" ... "without exhausting crazy API limits". Shipped
+# DISARMED (?arm=1 starts it). One page a minute, at most
+# TASK_SWEEP_CREDITS_PER_DAY Zoho credits a local day, and the first 429
+# stops the step for ten minutes. TASK_SWEEP_WRITE=0 stops every delete.
+import task_sweep as _sweep_mod
+_SWEEP_FILE = _data_dir / "task_sweep.json"
+_sweep = _sweep_mod.Store(_SWEEP_FILE)
+_sweep_state = {"steps": 0, "running": False}
+_sweep_lock = threading.Lock()
+_SWEEP_CAP = int(os.environ.get("TASK_SWEEP_CREDITS_PER_DAY", "5000"))
+_SWEEP_PAUSE = float(os.environ.get("TASK_SWEEP_PAUSE", "60"))
+_SWEEP_RESWEEP_HOURS = 24        # a finished sweep starts over a day later
+
+
+class _SweepThrottled(Exception):
+    pass
+
+
+def _sweep_today():
+    _, b, zone, _ = _dnc_window()
+    return datetime.strptime(b, "%Y-%m-%d").date(), zone
+
+
+def _sweep_coql(q):
+    r = requests.post(f"{_zoho.base_url}/crm/v6/coql", headers=_zoho._headers(), json={"select_query": q}, timeout=60)
+    if r.status_code == 429:
+        raise _SweepThrottled("COQL 429")
+    if r.status_code == 204:
+        return []
+    if not r.ok:
+        raise RuntimeError("COQL HTTP %d %s" % (r.status_code, (r.text or "")[:160]))
+    return (r.json() or {}).get("data") or []
+
+
+def _sweep_delete(module, ids):
+    """The ids Zoho deleted. Workflows off: a delete fires nothing."""
+    r = requests.delete(f"{_zoho.base_url}/crm/v6/{module}", headers=_zoho._headers(),
+                        params={"ids": ",".join(ids), "wf_trigger": "false"}, timeout=90)
+    if r.status_code == 429:
+        raise _SweepThrottled("DELETE 429")
+    data = (r.json() or {}).get("data") if r.content else None
+    if not data:
+        raise RuntimeError("DELETE %s HTTP %d %s" % (module, r.status_code, (r.text or "")[:160]))
+    return {str((x.get("details") or {}).get("id")) for x in data if (x or {}).get("code") == "SUCCESS"}
+
+
+def _sweep_cancel(module, rows):
+    """Hand-booked calls set Cancelled with a note: the ids Zoho took.
+    Workflows off, like the delete."""
+    r = requests.put(f"{_zoho.base_url}/crm/v6/{module}", headers=_zoho._headers(),
+                     json={"data": rows, "trigger": []}, timeout=90)
+    if r.status_code == 429:
+        raise _SweepThrottled("PUT 429")
+    data = (r.json() or {}).get("data") if r.content else None
+    if not data:
+        raise RuntimeError("PUT %s HTTP %d %s" % (module, r.status_code, (r.text or "")[:160]))
+    return {str((x.get("details") or {}).get("id")) for x in data if (x or {}).get("code") == "SUCCESS"}
+
+
+_sweep_keep = {"at": 0.0, "owners": None}
+
+
+def _sweep_protected(day, spend):
+    """Owners whose open work is never deleted: every Team Schedules person
+    (coordinators, billers, pre-op) and every current scheduling owner, plus
+    TASK_SWEEP_KEEP_OWNERS. Read again hourly. No coordinator rows read means
+    no step at all."""
+    if _sweep_keep["owners"] is not None and time.time() - _sweep_keep["at"] < 3600:
+        return _sweep_keep["owners"]
+    rows = _sweep_coql("select Team, Staff_User from Team_Schedules where Team is not null limit 200")
+    spend(_sweep_mod.coql_credits(len(rows)))
+    if not any(r.get("Team") == "Coordinator" for r in rows):
+        raise RuntimeError("Team Schedules returned no coordinators")
+    owners = _sweep_coql("select Scheduling_Owner from Deals where Stage = '%s' limit 2000" % _paid_mod.PAYMENT_RECEIVED)
+    spend(_sweep_mod.coql_credits(len(owners)))
+    keep = {_sweep_mod._id(r.get("Staff_User")) for r in rows}
+    keep |= {_sweep_mod._id(r.get("Scheduling_Owner")) for r in owners}
+    keep |= {x.strip() for x in os.environ.get("TASK_SWEEP_KEEP_OWNERS", "").split(",") if x.strip()}
+    keep.discard("")
+    _sweep_keep.update({"at": time.time(), "owners": keep})
+    return keep
+
+
+def _sweep_page(pass_name, cursor, c, protected, spend, limit=None):
+    """One page of a pass and what to do with each row: (rows, [(row, act, why)])."""
+    rows = _sweep_coql(_sweep_mod.query(pass_name, c, cursor, limit or _sweep_mod.PAGE))
+    spend(_sweep_mod.coql_credits(len(rows)))
+    deals = {}
+    if pass_name.startswith("deal_"):
+        ids = _sweep_mod.deal_ids(rows)
+        for i in range(0, len(ids), 100):
+            got = _sweep_coql("select id, Stage, Retainer_Paid from Deals where id in (%s)" % ",".join(ids[i:i + 100]))
+            spend(_sweep_mod.coql_credits(len(got)))
+            deals.update({d["id"]: d for d in got})
+    return rows, [(r,) + _sweep_mod.decide(r, pass_name, c, protected, deals) for r in rows]
+
+
+def _sweep_step(write=None, label="auto"):
+    """One page of the current pass: read, decide, and -- armed -- delete
+    (a hand-booked call: cancel with a note). write=None: write when armed.
+    Never raises."""
+    if not _sweep_lock.acquire(blocking=False):
+        return {"skipped": "a step is running"}
+    _sweep_state["running"] = True
+    info = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "label": label}
+    try:
+        armed = os.environ.get("TASK_SWEEP_WRITE", "1") != "0" and bool(_sweep.data.get("armed"))
+        write = armed if write is None else (bool(write) and armed)
+        today, zone = _sweep_today()
+        day = today.isoformat()
+        sw = _sweep.data.get("sweep")
+        if not sw or (_sweep.current() is None and sw.get("finished") and
+                      datetime.fromisoformat(sw["finished"]) < datetime.now(timezone.utc) - timedelta(hours=_SWEEP_RESWEEP_HOURS)):
+            _sweep.start(_sweep_mod.cutoffs(today, zone), info["at"])
+        cur = _sweep.current()
+        if cur is None:
+            info["idle"] = "sweep finished"
+            return info
+        if _SWEEP_CAP - _sweep.spent(day) < 50:
+            info["waiting"] = "today's credit cap reached"
+            return info
+        p, module, st = cur
+        c = _sweep.data["sweep"]["cutoffs"]
+        used = [0]
+
+        def spend(n):
+            used[0] += n
+            _sweep.spend(day, n)
+        info.update({"pass": p, "write": bool(write)})
+        rows, decided = _sweep_page(p, st["cursor"], c, _sweep_protected(day, spend), spend)
+        drop = {r["id"]: why for r, act, why in decided if act == "delete"}
+        close = {r["id"]: (r, why) for r, act, why in decided if act == "cancel"}
+        kept = {}
+        for r, act, why in decided:
+            if act == "keep":
+                kept[why] = kept.get(why, 0) + 1
+        info.update({"read": len(rows), "to_delete": len(drop), "to_cancel": len(close), "kept": kept})
+        if write:
+            ids, gone, shut = sorted(drop), set(), set()
+            try:
+                for i in range(0, len(ids), _sweep_mod.DELETE_CHUNK):
+                    gone |= _sweep_delete(module, ids[i:i + _sweep_mod.DELETE_CHUNK])
+                    spend(1)
+                cids = sorted(close)
+                for i in range(0, len(cids), _sweep_mod.DELETE_CHUNK):
+                    shut |= _sweep_cancel(module, [_sweep_mod.cancel_row(close[k][0], close[k][1], day)
+                                                   for k in cids[i:i + _sweep_mod.DELETE_CHUNK]])
+                    spend(1)
+            finally:
+                # A 429 halfway still counts what went; the page is read again.
+                for i in gone:
+                    _sweep.count("totals", drop[i])
+                for i in shut:
+                    _sweep.count("cancelled", close[i][1])
+                st["deleted"] += len(gone)
+                st["cancelled"] = st.get("cancelled", 0) + len(shut)
+                info["deleted"], info["cancelled"] = len(gone), len(shut)
+            for why, n in kept.items():
+                _sweep.count("kept", why, n)
+            st["read"] += len(rows)
+            if len(gone) + len(shut) < len(drop) + len(close):
+                info["not_done"] = len(drop) + len(close) - len(gone) - len(shut)
+            if rows:
+                st["cursor"] = rows[-1]["id"]
+            if len(rows) < _sweep_mod.PAGE:
+                st["done"] = True
+                if _sweep.current() is None:
+                    _sweep.data["sweep"]["finished"] = info["at"]
+        info["credits"] = used[0]
+    except _SweepThrottled as e:
+        info["throttled"] = str(e)
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        _sweep.data["last_error"] = info["error"]
+        log.exception("task sweep step failed")
+    finally:
+        if info.get("write") or info.get("error") or info.get("throttled"):
+            _sweep.note_run(info)
+        try:
+            _sweep.save()
+        except Exception:  # noqa: BLE001
+            log.exception("task sweep ledger save failed")
+        _sweep_state.update({"steps": _sweep_state["steps"] + 1, "running": False, "last": info,
+                             "last_at": time.time()})
+        _sweep_lock.release()
+    return info
+
+
+def _sweep_preview():
+    """The next 200 rows of every pass, decided and never deleted, plus how
+    many open rows each pass still has. About 15 credits."""
+    today, zone = _sweep_today()
+    day = today.isoformat()
+    sw = _sweep.data.get("sweep") or {}
+    c = sw.get("cutoffs") or _sweep_mod.cutoffs(today, zone)
+
+    def spend(n):
+        _sweep.spend(day, n)
+    out = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cutoffs": c, "passes": {}}
+    try:
+        protected = _sweep_protected(day, spend)
+        out["protected_owners"] = len(protected)
+        for p, module in _sweep_mod.PASSES:
+            cursor = ((sw.get("passes") or {}).get(p) or {}).get("cursor") or "0"
+            rows, decided = _sweep_page(p, cursor, c, protected, spend, limit=200)
+            by = {}
+            for _, act, why in decided:
+                by["%s: %s" % (act, why)] = by.get("%s: %s" % (act, why), 0) + 1
+            where = _sweep_mod.query(p, c, cursor).split(" where ", 1)[1].rsplit(" order by", 1)[0]
+            n = _sweep_coql("select COUNT(id) from %s where %s" % (module, where))
+            spend(1)
+            out["passes"][p] = {"open_in_range": (n[0] if n else {}).get("COUNT(id)"), "sample": len(rows),
+                                "sample_decisions": dict(sorted(by.items()))}
+    except _SweepThrottled as e:
+        out["throttled"] = str(e)
+    except Exception as e:  # noqa: BLE001
+        out["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("task sweep preview failed")
+    _sweep.save()
+    _sweep_state["preview"] = out
+    return out
+
+
+def _sweep_loop():
+    # Seven minutes after a boot, clear of the other loops' first reads.
+    time.sleep(420)
+    while True:
+        wait = 900
+        if _sweep.data.get("armed") and os.environ.get("TASK_SWEEP_WRITE", "1") != "0":
+            info = _sweep_step(label="auto")
+            wait = (600 if info.get("throttled") else 900 if (info.get("idle") or info.get("waiting"))
+                    else 300 if info.get("error") else _SWEEP_PAUSE)
+        time.sleep(wait)
+
+
+@app.route("/api/v6/task-sweep")
+def api_v6_task_sweep():
+    """Signed in only. The stale task and reminder sweep: where each pass
+    stands, what it deleted and what calls it cancelled by kind, what it kept
+    and why, today's credits.
+      ?dry=1          decide the next 200 of every pass, delete nothing (in a thread)
+      ?arm=1 / ?arm=0 start or stop deleting
+      ?step=1         one step now (deletes only when armed)"""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.args.get("arm") in ("1", "0"):
+        _sweep.data["armed"] = request.args.get("arm") == "1"
+        _sweep.save()
+    if not _sweep_state.get("running"):
+        if request.args.get("dry"):
+            threading.Thread(target=_sweep_preview, daemon=True, name="task-sweep:preview").start()
+        elif request.args.get("step"):
+            threading.Thread(target=_sweep_step, kwargs={"label": "manual"}, daemon=True,
+                             name="task-sweep:step").start()
+    today, _ = _sweep_today()
+    st = dict(_sweep_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    return jsonify({"armed": bool(_sweep.data.get("armed")),
+                    "write_switch": os.environ.get("TASK_SWEEP_WRITE", "1") != "0",
+                    "credits": {"today": _sweep.spent(today.isoformat()), "cap": _SWEEP_CAP},
+                    "sweep": _sweep.data.get("sweep"), "deleted": _sweep.data.get("totals"),
+                    "cancelled": _sweep.data.get("cancelled"), "kept": _sweep.data.get("kept"), "last_error": _sweep.data.get("last_error"),
+                    "runs": _sweep.data.get("runs", [])[-10:], "state": st, "file": str(_SWEEP_FILE)})
+
+
 # ---- Texts on the sales board (/v5) ---------------------------------------
 # Danny, 2026-10-15: "add inbound outbound sms sent auto and manual and unread
 # to the sales call board". Read from each rep's RingEX extension (the floor's
@@ -3615,6 +4238,36 @@ def api_v6_dnc():
     return jsonify({"armed": bool(_dnc.data.get("armed")), "ledger": {"calls": len(led), "by_result": by},
                     "state": st, "runs": _dnc.data.get("runs", [])[-10:], "review_count": len(rev),
                     "review": rev[:500], "file": str(_DNC_FILE)})
+
+
+@app.route("/api/v6/paid-guard")
+def api_v6_paid_guard():
+    """Signed in only. The paid-retainer ledger: counts, the last runs and the
+    review list (record ids and reasons, no names). ?dry=1&since=&until= plans
+    without writing; ?run=1&since=&until= writes when armed; ?arm=1|0."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.args.get("arm") in ("1", "0"):
+        _paid.data["armed"] = request.args.get("arm") == "1"
+        _paid.save()
+    day = lambda k: (request.args.get(k) or "")[:10] if re.match(r"^\d{4}-\d{2}-\d{2}$", (request.args.get(k) or "")[:10]) else None
+    if (request.args.get("dry") or request.args.get("run")) and not _paid_state.get("running"):
+        threading.Thread(target=_paid_run, kwargs={"since": day("since"), "until": day("until"),
+                                                   "write": bool(request.args.get("run")) and not request.args.get("dry"),
+                                                   "label": "manual"}, daemon=True, name="paid-guard:kick").start()
+    st = dict(_paid_state)
+    if st.get("last_at"):
+        st["last_age_seconds"] = round(time.time() - st.pop("last_at"))
+    by = {}
+    for v in _paid.data["seen"].values():
+        by[v.get("result")] = by.get(v.get("result"), 0) + 1
+    rev = sorted(({"key": k, **v} for k, v in _paid.data["review"].items()), key=lambda r: r.get("seen") or "",
+                 reverse=True)
+    return jsonify({"armed": bool(_paid.data.get("armed")),
+                    "write_switch": os.environ.get("PAID_GUARD_WRITE", "1") != "0",
+                    "ledger": {"records": len(_paid.data["seen"]), "by_result": by}, "state": st,
+                    "runs": _paid.data.get("runs", [])[-10:], "review_count": len(rev), "review": rev[:500],
+                    "file": str(_PAID_FILE)})
 
 
 @app.route("/api/v6/opt-outs.txt")
@@ -10372,9 +11025,11 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:collections", lambda: _collections_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
+                 ("loop:paid-guard", lambda: _paid_loop()),
                  ("loop:ringex", lambda: _ringex_warm_loop()),
                  ("loop:company", lambda: _company_loop()),
-                 ("loop:catalog", lambda: _catalog_loop()))
+                 ("loop:catalog", lambda: _catalog_loop()),
+                 ("loop:task-sweep", lambda: _sweep_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 
