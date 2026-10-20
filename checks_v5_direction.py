@@ -79,7 +79,7 @@ ck("a Calls row in the summary block: inbound with answered, outbound with NO co
 ck("the board widens on a desktop so a rep's texts fit on one line", "@media(min-width:900px){.wrap{max-width:920px}}" in tpl, "width")
 ck("the summary is one labelled block: Floor, Sent, Calls, Texts",
    "h += '<div class=\"sum\"><div class=\"floor srow\">" in tpl and "<div class=\"tot srow\"><span class=\"sl\">Sent</span>" in tpl
-   and "id=\"smsrow\" hidden><span class=\"sl\">Texts</span>" in tpl and ".sum .srow{display:grid;grid-template-columns:44px minmax(0,1fr)" in tpl, "summary")
+   and "id=\"smsrow\" hidden><span class=\"sl\">Texts</span>" in tpl and ".sum .srow{display:grid;grid-template-columns:62px minmax(0,1fr)" in tpl, "summary")   # 62px on every board since 2026-10-20
 ck("big totals are written 3,095 not 3095", "function fmt(n) { return Math.round(n || 0).toLocaleString('en-US'); }" in tpl, "fmt")
 ck("data notes fold under one line, and the texts table sits above them",
    "<details class=\"notes\" id=\"datanotes\"><summary>Data notes'" in tpl and tpl.count("nNotes++, notes += '") == 5   # the fifth: follow-ups, 2026-10-19

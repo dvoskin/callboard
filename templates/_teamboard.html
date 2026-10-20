@@ -32,13 +32,12 @@
   .tb-stats b.hot{color:var(--dn)}
   .tb-stats span{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* summary: a label column wide enough for TARGET / RESULT */
+  /* summary: the label column (62px) and the row padding are the board's own
+     (_board_style.html), so a team here lines up with the sales floor */
   .tb-sec .sum{padding:8px 0 7px}
-  .tb-sec .sum .srow{grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:2px 0;line-height:1.45}
+  .tb-sec .sum .srow{line-height:1.45}
   /* rows and their detail */
-  .tb-sec .r{padding:9px 0}
   .tb-sec .nm .press,.tb-sec .nm .unr{margin-top:2px}
-  .tb-sec .nm .prog{margin-top:6px}
   .tb-sec .det{padding:12px 0 14px 22px}
   .tb-sec .dg{gap:12px 18px;max-width:560px}
   .tb-sec .dg em{margin-bottom:2px}
@@ -48,9 +47,10 @@
   .nm .qn{display:block;margin-top:2px;font-size:11.5px;font-weight:400;color:var(--muted)}
   details.tb-notes{margin-top:12px}
   /* the coordinators' progress hairline, as on their own board */
-  .nm .prog{display:block;height:3px;max-width:240px;margin-top:4px;border-radius:2px;background:var(--hair);overflow:hidden}
+  /* one gap above it wherever it sits (the floor's rows and the teams' rows
+     had 4, 5 and 6px) */
+  .nm .prog{display:block;height:3px;max-width:240px;margin-top:5px;border-radius:2px;background:var(--hair);overflow:hidden}
   .nm .prog i{display:block;height:100%;border-radius:2px}
-  .nm .prog.fu{margin-top:5px}
   .flr .mk{color:var(--muted)}
   /* panel values that carry a target line wrap instead of running off a phone */
   .tb-sec .dg b{white-space:normal;line-height:1.35}
@@ -68,13 +68,12 @@
     .tb-stats b{font-size:15px}
     .tb-stats span{font-size:9.5px}
     .tb-sec .sum{margin-top:2px;padding:7px 0 6px}
-    .tb-sec .sum .srow{grid-template-columns:54px minmax(0,1fr);gap:0 8px;font-size:12px}
-    .tb-sec .r{padding:8px 0;row-gap:3px;grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 q  rt rt rt"}
+    .tb-sec .r{grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 q  rt rt rt"}
     .tb-sec .det{padding:10px 0 12px 16px}
     .tb-sec .dg{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
     .tb-sec .dg b{font-size:12.5px}
     .tb-sec .dg b i{font-size:11px}
-    .tb-sec .nm .prog{max-width:none;margin-top:5px}
+    .tb-sec .nm .prog{max-width:none}
     details.tb-notes{margin-top:8px;padding-top:8px}
     details.tb-notes .note{font-size:12px;line-height:1.5}
   }
@@ -148,6 +147,28 @@ window.TB = (function () {
     return '<span class="' + cls + (x.zero ? ' zero' : '') + '"' + (x.title ? ' title="' + esc(x.title) + '"' : '') + '>' +
            (x.hot ? '<b class="hot" style="font-weight:inherit">' + x.html + '</b>' : (x.html == null ? '—' : x.html)) +
            '<span class="lbl"> ' + esc(label) + '</span></span>';
+  }
+  // A summary line, made to break only BETWEEN its figures: each stretch
+  // between two top-level dots is one unbreakable piece, a break may follow a
+  // dot, and a number keeps its word ("12\u00a0>3m"). A dot inside an <i> (a
+  // note a phone hides) stays inside its piece. The space before such a note
+  // moves inside it, so a hidden note leaves no gap before the next dot.
+  var SEP_RE = /<span class="sep">\u00b7<\/span>/g;
+  function segs(html) {
+    html = String(html == null ? '' : html).replace(/<\/b> /g, '</b>\u00a0').replace(/ (<i(?: [^>]*)?>)/g, '$1 ');
+    var parts = [], depth = 0, from = 0, scan = 0, m;
+    SEP_RE.lastIndex = 0;
+    while ((m = SEP_RE.exec(html))) {
+      var chunk = html.slice(scan, m.index);
+      depth += (chunk.match(/<i[ >]/g) || []).length - (chunk.match(/<\/i>/g) || []).length;
+      scan = m.index + m[0].length;
+      if (depth > 0) continue;   // inside a note: not a place to break
+      parts.push(html.slice(from, m.index));
+      from = scan;
+    }
+    parts.push(html.slice(from));
+    return parts.map(function (p) { return '<span class="seg">' + p + '</span>'; })
+                .join('<span class="sep">\u00b7</span>\u200b');
   }
   function cell2(label, value, isZero) {
     return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + esc(label) + '</em><b>' + value + '</b></div>';
@@ -234,7 +255,7 @@ window.TB = (function () {
       if (m.sum && m.sum.length) {
         h += '<div class="sum">' + m.sum.map(function (s) {
           // a number keeps its word: lines break at the separators, never between "12" and "\u22652m"
-        return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + String(s[1]).replace(/<\/b> /g, '</b>\u00a0') + '</span></div>';
+        return '<div class="srow"><span class="sl">' + esc(s[0]) + '</span><span class="sv">' + segs(s[1]) + '</span></div>';
         }).join('') + '</div>';
       }
       h += '<div class="hd"><span class="a-rk"></span><span class="a-nm">' + esc(m.nameHead || 'Name') + '</span>' +
@@ -318,6 +339,38 @@ window.TB = (function () {
     });
   }
 
+  // ---- Texts for the training class (Danny, 2026-10-20: "add the inbound
+  // outbound sms and unread / responded for the training team as well").
+  // Counted the way the coordinators' and billers' boards count them: in,
+  // out, responded (a patient's text answered by the rep's next text to that
+  // number) and unanswered (the patient wrote last). A rep whose texts were
+  // not read says "not read yet", never zero.
+  function smsPress(x) {
+    return x && !x.unknown && x.unanswered
+      ? '<b class="hot">' + w(x.unanswered) + '</b> text' + (x.unanswered === 1 ? '' : 's') + ' unanswered' : '';
+  }
+  function smsCells(x) {
+    if (!x) return [];
+    if (x.unknown) return [['Texts', '<i>not read yet</i>', true]];
+    var split = x.sent_typed != null && x.sent_auto != null && x.sent_auto;
+    var old = x.stale_minutes ? ' <i>read ' + w(x.stale_minutes) + ' min ago</i>' : '';
+    var part = x.complete ? '' : ' <i>part of the day not read yet</i>';
+    return [['Texts', w(x.received) + ' in \u00b7 ' + w(x.sent) + ' out' +
+                      (split ? ' <i>' + w(x.sent_typed) + ' typed \u00b7 ' + w(x.sent_auto) + ' auto</i>' : '') + old + part,
+             !x.received && !x.sent],
+            ['Responded', w(x.replied) + (x.unanswered ? ' <i class="hot">' + w(x.unanswered) + ' unanswered</i>' : x.received ? ' <i>none waiting</i>' : ''),
+             !x.replied && !x.unanswered]];
+  }
+  function smsSum(t) {
+    if (!t || !t.seats_total) return [];
+    var sep = '<span class="sep">\u00b7</span>';
+    if (!t.seats) return [['Texts', 'not read yet \u00b7 read one rep at a time, every few minutes']];
+    return [['Texts', '<b>' + fmt(t.received) + '</b> in' + sep + '<b>' + fmt(t.sent) + '</b> out' + sep +
+                      '<b>' + fmt(t.replied) + '</b> responded' + sep +
+                      '<b' + (t.unanswered ? ' class="hot"' : '') + '>' + fmt(t.unanswered) + '</b> unanswered' +
+                      (t.unknown_seats ? sep + t.unknown_seats + ' not read yet' : '')]];
+  }
+
   // The RingEX reps (/api/v5/ringex) as a model: the sales columns, Quotes and
   // Paid from Books, the same panel the RingCX reps have where the data exists.
   function ringexModel(d, opts) {
@@ -325,12 +378,13 @@ window.TB = (function () {
     var bm = (d.meta || {}).books || {}, booksOk = !bm.loading;
     var rows = (d.ranked || []).map(function (a) {
       var b = a.books || {};
+      var bits = [pressMissed(a.missed_open, true), smsPress(a.sms)].filter(Boolean);
       return {
         name: a.name, talk: a.talk, dials: a.attempts, over3: a.over_3,
         unread: a.complete === false && !a.talk && !a.attempts && !a.inbound,
         a: { html: booksOk ? w(b.quotes_sent) : '—', zero: booksOk && !b.quotes_sent },
         b: { html: booksOk ? w(b.retainers_paid) : '—', zero: booksOk && !b.retainers_paid },
-        press: (opts.press ? opts.press(a) : pressMissed(a.missed_open)) +
+        press: (opts.press ? opts.press(a) : bits.length ? '<span class="press">' + bits.join(' \u00b7 ') + '</span>' : '') +
                (a.stale_minutes ? '<span class="unr">read ' + a.stale_minutes + ' min ago</span>' : '') +
                (opts.bar ? opts.bar(a) : ''),
         missed: a.missed_calls, missedOpen: a.missed_open,
@@ -343,8 +397,9 @@ window.TB = (function () {
           'rule',
           ['Quotes invoiced', booksOk ? w(b.quotes_invoiced) : '—', !b.quotes_invoiced],
           ['Retainers sent', booksOk ? w(b.retainers_sent) : '—', !b.retainers_sent],
-          ['Paid $', b.paid_amount ? money(b.paid_amount) : '—', !b.paid_amount]
-        ].concat(opts.panelExtra ? opts.panelExtra(a) : [])
+          ['Paid $', b.paid_amount ? money(b.paid_amount) : '—', !b.paid_amount],
+          'rule'
+        ].concat(smsCells(a.sms)).concat(opts.panelExtra ? opts.panelExtra(a) : [])
       };
     });
     // Nobody read yet (a restart): say so rather than print a team of zeros.
@@ -362,7 +417,8 @@ window.TB = (function () {
         '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +
         '<span class="sep">·</span><b>' + fmt(T.over_3) + '</b> over 3m' +
         (booksOk ? '<span class="sep">·</span><b>' + fmt(S('quotes_sent')) + '</b> quotes' : '') +
-        (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed' : ''),
+        (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed' : '') +
+        ((T.sms || {}).unanswered ? '<span class="sep">·</span><b class="hot">' + fmt(T.sms.unanswered) + '</b> texts unanswered' : ''),
       notes: (opts.notes || TRAINING_NOTES).concat(opts.notesExtra || []),
       stats: allUnread ? [['\u2014', 'not read yet']] : [[hmShort(T.talk), 'talk'], [fmt(T.attempts), 'dials'], [fmt(T.over_3), 'over 3m'],
              [booksOk ? fmt(S('quotes_sent')) : '\u2014', 'quotes']],
@@ -378,7 +434,7 @@ window.TB = (function () {
         ['Calls', '<b>' + fmt(T.inbound) + '</b> inbound <i>' + fmt(T.inbound_answered) + ' answered</i>' +
                   '<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> outbound' +
                   (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed not called back' : '')]
-      ]).concat(opts.sumExtra ? opts.sumExtra(d) : []),
+      ]).concat(allUnread ? [] : smsSum(T.sms)).concat(opts.sumExtra ? opts.sumExtra(d) : []),
       note: opts.note
     };
   }
@@ -391,6 +447,11 @@ window.TB = (function () {
       'Quotes and Paid come from Books and refresh every 5 minutes.',
     '<b>Columns.</b> Talk is time on connected calls; on RingEX that includes voicemail drops, so >3m (calls over 3 minutes) is the better count ' +
       'of real conversations. Dials are outbound calls. Quotes are quotes sent in Books in this window. Paid is retainers paid in full in this window.',
+    '<b>Texts.</b> From each rep’s own RingEX line, counted the way the coordinators’ and billers’ boards count them. In is texts received, ' +
+      'out is texts sent (Zoho automations that text through the rep’s number count as sent; the panel splits typed from auto when it can). ' +
+      'Responded is a patient’s text answered by the rep’s next text to that number; unanswered is a number whose last text came from the ' +
+      'patient with no reply yet. Today’s texts are read by the same background job as the calls, one rep at a time, so each rep is at most ' +
+      'about 7 minutes behind; a rep not read yet since a restart says so, not zero.',
     MARKS
   ];
 
@@ -468,12 +529,15 @@ window.TB = (function () {
     'the bar. Follow-ups still to come are counted in the row panel, not in the bar, and ones Zoho cancelled are not counted. ' +
     'Read from Zoho every 5 minutes.';
 
-  function pressMissed(n) {
-    return n ? '<span class="press"><b class="hot">' + w(n) + '</b> missed</span>' : '';
+  function pressMissed(n, bare) {
+    if (!n) return '';
+    var h = '<b class="hot">' + w(n) + '</b> missed';
+    return bare ? h : '<span class="press">' + h + '</span>';
   }
 
   return { render: render, ringexModel: ringexModel, MARKS: MARKS, hmShort: hmShort, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
-           median: median, floorOf: floorOf, pressMissed: pressMissed,
+           median: median, floorOf: floorOf, pressMissed: pressMissed, segs: segs,
+           smsPress: smsPress, smsCells: smsCells, smsSum: smsSum,
            progBar: progBar, fuBar: fuBar, fuLine: fuLine, fuSum: fuSum, FU_NOTE: FU_NOTE };
 })();
 </script>

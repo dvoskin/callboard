@@ -69,7 +69,9 @@
          grid-template-areas:"rk nm tk d t3 q rt"}
   .hd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
       color:var(--muted);padding:9px 0 5px;border-bottom:1px solid var(--rule)}
-  .r{padding:7px 0;border-bottom:1px solid var(--hair)}
+  /* One row rhythm on every board (2026-10-20): the floor ran 7px, the
+     training class under it 9px, so the two tables on /v5 did not line up. */
+  .r{padding:8px 0;border-bottom:1px solid var(--hair)}
   .r:last-child{border-bottom:0}
   .r{cursor:pointer}
   .r:hover{background:var(--tint)}
@@ -145,12 +147,19 @@
   .io i{font-style:normal;color:var(--muted);font-weight:400;padding:0 2px}
   /* the summary: one labelled block -- Floor (medians), Sent, Calls, Texts */
   .sum{border-top:1px solid var(--rule);padding:7px 0 6px}
-  .sum .srow{display:grid;grid-template-columns:44px minmax(0,1fr);gap:0 10px;align-items:baseline;
+  /* One label column on every board, wide enough for TARGET / RESULT: the
+     floor's 44px and the training class's 62px sat one above the other on
+     /v5 with their values 18px apart (2026-10-20). */
+  .sum .srow{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;align-items:baseline;
              font-size:12.5px;color:var(--muted);padding:2px 0;border:0;margin:0}
   .sum .sl{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
   .sum .sv b{color:var(--ink);font-weight:700} .sum .sv b.hot{color:var(--dn)}
   .sum .sv i{font-style:normal;color:var(--muted)} .sum .sv i.med{font-size:11px;opacity:.8;margin-left:4px}
   .sum .sep{opacity:.45;padding:0 5px}
+  /* A summary line breaks only between its figures, never inside one: "17h"
+     on one line and "13m talk" on the next, or a line opening on a dot. */
+  .seg{white-space:nowrap}
+  .seg .alt{white-space:normal}
   .sum .tot .alt{display:block;font-size:11px}
   .sum .srow[hidden]{display:none}   /* grid would otherwise beat [hidden] */
   details.notes{margin:16px 0 0;border-top:1px solid var(--rule);padding-top:8px}
@@ -194,7 +203,7 @@
        information on collapsed state except for most pressing details"). */
     .r{grid-template-columns:16px auto auto auto auto minmax(0,1fr) auto;
        grid-template-areas:"rk nm nm nm nm nm tk" ".  d  t3 q  rt . .";
-       row-gap:0;column-gap:9px;padding:6px 0}
+       row-gap:3px;column-gap:9px;padding:7px 0}
     .rk{font-size:11px}
     .nm{font-size:14px;padding-right:6px}
     .tk{font-size:14px}
@@ -204,7 +213,7 @@
     .sp-hd,.sp-r{grid-template-columns:16px minmax(0,1fr) 46px 52px 58px 54px}
     .sp-r{padding:6px 0} .sp-r .nm{font-size:14px}
     .sp-in,.sp-out,.sp-un,.sp-ur{font-size:12.5px}
-    .sum .srow{grid-template-columns:38px minmax(0,1fr);font-size:12px;gap:0 8px}
+    .sum .srow{grid-template-columns:54px minmax(0,1fr);font-size:12px;gap:0 8px}
     .sum .sv i.med{display:none}
     /* a phone keeps the headline numbers; the sub-notes are on desktop */
     .sum .sv i,.sum .tot .alt{display:none}

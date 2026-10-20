@@ -791,6 +791,9 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 "unknown": stot["total"] == 0 and not scomplete,
                 # The fetch's own reason, shown on the panel instead of a guess.
                 "note": (smeta.get("note") if isinstance(smeta, dict) else None),
+                # a reading kept from earlier (the training class's texts are
+                # read by a background job): how old, in minutes
+                "stale_minutes": (smeta.get("stale_minutes") if isinstance(smeta, dict) else None),
                 # Inbound texts: how fast they were answered, how many were not.
                 "replies": _sms_replies(srows, tz_offset_minutes),
             }
