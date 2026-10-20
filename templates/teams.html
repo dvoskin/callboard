@@ -51,6 +51,20 @@
   var $ = function (id) { return document.getElementById(id); };
   var hm = TB.hm, w = TB.w, fmt = TB.fmt, money = TB.money, esc = TB.esc;
   var sep = '<span class="sep">·</span>';
+  // Each sales rep's scheduled Zoho follow-ups (/api/v5/followups): the
+  // hairline under the name, a panel line and a summary row on both sales
+  // boards (Danny, 2026-10-19). Fetched once the floor's report is in.
+  var FU = null, FU_WIN = '', LASTJ = {};
+  function fuOf(n) { return ((FU || {}).by || {})[n]; }
+  function fuState(n) {
+    if (!FU) return 'loading';
+    if ((FU.not_crm_users || []).indexOf(n) !== -1) return 'not_crm';
+    return FU.error ? 'error' : 'loading';
+  }
+  function fuRow(names) {
+    var line = FU ? TB.fuSum(FU.by, names) : '';
+    return line ? [['Due', line]] : [];
+  }
 
   function sum(days, k) { return (days || []).reduce(function (s, d) { return s + (+d[k] || 0); }, 0); }
   function press(missedOpen, sms) {
@@ -262,7 +276,7 @@
       'Coordinator Dashboard: on a live day against where the day is headed at this hour, not the whole-day number. ▲ at or above ' +
       'target, · between floor and target, ▼ red under the floor; a red name is under the floor on talk.' +
       (team === 'surgical' ? ' The coloured bar under a name is the window’s planner calls and tasks done, red through amber to green.' : '') +
-      ' “missed” is an inbound call that rang out and has not been returned yet.';
+      ' “missed” counts people, not calls: callers whose call rang out and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted.';
     return {
       key: team, label: label, href: href, nameHead: 'Name', dialsHead: team === 'surgical' ? 'In / Out' : 'Calls', dialsLbl: ' calls',
       t3Head: team === 'billing' ? 'vs exp' : longLbl.replace('≥', '&ge;'), t3Lbl: ' ' + longLbl, grade: true, keepOrder: true,
@@ -330,7 +344,7 @@
         name: a.name, talk: a.talk, dials: a.attempts, over3: a.over_3,
         a: { html: ok ? w(b.quotes_sent) : '—', zero: ok && !b.quotes_sent },
         b: { html: ok ? w(b.retainers_paid) : '—', zero: ok && !b.retainers_paid },
-        press: press(a.missed_open), missed: a.missed_calls, missedOpen: a.missed_open,
+        press: press(a.missed_open) + TB.fuBar(fuOf(a.name)), missed: a.missed_calls, missedOpen: a.missed_open,
         panel: [
           ['Inbound', w(a.inbound) + ' <i>' + w(a.inbound_answered) + ' answered</i>', !a.inbound],
           ['Outbound', w(a.outbound), !a.outbound],
@@ -340,6 +354,7 @@
           ['Do not call', a.dnc ? '<span class="hot">' + w(a.dnc) + '</span>' : '0', !a.dnc],
           ['Over 10 min', w(a.over_10), !a.over_10],
           ['Longest', hm(a.longest), !a.longest],
+          ['Follow-ups', TB.fuLine(fuOf(a.name), fuState(a.name)), !!fuOf(a.name) && !fuOf(a.name).due],
           'rule',
           ['Quotes invoiced', ok ? w(b.quotes_invoiced) : '—', !b.quotes_invoiced],
           ['Retainers sent', ok ? w(b.retainers_sent) : '—', !b.retainers_sent],
@@ -367,6 +382,7 @@
         '<b>Columns.</b> Talk is time on connected calls, without wrap-up. Dials are every attempt. >3m counts calls over 3 minutes, the real ' +
           'conversations. Quotes are quotes sent in Books in this window. Paid is retainers paid in full in this window. The row panel adds ' +
           'the reps’ own dispositions: reached, booked, quoted, no answer, do not call.',
+        TB.FU_NOTE,
         TB.MARKS
       ],
       colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid',
@@ -380,14 +396,22 @@
                   (T.reached ? sep + '<b>' + fmt(T.reached) + '</b> reached <i>' + fmt(T.booked) + ' booked</i>' : '') +
                   (T.dnc ? sep + '<b class="hot">' + fmt(T.dnc) + '</b> do not call' : '') +
                   (T.missed_open ? sep + '<b class="hot">' + fmt(T.missed_open) + '</b> missed not called back' : '')]
-      ]
+      ].concat(fuRow(all.map(function (a) { return a.name; })))
     };
   }
 
   var SOURCES = [
     { id: 't-sales', url: '/api/v5/report?', label: 'Sales Floor', model: v5Model },
     { id: 't-ringex', url: '/api/v5/ringex?', label: 'Sales Training Class',
-      model: function (j) { return TB.ringexModel(j, { key: 'ringex', label: 'Sales Training Class', href: '/v5' }); } },
+      model: function (j) {
+        return TB.ringexModel(j, {
+          key: 'ringex', label: 'Sales Training Class', href: '/v5',
+          bar: function (a) { return TB.fuBar(fuOf(a.name)); },
+          panelExtra: function (a) { return [['Follow-ups', TB.fuLine(fuOf(a.name), fuState(a.name)), !!fuOf(a.name) && !fuOf(a.name).due]]; },
+          sumExtra: function (d) { return fuRow((d.ranked || []).map(function (a) { return a.name; })); },
+          notesExtra: [TB.FU_NOTE]
+        });
+      } },
     { id: 't-surgical', url: '/api/v6/report?team=surgical&', label: 'Surgical Coordinators',
       model: function (j) { return v6Model(j, 'surgical', 'Surgical Coordinators', '/surgical-coordinator'); } },
     { id: 't-billing', url: '/api/v6/report?team=billing&', label: 'Billing',
@@ -403,6 +427,9 @@
     // the page's key (/teams?k=) opens each section's data too
     var K = new URLSearchParams(location.search).get('k');
     if (K) q.set('k', K);
+    // another day's follow-ups must not sit on this day's rows while it loads
+    var win = (q.get('start') || '') + '|' + (q.get('end') || '');
+    if (win !== FU_WIN) { FU = null; FU_WIN = win; }
     var gen = ++GEN, left = SOURCES.length;
     $('spin').textContent = '…';
     SOURCES.forEach(function (src) {
@@ -414,7 +441,9 @@
             TB.render($(src.id), { label: src.label, error: '<b>' + esc(res.j.error || 'error') + '</b> ' + esc(res.j.detail || '') });
             return;
           }
+          LASTJ[src.id] = res.j;
           TB.render($(src.id), src.model(res.j));
+          if (src.id === 't-sales') loadFu(q, gen, (res.j.ranked || []).concat(res.j.unranked || []).map(function (a) { return a.name; }));
           // Books loads in the background on the sales boards: ask again shortly.
           var bm = (res.j.meta || {}).books, mdl = src.model(res.j);
           if ((bm && bm.loading) || mdl.retry) setTimeout(function () { if (gen === GEN) reloadOne(src, q, gen); }, mdl.retry ? 20000 : 12000);
@@ -433,6 +462,25 @@
         });
     });
   }
+  // The follow-ups, then both sales boards drawn again from their last report.
+  function loadFu(q, gen, names, n) {
+    n = n || 1;
+    fetch('/api/v5/followups?' + q.toString() + (names && names.length ? '&names=' + encodeURIComponent(names.join('|')) : ''),
+          { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || gen !== GEN) return;
+        if (j.loading) {
+          if (n < 15) setTimeout(function () { if (gen === GEN) loadFu(q, gen, names, n + 1); }, 8000);
+          return;
+        }
+        FU = j;
+        SOURCES.forEach(function (src) {
+          if ((src.id === 't-sales' || src.id === 't-ringex') && LASTJ[src.id]) TB.render($(src.id), src.model(LASTJ[src.id]));
+        });
+      })
+      .catch(function () {});
+  }
   // Asked again a few times, 20 s apart, while Books or Zoho is still loading.
   function reloadOne(src, q, gen, n) {
     n = n || 1;
@@ -441,6 +489,7 @@
       .then(function (j) {
         if (!j || gen !== GEN) return;
         var mdl = src.model(j), bm = (j.meta || {}).books;
+        LASTJ[src.id] = j;
         TB.render($(src.id), mdl);
         if (((bm && bm.loading) || mdl.retry) && n < 6) setTimeout(function () { if (gen === GEN) reloadOne(src, q, gen, n + 1); }, 20000);
       })

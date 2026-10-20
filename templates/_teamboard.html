@@ -50,6 +50,7 @@
   /* the coordinators' progress hairline, as on their own board */
   .nm .prog{display:block;height:3px;max-width:240px;margin-top:4px;border-radius:2px;background:var(--hair);overflow:hidden}
   .nm .prog i{display:block;height:100%;border-radius:2px}
+  .nm .prog.fu{margin-top:5px}
   .flr .mk{color:var(--muted)}
   /* panel values that carry a target line wrap instead of running off a phone */
   .tb-sec .dg b{white-space:normal;line-height:1.35}
@@ -152,18 +153,23 @@ window.TB = (function () {
     return '<div' + (isZero ? ' class="zero"' : '') + '><em>' + esc(label) + '</em><b>' + value + '</b></div>';
   }
   // Missed inbound calls: the number to call back, or who got back and when.
+  // One row per caller (a patient ringing six times is one person to call
+  // back), "after hours" when it came in after the shift. Danny, 2026-10-19.
   function missedList(L, open, self) {
     L = L || [];
     if (!L.length) return '';
-    return '<div class="ml"><div class="ml-h">Missed calls · ' + (open || 0) + ' not called back</div>' +
+    var ah = L.filter(function (m) { return m.after_hours && !m.resolved; }).length;
+    return '<div class="ml"><div class="ml-h">Missed calls · ' + (open || 0) + (open === 1 ? ' person' : ' people') + ' to call back' +
+      (ah ? ' · ' + ah + ' after hours' : '') + '</div>' +
       L.map(function (m) {
         var b = m.back || {};
+        var many = (m.count || 1) > 1 ? ' · ' + m.count + ' calls since ' + esc(m.first_at || '') : '';
         return '<div class="ml-r' + (m.resolved ? ' done' : '') + '"><span class="ml-t">' + esc(m.at) + '</span>' +
           (m.resolved
             ? '<span class="ml-n">' + esc(m.number) + '</span><span class="ml-s">' + esc(b.how || 'called back') + ' ' +
-              esc(b.at || '') + (b.by && b.by !== self ? ' · ' + esc(b.by) : '') + '</span>'
+              esc(b.at || '') + (b.by && b.by !== self ? ' · ' + esc(b.by) : '') + many + '</span>'
             : '<a class="ml-n" href="tel:' + esc(String(m.number || '').replace(/[^0-9]/g, '')) + '">' + esc(m.number) +
-              '</a><span class="ml-s hot">call back</span>') + '</div>';
+              '</a><span class="ml-s' + (m.after_hours ? '' : ' hot') + '">' + (m.after_hours ? 'after hours' : 'call back') + many + '</span>') + '</div>';
       }).join('') + '</div>';
   }
 
@@ -325,7 +331,8 @@ window.TB = (function () {
         a: { html: booksOk ? w(b.quotes_sent) : '—', zero: booksOk && !b.quotes_sent },
         b: { html: booksOk ? w(b.retainers_paid) : '—', zero: booksOk && !b.retainers_paid },
         press: (opts.press ? opts.press(a) : pressMissed(a.missed_open)) +
-               (a.stale_minutes ? '<span class="unr">read ' + a.stale_minutes + ' min ago</span>' : ''),
+               (a.stale_minutes ? '<span class="unr">read ' + a.stale_minutes + ' min ago</span>' : '') +
+               (opts.bar ? opts.bar(a) : ''),
         missed: a.missed_calls, missedOpen: a.missed_open,
         panel: [
           ['Inbound', w(a.inbound) + ' <i>' + w(a.inbound_answered) + ' answered</i>', !a.inbound],
@@ -356,13 +363,13 @@ window.TB = (function () {
         '<span class="sep">·</span><b>' + fmt(T.over_3) + '</b> over 3m' +
         (booksOk ? '<span class="sep">·</span><b>' + fmt(S('quotes_sent')) + '</b> quotes' : '') +
         (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed' : ''),
-      notes: opts.notes || TRAINING_NOTES,
+      notes: (opts.notes || TRAINING_NOTES).concat(opts.notesExtra || []),
       stats: allUnread ? [['\u2014', 'not read yet']] : [[hmShort(T.talk), 'talk'], [fmt(T.attempts), 'dials'], [fmt(T.over_3), 'over 3m'],
              [booksOk ? fmt(S('quotes_sent')) : '\u2014', 'quotes']],
       colA: 'Quotes', colB: 'Paid', aLbl: 'quotes', bLbl: 'paid', nameHead: 'Rep',
       aTitle: 'Quotes sent in this window (Books)', bTitle: 'Retainers paid in full in this window (Books)',
       rows: rows,
-      sum: allUnread ? [['Team', '<i>not read yet \u00b7 RingEX fills this in within a few minutes</i>']] : [
+      sum: (allUnread ? [['Team', '<i>not read yet \u00b7 RingEX fills this in within a few minutes</i>']] : [
         ['Team', '<b>' + hm(T.talk) + '</b> talk<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> dials' +
                  '<span class="sep">·</span><b>' + fmt(T.over_3) + '</b> &gt;3m<span class="sep">·</span><b>' + fmt(T.over_10) + '</b> &gt;10m'],
         ['Sent', booksOk ? '<b>' + fmt(S('quotes_sent')) + '</b> quotes<span class="sep">·</span><b>' + fmt(S('retainers_sent')) +
@@ -371,13 +378,12 @@ window.TB = (function () {
         ['Calls', '<b>' + fmt(T.inbound) + '</b> inbound <i>' + fmt(T.inbound_answered) + ' answered</i>' +
                   '<span class="sep">·</span><b>' + fmt(T.attempts) + '</b> outbound' +
                   (T.missed_open ? '<span class="sep">·</span><b class="hot">' + fmt(T.missed_open) + '</b> missed not called back' : '')]
-      ],
+      ]).concat(opts.sumExtra ? opts.sumExtra(d) : []),
       note: opts.note
     };
   }
   var MARKS = '<b>Marks.</b> ▲▼ compare each person with the median person on the same team, not a target. ' +
-              'A red name is below that median on talk, dials and >3m together. “missed” under a name is an inbound call ' +
-              'that rang out and has not been returned yet; tap the row for the numbers.';
+              'A red name is below that median on talk, dials and >3m together. “missed” counts people, not calls: callers whose call rang out and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted; tap the row for the numbers.';
   var TRAINING_NOTES = [
     '<b>Where.</b> Each rep’s own RingEX extension. The training class dials from RingEX, not RingCX, so the Sales Floor never shows them.',
     '<b>Delay.</b> A background job reads one rep every 30 seconds, so each rep is at most about 5 minutes behind. A reading older than ' +
@@ -388,11 +394,86 @@ window.TB = (function () {
     MARKS
   ];
 
+  // ---- Follow-ups: each sales rep's scheduled Zoho calls (/api/v5/followups).
+  // Danny, 2026-10-19: "Add a follow up tracker to track scheduled calls
+  // assigned to each coordinator on the sales trackers in a progress bar
+  // format like the others". The hairline is the coordinators' own: red
+  // through amber to green, a short red sliver when none is done yet. It
+  // measures done over the follow-ups whose time has COME (done + overdue).
+  // The ones still to come are counted in words, not in the bar: Zoho books
+  // the next follow-up after every unanswered call, all day, so a whole-day
+  // denominator would read red at noon for a rep who is fully caught up.
+  // "Due now" (its time came within the hour) is in words too: Zoho books
+  // them on the hour, 162 at 3:00 PM on 2026-10-19, so without that hour of
+  // grace the bar would drop every hour on the hour.
+  function gradient(pct) {
+    var stops = [[176, 58, 49], [217, 119, 6], [22, 163, 74]];
+    var t = pct / 50, i = Math.min(1, Math.floor(t)), f = t - i;
+    var c0 = stops[i], c1 = stops[Math.min(2, i + 1)];
+    return 'rgb(' + c0.map(function (v, k) { return Math.round(v + (c1[k] - v) * f); }).join(',') + ')';
+  }
+  function progBar(pct, tip, cls) {
+    return '<span class="prog' + (cls ? ' ' + cls : '') + '" title="' + esc(tip) + '" aria-label="' + pct + '% done"><i style="width:' +
+           Math.max(pct, 4) + '%;background:' + gradient(pct) + '"></i></span>';
+  }
+  function fuCame(f) { return (f.done || 0) + (f.overdue || 0); }
+  function fuPct(f) { var c = fuCame(f); return c ? Math.max(0, Math.min(100, Math.round(100 * (f.done || 0) / c))) : null; }
+  function fuTip(f) {
+    return 'Follow-ups whose time has come: ' + w(f.done) + ' of ' + w(fuCame(f)) + ' done (' + fuPct(f) + '%)' +
+      (f.called ? ', ' + w(f.called) + ' of them called but not marked complete in Zoho' : '') +
+      ' \u00b7 ' + w(f.overdue) + ' overdue (over an hour late)' + (f.due_now ? ' \u00b7 ' + w(f.due_now) + ' due within the hour' : '') +
+      (f.upcoming ? ' \u00b7 ' + w(f.upcoming) + ' still to come' : '') +
+      (f.cancelled ? ' \u00b7 ' + w(f.cancelled) + ' cancelled by Zoho, not counted' : '');
+  }
+  function fuBar(f) {
+    if (!f || !fuCame(f)) return '';
+    return progBar(fuPct(f), fuTip(f), 'fu');
+  }
+  // The panel line. state: 'not_crm' (no Zoho user by this name), 'error', or
+  // anything else while Zoho is being read.
+  function fuLine(f, state) {
+    if (!f) return '<i>' + (state === 'not_crm' ? 'not a CRM user by this name' : state === 'error' ? 'not read' : 'reading Zoho\u2026') + '</i>';
+    if (!f.due) return '0 <i>none due</i>';
+    var bits = [];
+    if (f.overdue) bits.push('<span class="hot">' + w(f.overdue) + ' overdue</span>');
+    if (f.due_now) bits.push(w(f.due_now) + ' due now');
+    if (f.upcoming) bits.push(w(f.upcoming) + ' still to come');
+    if (f.called) bits.push(w(f.called) + ' called, not marked');
+    return (fuCame(f) ? w(f.done) + ' of ' + w(fuCame(f)) + ' done' : '0 done') + (bits.length ? ' <i>' + bits.join(' \u00b7 ') + '</i>' : '');
+  }
+  // A team's follow-ups in one summary line, or '' when none are known.
+  function fuSum(by, names) {
+    var T = { done: 0, overdue: 0, due_now: 0, upcoming: 0, called: 0, n: 0 };
+    (names || []).forEach(function (n) {
+      var f = (by || {})[n];
+      if (!f) return;
+      T.n++; T.done += f.done || 0; T.overdue += f.overdue || 0; T.due_now += f.due_now || 0;
+      T.upcoming += f.upcoming || 0; T.called += f.called || 0;
+    });
+    if (!T.n) return '';
+    var sep = '<span class="sep">\u00b7</span>';
+    // labelled "Due" in the summary (the label columns are 44 to 62px wide),
+    // so the line itself says what it counts
+    return '<b>' + fmt(T.done) + '</b> of ' + fmt(T.done + T.overdue) + ' follow-ups done' + sep +
+           '<b' + (T.overdue ? ' class="hot"' : '') + '>' + fmt(T.overdue) + '</b> overdue' + sep +
+           (T.due_now ? '<b>' + fmt(T.due_now) + '</b> due now' + sep : '') +
+           '<b>' + fmt(T.upcoming) + '</b> still to come' +
+           // the separator rides inside the <i>: a phone hides the <i>, and a dot must not dangle
+           (T.called ? '<i>' + sep + fmt(T.called) + ' called, not marked</i>' : '');
+  }
+  var FU_NOTE = '<b>Follow-ups.</b> The hairline under a name is that rep’s scheduled follow-up calls in Zoho (Automated Follow Up, ' +
+    'Quote Follow Up, Call scheduled with) whose time has come: done over due, red through amber to green. Done is marked Completed in ' +
+    'Zoho, or called: the rep dialed that deal or contact no earlier than 30 minutes before its time. Overdue means over an hour ' +
+    'late: Zoho books the automated ones on the hour, so one whose time came within the hour is “due now” and not yet held against ' +
+    'the bar. Follow-ups still to come are counted in the row panel, not in the bar, and ones Zoho cancelled are not counted. ' +
+    'Read from Zoho every 5 minutes.';
+
   function pressMissed(n) {
     return n ? '<span class="press"><b class="hot">' + w(n) + '</b> missed</span>' : '';
   }
 
   return { render: render, ringexModel: ringexModel, MARKS: MARKS, hmShort: hmShort, hm: hm, w: w, fmt: fmt, money: money, esc: esc,
-           median: median, floorOf: floorOf, pressMissed: pressMissed };
+           median: median, floorOf: floorOf, pressMissed: pressMissed,
+           progBar: progBar, fuBar: fuBar, fuLine: fuLine, fuSum: fuSum, FU_NOTE: FU_NOTE };
 })();
 </script>

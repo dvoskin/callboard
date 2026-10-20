@@ -2401,14 +2401,23 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             if c:
                 curves[seat["name"]] = c
 
+    company_rows, company_feed = _company_rows(date_start, date_end)
     report = build_billing_report(
         rows_by_agent, tz_offset_minutes=offset_east,
         window={"start": date_start, "end": date_end},
         roster_meta=roster_meta, now_local=now_local, curves=curves,
         targets=TEAM_TARGETS.get(team),
         default_curve=TEAM_PACE_CURVES.get(team),
-        sms_by_agent=sms_by_agent,
+        sms_by_agent=sms_by_agent, company_rows=company_rows,
     )
+    # How far "called back from any line" reaches, for the missed-call notes.
+    if company_feed["through"]:
+        try:
+            company_feed["through_local"] = (datetime.fromisoformat(company_feed["through"])
+                                             + timedelta(minutes=offset_east)).strftime("%-I:%M %p")
+        except ValueError:
+            pass
+    report["company_feed"] = company_feed
     # Collected amounts, billing only. Joined by agent+day so it lines up with
     # the same working days the call figures use. Read-only and aggregate: the
     # sheet carries patient names, DOBs and clearances, none of which come near
@@ -5839,6 +5848,142 @@ def _ringex_warm_loop():
         time.sleep(45)
 
 
+# ---- The company-wide call feed, for the missed-call lists ----
+# A missed call is "called back" once anyone gets back to the caller. The
+# boards only read their own seats, so a patient answered on the Billing
+# Support queue, by a coordinator off the board or by a sales rep read "call
+# back" all day (Danny, 2026-10-19, pasting Yareth Pavon's "22 not called
+# back": the caller she missed six times had been called back by a sales rep
+# at 12:43 PM and answered on another line at 7:04 PM). This reads the
+# ACCOUNT call log in small slices -- the minutes since the last read, about
+# one request every 5 minutes; a cold day is filled in 90-minute slices -- and
+# keeps only time, direction, result, the outside number and our side's name,
+# on disk per day. It stands down while RingEX is refusing (shared cooldown).
+_CO_DIR = V6_SNAP_DIR / "_company"
+_CO_POLL = 300.0
+_CO_SLICE = timedelta(minutes=90)
+_CO_OVERLAP = timedelta(minutes=3)
+_co_lock = threading.Lock()
+_co_days: dict = {}
+_co_state = {"running": False, "reads": 0, "last_ok_at": None, "last_error": None, "yielded": 0}
+
+
+def _co_path(day):
+    return _CO_DIR / ("%s.json" % day)
+
+
+def _co_day(day):
+    with _co_lock:
+        st = _co_days.get(day)
+        if st is None:
+            st = {"cursor": None, "events": {}}
+            try:
+                d = json.loads(_co_path(day).read_text(encoding="utf-8"))
+                st["cursor"] = d.get("cursor")
+                st["events"] = {e["id"]: e for e in d.get("events") or [] if e.get("id")}
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            _co_days[day] = st
+        return st
+
+
+def _co_save(day, st):
+    try:
+        _CO_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _co_path(day).with_suffix(".tmp")
+        with _co_lock:
+            body = {"cursor": st["cursor"], "events": list(st["events"].values())}
+        tmp.write_text(json.dumps(body), encoding="utf-8")
+        tmp.replace(_co_path(day))
+    except OSError as e:
+        log.warning("company feed: could not save %s: %s", day, e)
+
+
+def _co_tick(day, tz_off, now=None):
+    """Read the next slice of the day if one is due. True when a request was made."""
+    st = _co_day(day)
+    now = now or datetime.now(timezone.utc)
+    day_start = _parse_local_date_to_utc(day, 0, 0, 0, tz_off)
+    cur = datetime.fromisoformat(st["cursor"]) if st["cursor"] else day_start
+    if st["cursor"] and (now - cur).total_seconds() < _CO_POLL:
+        return False
+    start, end = max(day_start, cur - _CO_OVERLAP), min(now, cur + _CO_SLICE)
+    events, meta = _ringcx.fetch_account_call_slice(start, end)
+    with _co_lock:
+        for e in events:
+            if e.get("id") and e.get("num"):
+                st["events"][e["id"]] = e
+        if meta.get("complete"):
+            st["cursor"] = end.isoformat()
+    _co_state["reads"] += 1
+    if meta.get("complete"):
+        _co_state["last_ok_at"] = time.time()
+    else:
+        _co_state["last_error"] = meta.get("note")
+    _co_save(day, st)
+    return True
+
+
+def _company_rows(date_start, date_end):
+    """The feed's calls for a report window, from memory or disk; never fetches.
+    Returns (rows, feed) -- feed says how far the feed reaches, for the notes."""
+    rows, feed = [], {"days": 0, "events": 0, "through": None}
+    try:
+        d0 = datetime.fromisoformat(date_start).date()
+        d1 = datetime.fromisoformat(date_end).date()
+    except ValueError:
+        return rows, feed
+    if (d1 - d0).days > 31:
+        d0 = d1 - timedelta(days=31)
+    d = d0
+    while d <= d1:
+        day = d.isoformat()
+        if day in _co_days or _co_path(day).exists():
+            st = _co_day(day)
+            with _co_lock:
+                evs = list(st["events"].values())
+                feed["through"] = st["cursor"] or feed["through"]
+            feed["days"] += 1
+            feed["events"] += len(evs)
+            rows.extend({"start_time": e.get("t"), "direction": e.get("dir"), "result": e.get("res"),
+                         "number": e.get("num"), "who": e.get("who")} for e in evs)
+        d += timedelta(days=1)
+    return rows, feed
+
+
+def _company_loop():
+    time.sleep(60)
+    _co_state["running"] = True
+    while True:
+        try:
+            if not _ringcx.configured:
+                time.sleep(300)
+                continue
+            tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+            today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
+            # Only a real refusal stops it. Billing's "a seat is stale" test
+            # (the training-class loop's) is true all night, when no biller
+            # is reading -- it held a cold day's fill to one slice in 7 min.
+            # Steady state is one request per 5 minutes; a cold fill runs
+            # once per day and per lost disk.
+            if _ringcx.rate_limited():
+                _co_state["yielded"] += 1
+            else:
+                _co_tick(today, tz_off)
+            with _co_lock:
+                for k in [k for k in _co_days if k < (datetime.fromisoformat(today) - timedelta(days=1)).date().isoformat()]:
+                    _co_days.pop(k, None)
+            if datetime.now().minute == 0:
+                cutoff = (datetime.fromisoformat(today) - timedelta(days=14)).date().isoformat()
+                for f in _CO_DIR.glob("*.json") if _CO_DIR.exists() else []:
+                    if f.stem < cutoff:
+                        f.unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001
+            _co_state["last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
+            log.exception("company feed loop")
+        time.sleep(30)
+
+
 # /teams?k=<token> -- Danny, 2026-10-16: "give me the new link when ready,
 # dont pw gate it for now, ill use it myself". No password and no sign-in, but
 # not open either: the repository is public and these pages carry collections
@@ -6410,6 +6555,99 @@ def _attach_crm_created(report, start_iso, end_iso):
         a["crm_created"] = (a["crm"]["calls"]["created"] + a["crm"]["tasks"]["created"]) if a["crm"] else None
     report["crm_meta"] = {k: v for k, v in (meta or {}).items()
                           if k in ("cached", "error", "attribution", "not_crm_users")}
+
+
+# Sales follow-ups (Danny, 2026-10-19: "Add a follow up tracker to track
+# scheduled calls assigned to each coordinator on the sales trackers in a
+# progress bar format like the others"). Its own cache, read the way the
+# coordinators' CRM breakdown is: off the request path, one read per window
+# and name set every 5 minutes, a failure kept briefly and never shown as 0.
+_FU_TTL = 300.0
+_FU_STUCK = 180.0
+_fu_cache: dict = {}
+_fu_inflight: dict = {}
+_fu_lock = threading.Lock()
+_FU_ASYNC = True
+
+
+def _followups_read(key, names, start_iso, end_iso):
+    by, meta = None, {}
+    try:
+        users = _zoho.list_users()                       # id -> full name
+        if not users:
+            meta["error"] = "CRM users could not be read, so nothing can be attributed"
+        else:
+            id_by_name = {_norm_name(full): uid for uid, full in users.items()}
+            wanted = {n: id_by_name.get(_norm_name(_CRM_NAME_ALIASES.get(n, n))) for n in names}
+            raw = _zoho.follow_up_breakdown(start_iso, end_iso, sorted({u for u in wanted.values() if u}))
+            zero = {"due": 0, "done": 0, "marked": 0, "called": 0, "due_now": 0, "overdue": 0, "upcoming": 0, "cancelled": 0}
+            by = {n: dict(raw.get(uid) or zero) for n, uid in wanted.items() if uid}
+            meta["not_crm_users"] = sorted(n for n, uid in wanted.items() if not uid)
+    except BaseException as e:  # noqa: BLE001  -- a thread must never die holding the in-flight key
+        by, meta = None, {"error": "CRM read failed: %s: %s" % (type(e).__name__, str(e)[:160])}
+    finally:
+        with _fu_lock:
+            # an error is kept only a minute, so the next poll tries again
+            _fu_cache[key] = {"at": time.time() - (_FU_TTL - 60 if by is None else 0), "by": by, "meta": meta}
+            _fu_inflight.pop(key, None)
+    return by, meta
+
+
+def _followups_for(names, start_iso, end_iso):
+    """(by, meta) for these names; by is None while the first read is in flight."""
+    names = sorted({n for n in names if n})
+    key = (start_iso, end_iso, tuple(names))
+    now = time.time()
+    with _fu_lock:
+        hit = _fu_cache.get(key)
+        fresh = bool(hit and now - hit["at"] < _FU_TTL)
+        started = _fu_inflight.get(key)
+        start_read = not fresh and (started is None or now - started > _FU_STUCK)
+        if start_read:
+            _fu_inflight[key] = now
+    if fresh:
+        return hit["by"], dict(hit["meta"], cached=True)
+    if start_read and not _FU_ASYNC:
+        return _followups_read(key, names, start_iso, end_iso)
+    if start_read:
+        threading.Thread(target=_followups_read, args=(key, names, start_iso, end_iso),
+                         name="followups", daemon=True).start()
+    if hit and hit["by"] is not None:
+        return hit["by"], dict(hit["meta"], cached=True, stale=True)
+    return None, dict((hit or {}).get("meta") or {}, loading=True)
+
+
+@app.route("/api/v5/followups")
+def api_v5_followups():
+    """Each sales rep's scheduled Zoho follow-up calls in the window -- done,
+    overdue, still to come (zoho_client.follow_up_breakdown) -- for the
+    follow-up progress bar on the sales boards (Danny,
+    2026-10-19: "Add a follow up tracker to track scheduled calls assigned to
+    each coordinator on the sales trackers in a progress bar format like the
+    others"). Counts only. Same gate as /api/v5/report, plus the /teams key."""
+    if not (_v5_allowed() or _teams_token_ok()):
+        return jsonify({"error": "unauthorized"}), 401
+    tz_param = request.args.get("tz")
+    _off = int(tz_param) if tz_param is not None else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
+    date_start = (request.args.get("start") or local_today)[:10]
+    date_end = (request.args.get("end") or date_start)[:10]
+    if not (re.match(r"^\d{4}-\d{2}-\d{2}$", date_start) and re.match(r"^\d{4}-\d{2}-\d{2}$", date_end)):
+        return jsonify({"error": "bad_date"}), 400
+    east = -_off
+    tz = "%s%02d:%02d" % ("+" if east >= 0 else "-", abs(east) // 60, abs(east) % 60)
+    # The page's own rows plus both declared sales rosters, so /v5 and /teams
+    # usually ask for the same set and share one read.
+    asked = [n.strip() for n in (request.args.get("names") or "").split("|") if n.strip()][:60]
+    names = sorted(set(asked) | {x["name"] for x in _TEAM_ROSTERS["sales"]}
+                   | {x["name"] for x in _TEAM_ROSTERS["ringex"]})
+    by, meta = _followups_for(names, "%sT00:00:00%s" % (date_start, tz), "%sT23:59:59%s" % (date_end, tz))
+    meta = meta or {}
+    return jsonify({"window": {"start": date_start, "end": date_end},
+                    "by": {n: (by or {}).get(n) for n in names} if by is not None else {},
+                    "loading": by is None and not meta.get("error"),
+                    "not_crm_users": meta.get("not_crm_users") or [],
+                    "stale": bool(meta.get("stale")), "error": meta.get("error")})
 
 
 def _v5_activities_created(start_iso, end_iso, agent_names=None):
@@ -10789,6 +11027,7 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
                  ("loop:paid-guard", lambda: _paid_loop()),
                  ("loop:ringex", lambda: _ringex_warm_loop()),
+                 ("loop:company", lambda: _company_loop()),
                  ("loop:catalog", lambda: _catalog_loop()),
                  ("loop:task-sweep", lambda: _sweep_loop()))
 _thread_pid = None

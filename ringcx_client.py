@@ -1613,6 +1613,62 @@ class RingCXClient:
     # Per-EXTENSION call log — the billing board's only source
     # ══════════════════════════════════════════════════════════════
 
+    def fetch_account_call_slice(self, start_dt: datetime, end_dt: datetime, max_pages: int = 4,
+                                 timeout: float = 30.0) -> tuple[list[dict], dict]:
+        """Every call on the ACCOUNT in a short window, cut to what a missed-call
+        list needs to know whether anyone got back to a caller: when, which
+        way, the result, the outside number and our side's name. Any line --
+        queues, the main numbers, other teams -- which the per-seat logs never
+        see. Meant for slices of minutes, not days: the account endpoint is
+        Heavy, so a 429 opens the shared cooldown and the slice is simply left
+        for the next try. Returns (events, meta) with meta["complete"] True
+        only when the whole window was read."""
+        meta = {"complete": False, "pages": 0, "note": None}
+        if self.rate_limited():
+            meta["note"] = "shared RingEX cooldown; nothing requested"
+            return [], meta
+        out = []
+        try:
+            self._ensure_rc_token()
+            for page in range(1, max_pages + 1):
+                if self.rate_limited():
+                    meta["note"] = "shared RingEX cooldown"
+                    return out, meta
+                r = requests.get(f"{self.server_url}/restapi/v1.0/account/{self.account_id}/call-log",
+                                 headers=self._rc_headers(), timeout=timeout,
+                                 params={"dateFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                                         "dateTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                                         "view": "Simple", "perPage": 250, "page": page})
+                if r.status_code == 429:
+                    self.note_rate_limited(r.headers.get("Retry-After"))
+                    meta["note"] = "HTTP 429"
+                    return out, meta
+                if r.status_code == 204:
+                    meta["complete"] = True
+                    return out, meta
+                if not r.ok:
+                    meta["note"] = "HTTP %d" % r.status_code
+                    return out, meta
+                recs = (r.json() or {}).get("records") or []
+                meta["pages"] = page
+                for rec in recs:
+                    d = rec.get("direction") or ""
+                    frm, to = rec.get("from") or {}, rec.get("to") or {}
+                    outside, ours = (to, frm) if d == "Outbound" else (frm, to)
+                    out.append({"id": str(rec.get("id") or ""), "t": rec.get("startTime") or "", "dir": d,
+                                "res": rec.get("result") or "",
+                                "num": "".join(ch for ch in str(outside.get("phoneNumber") or "") if ch.isdigit())[-10:],
+                                "who": (ours.get("name") or "").strip()})
+                if len(recs) < 250:
+                    meta["complete"] = True
+                    return out, meta
+                time.sleep(1.2)
+            meta["note"] = "more than %d pages in the window" % max_pages
+            return out, meta
+        except Exception as e:  # noqa: BLE001
+            meta["note"] = "%s: %s" % (type(e).__name__, str(e)[:160])
+            return out, meta
+
     def fetch_extension_calls(self, ext_id, start_dt: datetime, end_dt: datetime,
                               max_pages: int = 12, max_wait: float = 30.0,
                               timeout: float = 30.0) -> tuple[list[dict], dict]:
