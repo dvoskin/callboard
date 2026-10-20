@@ -276,7 +276,7 @@
       'Coordinator Dashboard: on a live day against where the day is headed at this hour, not the whole-day number. ▲ at or above ' +
       'target, · between floor and target, ▼ red under the floor; a red name is under the floor on talk.' +
       (team === 'surgical' ? ' The coloured bar under a name is the window’s planner calls and tasks done, red through amber to green.' : '') +
-      ' “missed” is an inbound call that rang out and has not been returned yet.';
+      ' “missed” counts people, not calls: callers whose call rang out and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted.';
     return {
       key: team, label: label, href: href, nameHead: 'Name', dialsHead: team === 'surgical' ? 'In / Out' : 'Calls', dialsLbl: ' calls',
       t3Head: team === 'billing' ? 'vs exp' : longLbl.replace('≥', '&ge;'), t3Lbl: ' ' + longLbl, grade: true, keepOrder: true,

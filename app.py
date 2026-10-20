@@ -2400,14 +2400,23 @@ def _v6_finish(rows_by_agent, stats, team, roster, roster_meta,
             if c:
                 curves[seat["name"]] = c
 
+    company_rows, company_feed = _company_rows(date_start, date_end)
     report = build_billing_report(
         rows_by_agent, tz_offset_minutes=offset_east,
         window={"start": date_start, "end": date_end},
         roster_meta=roster_meta, now_local=now_local, curves=curves,
         targets=TEAM_TARGETS.get(team),
         default_curve=TEAM_PACE_CURVES.get(team),
-        sms_by_agent=sms_by_agent,
+        sms_by_agent=sms_by_agent, company_rows=company_rows,
     )
+    # How far "called back from any line" reaches, for the missed-call notes.
+    if company_feed["through"]:
+        try:
+            company_feed["through_local"] = (datetime.fromisoformat(company_feed["through"])
+                                             + timedelta(minutes=offset_east)).strftime("%-I:%M %p")
+        except ValueError:
+            pass
+    report["company_feed"] = company_feed
     # Collected amounts, billing only. Joined by agent+day so it lines up with
     # the same working days the call figures use. Read-only and aggregate: the
     # sheet carries patient names, DOBs and clearances, none of which come near
@@ -5184,6 +5193,137 @@ def _ringex_warm_loop():
             _ringex_warm_state["last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
             log.exception("ringex warm loop")
         time.sleep(45)
+
+
+# ---- The company-wide call feed, for the missed-call lists ----
+# A missed call is "called back" once anyone gets back to the caller. The
+# boards only read their own seats, so a patient answered on the Billing
+# Support queue, by a coordinator off the board or by a sales rep read "call
+# back" all day (Danny, 2026-10-19, pasting Yareth Pavon's "22 not called
+# back": the caller she missed six times had been called back by a sales rep
+# at 12:43 PM and answered on another line at 7:04 PM). This reads the
+# ACCOUNT call log in small slices -- the minutes since the last read, about
+# one request every 5 minutes; a cold day is filled in 90-minute slices -- and
+# keeps only time, direction, result, the outside number and our side's name,
+# on disk per day. It yields to billing like the training-class loop.
+_CO_DIR = V6_SNAP_DIR / "_company"
+_CO_POLL = 300.0
+_CO_SLICE = timedelta(minutes=90)
+_CO_OVERLAP = timedelta(minutes=3)
+_co_lock = threading.Lock()
+_co_days: dict = {}
+_co_state = {"running": False, "reads": 0, "last_ok_at": None, "last_error": None, "yielded": 0}
+
+
+def _co_path(day):
+    return _CO_DIR / ("%s.json" % day)
+
+
+def _co_day(day):
+    with _co_lock:
+        st = _co_days.get(day)
+        if st is None:
+            st = {"cursor": None, "events": {}}
+            try:
+                d = json.loads(_co_path(day).read_text(encoding="utf-8"))
+                st["cursor"] = d.get("cursor")
+                st["events"] = {e["id"]: e for e in d.get("events") or [] if e.get("id")}
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            _co_days[day] = st
+        return st
+
+
+def _co_save(day, st):
+    try:
+        _CO_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _co_path(day).with_suffix(".tmp")
+        with _co_lock:
+            body = {"cursor": st["cursor"], "events": list(st["events"].values())}
+        tmp.write_text(json.dumps(body), encoding="utf-8")
+        tmp.replace(_co_path(day))
+    except OSError as e:
+        log.warning("company feed: could not save %s: %s", day, e)
+
+
+def _co_tick(day, tz_off, now=None):
+    """Read the next slice of the day if one is due. True when a request was made."""
+    st = _co_day(day)
+    now = now or datetime.now(timezone.utc)
+    day_start = _parse_local_date_to_utc(day, 0, 0, 0, tz_off)
+    cur = datetime.fromisoformat(st["cursor"]) if st["cursor"] else day_start
+    if st["cursor"] and (now - cur).total_seconds() < _CO_POLL:
+        return False
+    start, end = max(day_start, cur - _CO_OVERLAP), min(now, cur + _CO_SLICE)
+    events, meta = _ringcx.fetch_account_call_slice(start, end)
+    with _co_lock:
+        for e in events:
+            if e.get("id") and e.get("num"):
+                st["events"][e["id"]] = e
+        if meta.get("complete"):
+            st["cursor"] = end.isoformat()
+    _co_state["reads"] += 1
+    if meta.get("complete"):
+        _co_state["last_ok_at"] = time.time()
+    else:
+        _co_state["last_error"] = meta.get("note")
+    _co_save(day, st)
+    return True
+
+
+def _company_rows(date_start, date_end):
+    """The feed's calls for a report window, from memory or disk; never fetches.
+    Returns (rows, feed) -- feed says how far the feed reaches, for the notes."""
+    rows, feed = [], {"days": 0, "events": 0, "through": None}
+    try:
+        d0 = datetime.fromisoformat(date_start).date()
+        d1 = datetime.fromisoformat(date_end).date()
+    except ValueError:
+        return rows, feed
+    if (d1 - d0).days > 31:
+        d0 = d1 - timedelta(days=31)
+    d = d0
+    while d <= d1:
+        day = d.isoformat()
+        if day in _co_days or _co_path(day).exists():
+            st = _co_day(day)
+            with _co_lock:
+                evs = list(st["events"].values())
+                feed["through"] = st["cursor"] or feed["through"]
+            feed["days"] += 1
+            feed["events"] += len(evs)
+            rows.extend({"start_time": e.get("t"), "direction": e.get("dir"), "result": e.get("res"),
+                         "number": e.get("num"), "who": e.get("who")} for e in evs)
+        d += timedelta(days=1)
+    return rows, feed
+
+
+def _company_loop():
+    time.sleep(60)
+    _co_state["running"] = True
+    while True:
+        try:
+            if not _ringcx.configured:
+                time.sleep(300)
+                continue
+            tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+            today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
+            if _ringex_should_yield(today):
+                _co_state["yielded"] += 1
+            else:
+                _co_tick(today, tz_off)
+            with _co_lock:
+                for k in [k for k in _co_days if k < (datetime.fromisoformat(today) - timedelta(days=1)).date().isoformat()]:
+                    _co_days.pop(k, None)
+            if datetime.now().minute == 0:
+                cutoff = (datetime.fromisoformat(today) - timedelta(days=14)).date().isoformat()
+                for f in _CO_DIR.glob("*.json") if _CO_DIR.exists() else []:
+                    if f.stem < cutoff:
+                        f.unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001
+            _co_state["last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
+            log.exception("company feed loop")
+        time.sleep(30)
 
 
 # /teams?k=<token> -- Danny, 2026-10-16: "give me the new link when ready,
@@ -10228,6 +10368,7 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
                  ("loop:ringex", lambda: _ringex_warm_loop()),
+                 ("loop:company", lambda: _company_loop()),
                  ("loop:catalog", lambda: _catalog_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()

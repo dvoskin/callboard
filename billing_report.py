@@ -409,14 +409,52 @@ def _number_index(rows_by_agent, tz_offset_minutes):
     return idx
 
 
-def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40):
-    """Inbound calls this seat missed, newest first, each with the number to
-    call back and whether a later call to or from that number exists -- by this
-    seat or by a teammate -- which marks it called back. Danny, 2026-10-13:
-    "add a list of missed calls ... with the call back number and mark them
-    completed once they come in on next sync". Numbers are formatted, never
-    hidden: the point of the list is to dial them."""
-    out = []
+def _company_index(idx, company_rows, tz_offset_minutes):
+    """Add the company-wide call feed to a board's number index: calls on ANY
+    line, so a patient a teammate off this board answered, or a sales rep
+    called back, stops reading "call back". Danny, 2026-10-19, pasting Yareth
+    Pavon's "22 not called back": one patient she missed six times was called
+    back by a sales rep at 12:43 PM and answered on another line at 7:04 PM;
+    neither is on the billing board, so all of it read open."""
+    for r in company_rows or []:
+        t = _ts(r.get("start_time"), tz_offset_minutes)
+        num = "".join(ch for ch in str(r.get("number") or "") if ch.isdigit())[-10:]
+        if t is None or len(num) != 10:
+            continue
+        idx.setdefault(num, []).append((t, r.get("who") or "another line", r.get("direction"), r.get("result")))
+    for v in idx.values():
+        v.sort(key=lambda e: e[0])
+    return idx
+
+
+def _after_hours(t, shift):
+    """A miss after the seat's shift ended, or on its day off: listed, and
+    not held against that day (nobody is there to call back)."""
+    if not shift:
+        return False
+    if t.strftime("%a").lower()[:3] in [str(d).lower()[:3] for d in (shift.get("off") or [])]:
+        return True
+    end = _shift_minutes(shift.get("end"))
+    return end is not None and t.hour * 60 + t.minute >= end
+
+
+def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40, shift=None):
+    """Inbound calls this seat missed, newest first, ONE ROW PER CALLER until
+    someone gets back to them -- a later call to that number, or the number
+    calling again and being answered, by this seat, a teammate, or anyone on
+    any line once the company feed is in the index. Danny, 2026-10-13: "add a
+    list of missed calls ... with the call back number and mark them completed
+    once they come in on next sync". Numbers are formatted, never hidden: the
+    point of the list is to dial them.
+
+    Grouped (2026-10-19): one patient ringing seven times read as seven people
+    to call back. Misses from one number that the same later contact answers
+    -- or that nothing has answered yet -- are one row with a count.
+
+    The summary counts PEOPLE: open = rows still to call back during the shift,
+    after_hours = rows that came in after the shift ended or on a day off
+    (shown, labelled, not held against the day); missed = the calls."""
+    misses = []
     for r in rows or []:
         if r.get("direction") != "Inbound" or r.get("result") != "Missed":
             continue
@@ -424,25 +462,40 @@ def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40):
         num = "".join(ch for ch in str(r.get("number") or r.get("from_number") or "") if ch.isdigit())[-10:]
         if t is None or len(num) != 10:
             continue
-        back = None
+        back, back_t = None, None
         for (t2, who, d2, res2) in idx.get(num, []):
-            if t2 <= t:
-                continue
-            if d2 == "Outbound":
+            if d2 == "Outbound" and t2 > t:
                 back = {"at": _hhmm(t2), "by": who, "how": "called back", "connected": res2 == "Call connected"}
+                back_t = t2
                 break
-            if d2 == "Inbound" and res2 == "Accepted":
+            # the same call answered on another line rings within seconds of the miss
+            if d2 == "Inbound" and res2 == "Accepted" and (t2 - t).total_seconds() >= -5:
                 back = {"at": _hhmm(t2), "by": who, "how": "called again, answered", "connected": True}
+                back_t = t2
                 break
-        out.append((t, {"at": _hhmm(t), "date": t.date().isoformat(), "number": _fmt_phone(num), "digits": num,
-                        "resolved": back is not None, "back": back, "by_self": bool(back and back["by"] == name)}))
+        misses.append((t, num, back, back_t))
+    groups = {}
+    for (t, num, back, back_t) in sorted(misses, key=lambda m: m[0]):
+        g = groups.setdefault((num, back_t, (back or {}).get("by")), {"times": [], "back": back})
+        g["times"].append(t)
+    out = []
+    for (num, _bt, _by), g in groups.items():
+        first, last = g["times"][0], g["times"][-1]
+        back = g["back"]
+        ah = all(_after_hours(t, shift) for t in g["times"])
+        out.append((last, {"at": _hhmm(last), "date": last.date().isoformat(), "number": _fmt_phone(num), "digits": num,
+                           "count": len(g["times"]), "first_at": _hhmm(first) if len(g["times"]) > 1 else None,
+                           "first_date": first.date().isoformat(), "after_hours": ah,
+                           "resolved": back is not None, "back": back, "by_self": bool(back and back["by"] == name)}))
     # Sorted on the time itself. Sorting on the "9:00 AM" string put 9:00
     # above 11:15, because "9" > "1" -- the check that would have caught it
     # sat behind an early sys.exit until 2026-10-13.
     out.sort(key=lambda m: m[0], reverse=True)
     out = [m for _, m in out]
-    summary = {"missed": len(out), "called_back": sum(1 for m in out if m["resolved"]),
-               "open": sum(1 for m in out if not m["resolved"])}
+    summary = {"missed": len(misses), "callers": len(out),
+               "called_back": sum(1 for m in out if m["resolved"]),
+               "open": sum(1 for m in out if not m["resolved"] and not m["after_hours"]),
+               "after_hours": sum(1 for m in out if not m["resolved"] and m["after_hours"])}
     return out[:limit], summary
 
 
@@ -515,7 +568,8 @@ def _target_groups(agents):
 
 def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, window=None,
                  targets=None, long_call_seconds=LONG_CALL_SECONDS,
-                 roster_meta=None, now_local=None, curves=None, sms_by_agent=None):
+                 roster_meta=None, now_local=None, curves=None, sms_by_agent=None,
+                 company_rows=None):
     """Build the billing scoreboard.
 
     rows_by_agent -- {display_name: [call rows]}. Rows are RingEX call-log
@@ -536,7 +590,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
                 and win["start"] == now_local.date().isoformat())
 
     agents = []
-    _num_idx = _number_index(rows_by_agent, tz_offset_minutes)
+    _num_idx = _company_index(_number_index(rows_by_agent, tz_offset_minutes), company_rows, tz_offset_minutes)
     for name, meta in sorted(rows_by_agent.items()):
         rows = meta["rows"] if isinstance(meta, dict) else meta
         ext = (meta.get("ext") if isinstance(meta, dict) else "") or ""
@@ -742,6 +796,8 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             }
 
         daily_talk = sorted(b["talk_seconds"] / 60.0 for b in worked.values())
+        _mc = _missed_calls(name, rows, _num_idx, tz_offset_minutes,
+                            shift=(meta.get("shift") if isinstance(meta, dict) else None))
         agents.append({
             "pace": pace,
             "name": name, "ext": ext, "ext_id": ext_id,
@@ -758,8 +814,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
             "answer_rate_pct": answer_rate,
             # How the day was worked (panel only): start vs shift, silences, reach.
             "day": punct, "gaps": gaps, "reach": reach,
-            "missed_calls": _missed_calls(name, rows, _num_idx, tz_offset_minutes)[0],
-            "missed_summary": _missed_calls(name, rows, _num_idx, tz_offset_minutes)[1],
+            "missed_calls": _mc[0], "missed_summary": _mc[1],
             "wrap_minutes": round(wtot["wrap_seconds"] / 60.0, 1),
             "handle_minutes": round((wtot["talk_seconds"] + wtot["wrap_seconds"]) / 60.0, 1),
             "avg_call_seconds": round(wtot["talk_seconds"] / wtot["connected"])

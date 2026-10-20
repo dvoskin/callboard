@@ -797,7 +797,8 @@
   function alertSaveMuted() { try { localStorage.setItem(alertStore(), JSON.stringify(Object.keys(ALERT.muted || {}))); } catch (e) {} }
   function alertKeys(a) {
     var ks = [];
-    ((a || {}).missed_calls || []).forEach(function (m) { if (!m.resolved) ks.push('call:' + m.digits + '@' + m.date + ' ' + m.at); });
+    // after the shift nobody is there to call back: no tone for those
+    ((a || {}).missed_calls || []).forEach(function (m) { if (!m.resolved && !m.after_hours) ks.push('call:' + m.digits + '@' + m.date + ' ' + m.at); });
     ((((a || {}).sms || {}).replies || {}).unanswered_keys || []).forEach(function (k) { ks.push('text:' + k); });
     return ks;
   }
@@ -1692,12 +1693,17 @@
       var missedLines = '';
       var mc = a.missed_calls || [], ms = a.missed_summary || {};
       if (mc.length) {
-        missedLines += line('Missed calls', ms.missed, ms.open ? '<b>' + ms.open + ' not called back</b> &middot; ' + ms.called_back + ' done' : 'all called back', ms.open ? 'below' : '');
+        // People, not calls: one row per caller; after-shift callers listed, not held against the day
+        var ahN = ms.after_hours || 0, ppl = function (n) { return n + (n === 1 ? ' person' : ' people'); };
+        missedLines += line('Missed calls', ms.missed, ms.open
+          ? '<b>' + ppl(ms.open) + ' to call back</b> &middot; ' + ms.called_back + ' called back' + (ahN ? ' &middot; ' + ahN + ' after hours' : '')
+          : (ahN ? ppl(ahN) + ' after hours &middot; the rest called back' : 'all called back'), ms.open ? 'below' : '');
         mc.forEach(function (m) {
           var who = m.back ? (m.by_self ? '' : ' by ' + esc(m.back.by)) : '';
+          var many = (m.count || 1) > 1 ? ' &middot; ' + m.count + ' calls since ' + esc(m.first_at || '') : '';
           var tail = m.resolved
-            ? '<span class="mc-done">' + esc(m.back.how) + ' ' + esc(m.back.at) + who + (m.back.connected ? '' : ' &middot; no answer') + '</span>'
-            : '<a class="zl" href="tel:+1' + esc(m.digits) + '">call back</a>';
+            ? '<span class="mc-done">' + esc(m.back.how) + ' ' + esc(m.back.at) + who + (m.back.connected ? '' : ' &middot; no answer') + many + '</span>'
+            : (m.after_hours ? '<span class="mc-done">after hours</span> ' : '') + '<a class="zl" href="tel:+1' + esc(m.digits) + '">call back</a>' + many;
           missedLines += '<div class="ln mc' + (m.resolved ? ' mc-ok' : '') + '"><span class="lb">' + esc(m.at) + (multi ? ' <span class="mcd">' + esc(m.date.slice(5)) + '</span>' : '') + '</span>' +
                          '<span class="vl"><a class="num" href="tel:+1' + esc(m.digits) + '">' + esc(m.number) + '</a></span>' +
                          '<span class="tl">' + tail + '</span></div>';
