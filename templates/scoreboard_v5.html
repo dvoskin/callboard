@@ -111,10 +111,12 @@
 
   function smsPaint() {
     var out = $('out'); if (!out) return;
-    // both boards: the RingCX roster and the RingEX reps under it
-    [out, $('exout')].forEach(function (box) {
+    // the RingCX roster only: the training class under it (#exout, inside
+    // #out) carries its own texts from /api/v5/ringex, painted by TB
+    [out].forEach(function (box) {
       if (!box) return;
       box.querySelectorAll('.nm[data-name]').forEach(function (el) {
+        if (el.closest('#exout')) return;
         var old = el.querySelector('.press'); if (old) old.remove();
         var html = pressLine(el.getAttribute('data-name'));
         var bar = el.querySelector('.prog.fu');
@@ -122,18 +124,19 @@
       });
       // the full texts line lives in the panel
       box.querySelectorAll('.dsms[data-name]').forEach(function (el) {
+        if (el.closest('#exout')) return;
         el.innerHTML = smsLine(el.getAttribute('data-name')) || '\u2014';
       });
     });
     var row = $('smsrow'), rv = $('smsrowv');
     if (SMS && SMS.totals && row && rv) {
       var T = SMS.totals, sp = T.sent_typed != null;
-      rv.innerHTML = '<b>' + fmt(T.sent) + '</b> sent' + (sp ? ' <i>' + fmt(T.sent_typed) + ' typed \u00b7 ' + fmt(T.sent_auto) + ' auto</i>' : '') +
+      rv.innerHTML = (window.TB ? TB.segs : String)('<b>' + fmt(T.sent) + '</b> sent' + (sp ? ' <i>' + fmt(T.sent_typed) + ' typed \u00b7 ' + fmt(T.sent_auto) + ' auto</i>' : '') +
         '<span class="sep">\u00b7</span><b>' + fmt(T.received) + '</b> received' +
         '<span class="sep">\u00b7</span><b' + (T.unread ? ' class="hot"' : '') + '>' + fmt(T.unread) + '</b> unread' +
         '<span class="sep">\u00b7</span><b>' + fmt(T.unanswered) + '</b> waiting on a reply' +
         (T.incomplete_seats ? '<span class="sep">\u00b7</span><i>' + T.incomplete_seats + ' line' + (T.incomplete_seats === 1 ? '' : 's') + ' partly read</i>' : '') +
-        (T.unknown_seats ? '<span class="sep">\u00b7</span><i>' + T.unknown_seats + ' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>' : '');
+        (T.unknown_seats ? '<span class="sep">\u00b7</span><i>' + T.unknown_seats + ' line' + (T.unknown_seats === 1 ? '' : 's') + ' not read yet</i>' : ''));
       row.hidden = false;
     }
     smsPanel();
@@ -164,7 +167,9 @@
   function loadSms(q) {
     var key = q.toString();
     if (key !== SMS_KEY) { SMS = null; SMS_KEY = key; SMS_TRIES = 0; }
-    var names = Array.prototype.map.call(document.querySelectorAll('.nm[data-name]'), function (el) { return el.getAttribute('data-name'); });
+    // the floor's names only: the training class's texts come with its own board
+    var names = Array.prototype.filter.call(document.querySelectorAll('#out .nm[data-name]'), function (el) { return !el.closest('#exout'); })
+                  .map(function (el) { return el.getAttribute('data-name'); });
     fetch('/api/v5/sms?' + key + (names.length && SMS_TRIES === 0 ? '&names=' + encodeURIComponent(names.join('|')) : ''), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
@@ -208,7 +213,7 @@
                                             '<span class="sl">Due</span><span class="sv"></span></div>');
         row = sum.querySelector('.srow.fu-sum');
       }
-      row.querySelector('.sv').innerHTML = line.replace(/<\/b> /g, '</b>\u00a0');
+      row.querySelector('.sv').innerHTML = TB.segs(line);
     });
   }
   function loadFu(q) {
@@ -249,10 +254,10 @@
         }
         var model = TB.ringexModel(res.j, {
           key: 'rx', label: 'Sales Training Class', href: '',   // it lives on this page
-          press: function (a) { AG[a.name] = a; return pressLine(a.name); },
+          // missed calls and texts unanswered under the name, the texts in
+          // the panel: both from the class's own row (/api/v5/ringex)
           panelExtra: function (a) {
-            return [['Texts', '<span class="dsms" data-name="' + esc(a.name) + '">' + (smsLine(a.name) || '\u2014') + '</span>'],
-                    ['Follow-ups', '<span class="dfu" data-name="' + esc(a.name) + '">' + TB.fuLine((FU && FU.by || {})[a.name], fuState(a.name)) + '</span>']];
+            return [['Follow-ups', '<span class="dfu" data-name="' + esc(a.name) + '">' + TB.fuLine((FU && FU.by || {})[a.name], fuState(a.name)) + '</span>']];
           },
           note: 'The training class dials from RingEX (the roster above is RingCX). ' +
                 '\u25B2\u25BC compare with the class\u2019s own median rep.'
@@ -501,6 +506,11 @@
          'wrap and admin excluded. Shift length isn’t in the data, so a half day sits beside a full one.</p>';
     h += '<details class="notes" id="datanotes"><summary>Data notes' + (nNotes ? ' (' + nNotes + ')' : '') + '</summary>' + notes + '</details>';
     $('out').innerHTML = h;
+    // the floor's summary lines break between figures, never inside one, as
+    // every team's do (TB.segs); the texts row is segmented when it lands
+    if (window.TB) $('out').querySelectorAll(':scope > .sum .sv').forEach(function (el) {
+      if (el.id !== 'smsrowv') el.innerHTML = TB.segs(el.innerHTML);
+    });
     if (EX_MODEL && window.TB) TB.render($('exout'), EX_MODEL);
 
     // Expand on click. Delegated so it survives every refresh, and keyboard

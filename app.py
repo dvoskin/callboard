@@ -1379,7 +1379,14 @@ TEAM_LABELS["ringex"] = "Sales Training Class"
 # that took RingEX's 10-a-minute budget from billing's live day (2026-10-16:
 # billing read "not known" for five minutes after a deploy). Read on demand,
 # cached like every v6 report.
-_TEAM_SMS["ringex"] = False
+# Texts ON since 2026-10-20 (Danny: "add the inbound outbound sms and unread /
+# responded for the training team as well"). Read the way their calls are:
+# today only by loop:ringex (_tc_sms_pass), one rep at a time, never by a
+# request (cache_only_today, honoured in _v6_fetch_sms too); /v5's own texts
+# build (_v5_sms_build) skips these six now, so their message store is read
+# once, not twice. The message store is RingEX's "sms" rate group, not the
+# heavy call-log budget the class's call reads are rationed on.
+_TEAM_SMS["ringex"] = True
 # Which boards carry a Zoho CRM count on each row: activities the person
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
 # created in Zoho CRM by each user for the time range shown"). Reuses the
@@ -1792,6 +1799,42 @@ def _v6_sms_save_day(ext_id, day_iso, rows):
         log.warning("v6 sms snapshot unwritable %s: %s", p, e)
 
 
+# Today's texts for the seats loop:ringex reads (cache_only_today), on disk
+# too, as their calls are: a deploy must not blank the class's texts for the
+# minutes the loop takes to come round again.
+V6_SMS_TODAY_DIR = V6_SMS_DIR / "_today"
+
+
+def _v6_sms_today_put(ext_id, day_iso, rows):
+    now = time.time()
+    _v6_sms_today_cache[(ext_id, day_iso)] = {"at": now, "rows": rows}
+    try:
+        p = V6_SMS_TODAY_DIR / str(ext_id) / f"{day_iso}.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"at": now, "rows": rows}))
+        tmp.replace(p)
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 sms today reading unwritable for %s: %s", ext_id, e)
+
+
+def _v6_sms_today_get(ext_id, day_iso):
+    c = _v6_sms_today_cache.get((ext_id, day_iso))
+    if c:
+        return c
+    try:
+        p = V6_SMS_TODAY_DIR / str(ext_id) / f"{day_iso}.json"
+        if p.exists():
+            d = json.loads(p.read_text())
+            if isinstance(d, dict) and isinstance(d.get("rows"), list):
+                c = {"at": float(d.get("at") or 0), "rows": d["rows"]}
+                _v6_sms_today_cache[(ext_id, day_iso)] = c
+                return c
+    except Exception as e:  # noqa: BLE001
+        log.warning("v6 sms today reading unreadable for %s: %s", ext_id, e)
+    return None
+
+
 def _v6_sms_unsplit(rows):
     """True for a day snapshot read before outbound SMS carried `sent_by`
     (typed vs automated). It still loads and its totals still count; only the
@@ -1834,9 +1877,23 @@ def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
                                           "missing_days": list(days),
                                           "note": "no RingEX extension on this seat"}
             continue
-        rows, missing, fails, note = [], [], 0, None
+        rows, missing, fails, note, stale_s = [], [], 0, None, 0.0
         for day in days:
             is_today = day >= local_today
+            # The training class's today is read by loop:ringex alone, never in
+            # a request (the same rule as their calls): the last reading
+            # stands, marked by its age; none yet is "not read yet", never 0.
+            if is_today and seat.get("cache_only_today"):
+                c = _v6_sms_today_get(eid, day)
+                if c:
+                    rows.extend(c["rows"]); stats["cached"] += 1
+                    if time.time() - c["at"] > _TC_TODAY_TTL:
+                        stale_s = max(stale_s, time.time() - c["at"])
+                else:
+                    missing.append(day); stats["missing"] += 1
+                    note = note or ("not read yet: a background job reads these texts one rep at a time "
+                                    "and has not reached this rep since the board started")
+                continue
             if is_today:
                 c = _v6_sms_today_cache.get((eid, day))
                 if c and time.time() - c["at"] < _V6_TTL_TODAY:
@@ -1880,7 +1937,8 @@ def _v6_fetch_sms(roster, days, local_today, tz_offset_minutes):
             else:
                 _v6_sms_save_day(eid, day, got)
         out[seat["name"]] = {"rows": rows, "complete": not missing,
-                             "missing_days": missing, "note": note if missing else None}
+                             "missing_days": missing, "note": note if missing else None,
+                             "stale_minutes": int(round(stale_s / 60.0)) if stale_s else None}
     return out, stats
 
 
@@ -4051,6 +4109,14 @@ def _v5_sms_read(seat, start_dt, end_dt, grp):
 def _v5_sms_build(start_iso, end_iso, tz_off):
     """{agents: {name: counts}, totals, unresolved} for the sales floor."""
     seats, unresolved = _sms_seats("sales", sorted(_V5_SMS_NAMES))
+    # The training class's texts are read by loop:ringex and shown on their own
+    # board (/api/v5/ringex); reading them here too spent the same message
+    # store twice and put their texts in the floor's total.
+    elsewhere = []
+    if _team_sms_enabled("ringex"):
+        tc = {s.get("ext_id") for s in _TEAM_ROSTERS.get("ringex") or []}
+        elsewhere = [s["name"] for s in seats if s.get("ext_id") in tc]
+        seats = [s for s in seats if s.get("ext_id") not in tc]
     start_dt = _parse_local_date_to_utc(start_iso, 0, 0, 0, tz_off)
     end_dt = _parse_local_date_to_utc(end_iso, 23, 59, 59, tz_off)
     agents = {}
@@ -4085,7 +4151,7 @@ def _v5_sms_build(start_iso, end_iso, tz_off):
         panel.append(a)
         time.sleep(_V5_SMS_PACE)
     return {"agents": agents, "totals": tot, "unresolved": unresolved,
-            "panel": panel, "panel_unresolved": punres,
+            "panel": panel, "panel_unresolved": punres, "elsewhere": elsewhere,
             "window": {"start": start_iso, "end": end_iso}, "seats": len(agents)}
 
 
@@ -4152,6 +4218,8 @@ def api_v5_sms():
         if c and asked:
             covered = {" ".join(k.lower().split()) for k in (c["data"].get("agents") or {})}
             covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("unresolved") or [])}
+            # the training class: read on its own board, never "not covered" here
+            covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("elsewhere") or [])}
             if any(" ".join(n.lower().split()) not in covered for n in asked):
                 fresh_names = True
         fresh = bool(c and time.time() - c["at"] < ttl) and not fresh_names
@@ -5796,6 +5864,7 @@ def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
 _TC_TODAY_TTL = 1200.0       # what a request accepts
 _TC_REFRESH_AFTER = 420.0    # what the loop refreshes
 _TC_PAUSE = 60.0
+_TC_SMS_PAUSE = 5.0          # between two reps' texts (the message store's own budget)
 
 
 def _ringex_should_yield(today):
@@ -5811,7 +5880,49 @@ def _ringex_should_yield(today):
         if not c or time.time() - c["at"] > _V6_TTL_TODAY * 2:
             return True
     return False
-_ringex_warm_state = {"running": False, "filled": 0, "last_error": None}
+_ringex_warm_state = {"running": False, "filled": 0, "last_error": None,
+                      "sms_filled": 0, "sms_yielded": 0, "sms_last_error": None}
+
+
+def _tc_sms_pass(today, tz_off):
+    """The training class's texts for today, one rep at a time, each at most
+    every _TC_REFRESH_AFTER seconds -- about one message-store read a minute
+    for six reps. The message store is RingEX's "sms" rate group (the billing
+    and coordinator boards share it, about 40 a minute), not the heavy
+    call-log budget, so this pass does not wait on billing's calls; it stands
+    down while that group is in a cooldown and stops at the first refusal.
+    Returns how many reps were read."""
+    grp = getattr(_ringcx, "SMS_RATE_GROUP", None)
+    n = 0
+    for seat in _billing_roster("ringex")[0]:
+        eid = seat.get("ext_id")
+        if not eid:
+            continue
+        c = _v6_sms_today_get(eid, today)
+        if c and time.time() - c["at"] < _TC_REFRESH_AFTER:
+            continue
+        if _ringcx.rate_limited(grp):
+            _ringex_warm_state["sms_yielded"] += 1
+            break
+        rows, ok, _g, why = _v6_fetch_sms_day(eid, today, tz_off)
+        if not ok:
+            _ringex_warm_state["sms_last_error"] = why or "incomplete read"
+            _ringex_warm_state["sms_last_error_at"] = time.time()
+            break
+        _v6_sms_today_put(eid, today, rows)
+        _ringex_warm_state["sms_filled"] += 1
+        _ringex_warm_state["sms_last_ok_at"] = time.time()
+        n += 1
+        time.sleep(_TC_SMS_PAUSE)
+    # earlier days' readings on disk (a finished day is read on request and
+    # kept as its own snapshot; these were only ever "today so far")
+    try:
+        for f in V6_SMS_TODAY_DIR.glob("*/*.json"):
+            if f.stem < today:
+                f.unlink()
+    except Exception:  # noqa: BLE001
+        pass
+    return n
 
 
 def _ringex_warm_loop():
@@ -5824,6 +5935,13 @@ def _ringex_warm_loop():
                 continue
             tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
             today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
+            # Texts first, on their own budget: a heavy-budget yield below
+            # (billing's calls stale) must not hold the class's texts too.
+            if _V6_SMS_ENABLED and _team_sms_enabled("ringex"):
+                try:
+                    _tc_sms_pass(today, tz_off)
+                except Exception as e:  # noqa: BLE001
+                    _ringex_warm_state["sms_last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
             for seat in _billing_roster("ringex")[0]:
                 c = _v6_today_get(seat["ext_id"], today)
                 if c and time.time() - c["at"] < _TC_REFRESH_AFTER:
@@ -6036,9 +6154,40 @@ def _ringex_rows(report, books):
             "complete": a.get("complete", True), "stale_minutes": a.get("stale_minutes"),
             "books": {k: b.get(k, 0) for k in ("quotes_sent", "quotes_invoiced", "retainers_sent",
                                                "retainers_paid", "paid_amount")},
+            "sms": _ringex_sms(a.get("sms")),
         })
     rows.sort(key=lambda r: (-r["talk"], -r["attempts"], r["name"] or ""))
     return rows
+
+
+def _ringex_sms(sm):
+    """A training-class rep's texts, counted the way the coordinators' and
+    billers' boards count them (billing_report: `sms` + `_sms_replies`): in =
+    received, out = sent (typed / auto when known), responded = inbound waits
+    closed by the rep's next text to that number, unanswered = numbers whose
+    newest inbound has no reply yet. None when texts were not read at all;
+    `unknown` when the window was not read and nothing came back -- "not read
+    yet", never zero."""
+    if not sm:
+        return None
+    rp = sm.get("replies") or {}
+    return {"received": int(sm.get("received") or 0), "sent": int(sm.get("sent") or 0),
+            "sent_typed": sm.get("sent_typed"), "sent_auto": sm.get("sent_auto"),
+            "replied": int(rp.get("replied") or 0), "unanswered": int(rp.get("unanswered") or 0),
+            "threads": int(rp.get("threads") or 0),
+            "complete": bool(sm.get("complete")), "unknown": bool(sm.get("unknown")),
+            "stale_minutes": sm.get("stale_minutes"), "note": sm.get("note")}
+
+
+def _ringex_sms_totals(rows):
+    """The class's texts in one line: summed over reps whose texts were read,
+    with how many were not, so a total missing two reps says so."""
+    got = [r["sms"] for r in rows if r.get("sms") and not r["sms"]["unknown"]]
+    t = {k: sum(s[k] for s in got) for k in ("received", "sent", "replied", "unanswered")}
+    t.update(seats=len(got), seats_total=len(rows),
+             unknown_seats=len(rows) - len(got),
+             partial_seats=sum(1 for s in got if not s["complete"]))
+    return t
 
 
 def _median(xs):
@@ -6078,6 +6227,7 @@ def api_v5_ringex():
                  for k in ("talk", "attempts", "over_3")}
         totals = {k: sum(r[k] for r in rows) for k in ("talk", "attempts", "inbound", "inbound_answered",
                                                        "connected", "over_3", "over_10", "missed_open")}
+        totals["sms"] = _ringex_sms_totals(rows) if _team_sms_enabled("ringex") else None
         return jsonify({"label": TEAM_LABELS["ringex"], "window": {"start": date_start, "end": date_end},
                         "as_of": report.get("as_of"), "ranked": rows, "floor": floor, "totals": totals,
                         "warnings": report.get("warnings") or [],

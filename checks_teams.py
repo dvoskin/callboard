@@ -50,7 +50,10 @@ ck("the training class is the October RingEX reps by extension -- Roberto Castil
 ck("...and shown as the Sales Training Class", A.TEAM_LABELS["ringex"] == "Sales Training Class", A.TEAM_LABELS["ringex"])
 ck("...read from RingEX on demand, NOT warmed: no 90-day backfill competing with billing's live day",
    "ringex" not in A._TEAM_SOURCES and all(s.get("always_rank") for s in A._TEAM_ROSTERS["ringex"]), A._TEAM_SOURCES.get("ringex"))
-ck("...texts not read twice (/v5 reads these seats already)", A._TEAM_SMS["ringex"] is False, A._TEAM_SMS)
+# 2026-10-20: texts ON for the class, read once -- by loop:ringex, and /v5's
+# own texts build skips them (checks_training_sms.py drives both)
+ck("...texts on, read once (by the class's loop; /v5's texts build skips them)", A._TEAM_SMS["ringex"] is True
+   and 'elsewhere = [s["name"] for s in seats if s.get("ext_id") in tc]' in open(os.path.join(HERE, "app.py"), encoding="utf-8").read(), A._TEAM_SMS)
 ck("...with a board of its own", A._TEAM_PATHS["ringex"] == "sales-ringex"
    and any(r.rule == "/sales-ringex" for r in A.app.url_map.iter_rules()), A._TEAM_PATHS)
 ck("the team key resolves (it used to fall back to billing for an unknown name)", A._team_key("ringex") == "ringex",
@@ -147,7 +150,7 @@ ck("coordinators and billing keep their own board's tracking: graded against the
    and "['Target', '<b>' + one('talk_minutes')" in html and "soFar(a, 'talk_minutes', 'm')" in html, "kpi")
 ck("...and every figure reads as on their own board: minutes, In / Out, vs expected, planner+tasks done, planner overdue, the priorities line, their order",
    "talkText: fmin(show.talk_minutes)" in html and "' in \\u00b7 '" in html and "row.t3Lbl = ' vs exp';" in html
-   and "pDone + '<i style" in html and "q.calls_overdue" in html and "' to schedule \\u00b7 '" in html and "keepOrder: true" in html, "match")
+   and "pDone + '<i style" in html and "q.calls_overdue" in html and "pz(qn(q.to_schedule, true) + ' to schedule')" in html and "keepOrder: true" in html, "match")
 ck("billing's total is the board's own (what billers logged), never a sum of the rows whose calls are read",
    "T.coll = j.live && C.today != null ? C.today : (C.total || 0);" in html
    and "(j.unknown || []).concat(j.silent || [], j.stalled || [])" in html, "billing total")
@@ -316,7 +319,10 @@ with A.app.test_request_context("/v5"):
 ck("/v5 still has its own styles (moved to the partial, not lost)", style in v5 and v5.count("<style>") == 2, v5.count("<style>"))
 ck("/v5 has the RingEX board under the roster", v5.index('id="out"') < v5.index('id="exout"') and "loadEx(q);" in v5
    and "/api/v5/ringex?" in v5, "exout")
-ck("texts and the missed/unread line paint on both boards", "[out, $('exout')].forEach" in v5, "smsPaint")
+# 2026-10-20: the training class carries its own texts (/api/v5/ringex); the
+# floor's texts must not paint over its rows
+ck("the floor's texts paint on the floor only; the training class carries its own", "if (el.closest('#exout')) return;" in v5
+   and "[out, $('exout')].forEach" not in v5.split("function smsPaint")[1].split("function smsPanel")[0], "smsPaint")
 
 # ---- the renderer itself, run in node ----
 node = shutil.which("node")
