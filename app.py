@@ -6262,6 +6262,366 @@ def api_teams_link():
     return jsonify({"url": "%s/teams?k=%s" % (request.host_url.rstrip("/"), _teams_token())})
 
 
+# ── My Day (build plan step 21) ───────────────────────────────────────────
+# One page per rep: late calls, today's calls, new leads, and the one-tap
+# result buttons. Danny approved the mock-up 2026-10-20 (artifact
+# 6iFi9GhoBVn8i6CJeZP3Ch). Every figure comes from Zoho COQL (my_day.py has
+# the rules); nothing here spends the RingEX budget.
+#
+# Who you are: a Google sign-in is matched to a Zoho user by email. A manager
+# (MY_DAY_MANAGERS, or the admin password session) can open anyone's page with
+# the name switch. The shared floor word lets a viewer READ a page they pick,
+# never write: the result buttons text patients and change Zoho, and the word
+# is handed round the floor (same line login_required draws).
+#
+# Results go to the back office's call-outcome engine through this app, so the
+# shared OVERDUE_API_KEY never reaches a browser.
+import my_day as _md  # noqa: E402
+from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: E402
+
+MY_DAY_TZ = _ZoneInfo(os.environ.get("MY_DAY_TZ", "America/New_York"))
+MY_DAY_MANAGERS = {e.strip().lower() for e in os.environ.get("MY_DAY_MANAGERS", "").split(",") if e.strip()}
+# Zoho user ids that hold unassigned new leads (the "queue"). Unset: no shared
+# list on the page. When set, the first rep to tap Call claims the lead.
+MY_DAY_QUEUE_OWNER_IDS = [x.strip() for x in os.environ.get("MY_DAY_QUEUE_OWNER_IDS", "").split(",") if x.strip()]
+MY_DAY_LATE_DAYS = int(os.environ.get("MY_DAY_LATE_DAYS", "7"))
+# Local screenshots and demos only. Made-up patients, 555 numbers.
+MY_DAY_FAKE = os.environ.get("MY_DAY_FAKE", "") == "1"
+_MD_TTL = 60.0
+_MD_USERS_TTL = 3600.0
+_md_lock = threading.Lock()
+_md_cache = {}                       # rep id -> {"at", "page"}
+_md_users = {"at": 0.0, "rows": None}
+_MD_FAKE_USERS = [{"id": "u-jess", "name": "Jessica Morales", "email": "jessica@example.test"},
+                  {"id": "u-mabel", "name": "Mabel Alvarez", "email": "mabel@example.test"},
+                  {"id": "u-jorge", "name": "Jorge Mier", "email": "jorge@example.test"}]
+
+
+def _md_users_list():
+    """Active Zoho users, cached an hour. A failed read keeps the last list."""
+    if MY_DAY_FAKE:
+        return list(_MD_FAKE_USERS)
+    now = time.time()
+    with _md_lock:
+        if _md_users["rows"] is not None and now - _md_users["at"] < _MD_USERS_TTL:
+            return list(_md_users["rows"])
+    try:
+        rows = _zoho.list_users_detail()
+    except Exception as e:  # noqa: BLE001
+        log.warning("my-day: users read failed: %s", _redact(e)[:160])
+        rows = None
+    with _md_lock:
+        if rows:
+            _md_users.update(at=now, rows=rows)
+        return list(_md_users["rows"] or [])
+
+
+def _md_role(name):
+    """Coordinators get the coordinator variant (scaffold); everyone else sales."""
+    coord = {_norm_name(s["name"]) for t in ("surgical", "scheduling") for s in _TEAM_ROSTERS.get(t, [])}
+    return "coordinator" if _norm_name(name) in coord else "sales"
+
+
+def _md_floor(users):
+    """The name switch: the sales floor and the coordinators, by roster name.
+    Falls back to every active user when no roster name matches."""
+    names = {_norm_name(s["name"]) for t in ("sales", "ringex", "surgical", "scheduling")
+             for s in _TEAM_ROSTERS.get(t, [])}
+    pick = [u for u in users if _norm_name(u["name"]) in names] or list(users)
+    return sorted(({"id": u["id"], "name": u["name"], "role": _md_role(u["name"])} for u in pick),
+                  key=lambda u: (u["role"] != "sales", u["name"]))
+
+
+def _md_viewer():
+    """{email, name, zoho_id, manager, can_write, signed_in}. can_write needs a
+    real account (Google or the admin password), never the shared word."""
+    user = session.get("user") or {}
+    email = (user.get("email") or "").lower()
+    admin = email == "admin@goalsplasticsurgery.com"
+    me = None
+    if email and not admin:
+        me = next((u for u in _md_users_list() if u["email"] == email), None)
+    if MY_DAY_FAKE and not me:
+        me = _MD_FAKE_USERS[0]
+    manager = admin or (email in MY_DAY_MANAGERS) or (MY_DAY_FAKE and not GOOGLE_CLIENT_ID)
+    return {"email": email, "name": (me or {}).get("name") or user.get("name") or "",
+            "zoho_id": (me or {}).get("id") or "", "manager": bool(manager),
+            "can_write": bool(user) or not GOOGLE_CLIENT_ID,
+            "word_only": not user and _word_authed()}
+
+
+def _md_resolve_rep(viewer, asked):
+    """Whose page. Your own unless you are a manager (or a word-password viewer,
+    who has no identity and must pick). Returns (rep dict or None, error)."""
+    users = _md_users_list()
+    by_id = {u["id"]: u for u in users}
+    if asked and asked != viewer["zoho_id"]:
+        if not (viewer["manager"] or viewer["word_only"]):
+            return None, "forbidden"
+        rep = by_id.get(asked)
+        return (rep, None) if rep else (None, "unknown_rep")
+    if viewer["zoho_id"]:
+        return by_id.get(viewer["zoho_id"]) or {"id": viewer["zoho_id"], "name": viewer["name"]}, None
+    return None, "pick"
+
+
+def _md_bounds(now_utc):
+    now_local = now_utc.astimezone(MY_DAY_TZ)
+    start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = now_local.replace(hour=23, minute=59, second=59, microsecond=0)
+    return {"day_start": start, "day_end": end,
+            "late_from": start - timedelta(days=MY_DAY_LATE_DAYS),
+            "new_from": now_local - timedelta(hours=_md.NEW_LEAD_HOURS),
+            "hist_from": start - timedelta(days=30)}
+
+
+def _md_page(rep, fresh=False):
+    """The built page for one rep, cached a minute. Raises on a Zoho failure
+    unless a last good page exists, which is then served and flagged stale."""
+    rid = rep["id"]
+    now = time.time()
+    with _md_lock:
+        hit = _md_cache.get(rid)
+        if hit and not fresh and now - hit["at"] < _MD_TTL:
+            return hit["page"]
+    now_utc = datetime.now(timezone.utc)
+    role = _md_role(rep.get("name") or "")
+    try:
+        if MY_DAY_FAKE:
+            world = _md.fake_world(now_utc, MY_DAY_TZ, rep_id=rid)
+        else:
+            b = _md_bounds(now_utc)
+            world = _zoho.my_day_world(rid, b["day_start"], b["day_end"], b["late_from"], b["new_from"],
+                                       b["hist_from"], queue_owner_ids=MY_DAY_QUEUE_OWNER_IDS)
+        page = _md.build(world, now_utc, MY_DAY_TZ, role=role, rep=rep,
+                         queue_enabled=bool(MY_DAY_QUEUE_OWNER_IDS) or MY_DAY_FAKE)
+        page["stale"] = False
+    except Exception as e:  # noqa: BLE001
+        log.warning("my-day: build for %s failed: %s", rid, _redact(e)[:200])
+        with _md_lock:
+            hit = _md_cache.get(rid)
+        if hit:
+            page = dict(hit["page"], stale=True, error="Zoho could not be read just now; this is the last good copy.")
+            return page
+        raise
+    page["fake"] = MY_DAY_FAKE
+    with _md_lock:
+        _md_cache[rid] = {"at": time.time(), "page": page}
+        if len(_md_cache) > 64:
+            _md_cache.pop(min(_md_cache, key=lambda k: _md_cache[k]["at"]), None)
+    return page
+
+
+def _md_gate():
+    """Same door as the sales board. Returns a response to stop, or None."""
+    if _v6_allowed():
+        return None
+    if not V5_PASSWORDS and not V7_PASSWORDS:
+        return redirect("/login")
+    return render_template("v5_password.html", error="", page_title="My Day",
+                           page_sub="Your calls for today, in the order to make them."), 200
+
+
+@app.route("/my-day", methods=["GET", "POST"])
+@app.route("/my-day/<rep_id>", methods=["GET", "POST"])
+def my_day_page(rep_id=None):
+    if request.method == "POST":          # the word-password form posts here
+        ip = (request.headers.get("CF-Connecting-IP")
+              or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+              or request.remote_addr or "?")
+        if not _v5_pw_throttled(ip) and _v5_password_matches(request.form.get("password", "").strip()):
+            session["v5_pw"] = True
+            return redirect(request.path)
+        _v5_pw_record_failure(ip)
+    gated = _md_gate()
+    if gated is not None:
+        return gated
+    viewer = _md_viewer()
+    rep, err = _md_resolve_rep(viewer, rep_id)
+    if err == "forbidden":
+        return redirect("/my-day")
+    users = _md_users_list()
+    floor = _md_floor(users) if (viewer["manager"] or viewer["word_only"] or not rep) else []
+    if floor and rep and not any(u["id"] == rep["id"] for u in floor):
+        floor.insert(0, {"id": rep["id"], "name": rep.get("name") or "", "role": _md_role(rep.get("name") or "")})
+    return render_template("my_day.html", current_user=session.get("user") or {},
+                           boot={"rep": rep or {}, "need_pick": rep is None, "floor": floor,
+                                 "viewer": {"name": viewer["name"], "manager": viewer["manager"],
+                                            "can_write": viewer["can_write"], "word_only": viewer["word_only"]},
+                                 "role": _md_role((rep or {}).get("name") or "")})
+
+
+@app.route("/my-day/api/data")
+def my_day_api_data():
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    rep, err = _md_resolve_rep(viewer, request.args.get("rep") or None)
+    if err:
+        return jsonify({"error": err}), (403 if err == "forbidden" else 400)
+    try:
+        page = _md_page(rep, fresh=request.args.get("fresh") == "1")
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": "zoho_failed", "detail": _redact(e)[:200]}), 502
+    return jsonify(page)
+
+
+@app.route("/my-day/api/slots")
+def my_day_api_slots():
+    """Open slots on the rep's Zoho calendar for the time picker, and the
+    confirmation text preview. Read only when a picker opens, not on page load."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    rep, err = _md_resolve_rep(viewer, request.args.get("rep") or None)
+    if err:
+        return jsonify({"error": err}), (403 if err == "forbidden" else 400)
+    now_utc = datetime.now(timezone.utc)
+    try:
+        if MY_DAY_FAKE:
+            busy = _md.fake_world(now_utc, MY_DAY_TZ, rep["id"]).get("busy", [])
+        else:
+            busy = _zoho.my_day_busy(rep["id"], now_utc.astimezone(MY_DAY_TZ),
+                                     now_utc.astimezone(MY_DAY_TZ) + timedelta(days=6))
+    except Exception as e:  # noqa: BLE001
+        log.warning("my-day: slots for %s failed: %s", rep["id"], _redact(e)[:160])
+        busy, err = [], "Your calendar could not be read; pick any time."
+    slots = _md.free_slots(busy, now_utc, MY_DAY_TZ)
+    first = request.args.get("first", "")[:40]
+    return jsonify({"slots": slots, "error": err,
+                    "preview_template": _md.confirmation_text(first, _md.first_name(rep.get("name") or ""),
+                                                              "{when}")})
+
+
+def _md_backoffice(path, body):
+    """POST to the back office with the shared key. (status, json) -- status
+    0 when it could not be reached or is not configured."""
+    if not BACKOFFICE_URL or not OVERDUE_API_KEY:
+        return 0, {"error": "not_configured"}
+    try:
+        r = requests.post(BACKOFFICE_URL + path, json=body, timeout=20, allow_redirects=False,
+                          headers={"x-api-key": OVERDUE_API_KEY, "Content-Type": "application/json"})
+    except Exception as e:  # noqa: BLE001
+        log.warning("my-day: back office %s failed: %s", path, type(e).__name__)
+        return 0, {"error": "unreachable"}
+    try:
+        data = r.json()
+    except ValueError:
+        data = {}
+    return r.status_code, data if isinstance(data, dict) else {}
+
+
+def _md_write_gate():
+    """Writes need a real account and a JSON body (a cross-site form cannot
+    send application/json without a preflight)."""
+    if not _v6_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    if not viewer["can_write"]:
+        return jsonify({"error": "sign_in", "message": "Sign in with Google to write results."}), 403
+    if not request.is_json:
+        return jsonify({"error": "json_required"}), 415
+    return None
+
+
+@app.route("/my-day/api/outcome", methods=["POST"])
+def my_day_api_outcome():
+    gated = _md_write_gate()
+    if gated is not None:
+        return gated
+    viewer = _md_viewer()
+    body = request.get_json(silent=True) or {}
+    rep, err = _md_resolve_rep(viewer, str(body.get("rep") or "") or None)
+    if err or viewer["word_only"]:
+        return jsonify({"error": err or "forbidden"}), 403
+    outcome = str(body.get("outcome") or "")
+    if outcome not in _md.OUTCOME_KEYS:
+        return jsonify({"error": "bad_outcome"}), 400
+    deal_id = str(body.get("dealId") or "").strip()
+    if not deal_id.isdigit() and not MY_DAY_FAKE:
+        return jsonify({"error": "deal_required"}), 400
+    out = {"dealId": deal_id, "outcome": outcome, "repZohoId": rep["id"]}
+    if body.get("callId"):
+        out["callId"] = str(body["callId"])
+    if outcome in ("booked_call", "call_back", "consult_booked"):
+        at = str(body.get("at") or "")
+        try:
+            when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=MY_DAY_TZ)
+        except ValueError:
+            return jsonify({"error": "time_required"}), 400
+        out["at"] = when.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if outcome == "booked_call":
+        out["sendConfirmation"] = bool(body.get("sendConfirmation"))
+    if outcome == "not_interested":
+        reason = str(body.get("reason") or "")
+        if reason not in _md.REASON_KEYS:
+            return jsonify({"error": "reason_required"}), 400
+        out["reason"] = reason
+    if outcome == "do_not_call":
+        if body.get("confirm") is not True:
+            return jsonify({"error": "confirm_required"}), 400
+        out["confirm"] = True
+    status, data = _md_backoffice("/api/call-outcome", out)
+    if status == 404 or (status == 0 and data.get("error") == "not_configured"):
+        return jsonify({"ok": False, "coming_soon": True, "message": "Results are coming soon."}), 200
+    if status == 0:
+        return jsonify({"ok": False, "message": "The back office could not be reached. Try again."}), 502
+    if status >= 400 or not data.get("ok"):
+        return jsonify({"ok": False, "message": str(data.get("error") or data.get("message")
+                                                    or "The result was not saved (HTTP %d)." % status)[:200]}), 502
+    with _md_lock:
+        _md_cache.pop(rep["id"], None)
+    log.info("my-day: %s wrote %s on deal %s for %s", viewer["email"] or "?", outcome, deal_id, rep["id"])
+    return jsonify({"ok": True, "saved": data.get("saved"), "next": data.get("next"),
+                    "undoToken": data.get("undoToken")})
+
+
+@app.route("/my-day/api/outcome/undo", methods=["POST"])
+def my_day_api_undo():
+    gated = _md_write_gate()
+    if gated is not None:
+        return gated
+    tok = str((request.get_json(silent=True) or {}).get("undoToken") or "")
+    if not tok:
+        return jsonify({"error": "token_required"}), 400
+    status, data = _md_backoffice("/api/call-outcome/undo", {"undoToken": tok})
+    if status == 200 and data.get("ok", True):
+        with _md_lock:
+            _md_cache.clear()
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "message": str(data.get("error") or "Undo did not go through.")[:200]}), 502
+
+
+@app.route("/my-day/api/claim", methods=["POST"])
+def my_day_api_claim():
+    """First tap on Call for a shared-queue lead claims it in the back office.
+    Answers {go: bool, message}. go=False only when someone else already has it."""
+    gated = _md_write_gate()
+    if gated is not None:
+        return gated
+    viewer = _md_viewer()
+    body = request.get_json(silent=True) or {}
+    rep, err = _md_resolve_rep(viewer, str(body.get("rep") or "") or None)
+    if err:
+        return jsonify({"error": err}), 403
+    deal_id = str(body.get("dealId") or "").strip()
+    if not deal_id:
+        return jsonify({"error": "deal_required"}), 400
+    status, data = _md_backoffice("/api/lead-claim", {"dealId": deal_id, "repZohoId": rep["id"]})
+    if status == 409:
+        who = str(data.get("claimedBy") or "another rep")[:60]
+        return jsonify({"go": False, "message": "%s already has this lead." % who})
+    if status == 200 and data.get("ok", True):
+        with _md_lock:
+            _md_cache.pop(rep["id"], None)
+        return jsonify({"go": True, "claimed": True})
+    # Not deployed yet (404) or not reachable: let the call go through rather
+    # than stop a rep dialing a fresh lead, and say claiming is not on.
+    return jsonify({"go": True, "claimed": False, "message": "Claiming is coming soon. Call goes through."})
+
+
 @app.route("/v6/board")
 def scoreboard_v6_board():
     """Read-only billing board on a share link. 404 rather than 403 on a bad

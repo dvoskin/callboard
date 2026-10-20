@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>My Day</title>
+<style>
+  /* The approved mock-up's tokens (copied from _board_style.html): white and
+     ink, hairlines, --up for things you tap, --dn only for "behind". */
+  :root{
+    --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
+    --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
+    --up:#0B6E67; --dn:#B03A31; --mid:#9C6712;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --pad-x:clamp(14px, 3.4vw, 26px); --pad-y:clamp(14px, 2.4vw, 26px);
+    --pn-fg:#1d4ed8; --pn-bg:#dbeafe; --pn-bd:#93c5fd;
+    --pq-fg:#854d0e; --pq-bg:#fef9c3; --pq-bd:#fde047;
+    --pc-fg:#166534; --pc-bg:#dcfce7; --pc-bd:#86efac;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
+    --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492;
+    --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542;
+    --pn-fg:#9CC1FF; --pn-bg:rgba(59,130,246,.14); --pn-bd:rgba(147,197,253,.32);
+    --pq-fg:#F3D57A; --pq-bg:rgba(234,179,8,.13); --pq-bd:rgba(253,224,71,.30);
+    --pc-fg:#86E0A6; --pc-bg:rgba(34,197,94,.13); --pc-bd:rgba(134,239,172,.30);
+  }}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
+       font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .app{max-width:1100px;margin:0 auto;padding:var(--pad-y) var(--pad-x) 72px}
+  a{color:inherit}
+
+  .top{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+  .top h1{margin:0;font-size:20px;letter-spacing:-.02em;font-weight:700}
+  .top .who{font-size:12.5px;color:var(--muted)}
+  .top .who b{color:var(--ink);font-weight:600}
+  .top .sw{margin-left:auto;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border:1px solid var(--rule);
+           border-radius:6px;background:var(--bg);color:var(--ink);max-width:220px}
+  .banner{margin:10px 0 0;padding:7px 11px;border:1px dashed var(--rule);border-radius:7px;font-size:12.5px;color:var(--ink-2)}
+  .banner.err{border-style:solid;border-color:var(--dn);color:var(--dn)}
+  .nums{display:flex;flex-wrap:wrap;gap:8px 28px;margin:12px 0 12px;padding:10px 0;
+        border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+  .nums div{font-size:12px;color:var(--muted);line-height:1.3}
+  .nums b{display:block;font-size:22px;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .nums b small{font-size:13px;color:var(--muted);font-weight:500;letter-spacing:0}
+  .nums b.dn{color:var(--dn)}
+  .alert{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px;padding:8px 11px;
+         border:1px solid var(--dn);border-radius:7px;font-size:13px}
+  .alert .dot{width:8px;height:8px;border-radius:50%;background:var(--dn);flex:none}
+  .alert .what{font-weight:600}
+  .alert .hint{color:var(--muted)}
+  .alert .btn{margin-left:auto}
+
+  .sec{margin:20px 0 0;scroll-margin-top:10px}
+  .sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:0 0 6px;border-bottom:1px solid var(--rule)}
+  .sh h2{margin:0;font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+  .sh h2.dn{color:var(--dn)}
+  .sh .c{font-size:12px;font-weight:700;color:var(--muted)}
+  .sh .h{font-size:12px;color:var(--muted)}
+  .empty{font-size:12.5px;color:var(--muted);padding:9px 0}
+
+  .hd,.r{display:grid;grid-template-columns:118px minmax(0,1.3fr) 178px minmax(0,1fr) 150px;
+         gap:0 14px;align-items:center}
+  .hd{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 0 4px}
+  .r{padding:9px 0;border-bottom:1px solid var(--hair);cursor:pointer}
+  .r:hover{background:var(--tint)}
+  .r.open{background:var(--tint);border-bottom:0}
+  .r.done{opacity:.4;pointer-events:none}
+  .when{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums;min-width:0}
+  .when small{display:block;font-size:11.5px;font-weight:650;color:var(--dn)}
+  .when small.q{color:var(--muted);font-weight:500}
+  .pt{min-width:0}
+  .pt b{font-size:14.5px;font-weight:650;letter-spacing:-.01em;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pt .meta{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .why{min-width:0}
+  .last{font-size:12.5px;color:var(--ink-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .last i{font-style:normal;color:var(--muted)}
+  .acts{display:flex;gap:6px;justify-content:flex-end}
+  .pill{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid;white-space:nowrap}
+  .p-new{color:var(--pn-fg);background:var(--pn-bg);border-color:var(--pn-bd)}
+  .p-quote,.p-balance{color:var(--pq-fg);background:var(--pq-bg);border-color:var(--pq-bd)}
+  .p-cb{color:var(--pc-fg);background:var(--pc-bg);border-color:var(--pc-bd)}
+  .p-retry,.p-missed{color:var(--muted);background:transparent;border-color:var(--muted);border-style:dashed}
+  .p-booked,.p-preop,.p-postop{color:var(--ink-2);background:var(--tint);border-color:var(--rule)}
+  .btn{font:inherit;font-size:13px;font-weight:650;padding:6px 13px;border-radius:7px;min-height:32px;
+       border:1px solid var(--rule);background:var(--bg);color:var(--ink);cursor:pointer;white-space:nowrap;
+       text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+  .btn.go{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .btn:hover{border-color:var(--up)}
+  .btn[disabled]{opacity:.45;cursor:default}
+  .now{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:var(--up);
+       letter-spacing:.05em;text-transform:uppercase;margin:2px 0}
+  .now::after{content:"";flex:1;height:2px;background:var(--up);opacity:.6}
+  .more{font-size:12.5px;color:var(--muted);padding:8px 0}
+  .more b{color:var(--ink)}
+  .donesum{display:flex;flex-wrap:wrap;gap:4px 16px;padding:9px 0;font-size:12.5px;color:var(--ink-2)}
+  .donesum b{color:var(--ink)}
+  .donesum .dn b{color:var(--dn)}
+  .sub2{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
+
+  /* the opened row */
+  .det{background:var(--tint);padding:4px 14px 16px;border-bottom:1px solid var(--hair);
+       display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:18px 26px}
+  .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 14px}
+  .dg div{display:flex;flex-direction:column;min-width:0}
+  .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .dg b{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis}
+  .full{font-size:16px;font-weight:700;margin:6px 0 8px}
+  .lbl{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:14px 0 4px}
+  .hist div{display:grid;grid-template-columns:62px 92px minmax(0,1fr);gap:0 10px;font-size:12.5px;
+            padding:4px 0;border-top:1px solid var(--rule)}
+  .hist .d{color:var(--muted);font-variant-numeric:tabular-nums}
+  .hist .k{font-weight:600}
+  .hist .x{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis}
+  .note{margin:0;padding:8px 11px;border-left:3px solid var(--up);background:var(--bg);font-size:13px;color:var(--ink-2);
+        border-radius:0 6px 6px 0;white-space:pre-wrap;word-break:break-word}
+  .note small{display:block;font-size:11px;color:var(--muted);margin-top:3px}
+  .callbar{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+  .q{font-size:13.5px;font-weight:700;margin:4px 0 2px}
+  .q span{font-weight:400;color:var(--muted);font-size:12.5px;margin-left:6px}
+  .glabel{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:10px 0 5px}
+  .obs{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px}
+  .ob{font:inherit;text-align:left;padding:8px 11px;min-height:44px;border-radius:8px;
+      border:1px solid var(--rule);background:var(--bg);color:var(--ink);cursor:pointer}
+  .ob b{display:block;font-size:13.5px;font-weight:650}
+  .ob small{display:block;font-size:11px;color:var(--muted);margin-top:1px}
+  .ob.stop{border-style:dashed}
+  .ob:hover{border-color:var(--up)}
+  .ob.on{border-color:var(--up);box-shadow:inset 0 0 0 1px var(--up)}
+  .ob[disabled]{opacity:.5;cursor:default}
+  .why-no{font-size:12px;color:var(--muted);margin:8px 0 0}
+
+  /* the follow-up step: time, reason, confirm */
+  .flow{margin:10px 0 0;padding:10px 12px;border:1px solid var(--up);border-radius:8px;background:var(--bg)}
+  .flow h4{margin:0 0 6px;font-size:13px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font:inherit;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid var(--rule);
+        background:var(--bg);color:var(--ink);cursor:pointer;min-height:32px}
+  .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .dayl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:8px 0 4px}
+  .flow input[type=datetime-local]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--rule);border-radius:6px;
+        background:var(--bg);color:var(--ink);margin-top:8px;max-width:100%}
+  .prev{margin:10px 0 0;padding:8px 10px;background:var(--tint);border-radius:7px;font-size:12.5px;color:var(--ink-2)}
+  .tog{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;font-weight:600}
+  .tog input{width:18px;height:18px}
+  .frow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:20;display:none;align-items:center;gap:12px;
+         max-width:calc(100% - 32px);padding:10px 14px;border-radius:9px;background:var(--ink);color:var(--bg);font-size:13px;
+         box-shadow:0 6px 24px rgba(0,0,0,.18)}
+  .toast.on{display:flex}
+  .toast button{font:inherit;font-weight:700;background:transparent;color:var(--bg);border:1px solid currentColor;
+                border-radius:6px;padding:3px 9px;cursor:pointer}
+  .pick{margin:18px 0 0;max-width:520px}
+  .pick a{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--hair);text-decoration:none}
+  .pick a span{color:var(--muted);font-size:12px}
+  .foot{font-size:11.5px;color:var(--muted);margin-top:28px}
+  .tabbar{display:none}
+
+  @media(max-width:860px){
+    .hd{display:none}
+    .r{grid-template-columns:96px minmax(0,1fr) auto;grid-template-areas:"w p a" "w y a" "w l a";gap:2px 12px;align-items:start}
+    .r .when{grid-area:w} .r .pt{grid-area:p} .r .why{grid-area:y} .r .last{grid-area:l} .r .acts{grid-area:a;align-self:center}
+    .det{grid-template-columns:minmax(0,1fr)}
+  }
+  /* Phone width: rows become cards, buttons two per line, numbers 2 by 2,
+     and a tab bar keeps the list short (Frame 3 of the mock). */
+  @media(max-width:520px){
+    .app{padding-bottom:92px}
+    .top h1{font-size:19px}
+    .top .sw{margin-left:0}
+    .nums{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:10px 0}
+    .nums b{font-size:20px}
+    .nums .nl{display:none}          /* the tab bar carries it on a phone */
+    .alert{font-size:12.5px;padding:7px 10px}
+    .alert .hint{display:none}
+    .alert .btn{margin-left:0}
+    .r{grid-template-columns:minmax(0,1fr);grid-template-areas:"p" "w" "y" "l" "a";gap:3px 0;
+       border:1px solid var(--rule);border-radius:11px;padding:10px 12px;margin:8px 0 0}
+    .r.open{border-radius:11px 11px 0 0;border-bottom:0}
+    .r .when{display:flex;gap:8px;align-items:baseline;font-size:12.5px}
+    .r .when small{display:inline}
+    .r .acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+    .r .acts .btn{min-height:42px;font-size:14px}
+    .det{border:1px solid var(--rule);border-top:0;border-radius:0 0 11px 11px;padding:4px 12px 14px}
+    .dg{grid-template-columns:1fr 1fr}
+    .obs{grid-template-columns:1fr 1fr}
+    .ob{min-height:46px}
+    .tabbar{display:grid;grid-template-columns:repeat(3,1fr);position:fixed;left:0;right:0;bottom:0;z-index:10;
+            border-top:1px solid var(--rule);background:var(--bg);font-size:12px;text-align:center;
+            padding-bottom:env(safe-area-inset-bottom)}
+    .tabbar a{padding:10px 0 12px;color:var(--muted);text-decoration:none}
+    .tabbar a.on{color:var(--ink);font-weight:700}
+    .toast{bottom:64px}
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <h1>My Day</h1>
+    <span class="who" id="who"></span>
+    <select class="sw" id="sw" aria-label="Open someone else's day" hidden></select>
+  </div>
+  <div id="banners"></div>
+  <div id="body"><p class="empty">Loading your day…</p></div>
+  <p class="foot" id="foot"></p>
+</div>
+<nav class="tabbar" id="tabbar" aria-label="Sections">
+  <a href="#s-day" class="on">My Day</a><a href="#s-new">New leads <span id="tb-new"></span></a><a href="#s-done">Done <span id="tb-done"></span></a>
+</nav>
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-msg"></span><button id="toast-undo" hidden>Undo</button></div>
+
+<script>
+(function(){
+  var BOOT = {{ boot|tojson }};
+  var REP = BOOT.rep || {};
+  var CAN_WRITE = !!(BOOT.viewer && BOOT.viewer.can_write);
+  var PAGE = null, OPEN_KEY = null, ROWS = {}, FLOW = null;
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function tel(d){ return d ? 'tel:+1' + d : ''; }
+
+  // ── the name switch ──
+  var sw = $('sw');
+  if ((BOOT.floor || []).length && (BOOT.viewer.manager || BOOT.viewer.word_only)) {
+    sw.hidden = false;
+    var html = BOOT.need_pick ? '<option value="">Pick a name ▾</option>' : '';
+    var lastRole = '';
+    BOOT.floor.forEach(function(u){
+      if (u.role !== lastRole) { if (lastRole) html += '</optgroup>'; html += '<optgroup label="' + (u.role === 'sales' ? 'Sales' : 'Coordinators') + '">'; lastRole = u.role; }
+      html += '<option value="' + esc(u.id) + '"' + (u.id === REP.id ? ' selected' : '') + '>' + esc(u.name) + '</option>';
+    });
+    sw.innerHTML = html + (lastRole ? '</optgroup>' : '');
+    sw.onchange = function(){ if (sw.value) location.href = '/my-day/' + encodeURIComponent(sw.value); };
+  }
+
+  if (BOOT.need_pick) {
+    var b = $('body');
+    if (BOOT.viewer.manager || BOOT.viewer.word_only) {
+      b.innerHTML = '<div class="pick"><p class="empty">Whose day? Pick a name.</p>' + (BOOT.floor || []).map(function(u){
+        return '<a href="/my-day/' + encodeURIComponent(u.id) + '"><b>' + esc(u.name) + '</b><span>' + (u.role === 'sales' ? 'Sales' : 'Coordinator') + '</span></a>';
+      }).join('') + '</div>';
+    } else {
+      b.innerHTML = '<p class="banner err">Your Google account does not match a Zoho user, so the page cannot tell whose calls to show. Ask Danny to check your email in Zoho.</p>';
+    }
+    $('tabbar').style.display = 'none';
+    return;
+  }
+
+  // ── toast ──
+  var toastT = null;
+  function toast(msg, undoToken){
+    $('toast-msg').textContent = msg;
+    var u = $('toast-undo');
+    u.hidden = !undoToken;
+    u.onclick = undoToken ? function(){ undo(undoToken); } : null;
+    $('toast').classList.add('on');
+    clearTimeout(toastT);
+    toastT = setTimeout(function(){ $('toast').classList.remove('on'); }, undoToken ? 5 * 60 * 1000 : 6000);
+  }
+
+  // ── load and render ──
+  function load(fresh){
+    fetch('/my-day/api/data?rep=' + encodeURIComponent(REP.id || '') + (fresh ? '&fresh=1' : ''), {credentials:'same-origin'})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(x){
+        if (!x.ok) { $('body').innerHTML = '<p class="banner err">' + esc(x.j.detail || x.j.error || 'The page could not be built.') + '</p>'; return; }
+        PAGE = x.j;
+        // #open=<row key> opens that row (a link straight to one patient).
+        var m = /[#&]open=([^&]+)/.exec(location.hash || '');
+        if (m && !OPEN_KEY && PAGE) { OPEN_KEY = decodeURIComponent(m[1]); history.replaceState(null, '', location.pathname + location.search); }
+        render();
+        if (m) scrollToOpen();
+      })
+      .catch(function(){ $('body').innerHTML = '<p class="banner err">The page could not be loaded. Check the connection and refresh.</p>'; });
+  }
+
+  function whenCell(r){
+    var cls = r.sub_kind === 'late' ? '' : ' class="q"';
+    return '<div class="when">' + esc(r.when) + (r.sub ? '<small' + cls + '>' + esc(r.sub) + '</small>' : '') + '</div>';
+  }
+  function rowHtml(r, sec){
+    ROWS[r.key] = r;
+    var last = r.last && r.last.date ? esc(r.last.date) + ' <i>· ' + esc(r.last.what) + '</i>' : '<i>' + esc(r.last ? r.last.what : '') + '</i>';
+    var call = r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + '>Call</a>'
+                       : '<button class="btn go" disabled title="No number on the deal">Call</button>';
+    return '<div class="r' + (OPEN_KEY === r.key ? ' open' : '') + '" data-key="' + esc(r.key) + '" data-sec="' + sec + '">' +
+      whenCell(r) +
+      '<div class="pt"><b>' + esc(r.short) + '</b><span class="meta">' + esc(r.meta) + '</span></div>' +
+      '<div class="why"><span class="pill p-' + esc(r.why) + '">' + esc(r.why_label) + '</span></div>' +
+      '<div class="last">' + last + '</div>' +
+      '<div class="acts">' + call + '<button class="btn" data-result="' + esc(r.key) + '">Result</button></div>' +
+      '</div>' + (OPEN_KEY === r.key ? detHtml(r) : '');
+  }
+  var HD = '<div class="hd"><span>When</span><span>Patient</span><span>Why</span><span>Last contact</span><span></span></div>';
+
+  function detHtml(r){
+    var facts = (r.facts || []).map(function(f){ return '<div><em>' + esc(f.k) + '</em><b>' + esc(f.v) + '</b></div>'; }).join('');
+    var note = r.note ? '<p class="lbl">Last call note</p><p class="note">' + esc(r.note.text) + '<small>' + esc([r.note.by, r.note.date].filter(Boolean).join(', ')) + '</small></p>' : '';
+    var hist = (r.history || []).length ? '<p class="lbl">Before this</p><div class="hist">' + r.history.map(function(h){
+      return '<div><span class="d">' + esc(h.d) + '</span><span class="k">' + esc(h.k) + '</span><span class="x">' + esc(h.x) + (h.by ? ' · ' + esc(h.by) : '') + '</span></div>';
+    }).join('') + '</div>' : '';
+    var callbar = '<div class="callbar">' + (r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + '>Call ' + esc(r.phone_label) + '</a>' : '') +
+      (r.zoho ? '<a class="btn" href="' + esc(r.zoho) + '" target="_blank" rel="noopener">Open in Zoho</a>' : '') + '<button class="btn" data-close="1">Close</button></div>';
+    var live = PAGE.outcomes_live && CAN_WRITE && !!r.deal_id;
+    var groups = [['talked', 'Talked to ' + (r.first || 'them')], ['stop', 'Stop calling'], ['missed', 'Did not reach ' + (r.first || 'them')]];
+    var obs = groups.map(function(g){
+      var list = PAGE.outcomes.filter(function(o){ return o.group === g[0]; });
+      if (!list.length) return '';
+      return '<p class="glabel">' + esc(g[1]) + '</p><div class="obs">' + list.map(function(o){
+        return '<button class="ob' + (g[0] === 'stop' ? ' stop' : '') + (FLOW && FLOW.key === r.key && FLOW.outcome === o.key ? ' on' : '') + '" data-ob="' + esc(o.key) + '"' + (live ? '' : ' disabled') + '><b>' + esc(o.label) + '</b><small>' + esc(o.hint) + '</small></button>';
+      }).join('') + '</div>';
+    }).join('');
+    var why = '';
+    if (!PAGE.outcomes_live) why = 'Coordinator buttons are coming soon. Write the result in Zoho for now.';
+    else if (!CAN_WRITE) why = 'Sign in with Google to write results. The floor password can only read.';
+    else if (!r.deal_id) why = 'This call is not on a deal, so it has no result buttons. Write it in Zoho.';
+    return '<div class="det" data-det="' + esc(r.key) + '"><div><div class="full">' + esc(r.full) + '</div><div class="dg">' + facts + '</div>' + note + hist + '</div>' +
+      '<div>' + callbar + '<p class="q">What happened?<span>One tap. We do the rest.</span></p>' + obs +
+      (why ? '<p class="why-no">' + esc(why) + '</p>' : '') + '<div id="flow"></div></div></div>';
+  }
+
+  function section(id, title, cls, count, hint, rows, extra, sec){
+    return '<div class="sec" id="' + id + '"><div class="sh"><h2' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(title) + '</h2><span class="c">' + count + '</span><span class="h">' + esc(hint) + '</span></div>' +
+      (rows.length ? HD + rows.map(function(r){ return rowHtml(r, sec); }).join('') : '<p class="empty">' + esc(extra && extra.empty || 'Nothing here.') + '</p>') +
+      (extra && extra.more ? '<div class="more">' + extra.more + '</div>' : '') + '</div>';
+  }
+
+  var showNoResult = false;
+  function render(){
+    var p = PAGE, n = p.nums;
+    ROWS = {};
+    var upd = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+    $('who').innerHTML = '<b>' + esc(p.rep.name || REP.name || '') + '</b> · ' + esc(p.date_label) + ' · updated ' + esc(upd);
+    var ban = '';
+    if (p.fake) ban += '<p class="banner">Fake data mode. Made-up patients and 555 numbers.</p>';
+    if (p.stale) ban += '<p class="banner err">' + esc(p.error || 'Showing the last good copy.') + '</p>';
+    if (p.role === 'coordinator') ban += '<p class="banner">Coordinator view. Your own buttons (Confirmed, Rescheduled, Paid, Call back at a time, No answer) are coming soon.</p>';
+    $('banners').innerHTML = ban;
+
+    var h = '<div class="nums">' +
+      '<div><b>' + n.done + '</b>calls done</div>' +
+      '<div><b>' + n.results + ' <small>of ' + n.done + '</small></b>results written</div>' +
+      '<div><b' + (n.late ? ' class="dn"' : '') + '>' + n.late + '</b>late, still to call</div>' +
+      '<div><b>' + n.talked_nothing_booked + '</b>talked, nothing booked</div>' +
+      '<div class="nl"><b>' + n.new_leads + '</b>new leads waiting</div></div>';
+    var nr = p.no_result.length;
+    if (nr) {
+      h += '<div class="alert"><span class="dot"></span><span class="what">' + nr + (nr === 1 ? ' call has' : ' calls have') + ' no result yet.</span><span class="hint">Tap to finish them. It takes one tap each.</span><button class="btn" id="finish">Finish them</button></div>';
+      if (showNoResult) h += section('s-nores', 'No Result Yet', 'dn', nr, 'Calls you made today with no result written.', p.no_result, null, 'nores');
+    }
+    h += '<span id="s-day"></span>';
+    h += section('s-late', 'Late', 'dn', n.late, 'Should have been called already. Oldest first.', p.late,
+      {empty: 'Nothing late. Nice.', more: p.late_more ? '+ ' + p.late_more + ' more late, oldest <b>' + esc(p.late_oldest) + '</b>' : ''}, 'late');
+
+    var trows = p.today.map(function(r){ return rowHtml(r, 'today'); });
+    trows.splice(p.now_index, 0, '<div class="now">Now ' + esc(p.now_label) + '</div>');
+    h += '<div class="sec" id="s-today"><div class="sh"><h2>Today</h2><span class="c">' + (p.today.length + p.today_more) + '</span><span class="h">Still to come, in time order.</span></div>' +
+      (p.today.length ? HD + trows.join('') : '<div class="now">Now ' + esc(p.now_label) + '</div><p class="empty">No more calls booked today.</p>') +
+      (p.today_more ? '<div class="more">+ ' + p.today_more + ' more today, last one at <b>' + esc(p.today_last) + '</b></div>' : '') + '</div>';
+
+    var newMore = [];
+    if (p.new_more) newMore.push('+ ' + p.new_more + ' more');
+    if (p.new_elsewhere) newMore.push(p.new_elsewhere + (p.new_elsewhere === 1 ? ' is' : ' are') + ' already in Late or Today above');
+    h += section('s-new', 'New Leads', '', n.new_leads, 'Call now. Newest first.', p.new_leads,
+      {empty: p.new_elsewhere ? 'Every new lead is already listed above.' : 'No new leads in the last 24 hours.', more: esc(newMore.join(' · '))}, 'new');
+    if (p.queue_enabled) {
+      h += '<p class="sub2">Shared, call now</p>';
+      h += (p.queue.length ? HD + p.queue.map(function(r){ return rowHtml(r, 'queue'); }).join('') : '<p class="empty">The shared queue is empty.</p>') +
+        '<div class="more">The first rep to tap Call takes the lead.' + (p.queue_more ? ' + ' + p.queue_more + ' more.' : '') + '</div>';
+    }
+    h += '<div class="sec" id="s-done"><div class="sh"><h2>Done Today</h2><span class="c">' + n.done + '</span><span class="h">By call result.</span></div>' +
+      (p.done_summary.length ? '<div class="donesum">' + p.done_summary.map(function(d){
+        return '<span' + (d.label === 'No result yet' ? ' class="dn"' : '') + '><b>' + d.n + '</b> ' + esc(d.label.toLowerCase()) + '</span>';
+      }).join('') + '</div>' : '<p class="empty">No calls done yet today.</p>') + '</div>';
+    $('body').innerHTML = h;
+    $('tb-new').textContent = n.new_leads; $('tb-done').textContent = n.done;
+    $('foot').textContent = 'Late means more than ' + p.late_minutes + ' minutes past the call time. From Zoho; refreshes every 2 minutes.';
+    var fin = $('finish');
+    if (fin) fin.onclick = function(){ showNoResult = true; OPEN_KEY = p.no_result[0] && p.no_result[0].key; FLOW = null; render(); scrollToOpen(); };
+  }
+
+  function scrollToOpen(){
+    var el = document.querySelector('.r.open');
+    if (el) el.scrollIntoView({block:'start', behavior:'smooth'});
+  }
+
+  // ── clicks ──
+  document.addEventListener('click', function(e){
+    var a = e.target.closest('[data-call]');
+    if (a) { onCall(e, a); return; }
+    var res = e.target.closest('[data-result]');
+    if (res) { OPEN_KEY = res.getAttribute('data-result'); FLOW = null; render(); scrollToOpen(); return; }
+    if (e.target.closest('[data-close]')) { OPEN_KEY = null; FLOW = null; render(); return; }
+    var ob = e.target.closest('[data-ob]');
+    if (ob && !ob.disabled) { startOutcome(ob.getAttribute('data-ob')); return; }
+    if (e.target.closest('.det') || e.target.closest('a,button,select,input,label')) return;
+    var row = e.target.closest('.r[data-key]');
+    if (row) { var k = row.getAttribute('data-key'); OPEN_KEY = OPEN_KEY === k ? null : k; FLOW = null; render(); }
+  });
+
+  function onCall(e, a){
+    var r = ROWS[a.getAttribute('data-call')];
+    if (!r || !a.getAttribute('data-claim')) return;          // own leads dial straight away
+    e.preventDefault();
+    if (!CAN_WRITE) { toast('Sign in with Google to claim shared leads.'); return; }
+    var href = a.getAttribute('href');
+    post('/my-day/api/claim', {rep: REP.id, dealId: r.deal_id}).then(function(j){
+      if (j.go === false) { toast(j.message || 'Someone else already has this lead.'); load(true); return; }
+      if (j.message) toast(j.message);
+      location.href = href;
+    }).catch(function(){ location.href = href; });
+  }
+
+  function post(url, body){
+    return fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
+      .then(function(r){ return r.json().catch(function(){ return {ok:false, message:'HTTP ' + r.status}; }); });
+  }
+
+  // ── outcomes ──
+  function outcomeDef(key){ return PAGE.outcomes.filter(function(o){ return o.key === key; })[0]; }
+  function startOutcome(key){
+    var r = ROWS[OPEN_KEY], o = outcomeDef(key);
+    if (!r || !o) return;
+    FLOW = {key: r.key, outcome: key, at: null, reason: null, send: true};
+    document.querySelectorAll('.ob').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-ob') === key); });
+    var f = $('flow');
+    if (!o.needs) { submit(); f.innerHTML = ''; return; }
+    if (o.needs === 'reason') {
+      f.innerHTML = '<div class="flow"><h4>Why not?</h4><div class="chips">' + PAGE.reasons.map(function(x){
+        return '<button class="chip" data-reason="' + esc(x.key) + '">' + esc(x.label) + '</button>'; }).join('') + '</div></div>';
+      f.querySelectorAll('[data-reason]').forEach(function(b){ b.onclick = function(){ FLOW.reason = b.getAttribute('data-reason'); submit(); }; });
+      return;
+    }
+    if (o.needs === 'confirm') {
+      f.innerHTML = '<div class="flow"><h4>Stop every call and text to ' + esc(r.full) + '?</h4><div class="frow"><button class="btn go" id="dnc-yes">Yes, do not call</button><button class="btn" id="dnc-no">Cancel</button></div></div>';
+      $('dnc-yes').onclick = function(){ FLOW.confirm = true; submit(); };
+      $('dnc-no').onclick = function(){ FLOW = null; f.innerHTML = ''; render(); };
+      return;
+    }
+    // time picker
+    f.innerHTML = '<div class="flow"><h4>' + (key === 'consult_booked' ? 'Which day and time?' : 'What time?') + '</h4><p class="empty">Reading your calendar…</p></div>';
+    fetch('/my-day/api/slots?rep=' + encodeURIComponent(REP.id || '') + '&first=' + encodeURIComponent(r.first || ''), {credentials:'same-origin'})
+      .then(function(x){ return x.json(); }).then(function(j){ timePicker(r, key, j); })
+      .catch(function(){ timePicker(r, key, {slots:[], previews:{}, error:'Your calendar could not be read; pick any time.'}); });
+  }
+
+  function timePicker(r, key, j){
+    var f = $('flow'); if (!f || !FLOW) return;
+    var byDay = {}, order = [];
+    (j.slots || []).forEach(function(s){ if (!byDay[s.day]) { byDay[s.day] = []; order.push(s.day); } byDay[s.day].push(s); });
+    var h = '<div class="flow"><h4>' + (key === 'consult_booked' ? 'Which day and time?' : 'What time?') + ' <span style="font-weight:400;color:var(--muted)">Your open slots</span></h4>';
+    if (j.error) h += '<p class="why-no">' + esc(j.error) + '</p>';
+    order.forEach(function(d){
+      h += '<p class="dayl">' + esc(d) + '</p><div class="chips">' + byDay[d].map(function(s){
+        return '<button class="chip" data-at="' + esc(s.at) + '" data-long="' + esc(s.long) + '">' + esc(s.label) + '</button>'; }).join('') + '</div>';
+    });
+    h += '<label class="dayl" for="at-other" style="display:block">Or another time</label><input type="datetime-local" id="at-other">';
+    if (key === 'booked_call') {
+      h += '<div class="prev" id="prev">Pick a time to see the text.</div><label class="tog"><input type="checkbox" id="send" checked> Send ' + esc(r.first || 'them') + ' this text</label>';
+    }
+    h += '<div class="frow"><button class="btn go" id="save" disabled>Save</button><button class="btn" id="cancel">Cancel</button></div></div>';
+    f.innerHTML = h;
+    function pickAt(iso, longText){
+      FLOW.at = iso; $('save').disabled = false;
+      f.querySelectorAll('[data-at]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-at') === iso); });
+      var pv = $('prev');
+      if (pv) pv.textContent = (j.preview_template || '').replace('{when}', longText);
+    }
+    f.querySelectorAll('[data-at]').forEach(function(b){ b.onclick = function(){ $('at-other').value = ''; pickAt(b.getAttribute('data-at'), b.getAttribute('data-long')); }; });
+    $('at-other').onchange = function(){
+      var v = $('at-other').value; if (!v) return;
+      var d = new Date(v);
+      pickAt(v, d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'}) + ' at ' + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}));
+    };
+    var sd = $('send'); if (sd) sd.onchange = function(){ FLOW.send = sd.checked; };
+    $('save').onclick = submit;
+    $('cancel').onclick = function(){ FLOW = null; f.innerHTML = ''; document.querySelectorAll('.ob.on').forEach(function(b){ b.classList.remove('on'); }); };
+  }
+
+  var busy = false;
+  function submit(){
+    if (busy || !FLOW) return;
+    var r = ROWS[FLOW.key]; if (!r) return;
+    var body = {rep: REP.id, dealId: r.deal_id, outcome: FLOW.outcome};
+    if (r.call_id) body.callId = r.call_id;
+    if (FLOW.at) body.at = FLOW.at;
+    if (FLOW.reason) body.reason = FLOW.reason;
+    if (FLOW.outcome === 'booked_call') body.sendConfirmation = !!FLOW.send;
+    if (FLOW.confirm) body.confirm = true;
+    busy = true;
+    post('/my-day/api/outcome', body).then(function(j){
+      busy = false;
+      if (j.coming_soon) { toast(j.message || 'Results are coming soon.'); return; }
+      if (!j.ok) { toast(j.message || 'The result was not saved.'); return; }
+      var row = document.querySelector('.r[data-key="' + CSS.escape(r.key) + '"]');
+      if (row) row.classList.add('done');
+      var next = j.next ? (typeof j.next === 'string' ? j.next : (j.next.label || j.next.text || '')) : '';
+      toast('Saved' + (next ? '. ' + next : '.'), j.undoToken);
+      OPEN_KEY = null; FLOW = null;
+      setTimeout(function(){ load(true); }, 1200);
+    }).catch(function(){ busy = false; toast('The result was not saved. Check the connection.'); });
+  }
+
+  function undo(tok){
+    post('/my-day/api/outcome/undo', {undoToken: tok}).then(function(j){
+      toast(j.ok ? 'Undone.' : (j.message || 'Undo did not go through.'));
+      if (j.ok) load(true);
+    });
+  }
+
+  // tab bar: mark the section in view
+  document.querySelectorAll('.tabbar a').forEach(function(a){
+    a.addEventListener('click', function(){ document.querySelectorAll('.tabbar a').forEach(function(x){ x.classList.toggle('on', x === a); }); });
+  });
+
+  load(false);
+  setInterval(function(){ if (!OPEN_KEY && !document.hidden) load(false); }, 120000);
+})();
+</script>
+</body>
+</html>
