@@ -69,6 +69,58 @@ def classify_outbound_sms(text):
     return "auto" if any(m in t for m in _AUTO_SMS_MARKERS_NORM) else "typed"
 
 
+
+def _seat_row(rec, ext_id):
+    """One call-log record on a seat as the board's row.
+
+    RingCentral sums a call up from its MASTER leg. When the master is a desk
+    phone that is offline, a call the person took on the app reads "IP Phone
+    Offline", 0 seconds, although another leg says "Call connected" for 23
+    minutes. Seen 2026-10-20 on Yareth Pavon (ext 220): a patient Gabriel
+    Johnson transferred to her from sales, 1,394 s on her app, recorded as an
+    OUTBOUND call from the patient's number to her own desk phone -- the board
+    counted a failed 0-second dial and no talk ("This was the call, pt was
+    transferred to me from sales"). A week of 10 seats had two (Alex Morales
+    11 min). So:
+      - a record whose summary is not connected but a leg was, takes the
+        connected leg's result and seconds;
+      - that shape on the seat's OWN extension (from: the seat, with an
+        outside number; to: its own device) is a transfer IN: an inbound call
+        from that number, answered.
+    """
+    frm, to = rec.get("from") or {}, rec.get("to") or {}
+    direction = rec.get("direction", "") or ""
+    result = rec.get("result", "") or ""
+    duration = rec.get("duration", 0) or 0
+    fixed = None
+    conn = [l for l in (rec.get("legs") or []) if l.get("result") in ("Call connected", "Accepted")]
+    if result not in ("Call connected", "Accepted") and conn:
+        best = max(int(l.get("duration") or 0) for l in conn)
+        if best > duration:
+            duration = best
+            if (direction == "Outbound" and str(frm.get("extensionId") or "") == str(ext_id)
+                    and to.get("extensionNumber") and not to.get("extensionId")):
+                direction, result, fixed = "Inbound", "Accepted", "transfer_in"
+            else:
+                result, fixed = ("Accepted" if direction == "Inbound" else "Call connected"), "connected_leg"
+    row = {
+        "id": rec.get("id", ""),
+        "session_id": rec.get("sessionId", ""),
+        "duration": duration,
+        "direction": direction,
+        "result": result,
+        "start_time": rec.get("startTime", "") or "",
+        "from_number": frm.get("phoneNumber", "") or "",
+        "to_number": to.get("phoneNumber", "") or "",
+        "from_name": frm.get("name", "") or "",
+        "to_name": to.get("name", "") or "",
+        "action": rec.get("action", "") or "",
+        "source": "ringex",
+    }
+    if fixed:
+        row["fixed"] = fixed
+    return row
+
 class RingCXClient:
 
     # Class-level defaults, not only instance ones. Tests build a client with
@@ -1702,7 +1754,11 @@ class RingCXClient:
                 params = {
                     "dateFrom": start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                     "dateTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "view": "Simple", "perPage": 250, "page": page,
+                    # Detailed: the legs. RingCentral sums a call up from its
+                    # MASTER leg, and when that is an offline desk phone a call
+                    # answered on the app reads "IP Phone Offline", 0 s (see
+                    # _seat_row). Same request count, larger pages.
+                    "view": "Detailed", "perPage": 250, "page": page,
                 }
                 url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
                        f"/extension/{ext_id}/call-log")
@@ -1760,21 +1816,7 @@ class RingCXClient:
                 recs = r.json().get("records", [])
                 meta["pages"] = page
                 for rec in recs:
-                    frm, to = rec.get("from") or {}, rec.get("to") or {}
-                    rows[rec.get("id") or f"{page}:{len(rows)}"] = {
-                        "id": rec.get("id", ""),
-                        "session_id": rec.get("sessionId", ""),
-                        "duration": rec.get("duration", 0) or 0,
-                        "direction": rec.get("direction", "") or "",
-                        "result": rec.get("result", "") or "",
-                        "start_time": rec.get("startTime", "") or "",
-                        "from_number": frm.get("phoneNumber", "") or "",
-                        "to_number": to.get("phoneNumber", "") or "",
-                        "from_name": frm.get("name", "") or "",
-                        "to_name": to.get("name", "") or "",
-                        "action": rec.get("action", "") or "",
-                        "source": "ringex",
-                    }
+                    rows[rec.get("id") or f"{page}:{len(rows)}"] = _seat_row(rec, ext_id)
                 if len(recs) < 250:
                     break
                 page += 1
