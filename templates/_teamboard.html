@@ -184,7 +184,8 @@ window.TB = (function () {
       (ah ? ' · ' + ah + ' after hours' : '') + '</div>' +
       L.map(function (m) {
         var b = m.back || {};
-        var many = (m.count || 1) > 1 ? ' · ' + m.count + ' calls since ' + esc(m.first_at || '') : '';
+        var many = ((m.count || 1) > 1 ? ' · ' + m.count + ' calls since ' + esc(m.first_at || '') : '') +
+                   (m.voicemails ? ' · ' + (m.voicemails === (m.count || 1) && m.voicemails === 1 ? 'left a voicemail' : m.voicemails + ' voicemail' + (m.voicemails === 1 ? '' : 's')) : '');
         return '<div class="ml-r' + (m.resolved ? ' done' : '') + '"><span class="ml-t">' + esc(m.at) + '</span>' +
           (m.resolved
             ? '<span class="ml-n">' + esc(m.number) + '</span><span class="ml-s">' + esc(b.how || 'called back') + ' ' +
@@ -439,7 +440,7 @@ window.TB = (function () {
     };
   }
   var MARKS = '<b>Marks.</b> ▲▼ compare each person with the median person on the same team, not a target. ' +
-              'A red name is below that median on talk, dials and >3m together. “missed” counts people, not calls: callers whose call rang out and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted; tap the row for the numbers.';
+              'A red name is below that median on talk, dials and >3m together. “missed” counts people, not calls: callers whose call rang out or went to voicemail and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted; tap the row for the numbers.';
   var TRAINING_NOTES = [
     '<b>Where.</b> Each rep’s own RingEX extension. The training class dials from RingEX, not RingCX, so the Sales Floor never shows them.',
     '<b>Delay.</b> A background job reads one rep every 30 seconds, so each rep is at most about 5 minutes behind. A reading older than ' +

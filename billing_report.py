@@ -453,10 +453,17 @@ def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40, shift=None):
 
     The summary counts PEOPLE: open = rows still to call back during the shift,
     after_hours = rows that came in after the shift ended or on a day off
-    (shown, labelled, not held against the day); missed = the calls."""
+    (shown, labelled, not held against the day); missed = the calls.
+
+    A caller who left a VOICEMAIL is on the list too (Danny, 2026-10-20: "sure",
+    to "add voicemails to the list"): they need a call back as much as one who
+    hung up, and until then a voicemail nobody returned was on no list at all.
+    voicemails = how many of the calls went to voicemail.
+
+    Returns (rows shown, summary, every row) -- the last for the team count."""
     misses = []
     for r in rows or []:
-        if r.get("direction") != "Inbound" or r.get("result") != "Missed":
+        if r.get("direction") != "Inbound" or r.get("result") not in ("Missed", "Voicemail"):
             continue
         t = _ts(r.get("start_time") or r.get("startTime"), tz_offset_minutes)
         num = "".join(ch for ch in str(r.get("number") or r.get("from_number") or "") if ch.isdigit())[-10:]
@@ -473,18 +480,20 @@ def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40, shift=None):
                 back = {"at": _hhmm(t2), "by": who, "how": "called again, answered", "connected": True}
                 back_t = t2
                 break
-        misses.append((t, num, back, back_t))
+        misses.append((t, num, back, back_t, r.get("result") == "Voicemail"))
     groups = {}
-    for (t, num, back, back_t) in sorted(misses, key=lambda m: m[0]):
-        g = groups.setdefault((num, back_t, (back or {}).get("by")), {"times": [], "back": back})
+    for (t, num, back, back_t, vm) in sorted(misses, key=lambda m: m[0]):
+        g = groups.setdefault((num, back_t, (back or {}).get("by")), {"times": [], "back": back, "vm": 0})
         g["times"].append(t)
+        g["vm"] += 1 if vm else 0
     out = []
     for (num, _bt, _by), g in groups.items():
         first, last = g["times"][0], g["times"][-1]
         back = g["back"]
         ah = all(_after_hours(t, shift) for t in g["times"])
         out.append((last, {"at": _hhmm(last), "date": last.date().isoformat(), "number": _fmt_phone(num), "digits": num,
-                           "count": len(g["times"]), "first_at": _hhmm(first) if len(g["times"]) > 1 else None,
+                           "count": len(g["times"]), "voicemails": g["vm"],
+                           "first_at": _hhmm(first) if len(g["times"]) > 1 else None,
                            "first_date": first.date().isoformat(), "after_hours": ah,
                            "resolved": back is not None, "back": back, "by_self": bool(back and back["by"] == name)}))
     # Sorted on the time itself. Sorting on the "9:00 AM" string put 9:00
@@ -492,11 +501,31 @@ def _missed_calls(name, rows, idx, tz_offset_minutes, limit=40, shift=None):
     # sat behind an early sys.exit until 2026-10-13.
     out.sort(key=lambda m: m[0], reverse=True)
     out = [m for _, m in out]
-    summary = {"missed": len(misses), "callers": len(out),
+    summary = {"missed": len(misses), "voicemails": sum(1 for m in misses if m[4]), "callers": len(out),
                "called_back": sum(1 for m in out if m["resolved"]),
                "open": sum(1 for m in out if not m["resolved"] and not m["after_hours"]),
                "after_hours": sum(1 for m in out if not m["resolved"] and m["after_hours"])}
-    return out[:limit], summary
+    return out[:limit], summary, out
+
+
+def _team_missed(rows_by_seat):
+    """The team's callers to call back, each counted ONCE: a patient missed by
+    two people is one person to call back, not two (Danny, 2026-10-20: one
+    5:50 AM caller sat on two billers' lists and the team read 11 for 10).
+    open = callers still owed a call back by someone in the shift;
+    after_hours = callers only ever missed after the shift."""
+    state = {}
+    for rows in rows_by_seat:
+        for m in rows or []:
+            d = m.get("digits")
+            if not d:
+                continue
+            st = state.setdefault(d, set())
+            if not m.get("resolved"):
+                st.add("after_hours" if m.get("after_hours") else "open")
+    return {"callers": len(state),
+            "open": sum(1 for s in state.values() if "open" in s),
+            "after_hours": sum(1 for s in state.values() if s == {"after_hours"})}
 
 
 def _sms_replies(srows, tz_offset_minutes):
@@ -591,6 +620,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
 
     agents = []
     _num_idx = _company_index(_number_index(rows_by_agent, tz_offset_minutes), company_rows, tz_offset_minutes)
+    _team_rows = []
     for name, meta in sorted(rows_by_agent.items()):
         rows = meta["rows"] if isinstance(meta, dict) else meta
         ext = (meta.get("ext") if isinstance(meta, dict) else "") or ""
@@ -801,6 +831,7 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         daily_talk = sorted(b["talk_seconds"] / 60.0 for b in worked.values())
         _mc = _missed_calls(name, rows, _num_idx, tz_offset_minutes,
                             shift=(meta.get("shift") if isinstance(meta, dict) else None))
+        _team_rows.append(_mc[2])
         agents.append({
             "pace": pace,
             "name": name, "ext": ext, "ext_id": ext_id,
@@ -993,6 +1024,9 @@ def build_report(rows_by_agent, *, default_curve=None, tz_offset_minutes=0, wind
         "stalled": stalled,
         "unknown": unknown,
         "team": team_summary,
+        # callers to call back across the team, each once (the seats' own
+        # counts add a patient missed by two people twice)
+        "missed_team": _team_missed(_team_rows),
         "targets": targets,
         # One headline target line is a lie on a table holding two jobs. These say
         # whether that is the case and what each group's bar actually is, so the

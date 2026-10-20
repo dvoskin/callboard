@@ -1185,6 +1185,8 @@
         T2.missed += ((a.missed_summary || {}).open || 0);
         T2.texts += (((a.sms || {}).replies || {}).unanswered || 0);
       });
+      // each caller once: a patient missed by two people is one call back to make
+      if (d.missed_team && d.missed_team.open != null) T2.missed = d.missed_team.open;
       if (T2.crm || T2.missed || T2.texts) {
         var hot = function (v) { return '<b' + (v ? ' class="dn"' : '') + '>' + v + '</b>'; };
         h += '<div class="att">' +
@@ -1700,7 +1702,8 @@
           : (ahN ? ppl(ahN) + ' after hours &middot; the rest called back' : 'all called back'), ms.open ? 'below' : '');
         mc.forEach(function (m) {
           var who = m.back ? (m.by_self ? '' : ' by ' + esc(m.back.by)) : '';
-          var many = (m.count || 1) > 1 ? ' &middot; ' + m.count + ' calls since ' + esc(m.first_at || '') : '';
+          var many = ((m.count || 1) > 1 ? ' &middot; ' + m.count + ' calls since ' + esc(m.first_at || '') : '') +
+                     (m.voicemails ? ' &middot; ' + (m.voicemails === 1 && (m.count || 1) === 1 ? 'left a voicemail' : m.voicemails + ' voicemail' + (m.voicemails === 1 ? '' : 's')) : '');
           var tail = m.resolved
             ? '<span class="mc-done">' + esc(m.back.how) + ' ' + esc(m.back.at) + who + (m.back.connected ? '' : ' &middot; no answer') + many + '</span>'
             : (m.after_hours ? '<span class="mc-done">after hours</span> ' : '') + '<a class="zl" href="tel:+1' + esc(m.digits) + '">call back</a>' + many;

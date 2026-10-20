@@ -6227,6 +6227,9 @@ def api_v5_ringex():
                  for k in ("talk", "attempts", "over_3")}
         totals = {k: sum(r[k] for r in rows) for k in ("talk", "attempts", "inbound", "inbound_answered",
                                                        "connected", "over_3", "over_10", "missed_open")}
+        # each caller once across the class (a patient two reps missed is one call back)
+        if (report.get("missed_team") or {}).get("open") is not None:
+            totals["missed_open"] = int(report["missed_team"]["open"])
         totals["sms"] = _ringex_sms_totals(rows) if _team_sms_enabled("ringex") else None
         return jsonify({"label": TEAM_LABELS["ringex"], "window": {"start": date_start, "end": date_end},
                         "as_of": report.get("as_of"), "ranked": rows, "floor": floor, "totals": totals,

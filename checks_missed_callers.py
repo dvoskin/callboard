@@ -96,7 +96,7 @@ ck("the same call answered on another line within seconds clears it", d["resolve
 e = next(m for m in L if m["digits"] == E_)
 ck("two misses hours apart with nothing between are one caller to call back", not e["resolved"] and e["count"] == 2, e)
 ck("the summary counts PEOPLE: 14 calls, 6 callers, 3 called back, 2 to call back in the shift, 1 after hours",
-   ms == {"missed": 14, "callers": 6, "called_back": 3, "open": 2, "after_hours": 1}, ms)
+   ms == {"missed": 14, "voicemails": 0, "callers": 6, "called_back": 3, "open": 2, "after_hours": 1}, ms)
 ck("newest first", [m["at"] for m in L] == sorted([m["at"] for m in L], key=lambda x: datetime.strptime(x, "%I:%M %p"), reverse=True), [m["at"] for m in L])
 
 off = br.build_report({"Yareth Pavon": dict(meta["Yareth Pavon"], shift=dict(SHIFT, off=["mon"]))},
@@ -107,6 +107,43 @@ ck("on a day off every open caller is after hours, none held against the day",
 noshift = br.build_report({"Yareth Pavon": dict(meta["Yareth Pavon"], shift=None)}, tz_offset_minutes=-240, window=W)
 ya_ns = seat(noshift)
 ck("no declared shift: nothing is after hours", ya_ns["missed_summary"]["after_hours"] == 0, ya_ns["missed_summary"])
+
+# ---- voicemails are on the list (Danny, 2026-10-20: "sure") ----
+F_, G_ = "3055550606", "3055550707"
+vm_rows = [row("15:05", "Inbound", "Voicemail", F_), row("15:06", "Inbound", "Missed", F_), row("15:06", "Inbound", "Voicemail", F_),
+           row("12:37", "Inbound", "Voicemail", G_), row("12:39", "Outbound", "Call connected", G_)]
+vrep = br.build_report({"Gabriela Maldonado": {"rows": vm_rows, "ext": "125", "ext_id": 3, "complete": True,
+                                               "shift": {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]}}},
+                       tz_offset_minutes=-240, window=W)
+vg = seat(vrep, "Gabriela Maldonado")
+f = next(m for m in vg["missed_calls"] if m["digits"] == F_)
+g = next(m for m in vg["missed_calls"] if m["digits"] == G_)
+ck("a caller who left voicemails nobody returned is ONE person to call back, with the voicemails counted",
+   not f["resolved"] and f["count"] == 3 and f["voicemails"] == 2, f)
+ck("a voicemail returned two minutes later reads called back", g["resolved"] and g["voicemails"] == 1 and g["by_self"], g)
+ck("the summary: 4 calls, 3 of them voicemails, 2 callers, 1 to call back",
+   vg["missed_summary"] == {"missed": 4, "voicemails": 3, "callers": 2, "called_back": 1, "open": 1, "after_hours": 0}, vg["missed_summary"])
+
+# ---- the team counts each caller once ----
+H_ = "3055550808"
+team_meta = {
+    "Yareth Pavon": {"rows": [row("05:48", "Inbound", "Missed", H_), row("21:00", "Inbound", "Missed", G_)], "ext": "220", "ext_id": 1,
+                     "complete": True, "shift": SHIFT},
+    # G_: after hours for Yareth (9 PM), in Gabriela's shift (2 PM) -- owed
+    "Gabriela Maldonado": {"rows": [row("05:54", "Inbound", "Missed", H_), row("14:00", "Inbound", "Missed", G_)], "ext": "125", "ext_id": 3,
+                           "complete": True, "shift": {"start": "13:00", "end": "22:00", "off": ["sat", "sun"]}},
+    "Vivian Martinez": {"rows": [row("09:00", "Inbound", "Missed", H_), row("20:00", "Inbound", "Missed", E_)], "ext": "137", "ext_id": 4,
+                        "complete": True, "shift": {"start": "08:00", "end": "18:00", "off": ["sun"]}},
+}
+trep = br.build_report(team_meta, tz_offset_minutes=-240, window=W)
+seat_sum = sum(seat(trep, n)["missed_summary"]["open"] for n in team_meta)
+ck("the seats add a caller missed by three people three times (4 in all); the team counts each caller once (2) -- after hours on one seat but in shift on another is owed",
+   seat_sum == 4 and trep["missed_team"] == {"callers": 3, "open": 2, "after_hours": 1}, (seat_sum, trep["missed_team"]))
+tm = open(os.path.join(HERE, "templates", "teams.html"), encoding="utf-8").read()
+ck("every team total reads the team's own count: /teams, the dashboard strip, the training class",
+   "if (j.missed_team && j.missed_team.open != null) T.mo = j.missed_team.open;" in tm
+   and "if (d.missed_team && d.missed_team.open != null) T2.missed = d.missed_team.open;" in open(os.path.join(HERE, "templates", "scoreboard_v6.html"), encoding="utf-8").read()
+   and 'totals["missed_open"] = int(report["missed_team"]["open"])' in open(os.path.join(HERE, "app.py"), encoding="utf-8").read(), "wired")
 
 # ---- the account slice reader ----
 class _R:
@@ -224,6 +261,12 @@ if node:
     ck("a caller who rang three times is one row: 'call back · 3 calls since 4:59 PM'",
        "call back · 3 calls since 4:59 PM" in h and h.count("(305) 555-0202") == 1, r.stderr[:300] or h[:300])
     ck("an after-hours caller is labelled, not red", '<span class="ml-s">after hours</span>' in h, "ah")
+    js2 = js.replace(json.dumps(L), json.dumps(vg["missed_calls"]))
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+    tmp.write(js2); tmp.close()
+    h2 = subprocess.run([node, tmp.name], capture_output=True, text=True).stdout
+    os.unlink(tmp.name)
+    ck("a voicemail caller's row says so", "call back · 3 calls since 3:05 PM · 2 voicemails" in h2 and "left a voicemail" in h2, h2[-600:])
     ck("a cleared caller says who got back and how many calls it covered",
        "called back 12:43 PM · Maia Pasifae Palma · 6 calls since 10:19 AM" in h, "back")
 else:

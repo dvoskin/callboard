@@ -253,7 +253,7 @@
       var D = a.days || [], calls = (a.crm || {}).calls || {};
       T.talk += sum(D, 'talk_seconds'); T.dials += sum(D, 'handled_calls'); T.over3 += sum(D, 'long_calls');
       T.inb += sum(D, 'inbound'); T.inbA += sum(D, 'inbound_answered'); T.conn += sum(D, 'connected');
-      T.mo += (a.missed_summary || {}).open || 0;
+      T.mo += (a.missed_summary || {}).open || 0;   // replaced below by the team's own count, each caller once
       T.due += calls.due || 0; T.done += calls.completed || 0; T.od += calls.overdue || 0;
       if (a.crm && a.crm.calls) T.crm++;
       var jn2 = (a.crm || {}).journeys || {}, jc2 = jn2.journey_calls || {}, t2 = (a.crm || {}).tasks || {};
@@ -262,6 +262,8 @@
       T.coll += a.collected_total || 0;   // replaced below by the board's own total
       if (sum(D, 'calls')) { T.people++; var b = v6Grades(a).talk; if (b === 'target' || b === 'stretch') T.onT++; }
     });
+    // a patient missed by two people is one person to call back (Danny, 2026-10-20)
+    if (j.missed_team && j.missed_team.open != null) T.mo = j.missed_team.open;
     // Billing's total is the board's own figure -- what the billers recorded
     // on their sheets in this window (collections.today on the live day) --
     // never a sum of the rows whose calls happen to be read: a biller "not
@@ -283,7 +285,7 @@
       'Coordinator Dashboard: on a live day against where the day is headed at this hour, not the whole-day number. ▲ at or above ' +
       'target, · between floor and target, ▼ red under the floor; a red name is under the floor on talk.' +
       (team === 'surgical' ? ' The coloured bar under a name is the window’s planner calls and tasks done, red through amber to green.' : '') +
-      ' “missed” counts people, not calls: callers whose call rang out and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted.';
+      ' “missed” counts people, not calls: callers whose call rang out or went to voicemail and whom nobody has got back to yet. A callback or an answered call on any company line clears them, whoever made it (read about every 5 minutes); calls after the shift are listed as after hours and not counted.';
     return {
       key: team, label: label, href: href, nameHead: 'Name', dialsHead: team === 'surgical' ? 'In / Out' : 'Calls', dialsLbl: ' calls',
       t3Head: team === 'billing' ? 'vs exp' : longLbl.replace('≥', '&ge;'), t3Lbl: ' ' + longLbl, grade: true, keepOrder: true,
