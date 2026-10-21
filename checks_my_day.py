@@ -190,6 +190,20 @@ ck("...one row per patient (the invoice for the late patient is not repeated)", 
 ck("...and it names the next booked call after the due ones", UP["next_booked"] == {"when": "11:11 AM", "short": "later"}, UP["next_booked"])
 ck("...three on the page by default", len(M.up_next({"late": [_r(str(i), str(i), -30) for i in range(5)]}, NOW)["rows"]) == 3, "3")
 ck("the built page carries up_next", isinstance(P.get("up_next"), dict) and P["up_next"]["rows"], P.get("up_next"))
+# ---- the plan's measures on the page
+PL = P.get("plan") or {}
+ck("plan scorecard: results written match the numbers row", PL.get("results", {}).get("n") == P["nums"]["results"]
+   and PL["results"]["of"] == P["nums"]["done"] and PL["results"]["goal"] == 90, PL.get("results"))
+ck("...talked-nothing-booked is out of the calls where she talked", PL["talked_none"]["n"] == P["nums"]["talked_nothing_booked"]
+   and PL["talked_none"]["of"] >= PL["talked_none"]["n"], PL["talked_none"])
+ck("...late matches, goal 0", PL["late"]["n"] == P["nums"]["late"] and PL["late"]["goal"] == 0, PL["late"])
+ck("...every measure says whether the day is on plan", all("ok" in v for v in PL.values()), list(PL))
+K = M.build(dict(WORLD, calls_open=[], calls_today=[
+        call("bk1", "d1", "Call scheduled with Shante", -120, "Completed"),
+        call("dl1", "d1", "Outgoing call to Shante", -115, "Completed", "Reached", 200),
+        call("bk2", "d2", "Call scheduled with Carmen", -60, "Overdue")], deals_new=[]),
+    NOW, TZ, rep={"id": "u1", "name": "x"})["plan"]["promised"]
+ck("promised times: one made 5 minutes after its time is kept, one still open is not", K["n"] == 1 and K["of"] == 2, K)
 P_off = M.build(WORLD, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"}, queue_enabled=False)
 ck("...and not at all when it is off", P_off["queue"] == [] and P_off["queue_enabled"] is False, P_off["queue"])
 
@@ -637,6 +651,16 @@ try:
     with c.session_transaction() as s:
         s.clear()
         s["user"] = {"email": "boss@goalsplasticsurgery.com", "name": "Boss"}
+
+    # the floor view: managers only, sales reps listed, each linking to their day
+    r = c.get("/my-day/floor")
+    ck("a manager opens the floor view, sales reps listed with links to their day",
+       r.status_code == 200 and "/my-day/u2" in r.get_data(as_text=True) or '"id": "u2"' in r.get_data(as_text=True), r.status_code)
+    with c.session_transaction() as s2:
+        _saved_user = s2.get("user"); s2["user"] = {"email": "jess@goalsplasticsurgery.com", "name": "Jessica Morales"}
+    ck("...a rep is sent back to their own day", c.get("/my-day/floor").status_code == 302, "302")
+    with c.session_transaction() as s2:
+        s2["user"] = _saved_user
 
     # live phone time comes from the sales board's report, cut to the rep
     _fr = A._md_floor_report

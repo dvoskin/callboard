@@ -80,6 +80,18 @@
        color:var(--ink-2);line-height:1.5;max-width:640px}
   .tipon > .tip{display:block}
   .tools{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  .plan{margin:12px 0 0;padding:10px 0 12px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+  .ptiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:6px}
+  .pt2{padding:8px 10px;border-radius:9px;border:1px solid var(--rule);font-size:12px;color:var(--muted);line-height:1.3}
+  .pt2 b{display:block;font-size:20px;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .pt2 b small{font-size:11.5px;font-weight:500;color:var(--muted);letter-spacing:0}
+  .pt2 span{display:block}
+  .pt2 em{display:block;font-style:normal;font-size:10.5px;margin-top:2px}
+  .pt2.ok{border-color:color-mix(in srgb,var(--up) 45%,var(--rule))} .pt2.ok b{color:var(--up)}
+  .pt2.bad{border-color:color-mix(in srgb,var(--dn) 55%,var(--rule))} .pt2.bad b{color:var(--dn)}
+  .psub{margin:8px 0 0;font-size:12px;color:var(--muted)}
+  @media(max-width:860px){.ptiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:520px){.ptiles{grid-template-columns:repeat(2,minmax(0,1fr))}.pt2 b{font-size:18px}}
   .prio{flex:none;width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:11px;font-weight:750;
         display:inline-flex;align-items:center;justify-content:center;align-self:center;order:-1}
   .prio.clock{background:transparent;color:var(--ink);border:1px solid var(--rule);font-size:12px}
@@ -286,6 +298,7 @@
     <h1>My Day</h1>
     <span class="who" id="who"></span>
     <select class="sw" id="sw" aria-label="Open someone else's day" hidden></select>
+    <a class="sw" id="floorlink" href="/my-day/floor" hidden title="Every rep against the plan, side by side">Floor</a>
   </div>
   <div id="banners"></div>
   <div id="alertbar"></div>
@@ -315,7 +328,7 @@
   // ── the name switch ──
   var sw = $('sw');
   if ((BOOT.floor || []).length && (BOOT.viewer.manager || BOOT.viewer.word_only)) {
-    sw.hidden = false;
+    sw.hidden = false; $('floorlink').hidden = false;
     var html = BOOT.need_pick ? '<option value="">Pick a name ▾</option>' : '';
     var lastRole = '';
     BOOT.floor.forEach(function(u){
@@ -470,8 +483,35 @@
       '<li><b>Quotes waiting.</b> About 1 in 8 pay. Fresh quotes first.</li>' +
       '<li><b>No next step.</b> Newer deals with nothing booked. The goal of the call is a quote.</li></ol>' +
       '<p><b>Booked calls</b> (&#9719; Today) happen at their time, whatever else you are doing.</p>' +
+      '<p><b>The dialer is staffed all day.</b> When it is your turn on the dialer, stay logged in to RingCX: times patients picked on the shared calendar come to you there first, then new leads, then retries. Pick the result in RingCX after each call. Off the dialer, work this page top to bottom and take your own booked calls.</p>' +
       '<p><b>After every call, tap Result</b> and pick what happened. That writes Zoho, books the next call and sends the right text. Never leave a call with no result: the red bar counts them.</p>' +
       '<p><b>Alerts:</b> the red bar and the soft tone mean a call is due, a new lead is waiting, or someone texted. Tap a red chip to jump to that patient. Mute quiets what is listed; anything new sounds again.</p></div></div>';
+  }
+  // ── Your day against the plan: the Patient Flow Plan's own measures, with
+  // their goals. Green is on plan, red is not; a measure with nothing to count
+  // yet shows a dash. The floor view shows the same tiles for every rep.
+  var PLAN_TILES = [
+    ['promised', 'promised times kept', 'goal 90%', 'Calls booked at a time a patient agreed to that came due today, made within 15 minutes of the time. A missed time is a broken promise.'],
+    ['fast_leads', 'new leads called in 5 min', 'goal 60%', 'Your leads that came in today (8 AM to 9 PM), called within 5 minutes. The first minutes decide whether they pick up.'],
+    ['results', 'calls with a result', 'goal 90%', 'Calls you made today with a result written. Every call needs one: it books the next step and the right text.'],
+    ['talked_none', 'talked, nothing booked', 'goal 20% or less', 'Calls where you talked to the patient but no next call is booked. Every conversation should end with a next step.'],
+    ['texts_waiting', 'texts waiting 15 min+', 'goal 0', 'Patients who texted you and have waited more than 15 minutes for an answer.'],
+    ['late', 'late calls', 'goal 0', 'Calls booked for earlier that nobody has made yet.']
+  ];
+  function planVal(v){
+    if (!v) return {big: '–', small: ''};
+    if (v.of == null) return {big: String(v.n), small: ''};
+    if (!v.of) return {big: '–', small: 'none yet'};
+    return {big: v.pct + '%', small: v.n + ' of ' + v.of};
+  }
+  function planHtml(p){
+    var pl = p.plan || {};
+    return '<div class="plan"><p class="lbl2" title="The same measures as the Patient Flow Plan. Green is on plan.">Your day vs the plan</p><div class="ptiles">' +
+      PLAN_TILES.map(function(t){
+        var v = pl[t[0]], x = planVal(v), cls = !v || (v.of === 0) ? 'na' : (v.ok ? 'ok' : 'bad');
+        return '<div class="pt2 ' + cls + '" title="' + esc(t[3]) + '"><b>' + esc(x.big) + (x.small ? ' <small>' + esc(x.small) + '</small>' : '') + '</b>' +
+               '<span>' + esc(t[1]) + '</span><em>' + esc(t[2]) + '</em></div>';
+      }).join('') + '</div><p class="psub">' + p.nums.done + ' calls done today · ' + p.nums.new_leads + ' new leads waiting</p></div>';
   }
   function section(id, title, cls, count, hint, rows, extra, sec){
     return secWrap(id, title, cls, count, hint, extra && extra.tip,
@@ -508,13 +548,7 @@
     if (p.role === 'coordinator') ban += '<p class="banner">Coordinator view. Your own buttons (Confirmed, Rescheduled, Paid, Call back at a time, No answer) are coming soon.</p>';
     $('banners').innerHTML = ban;
 
-    var h = '<div class="nums">' +
-      '<div title="Calls you made today. One conversation counts once."><b>' + n.done + '</b>calls done</div>' +
-      '<div title="How many of today\'s calls have a result. Aim for all of them."><b>' + n.results + ' <small>of ' + n.done + '</small></b>results written</div>' +
-      '<div title="Calls booked for earlier that nobody has made yet."><b' + (n.late ? ' class="dn"' : '') + '>' + n.late + '</b>late, still to call</div>' +
-      '<div title="You talked to her today but no next call is booked. Book one."><b>' + n.talked_nothing_booked + '</b>talked, nothing booked</div>' +
-      '<div class="nl" title="New patients from the last 24 hours not called yet."><b>' + n.new_leads + '</b>new leads waiting</div></div>' +
-      guideHtml();
+    var h = planHtml(p) + guideHtml();
     h += '<span id="s-day"></span>';
     var up = p.up_next || {rows: []};
     if (up.rows.length) {
@@ -872,6 +906,7 @@
           '<span title="Time on the phone with patients"><b>' + fmtDur(j.talk) + '</b> talk</span>' +
           '<span title="Talk plus after-call work (wrap)"><b>' + fmtDur(j.handle) + '</b> handle</span>' +
           '<span><b>' + j.dials + '</b> calls</span><span><b>' + j.connected + '</b> connected</span>' + med +
+          (j.books ? '<span title="From Zoho Books, today: quotes sent, retainer invoices sent, retainers paid."><b>' + (j.books.quotes_sent || 0) + '</b> quotes · <b>' + (j.books.retainers_sent || 0) + '</b> invoices · <b>' + (j.books.retainers_paid || 0) + '</b> paid</span>' : '') +
           (j.covers_to ? '<span title="The dialer report covers calls up to this time.">dialer to ' + esc(j.covers_to.slice(0, 5)) + '</span>' : '');
       }).catch(function(){});
   }
