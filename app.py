@@ -6421,6 +6421,25 @@ def _md_bounds(now_utc):
             "hist_from": start - timedelta(days=30)}
 
 
+def _md_reply_pings(rep_id):
+    """The rep's patients whose latest text is unanswered, from the back
+    office's ReplyPing ledger (GET /api/reply-pings/open, read only). None
+    when it cannot be read: the section then says so and the page still loads."""
+    if not BACKOFFICE_URL or not OVERDUE_API_KEY:
+        return None
+    try:
+        r = requests.get(BACKOFFICE_URL + "/api/reply-pings/open", params={"rep": rep_id, "hours": 48},
+                         headers={"x-api-key": OVERDUE_API_KEY}, timeout=6, allow_redirects=False)
+        if r.status_code != 200:
+            log.warning("my-day: reply pings for %s: HTTP %d", rep_id, r.status_code)
+            return None
+        rows = (r.json() or {}).get("open")
+        return [x for x in rows if isinstance(x, dict)] if isinstance(rows, list) else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("my-day: reply pings for %s failed: %s", rep_id, type(e).__name__)
+        return None
+
+
 def _md_page(rep, fresh=False):
     """The built page for one rep, cached a minute. Raises on a Zoho failure
     unless a last good page exists, which is then served and flagged stale."""
@@ -6437,10 +6456,24 @@ def _md_page(rep, fresh=False):
             world = _md.fake_world(now_utc, MY_DAY_TZ, rep_id=rid)
         else:
             b = _md_bounds(now_utc)
-            world = _zoho.my_day_world(rid, b["day_start"], b["day_end"], b["late_from"], b["new_from"],
-                                       b["hist_from"], queue_owner_ids=MY_DAY_QUEUE_OWNER_IDS)
+            # The day's calls, and (sales only, the rep's own deals) the
+            # pipeline and the back office's unanswered texts, read side by
+            # side: the page takes as long as the slowest, not the sum.
+            with ThreadPoolExecutor(max_workers=3) as ex:
+                f_world = ex.submit(_zoho.my_day_world, rid, b["day_start"], b["day_end"], b["late_from"],
+                                    b["new_from"], b["hist_from"], queue_owner_ids=MY_DAY_QUEUE_OWNER_IDS)
+                f_pipe = f_replies = None
+                if role == "sales":
+                    f_pipe = ex.submit(_zoho.my_day_pipeline, rid, now_utc,
+                                       now_utc - timedelta(days=_md.PIPE_DAYS), now_utc - timedelta(days=30))
+                    f_replies = ex.submit(_md_reply_pings, rid)
+                world = f_world.result()
+                if f_pipe is not None:
+                    world.update(f_pipe.result())
+                    world["replies"] = f_replies.result()
         page = _md.build(world, now_utc, MY_DAY_TZ, role=role, rep=rep,
-                         queue_enabled=bool(MY_DAY_QUEUE_OWNER_IDS) or MY_DAY_FAKE)
+                         queue_enabled=bool(MY_DAY_QUEUE_OWNER_IDS) or MY_DAY_FAKE,
+                         queue_ids=MY_DAY_QUEUE_OWNER_IDS)
         page["stale"] = False
     except Exception as e:  # noqa: BLE001
         log.warning("my-day: build for %s failed: %s", rid, _redact(e)[:200])

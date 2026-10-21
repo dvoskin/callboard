@@ -30,6 +30,27 @@ The rules, in one place:
              completed today, at least TALK_MIN_SECONDS long, a Call Result
              that says a person was reached, and no open call on the same
              deal after it.
+
+Added 2026-10-20 (Danny, same day):
+
+  Start consultation
+             every row with a deal opens the estimator for that deal in a new
+             tab, the same URL as the "Start Consultation" button on a Zoho
+             deal page.
+  Pipeline   (sales only) four lists of the rep's OWN deals, each counted in
+             its header and capped like the sections above:
+               No next step   open stage, created in the last PIPE_DAYS, no
+                              open call on the deal from now on. Oldest last
+                              contact first.
+               Quotes waiting Stage Quote Sent, Quote_Sent_Date in the last
+                              PIPE_DAYS. Newest quote first, days since it.
+               Unpaid retainer invoices
+                              Stage Retainer Invoice Sent, Retainer_Paid not
+                              true. Newest invoice first, days since it.
+               Texted back    the back office's ReplyPing ledger: the rep's
+                              patients whose latest text is unanswered.
+  Dialer tag a row from a RingCX dialer call ("Outbound Call to ...", or a
+             dialer disposition on it) says "dialer".
 """
 from __future__ import annotations
 
@@ -44,6 +65,15 @@ TODAY_SHOW = 30
 NEW_SHOW = 20
 HISTORY_SHOW = 6
 
+# The "Start Consultation" custom button on Zoho deal pages opens exactly this.
+CONSULT_URL = "https://estimator.goalsplasticsurgery.com?dealid=%s"
+PIPE_DAYS = 90
+PIPE_SHOW = 20
+PIPE_STAGES = ("New Deal", "Call Scheduled", "Quote Sent", "Retainer Invoice Sent")
+# Zoho Admin and Ariel Voskin hold unassigned leads (back office QUEUE_USER_IDS).
+# Only used to keep "Missed Call" deals with no name off a queue user's own
+# No next step list; MY_DAY_QUEUE_OWNER_IDS adds to it.
+QUEUE_USER_IDS = ("5212466000000357001", "5212466000034327806")
 ZOHO_DEAL_URL = "https://crm.zoho.com/crm/org771460636/tab/Potentials/%s"
 ZOHO_CONTACT_URL = "https://crm.zoho.com/crm/org771460636/tab/Contacts/%s"
 
@@ -60,6 +90,9 @@ REACHED = {"reached", "interested", "requested more info", "requested call back"
 # was scheduled. zoho_client._LOGGED_CALL also matches "Missed call", but here
 # a "MISSED ..." subject is a scheduled try-again call and must stay a row.
 LOGGED_CALL = re.compile(r"^\s*(outbound|outgoing|inbound|incoming)\s+call\b", re.I)
+# The RingCX dialer logs "Outbound Call to ..." (RingEX logs "Outgoing call to ...").
+RINGCX_CALL = re.compile(r"^\s*outbound\s+call\b", re.I)
+MISSED_DEAL = re.compile(r"^\s*missed call", re.I)
 # Text Zoho or a workflow put in Description that is not a rep's note.
 TEMPLATE_NOTE = re.compile(r"^\s*(before you call|auto-completed|call result was pending)", re.I)
 # Stages where a fresh deal is not a lead to call.
@@ -99,6 +132,8 @@ REASON_KEYS = {k for k, _ in REASONS}
 WHY_LABELS = {
     "new": "New lead", "quote": "Quote follow-up", "cb": "Asked for a call back",
     "booked": "Booked call", "retry": "No answer, try again",
+    "nostep": "No next step", "quotewait": "Quote sent", "invoice": "Invoice unpaid",
+    "texted": "Texted back",
     # coordinator reasons (scaffold)
     "preop": "Pre-op call", "balance": "Balance due", "postop": "Post-op check",
     "missed": "Missed their call",
@@ -130,6 +165,16 @@ def ref_id(v):
 
 def ref_name(v):
     return (v.get("name") or "").strip() if isinstance(v, dict) else ""
+
+
+def deal_person(deal) -> str:
+    """The patient's name on a deal row. COQL returns a lookup as {"id"} only,
+    so the name comes from Contact_Name.First_Name / .Last_Name, which
+    zoho_client asks for; a fixture's {"name"} still works."""
+    if not isinstance(deal, dict):
+        return ""
+    return ref_name(deal.get("Contact_Name")) or " ".join(
+        x for x in (deal.get("Contact_Name.First_Name"), deal.get("Contact_Name.Last_Name")) if x).strip()
 
 
 def digits10(value) -> str:
@@ -189,6 +234,33 @@ def is_reached(call) -> bool:
         return r in REACHED
     d = ((call.get("Outgoing_call_disposition") or call.get("DialerDisposition") or "")).strip().lower()
     return bool(d) and not d.startswith("[no-agent-disp") and not any(w in d for w in _DISP_NOT_TALKED)
+
+
+def is_dialer(call) -> bool:
+    """A RingCX dialer call: its subject, or a disposition the dialer wrote."""
+    return bool(RINGCX_CALL.match(call.get("Subject") or "")
+                or (call.get("Outgoing_call_disposition") or call.get("DialerDisposition") or "").strip())
+
+
+def consult_url(deal_id) -> str:
+    """The estimator for a Zoho deal, or "" when there is no real deal id."""
+    d = str(deal_id or "").strip()
+    return CONSULT_URL % d if d.isdigit() else ""
+
+
+def days_since(value, now_utc):
+    t = ts(value)
+    if not t:
+        return None
+    return max(0, (now_utc - t).days)
+
+
+def days_label(n) -> str:
+    if n is None:
+        return "date not set"
+    if n == 0:
+        return "today"
+    return "1 day" if n == 1 else "%d days" % n
 
 
 def status_of(call) -> str:
@@ -283,7 +355,7 @@ def day_label(dt_local, today_local) -> str:
 
 
 # ── the page ──────────────────────────────────────────────────────────────
-def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
+def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue_ids=()):
     """world (raw Zoho rows):
          calls_open      the rep's Scheduled/Overdue calls from the late window to end of today
          calls_today     the rep's calls with a start time today (any status)
@@ -292,6 +364,13 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
          deals           {deal_id: deal row} for every deal on the page
          deal_calls      every call (any owner) on those deals since the history window
          contacts        {contact_id: contact row} for calls with no deal
+       pipeline (sales; any may be missing, and the section then says so):
+         pipe_deals      the rep's deals in PIPE_STAGES created, quoted or
+                         invoiced in the last PIPE_DAYS
+         future_open     open calls (any owner) from now on, for "next step"
+         rep_calls       the rep's completed calls in the last 30 days
+         replies         back office open reply pings, or None when it
+                         could not be read
        now_utc aware datetime; tz a tzinfo for the clinic's clock.
     """
     rep = rep or {}
@@ -301,18 +380,36 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
 
     deals = world.get("deals") or {}
     contacts = world.get("contacts") or {}
+    pipe_deals = {str(d.get("id")): d for d in (world.get("pipe_deals") or []) if d.get("id")}
+
+    # Deal <-> contact, from every deal row on the page. A dial RingCentral
+    # logged on the contact only (a quarter of them on 2026-10-20) belongs to
+    # the contact's deal when the page knows exactly one.
+    deal_contact, contact_deals = {}, {}
+    for did, d in list(pipe_deals.items()) + list(deals.items()):
+        cid = ref_id(d.get("Contact_Name"))
+        if cid:
+            deal_contact[str(did)] = cid
+            contact_deals.setdefault(cid, set()).add(str(did))
+
+    def deal_of(c):
+        did = ref_id(c.get("What_Id"))
+        if did:
+            return did
+        ds = contact_deals.get(ref_id(c.get("Who_Id"))) or ()
+        return next(iter(ds)) if len(ds) == 1 else ""
 
     # Every call on each deal, any owner, oldest first. History, last contact,
     # "has this lead been called" and "is there a next call" all read this.
     by_deal = {}
     seen = set()
     for c in list(world.get("deal_calls") or []) + list(world.get("calls_today") or []) \
-            + list(world.get("calls_open") or []):
+            + list(world.get("calls_open") or []) + list(world.get("rep_calls") or []):
         cid = str(c.get("id") or "")
         if cid and cid in seen:
             continue
         seen.add(cid)
-        did = ref_id(c.get("What_Id"))
+        did = deal_of(c)
         if did:
             by_deal.setdefault(did, []).append(c)
     for did in by_deal:
@@ -330,8 +427,8 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
         return bool(created and created >= new_cut and not called_out(did))
 
     def patient(c=None, deal=None):
-        deal = deal if deal is not None else deals.get(ref_id((c or {}).get("What_Id"))) or {}
-        name = ref_name(deal.get("Contact_Name")) if deal else ""
+        deal = deal if deal is not None else deals.get(deal_of(c or {})) or {}
+        name = deal_person(deal) if deal else ""
         phone = digits10(deal.get("Phone")) if deal else ""
         cid = ref_id(deal.get("Contact_Name")) if deal else ""
         if c is not None:
@@ -432,8 +529,8 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
 
     def row(c=None, deal=None, kind=""):
         if deal is None:
-            did = ref_id((c or {}).get("What_Id"))
-            deal = deals.get(did) or {}
+            did = deal_of(c or {})
+            deal = deals.get(did) or pipe_deals.get(did) or {}
         else:
             did = str(deal.get("id") or "")
         name, phone, cid = patient(c, deal)
@@ -452,6 +549,8 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
             "subject": (c.get("Subject") or "") if c else "",
             "result": result_of(c) if c else "",
             "zoho": (ZOHO_DEAL_URL % did) if did else ((ZOHO_CONTACT_URL % cid) if cid else ""),
+            "consult": consult_url(did),
+            "dialer": bool(c is not None and is_dialer(c)),
         }
         if c is not None:
             r["why"] = why(c, role, deal_is_new(did) if did else False)
@@ -543,7 +642,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
 
     # ---- talked, nothing booked
     def has_next(c, t):
-        did = ref_id(c.get("What_Id"))
+        did = deal_of(c)
         pool = by_deal.get(did, []) if did else []
         return any(status_of(x) in OPEN and (ts(x.get("Call_Start_Time")) or t) > t for x in pool)
 
@@ -586,6 +685,9 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
     def cap(rows_in, n):
         return rows_in[:n], max(0, len(rows_in) - n)
 
+    pipeline = build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, cap,
+                              queue_ids) if role == "sales" else {"enabled": False}
+
     late_show, late_more = cap(late_rows, LATE_SHOW)
     today_show, today_more = cap(today_rows, TODAY_SHOW)
     new_show, new_more = cap(new_rows, NEW_SHOW)
@@ -618,7 +720,174 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False):
         "outcomes": outcomes_for(role),
         "reasons": [{"key": k, "label": l} for k, l in REASONS],
         "outcomes_live": role != "coordinator",
+        "pipeline": pipeline,
     }
+
+
+def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, cap, queue_ids=()):
+    """The rep's own pipeline: No next step, Quotes waiting, Unpaid retainer
+    invoices, Texted back. Each list is {"rows", "more", "n"}; a list whose
+    source could not be read carries "error" and no rows, never a false zero."""
+    rep_id = str((rep or {}).get("id") or "")
+    pipe_cut = now_utc - timedelta(days=PIPE_DAYS)
+    queue = {str(q) for q in tuple(QUEUE_USER_IDS) + tuple(queue_ids or ())}
+    have_pipe = world.get("pipe_deals") is not None
+    have_future = world.get("future_open") is not None
+
+    # Deals with an open call from now on, any owner: they have a next step.
+    booked_ahead = {}
+    for c in world.get("future_open") or []:
+        t = ts(c.get("Call_Start_Time"))
+        did = deal_of(c)
+        if did and t and t >= now_utc and status_of(c) in OPEN:
+            if did not in booked_ahead or t < booked_ahead[did]:
+                booked_ahead[did] = t
+
+    def last_done(did):
+        for c in reversed(by_deal.get(did, [])):
+            t = ts(c.get("Call_Start_Time"))
+            if t and t <= now_utc and counts_as_done(c):
+                return t
+        return None
+
+    def mine(d):
+        return not rep_id or ref_id(d.get("Owner")) in ("", rep_id)
+
+    def next_label(did):
+        t = booked_ahead.get(did)
+        if not t:
+            return "no next call"
+        loc = t.astimezone(tz)
+        today_l = now_utc.astimezone(tz).date()
+        return "next call " + ("today" if loc.date() == today_l else day_label(loc, today_l)) + " " + clock(loc)
+
+    def with_next(r):
+        """The last-contact column also says whether a call is booked ahead."""
+        lc = r.get("last") or {}
+        r["last"] = dict(lc, what=" · ".join(x for x in (lc.get("what"), next_label(r["deal_id"])) if x))
+        r["next"] = next_label(r["deal_id"])
+
+    def finish(rows_in, total_rows, error=""):
+        show, more = cap(rows_in, PIPE_SHOW)
+        out = {"rows": show, "more": more, "n": len(total_rows)}
+        if error:
+            out["error"] = error
+        return out
+
+    def prow(d, prefix, why):
+        r = row(deal=d, kind="pipe")
+        did = r["deal_id"]
+        r["key"] = prefix + did
+        r["why"], r["why_label"] = why, WHY_LABELS.get(why, "")
+        return r
+
+    # ---- No next step
+    nostep = []
+    for did, d in pipe_deals.items():
+        if not mine(d) or (d.get("Stage") or "") not in PIPE_STAGES:
+            continue
+        created = ts(d.get("Created_Time"))
+        if not created or created < pipe_cut:
+            continue
+        if did in booked_ahead:
+            continue
+        # A "Missed Call" deal with no name is the shared queue's to sort out,
+        # not a pipeline deal; on a rep's own page it stays (the rep owns it).
+        if rep_id in queue and MISSED_DEAL.match(d.get("Deal_Name") or "") \
+                and deal_person(d).lower() in ("", "unknown"):
+            continue
+        nostep.append((last_done(did), created, d))
+    # Oldest last contact first; never contacted is oldest of all, then by age.
+    far = datetime.min.replace(tzinfo=timezone.utc)
+    nostep.sort(key=lambda x: (x[0] or far, x[1]))
+    ns_rows = []
+    for lc, created, d in nostep:
+        r = prow(d, "ns", "nostep")
+        # Calls are read 30 days back: a deal older than that with none in
+        # the window was called before it, or never; the page cannot say which.
+        r["when"] = ago_days(lc, now_utc) if lc else (
+            "never called" if created > now_utc - timedelta(days=30) else "30+ days ago")
+        r["sub"], r["sub_kind"] = "no next call", "late"
+        ns_rows.append(r)
+
+    # ---- Quotes waiting
+    quotes = []
+    for did, d in pipe_deals.items():
+        if not mine(d) or (d.get("Stage") or "") != "Quote Sent":
+            continue
+        qt = ts(d.get("Quote_Sent_Date"))
+        if not qt or qt < pipe_cut:
+            continue
+        quotes.append((qt, d))
+    quotes.sort(key=lambda x: x[0], reverse=True)
+    q_rows = []
+    for qt, d in quotes:
+        r = prow(d, "qt", "quotewait")
+        r["when"] = days_label(days_since(d.get("Quote_Sent_Date"), now_utc))
+        r["sub"], r["sub_kind"] = "since quote", "q"
+        with_next(r)
+        q_rows.append(r)
+
+    # ---- Unpaid retainer invoices
+    invs = []
+    for did, d in pipe_deals.items():
+        if not mine(d) or (d.get("Stage") or "") != "Retainer Invoice Sent" or d.get("Retainer_Paid") is True:
+            continue
+        rt = ts(d.get("Retainer_Sent_Date"))
+        if rt and rt < pipe_cut:
+            continue
+        if not rt:
+            created = ts(d.get("Created_Time"))
+            if not created or created < pipe_cut:
+                continue
+        invs.append((rt, d))
+    # Newest invoice first; an invoice with no date goes last.
+    invs.sort(key=lambda x: x[0] or far, reverse=True)
+    i_rows = []
+    for rt, d in invs:
+        r = prow(d, "iv", "invoice")
+        r["when"] = days_label(days_since(d.get("Retainer_Sent_Date"), now_utc))
+        r["sub"], r["sub_kind"] = ("since invoice", "q") if rt else ("", "")
+        with_next(r)
+        i_rows.append(r)
+
+    # ---- Texted back (the back office's ReplyPing ledger)
+    replies = world.get("replies")
+    t_rows = []
+    for p in replies or []:
+        did = str(p.get("dealId") or "")
+        d = pipe_deals.get(did) or (world.get("deals") or {}).get(did) or {
+            "id": did, "Contact_Name": {"name": p.get("patientName") or "", "id": ""}, "Phone": p.get("phone") or ""}
+        if not d.get("Phone") and p.get("phone"):
+            d = dict(d, Phone=p.get("phone"))
+        r = prow(d, "tx", "texted")
+        t = ts(p.get("inboundAt"))
+        r["when"] = ago_label(now_utc - t) if t else ""
+        r["start"] = t.isoformat() if t else ""
+        text = (p.get("lastText") or "").strip()
+        r["last"] = {"date": "", "what": ("“%s”" % text) if text else "texted, words not kept"}
+        r["sub"], r["sub_kind"] = ("%d texts" % p["textCount"], "q") if int(p.get("textCount") or 1) > 1 else ("", "")
+        r["key"] = "tx" + (did or digits10(p.get("phone")))
+        t_rows.append(r)
+
+    nope = "Zoho could not be read for this list."
+    return {
+        "enabled": True,
+        "days": PIPE_DAYS,
+        "no_step": finish(ns_rows, nostep, "" if (have_pipe and have_future) else nope),
+        "quotes": finish(q_rows, quotes, "" if have_pipe else nope),
+        "invoices": finish(i_rows, invs, "" if have_pipe else nope),
+        "texts": finish(t_rows, t_rows,
+                        "" if replies is not None else "Couldn't load the texts just now."),
+    }
+
+
+def ago_days(t, now_utc) -> str:
+    """'today', '1 day ago', '12 days ago'."""
+    n = max(0, (now_utc - t).days)
+    if n == 0:
+        return "today"
+    return "1 day ago" if n == 1 else "%d days ago" % n
 
 
 # ── the time picker ───────────────────────────────────────────────────────
@@ -797,4 +1066,20 @@ def fake_world(now_utc, tz, rep_id="u-jess"):
         "contacts": {},
         "busy": [{"Call_Start_Time": rel(19), "Call_Duration_in_seconds": 900},
                  {"Call_Start_Time": rel(49), "Call_Duration_in_seconds": 900}],
+        # the pipeline lists (sales)
+        "pipe_deals": [
+            {"id": "9000000001", "Deal_Name": "Gina Moss", "Contact_Name": {"name": "Gina Moss", "id": "c91"},
+             "Phone": "5550144001", "Stage": "Call Scheduled", "Created_Time": rel(-20 * 1440), "Procedure": "BBL",
+             "Location": "New York", "Owner": owner},
+            {"id": "9000000002", "Deal_Name": "Iris Vale", "Contact_Name": {"name": "Iris Vale", "id": "c92"},
+             "Phone": "5550144002", "Stage": "Quote Sent", "Created_Time": rel(-9 * 1440),
+             "Quote_Sent_Date": rel(-3 * 1440), "Amount": 9400, "Procedure": "Tummy tuck", "Owner": owner},
+            {"id": "9000000003", "Deal_Name": "June Park", "Contact_Name": {"name": "June Park", "id": "c93"},
+             "Phone": "5550144003", "Stage": "Retainer Invoice Sent", "Created_Time": rel(-12 * 1440),
+             "Retainer_Sent_Date": rel(-2 * 1440), "Retainer_Paid": False, "Procedure": "Lipo 360", "Owner": owner},
+        ],
+        "future_open": [],
+        "rep_calls": [],
+        "replies": [{"phone": "5550144002", "dealId": "9000000002", "patientName": "Iris Vale",
+                     "inboundAt": rel(-25), "lastText": "Is the price the same if I book this week?", "textCount": 1}],
     }

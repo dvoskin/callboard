@@ -165,6 +165,118 @@ ck("sales gets the nine engine outcomes", [o["key"] for o in P["outcomes"]] == [
 ck("the reasons for Not interested", [x["key"] for x in P["reasons"]] == ["price", "not_ready", "went_elsewhere", "other"],
    P["reasons"])
 
+
+# ── Start consultation (2026-10-20) ────────────────────────────────────────
+ck("Start consultation is the estimator URL of the Zoho deal button",
+   M.consult_url("5212466000123") == "https://estimator.goalsplasticsurgery.com?dealid=5212466000123", M.consult_url("5212466000123"))
+ck("...and nothing without a real deal id", M.consult_url("") == "" and M.consult_url("d1") == "", M.consult_url("d1"))
+ck("every row carries its consult link (empty when the row has no deal id)",
+   all("consult" in r for r in P["late"] + P["today"] + P["new_leads"] + P["queue"] + P["no_result"]), "consult key")
+
+def pdeal(did, name, created_min=-9 * 1440, stage="Call Scheduled", **kw):
+    d = deal(did, name, created_min, stage=stage)
+    d.update(kw)
+    return d
+
+
+# ── the dialer tag (RingCX) ────────────────────────────────────────────────
+DW = {"calls_open": [], "deals": {"3001": pdeal("3001", "Dial Timeout"), "3002": pdeal("3002", "Dial Picked")}, "deals_new": [],
+      "deal_calls": [], "contacts": {},
+      "calls_today": [dict(call("x-t", "3001", "Outbound Call to Dial Timeout", -40, "Completed", None, 50),
+                           Outgoing_call_disposition="Disposition Timeout"),
+                      dict(call("x-q", "3002", "Outbound Call to Dial Picked", -30, "Completed", "Pending", 300),
+                           Outgoing_call_disposition="Quoted"),
+                      call("x-x", "3001", "Outgoing call to Dial Timeout", -20, "Completed", None, 15)]}
+DP = M.build(DW, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"})
+dn = {r["call_id"]: r for r in DP["no_result"]}
+ck("a dialer call is in Done; 'Disposition Timeout' lands in No result yet", "x-t" in dn, sorted(dn))
+ck("...with the dialer tag; a RingEX 'Outgoing call' row has none", dn.get("x-t", {}).get("dialer") is True
+   and dn.get("x-x", {}).get("dialer") is False, {k: v.get("dialer") for k, v in dn.items()})
+ck("a disposition the agent picked is the result (counted, not red)", "x-q" not in dn
+   and {d["label"]: d["n"] for d in DP["done_summary"]}.get("Quoted") == 1, DP["done_summary"])
+ck("M.is_dialer reads the subject or a disposition", M.is_dialer({"Subject": "Outbound Call to X"})
+   and M.is_dialer({"Subject": "x", "DialerDisposition": "No Answer"}) and not M.is_dialer({"Subject": "Outgoing call to X"}),
+   "is_dialer")
+
+# ── the pipeline (sales, the rep's own deals) ──────────────────────────────
+OWN = {"id": "u1", "name": "Rep"}
+PIPE = [
+    pdeal("1001", "Pat Contacted", -10 * 1440, Owner=OWN),
+    pdeal("1002", "Quinn Quoted", -20 * 1440, stage="Quote Sent", Quote_Sent_Date=at(-2 * 1440), Owner=OWN),
+    pdeal("1003", "Old Deal", -100 * 1440, stage="New Deal", Owner=OWN),
+    pdeal("1004", "Lost Deal", -5 * 1440, stage="Closed Lost", Owner=OWN),
+    pdeal("1005", "Nora Never", -3 * 1440, Owner=OWN),
+    pdeal("1006", "Old Quote", -30 * 1440, stage="Quote Sent", Quote_Sent_Date=at(-120 * 1440), Owner=OWN),
+    pdeal("1007", "Ivy Invoiced", -12 * 1440, stage="Retainer Invoice Sent", Retainer_Sent_Date=at(-4 * 1440),
+          Retainer_Paid=False, Owner=OWN),
+    pdeal("1008", "Paid Retainer", -12 * 1440, stage="Retainer Invoice Sent", Retainer_Sent_Date=at(-1 * 1440),
+          Retainer_Paid=True, Owner=OWN),
+    dict(pdeal("1009", "Unknown", -1 * 1440, Owner=OWN), Deal_Name="Missed Call - 5550100999",
+         Contact_Name={"id": "c1009", "name": "Unknown"}),
+    pdeal("1010", "Quinn Two", -6 * 1440, stage="Quote Sent", Quote_Sent_Date=at(-6 * 1440), Owner=OWN),
+]
+FUT = [call("f1", "1002", "Quote Follow Up 2", 24 * 60, "Scheduled"),
+       call("f2", "1001", "Follow-up: Pat", -90, "Overdue")]          # past: not a next step
+RC = [call("r1", "1001", "Outgoing call to Pat", -5 * 1440, "Completed", "Reached", 300)]
+REPLIES = [{"phone": "5550190042", "dealId": "1002", "patientName": "Quinn Quoted", "inboundAt": at(-12),
+            "lastText": "is 3pm ok?", "textCount": 2, "status": "sent"},
+           {"phone": "5550190043", "dealId": "1010", "patientName": "Quinn Two", "inboundAt": at(-40),
+            "lastText": "", "textCount": 1, "status": "sent"}]
+QW = dict(WORLD, pipe_deals=PIPE, future_open=FUT, rep_calls=RC, replies=REPLIES)
+PQ = M.build(QW, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"})
+pl = PQ["pipeline"]
+ns = [r["deal_id"] for r in pl["no_step"]["rows"]]
+ck("no next step: open stage, last 90 days, no open call from now on", set(ns) == {"1001", "1005", "1006", "1007", "1008", "1009", "1010"}, ns)
+ck("...a deal with a call booked ahead has a next step", "1002" not in ns, ns)
+ck("...a deal created over 90 days ago is not listed", "1003" not in ns, ns)
+ck("...a closed stage is not listed", "1004" not in ns, ns)
+ck("...an overdue call in the past is not a next step", "1001" in ns, ns)
+ck("...oldest last contact first: never called first (oldest deal first), then by last call",
+   ns == ["1006", "1007", "1008", "1010", "1005", "1009", "1001"], ns)
+ck("...the header count is the whole list", pl["no_step"]["n"] == 7, pl["no_step"]["n"])
+ck("...on a rep's own page a nameless 'Missed Call' deal stays (the rep owns it)", "1009" in ns, ns)
+QOWN = {"id": M.QUEUE_USER_IDS[0], "name": "Zoho Admin"}
+PQQ = M.build(dict(QW, pipe_deals=[dict(d, Owner=QOWN) for d in PIPE]), NOW, TZ, rep=QOWN)
+nsq = [r["deal_id"] for r in PQQ["pipeline"]["no_step"]["rows"]]
+ck("...on a queue user's page it is left off (and the rest of that page's list stays)", "1009" not in nsq and "1005" in nsq, nsq)
+qs = [r["deal_id"] for r in pl["quotes"]["rows"]]
+ck("quotes waiting: Quote Sent, quoted in the last 90 days, newest quote first", qs == ["1002", "1010"], qs)
+ck("...shows days since the quote and the next call", pl["quotes"]["rows"][0]["when"] == "2 days"
+   and pl["quotes"]["rows"][0]["sub"] == "since quote" and pl["quotes"]["rows"][0]["next"].startswith("next call")
+   and pl["quotes"]["rows"][1]["next"] == "no next call" and "no next call" in pl["quotes"]["rows"][1]["last"]["what"],
+   [(r["when"], r["sub"], r.get("next")) for r in pl["quotes"]["rows"]])
+iv = [r["deal_id"] for r in pl["invoices"]["rows"]]
+ck("unpaid retainer invoices: Retainer Invoice Sent and Retainer_Paid not true", iv == ["1007"], iv)
+ck("...days since the invoice", pl["invoices"]["rows"][0]["when"] == "4 days"
+   and pl["invoices"]["rows"][0]["sub"] == "since invoice", pl["invoices"]["rows"][0]["when"])
+tx = pl["texts"]["rows"]
+ck("texted back: the back office's open replies, newest first, with the words when kept",
+   [r["deal_id"] for r in tx] == ["1002", "1010"] and tx[0]["last"]["what"] == "“is 3pm ok?”"
+   and tx[1]["last"]["what"] == "texted, words not kept", [(r["deal_id"], r["last"]) for r in tx])
+ck("pipeline rows have Call, Result (a deal id) and Start consultation",
+   all(r["deal_id"] and r["consult"] == M.CONSULT_URL % r["deal_id"] and r["phone"]
+       for k in ("no_step", "quotes", "invoices", "texts") for r in pl[k]["rows"]), "rows")
+keys = [r["key"] for k in ("no_step", "quotes", "invoices", "texts") for r in pl[k]["rows"]]
+ck("one deal in two lists still gets two distinct rows", len(keys) == len(set(keys)), keys)
+cap_world = dict(QW, pipe_deals=[pdeal(str(5000 + i), "Lead %d" % i, -i * 60, Owner=OWN) for i in range(M.PIPE_SHOW + 7)])
+pc = M.build(cap_world, NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]["no_step"]
+ck("capped like the other lists, with + N more", len(pc["rows"]) == M.PIPE_SHOW and pc["more"] == 7 and pc["n"] == M.PIPE_SHOW + 7,
+   (len(pc["rows"]), pc["more"]))
+PE = M.build(dict(WORLD, replies=None), NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]
+ck("texts that could not be loaded say so (never a false zero), and the rest still builds",
+   PE["texts"].get("error") == "Couldn't load the texts just now." and PE["texts"]["rows"] == []
+   and PE["no_step"].get("error"), PE["texts"])
+ck("a deal older than the 30-day call window with no call in it reads '30+ days ago', a newer one 'never called'",
+   {r["deal_id"]: r["when"] for r in pl["no_step"]["rows"]}.get("1006") == "30+ days ago"
+   and {r["deal_id"]: r["when"] for r in pl["no_step"]["rows"]}.get("1005") == "never called",
+   [(r["deal_id"], r["when"]) for r in pl["no_step"]["rows"]])
+coql_deal = dict(pdeal("1011", "x", -2 * 1440, Owner=OWN), **{"Contact_Name": {"id": "c1011"},
+                 "Contact_Name.First_Name": "Rosa", "Contact_Name.Last_Name": "Medina"})
+nm = M.build(dict(QW, pipe_deals=[coql_deal]), NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]["no_step"]["rows"]
+ck("the name comes from Contact_Name.First_Name/Last_Name (COQL gives the lookup as an id only)",
+   nm and nm[0]["short"] == "Rosa M." and nm[0]["full"] == "Rosa Medina", nm and nm[0]["full"])
+ck("coordinators get no pipeline (sales role only)", PC["pipeline"] == {"enabled": False}, PC["pipeline"])
+
 # ---- the time picker ----
 busy = [{"Call_Start_Time": at(79), "Call_Duration_in_seconds": 600}]
 slots = M.free_slots(busy, NOW, TZ)
@@ -184,7 +296,7 @@ import app as A  # noqa: E402
 c = A.app.test_client()
 saved = (A.GOOGLE_CLIENT_ID, A.MY_DAY_FAKE, A.BACKOFFICE_URL, A.OVERDUE_API_KEY, A.MY_DAY_MANAGERS,
          A._zoho.list_users_detail, A._zoho.my_day_world, A.requests.post, A._load_ringex_snapshot,
-         A._snapshot_ringex)
+         A._snapshot_ringex, A._zoho.my_day_pipeline, A.requests.get)
 USERS = [{"id": "u1", "name": "Jessica Morales", "email": "jess@goalsplasticsurgery.com"},
          {"id": "u2", "name": "Mabel Alvarez", "email": "mabel@goalsplasticsurgery.com"}]
 sent = []
@@ -211,6 +323,19 @@ def fake_post(url, json=None, headers=None, **k):
     return _R(404, {})
 
 
+gets = []
+
+
+def fake_get(url, params=None, headers=None, **k):
+    gets.append({"url": url, "params": params, "headers": headers or {}})
+    if url.endswith("/api/reply-pings/open") and GET_MODE["ok"]:
+        return _R(200, {"rep": params.get("rep"), "hours": 48, "open": REPLIES[:1]})
+    return _R(500, {"error": "down"})
+
+
+GET_MODE = {"ok": True}
+
+
 def ringex_forbidden(*a, **k):
     raise AssertionError("My Day must not read RingEX")
 
@@ -225,6 +350,8 @@ try:
     A._md_cache.clear()
     A._zoho.list_users_detail = lambda: USERS
     A._zoho.my_day_world = lambda *a, **k: WORLD
+    A._zoho.my_day_pipeline = lambda *a, **k: {"pipe_deals": PIPE, "future_open": FUT, "rep_calls": RC}
+    A.requests.get = fake_get
     A._load_ringex_snapshot = ringex_forbidden
     A._snapshot_ringex = ringex_forbidden
     A.requests.post = fake_post
@@ -245,6 +372,19 @@ try:
     ck("her data is her own calls, built from Zoho with no RingEX read",
        d.get("rep", {}).get("id") == "u1" and d.get("nums") == want, (d.get("error"), d.get("nums"), want))
     ck("a rep cannot open someone else's page", c.get("/my-day/api/data?rep=u2").status_code == 403, "403")
+    g = gets[-1] if gets else {}
+    ck("texted back is read from the back office with the shared key, for this rep, 48 h",
+       g.get("url") == "https://backoffice.example.test/api/reply-pings/open" and g["params"] == {"rep": "u1", "hours": 48}
+       and g["headers"].get("x-api-key") == "SECRET-KEY-123", g)
+    ck("...and its rows reach the page", [r["deal_id"] for r in d["pipeline"]["texts"]["rows"]] == ["1002"],
+       d.get("pipeline", {}).get("texts"))
+    GET_MODE["ok"] = False
+    A._md_cache.clear()
+    d2 = c.get("/my-day/api/data").get_json()
+    ck("the back office down: the page still loads, the texts list says it couldn't load",
+       d2.get("nums") == want and d2["pipeline"]["texts"].get("error") == "Couldn't load the texts just now."
+       and d2["pipeline"]["no_step"]["n"] == 7, d2.get("pipeline", {}).get("texts"))
+    GET_MODE["ok"] = True
 
     sent.clear()
     r = c.post("/my-day/api/outcome", json={"rep": "u2", "dealId": "123", "outcome": "no_answer"})
@@ -317,7 +457,7 @@ try:
 finally:
     (A.GOOGLE_CLIENT_ID, A.MY_DAY_FAKE, A.BACKOFFICE_URL, A.OVERDUE_API_KEY, A.MY_DAY_MANAGERS,
      A._zoho.list_users_detail, A._zoho.my_day_world, A.requests.post, A._load_ringex_snapshot,
-     A._snapshot_ringex) = saved
+     A._snapshot_ringex, A._zoho.my_day_pipeline, A.requests.get) = saved
 
 src = open(os.path.join(HERE, "app.py"), encoding="utf-8").read()
 blk = src[src.index("# ── My Day (build plan step 21)"):src.index('@app.route("/v6/board")')]
