@@ -1,0 +1,47 @@
+{# "Open My Day" in a rep's expanded row, for managers only (Danny, 2026-10-21:
+   "allow managers to open my day from teams page, in sales call tracker expanded
+   view"). myday_links is empty for anyone who is not a manager, so nothing shows. #}
+{% if myday_links %}
+<style>
+  .mdlink{display:inline-flex;align-items:center;gap:4px;margin:6px 0 8px;padding:6px 12px;border:1px solid currentColor;
+          border-radius:8px;font-size:12.5px;font-weight:650;text-decoration:none;color:inherit}
+  .mdlink:hover{opacity:.8}
+</style>
+<script>
+(function () {
+  var L = {{ myday_links|tojson }};
+  function key(n) {
+    n = String(n || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (n.indexOf(',') > 0) { var p = n.split(','); n = (p[1] || '').trim() + ' ' + p[0].trim(); }
+    return n;
+  }
+  function idFor(n) {
+    var k = key(n), p = k.split(' ');
+    return L[k] || (p.length > 2 ? L[p[0] + ' ' + p[p.length - 1]] : null) || null;
+  }
+  function nameOf(row) {
+    var nm = row.querySelector('.nm');
+    if (!nm) return '';
+    if (nm.getAttribute('data-name')) return nm.getAttribute('data-name');
+    for (var c = nm.firstChild; c; c = c.nextSibling) if (c.nodeType === 3 && c.nodeValue.trim()) return c.nodeValue;
+    return '';
+  }
+  function addLinks() {
+    document.querySelectorAll('.r[aria-expanded="true"][data-det]').forEach(function (row) {
+      var det = document.getElementById(row.getAttribute('data-det'));
+      if (!det || det.querySelector('.mdlink')) return;
+      var id = idFor(nameOf(row));
+      if (!id) return;
+      var a = document.createElement('a');
+      a.className = 'mdlink';
+      a.href = '/my-day/' + encodeURIComponent(id);
+      a.textContent = 'Open My Day →';
+      a.title = "This rep's My Day: their calls in priority order, results, and their day against the plan";
+      det.insertBefore(a, det.firstChild);
+    });
+  }
+  document.addEventListener('click', function () { setTimeout(addLinks, 0); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') setTimeout(addLinks, 0); });
+})();
+</script>
+{% endif %}

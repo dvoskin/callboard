@@ -6571,6 +6571,39 @@ def my_day_page(rep_id=None):
                                  "role": _md_role((rep or {}).get("name") or "")})
 
 
+def _md_links_for_viewer() -> dict:
+    """{name key: Zoho user id} so a manager can open any rep's My Day from the
+    boards' expanded rows (Danny, 10-21). Empty for everyone else: a rep or a
+    shared-link viewer sees no link. Keys: the full name and "first last",
+    lower case; the page also matches "Last, First"."""
+    try:
+        if not session.get("user") and not session.get("md_admin"):
+            return {}
+        if not _md_viewer().get("manager"):
+            return {}
+        out = {}
+        for u in _md_users_list():
+            full = " ".join((u.get("name") or "").split()).lower()
+            if not full:
+                continue
+            out[full] = u["id"]
+            parts = full.split(" ")
+            if len(parts) > 2:
+                out.setdefault(parts[0] + " " + parts[-1], u["id"])
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+@app.context_processor
+def _inject_md_links():
+    return {"myday_links": _md_links_for_viewer() if request.endpoint in _MD_LINK_PAGES else {}}
+
+
+_MD_LINK_PAGES = {"all_teams", "board_sales", "board_sales_ringex", "board_billing", "board_scheduling",
+                  "scoreboard_v5", "scoreboard_v6"}
+
+
 @app.route("/flow")
 def flow_page():
     """The whole patient flow on one page for managers (Danny, 10-21): each part
