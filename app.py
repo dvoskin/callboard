@@ -6333,6 +6333,14 @@ MY_DAY_QUEUE_OWNER_IDS = [x.strip() for x in os.environ.get("MY_DAY_QUEUE_OWNER_
 MY_DAY_LATE_DAYS = int(os.environ.get("MY_DAY_LATE_DAYS", "7"))
 # Local screenshots and demos only. Made-up patients, 555 numbers.
 MY_DAY_FAKE = os.environ.get("MY_DAY_FAKE", "") == "1"
+# The admin door on the My Day password page (Danny, 2026-10-21: "make the admin
+# login pass on each my day"). Typed in the same box as the floor word, it opens
+# any rep's page as a manager who can write results. It opens My Day only, not the
+# rest of this app. ADMIN_PASSWORD works there too. Comma-separated; same per-IP
+# throttle as the floor word, which matters because Danny chose a short one.
+MY_DAY_ADMIN_PASSWORDS = tuple(
+    p.strip() for p in os.environ.get("MY_DAY_ADMIN_PASSWORDS", "").split(",") if p.strip()
+)
 _MD_TTL = 60.0
 _MD_USERS_TTL = 3600.0
 _md_lock = threading.Lock()
@@ -6378,10 +6386,28 @@ def _md_floor(users):
                   key=lambda u: (u["role"] != "sales", u["name"]))
 
 
+def _md_admin_password_matches(supplied: str) -> bool:
+    """Constant-time against every My Day admin password and ADMIN_PASSWORD."""
+    if not supplied:
+        return False
+    ok = False
+    for p in MY_DAY_ADMIN_PASSWORDS + ((ADMIN_PASSWORD,) if ADMIN_PASSWORD else ()):
+        if hmac.compare_digest(supplied, p):
+            ok = True
+    return ok
+
+
+def _md_allowed() -> bool:
+    """The sales board's door, or the My Day admin password."""
+    return _v6_allowed() or bool(session.get("md_admin"))
+
+
 def _md_viewer():
     """{email, name, zoho_id, manager, can_write, signed_in}. can_write needs a
-    real account (Google or the admin password), never the shared word."""
+    real account (Google or an admin password), never the shared word."""
     user = session.get("user") or {}
+    if session.get("md_admin") and not user:
+        user = {"email": "admin@goalsplasticsurgery.com", "name": "Admin"}
     email = (user.get("email") or "").lower()
     admin = email == "admin@goalsplasticsurgery.com"
     me = None
@@ -6491,14 +6517,15 @@ def _md_page(rep, fresh=False):
     return page
 
 
-def _md_gate():
-    """Same door as the sales board. Returns a response to stop, or None."""
-    if _v6_allowed():
+def _md_gate(error=""):
+    """Same door as the sales board, plus the admin password. Returns a
+    response to stop, or None."""
+    if _md_allowed():
         return None
-    if not V5_PASSWORDS and not V7_PASSWORDS:
+    if not V5_PASSWORDS and not V7_PASSWORDS and not MY_DAY_ADMIN_PASSWORDS:
         return _login_redirect()
-    return render_template("v5_password.html", error="", page_title="My Day",
-                           page_sub="Your calls for today, in the order to make them."), 200
+    return render_template("v5_password.html", error=error, page_title="My Day",
+                           page_sub="Your calls for today, in the order to make them."), (401 if error else 200)
 
 
 @app.route("/my-day", methods=["GET", "POST"])
@@ -6508,11 +6535,23 @@ def my_day_page(rep_id=None):
         ip = (request.headers.get("CF-Connecting-IP")
               or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
               or request.remote_addr or "?")
-        if not _v5_pw_throttled(ip) and _v5_password_matches(request.form.get("password", "").strip()):
-            session["v5_pw"] = True
-            return redirect(request.path)
-        _v5_pw_record_failure(ip)
-    gated = _md_gate()
+        supplied = request.form.get("password", "").strip()
+        error = "Too many tries. Wait five minutes."
+        if not _v5_pw_throttled(ip):
+            # Both compared every time, so the reply takes as long whichever matched.
+            is_admin, is_word = _md_admin_password_matches(supplied), _v5_password_matches(supplied)
+            if is_admin:
+                session["md_admin"] = True
+                log.info("my-day: admin password login")
+                return redirect(request.path)
+            if is_word:
+                session["v5_pw"] = True
+                return redirect(request.path)
+            _v5_pw_record_failure(ip)
+            error = "That is not the password."
+        gated = _md_gate(error)
+    else:
+        gated = _md_gate()
     if gated is not None:
         return gated
     viewer = _md_viewer()
@@ -6532,7 +6571,7 @@ def my_day_page(rep_id=None):
 
 @app.route("/my-day/api/data")
 def my_day_api_data():
-    if not _v6_allowed():
+    if not _md_allowed():
         return jsonify({"error": "unauthorized"}), 401
     viewer = _md_viewer()
     rep, err = _md_resolve_rep(viewer, request.args.get("rep") or None)
@@ -6549,7 +6588,7 @@ def my_day_api_data():
 def my_day_api_slots():
     """Open slots on the rep's Zoho calendar for the time picker, and the
     confirmation text preview. Read only when a picker opens, not on page load."""
-    if not _v6_allowed():
+    if not _md_allowed():
         return jsonify({"error": "unauthorized"}), 401
     viewer = _md_viewer()
     rep, err = _md_resolve_rep(viewer, request.args.get("rep") or None)
@@ -6593,7 +6632,7 @@ def _md_backoffice(path, body):
 def _md_write_gate():
     """Writes need a real account and a JSON body (a cross-site form cannot
     send application/json without a preflight)."""
-    if not _v6_allowed():
+    if not _md_allowed():
         return jsonify({"error": "unauthorized"}), 401
     viewer = _md_viewer()
     if not viewer["can_write"]:
