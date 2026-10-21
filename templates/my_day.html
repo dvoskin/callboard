@@ -312,9 +312,14 @@
   function detHtml(r){
     var facts = (r.facts || []).map(function(f){ return '<div><em>' + esc(f.k) + '</em><b>' + esc(f.v) + '</b></div>'; }).join('');
     var note = r.note ? '<p class="lbl">Last call note</p><p class="note">' + esc(r.note.text) + '<small>' + esc([r.note.by, r.note.date].filter(Boolean).join(', ')) + '</small></p>' : '';
-    var hist = (r.history || []).length ? '<p class="lbl">Before this</p><div class="hist">' + r.history.map(function(h){
+    // Calls still ahead go under "Coming up", soonest first; the rest under "Before this".
+    function histRows(list){ return list.map(function(h){
       return '<div><span class="d">' + esc(h.d) + '</span><span class="k">' + esc(h.k) + '</span><span class="x">' + esc(h.x) + (h.by ? ' · ' + esc(h.by) : '') + '</span></div>';
-    }).join('') + '</div>' : '';
+    }).join(''); }
+    var ahead = (r.history || []).filter(function(h){ return h.up; }).reverse();
+    var past = (r.history || []).filter(function(h){ return !h.up; });
+    var hist = (ahead.length ? '<p class="lbl">Coming up</p><div class="hist">' + histRows(ahead) + '</div>' : '') +
+               (past.length ? '<p class="lbl">Before this</p><div class="hist">' + histRows(past) + '</div>' : '');
     var callbar = '<div class="callbar">' + (r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + '>Call ' + esc(r.phone_label) + '</a>' : '') +
       consultBtn(r) + (r.zoho ? '<a class="btn" href="' + esc(r.zoho) + '" target="_blank" rel="noopener">Open in Zoho</a>' : '') + '<button class="btn" data-close="1">Close</button></div>';
     var live = PAGE.outcomes_live && CAN_WRITE && !!r.deal_id;

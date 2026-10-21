@@ -131,6 +131,33 @@ ck("an unsubscribed deal is not a lead to call", "n5" not in new_ids, new_ids)
 ck("new leads waiting counts the same rule", P["nums"]["new_leads"] == 2, P["nums"])
 ck("the shared queue is listed with claim-on-call when it is on",
    [r["deal_id"] for r in P["queue"]] == ["q1"] and P["queue"][0].get("claim") is True, P["queue"])
+# Zoho's quote ladder: booked for midnight, then marked Completed (5 min) by Zoho
+# itself. Charlotte, 10-21: five "12:00 AM · no result" rows and a fake
+# "Call, 5 min" in each history, next to follow-ups she had booked herself.
+midnight = -(14 * 60 + 41)
+RW = dict(WORLD, deals=dict(DEALS, r1=deal("r1", "Vanessa Garcia", -4 * 1440, stage="Quote Sent")),
+          calls_today=list(TODAY) + [
+              call("robot-q", "r1", "Scheduled Call: Quote Follow Up 1 - 24 Hours - Lower Blepharoplasty", midnight,
+                   "Completed", None, 300)],
+          calls_open=list(OPEN) + [call("r1-own", "r1", "talk with husband", 6 * 1440 + 200, "Scheduled")])
+PR = M.build(RW, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"})
+ck("a ladder call Zoho completed by itself is not a call with no result",
+   "robot-q" not in [r["call_id"] for r in PR["no_result"]], [r["call_id"] for r in PR["no_result"]])
+ck("...nor done today", PR["nums"]["done"] == P["nums"]["done"], (PR["nums"]["done"], P["nums"]["done"]))
+ck("M.is_auto_completed: robot subject, completed, no result",
+   M.is_auto_completed({"Subject": "Scheduled Call: Quote Follow Up 1 - 24 Hours - BBL", "Outgoing_Call_Status": "Completed"}), "robot")
+ck("...but one with a result written is a real call",
+   not M.is_auto_completed({"Subject": "Scheduled Call: Quote Follow Up 1 - 24 Hours - BBL", "Outgoing_Call_Status": "Completed",
+                            "Call_Result": "Reached"}), "result")
+ck("...and the rep's own dial record never is",
+   not M.is_auto_completed({"Subject": "Outgoing call to Vanessa", "Outgoing_Call_Status": "Completed"}), "dial")
+H = M.build(dict(RW, calls_open=list(RW["calls_open"]) + [call("r1-today", "r1", "Call scheduled with Vanessa", 60)]),
+            NOW, TZ, rep={"id": "u1", "name": "x"})
+hr = next((r for r in H["today"] if r["deal_id"] == "r1"), None)
+ck("history: a call still ahead is marked 'up' (Coming up), past calls are not, and the row's own call is left out",
+   hr is not None and [h["k"] for h in hr["history"] if h.get("up")] == ["Next call"]
+   and not any(h["k"].startswith("Call,") for h in hr["history"]),
+   hr and hr["history"])
 P_off = M.build(WORLD, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"}, queue_enabled=False)
 ck("...and not at all when it is off", P_off["queue"] == [] and P_off["queue_enabled"] is False, P_off["queue"])
 
