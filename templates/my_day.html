@@ -91,8 +91,8 @@
   .pt2.ok{border-color:color-mix(in srgb,var(--up) 45%,var(--rule))} .pt2.ok b{color:var(--up)}
   .pt2.bad{border-color:color-mix(in srgb,var(--dn) 55%,var(--rule))} .pt2.bad b{color:var(--dn)}
   .psub{margin:8px 0 0;font-size:12px;color:var(--muted)}
+  .pt2 .ps{display:none}
   @media(max-width:860px){.ptiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media(max-width:520px){.ptiles{grid-template-columns:repeat(2,minmax(0,1fr))}.pt2 b{font-size:18px}}
   .prio{flex:none;width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:11px;font-weight:750;
         display:inline-flex;align-items:center;justify-content:center;align-self:center;order:-1}
   .prio.clock{background:transparent;color:var(--ink);border:1px solid var(--rule);font-size:12px}
@@ -247,14 +247,20 @@
   /* Phone width: rows become cards, buttons two per line, numbers 2 by 2,
      and a tab bar keeps the list short (Frame 3 of the mock). */
   @media(max-width:520px){
-    .app{padding-bottom:92px}
-    .top h1{font-size:19px}
-    .top .sw{margin-left:0}
+    .app{padding-top:10px;padding-bottom:84px}
+    /* Header: title, name switch and Floor on one row; who and date on one short line. */
+    .top{align-items:center;gap:2px 8px}
+    .top h1{font-size:17px}
+    .top .who{order:1;flex:1 1 0;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .top .upd{display:none}
+    .top .sw{order:2;margin-left:0;font-size:12px;padding:3px 7px;max-width:132px}
+    .top select.sw{margin-left:auto}
+    .top:has(#sw:not([hidden])) .who{order:3;flex-basis:100%}
+    .banner{margin-top:6px;padding:5px 9px;font-size:12px}
     .nums{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:10px 0}
     .nums b{font-size:20px}
     .nums .nl{display:none}          /* the tab bar carries it on a phone */
-    .alert{font-size:12.5px;padding:7px 10px}
-    .sh .h{order:5;flex-basis:100%}
+    .alert{font-size:12.5px;padding:6px 9px;gap:8px;margin:6px 0 4px}
     /* Phone: the pinned alert bar is one row that scrolls sideways, so it never
        takes more than ~60px of the screen; every control is a thumb-size target. */
     .abar{flex-wrap:nowrap;gap:8px;padding:7px 8px;margin-top:8px}
@@ -265,25 +271,73 @@
     .abar .hint{display:none}
     .abar [data-amute],.abar [data-aunmute]{min-height:38px;padding:6px 10px;flex:none}
     .abar .mutedtxt{display:none}
-    .tools .btn{min-height:40px;padding:8px 14px;font-size:13px}
-    .info{width:28px;height:28px;line-height:26px;font-size:12px}
-    .sh{min-height:44px}
-    .gbody{font-size:14px}
-    .handle{gap:4px 14px}
+    /* Phone time: one small line, no label, no report time. */
+    .handle{flex-wrap:nowrap;gap:0 10px;margin:6px 0 0;font-size:11.5px;white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+    .handle::-webkit-scrollbar{display:none}
+    .handle b{font-size:13px}
+    .handle .lbl2,.handle .cov{display:none}
+    /* The plan: one row of small chips that scrolls inside itself. */
+    .plan{margin:8px 0 0;padding:0 0 8px;border-top:0}
+    .plan .lbl2,.psub{display:none}
+    .ptiles{display:flex;gap:6px;margin:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    .ptiles::-webkit-scrollbar{display:none}
+    .pt2{flex:none;display:flex;align-items:baseline;gap:5px;padding:3px 9px;border-radius:999px;font-size:11.5px;white-space:nowrap}
+    .pt2 b{display:inline;font-size:14px}
+    .pt2 b small,.pt2 span,.pt2 em{display:none}
+    .pt2 .ps{display:inline;font-style:normal}
+    /* The guide is a small text button; the accordion already folds. */
+    .guide{margin:4px 0 0}
+    .tools{margin:0}
+    .tools [data-foldall]{display:none}
+    .tools .gbtn{min-height:34px;padding:4px 0;border:0;background:none;font-size:12.5px;font-weight:650;color:var(--up)}
+    .gbody{font-size:13.5px}
+    /* Groups and lists: smaller headings, no subtitles or hints (the (i) holds them). */
+    .grp{margin:14px 0 0}
+    .gh{gap:6px}
+    .gh h3{font-size:14.5px}
+    .gh .gs,.sh .h{display:none}
+    .sec{margin:6px 0 0}
+    .sh{min-height:40px;gap:8px;padding:0 0 2px}
+    .info{position:relative;width:22px;height:22px;line-height:20px;font-size:11px}
+    .info::after{content:"";position:absolute;inset:-9px}
+    .tip{margin:6px 0 2px;padding:7px 10px}
+    .empty,.more{padding:6px 0}
     .alert .hint{display:none}
-    .alert .btn{margin-left:0}
-    .r{grid-template-columns:minmax(0,1fr);grid-template-areas:"p" "w" "y" "l" "a";gap:3px 0;
-       border:1px solid var(--rule);border-radius:11px;padding:10px 12px;margin:8px 0 0}
-    .r.open{border-radius:11px 11px 0 0;border-bottom:0}
-    .r .when{display:flex;gap:8px;align-items:baseline;font-size:12.5px}
-    .r .when small{display:inline}
-    .r .acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
-    .r .acts .btn{min-height:42px;font-size:14px}
-    .r .acts .btn.cs{grid-column:1 / -1}
-    .det{border:1px solid var(--rule);border-top:0;border-radius:0 0 11px 11px;padding:4px 12px 14px}
-    .dg{grid-template-columns:1fr 1fr}
-    .obs{grid-template-columns:1fr 1fr}
-    .ob{min-height:46px}
+    .alert .btn{margin-left:auto;min-height:36px}
+    /* Rows: name and details on one line, time and pill on one line, three buttons in one row. */
+    .r{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"p p" "w y" "l l" "a a";gap:2px 8px;align-items:center;
+       border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin:6px 0 0}
+    .r.open{border-radius:10px 10px 0 0;border-bottom:0}
+    .r .pt{display:flex;align-items:baseline;gap:6px}
+    .r .pt b{flex:0 1 auto;min-width:0;max-width:72%;font-size:14.5px}
+    .r .pt .meta{flex:1 1 0;min-width:0;font-size:11.5px}
+    .r .when{display:flex;gap:6px;align-items:baseline;font-size:12.5px;white-space:nowrap;overflow:hidden}
+    .r .when small{display:inline;min-width:0;overflow:hidden;text-overflow:ellipsis}
+    .r .why{justify-self:end}
+    .r .last{font-size:12px}
+    .r .acts{display:flex;gap:6px;margin-top:4px}
+    .r .acts .btn{flex:1 1 0;min-width:0;min-height:40px;padding:6px 8px;font-size:13.5px}
+    .btn.cs{display:none}            /* no estimator on a phone */
+    .telalt{font-size:12px;color:var(--muted);align-self:center;padding:8px 2px}
+    /* The open row: tight facts, short history lines, results two per row. */
+    .det{border:1px solid var(--rule);border-top:0;border-radius:0 0 10px 10px;padding:2px 10px 12px;gap:8px}
+    .full{font-size:15px;margin:4px 0 6px}
+    .dg{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 8px}
+    .dg b{font-size:12.5px}
+    .lbl{margin:10px 0 3px}
+    .hist div{grid-template-columns:48px 74px minmax(0,1fr);gap:0 8px;font-size:12px;padding:3px 0}
+    .hist .x{white-space:nowrap}
+    .note{font-size:12.5px;padding:6px 9px}
+    .callbar{gap:6px;margin:4px 0 8px}
+    .callbar .btn{flex:1 1 auto;min-height:40px;padding:6px 10px}
+    .q{font-size:13px;margin:2px 0}
+    .q span{display:none}
+    .glabel{margin:8px 0 4px}
+    .obs{grid-template-columns:1fr 1fr;gap:5px}
+    .ob{min-height:42px;padding:6px 9px}
+    .ob b{font-size:13px}
+    .ob small{font-size:10.5px;line-height:1.25}
+    .foot{margin-top:16px;font-size:11px}
     .tabbar{display:grid;grid-template-columns:repeat(3,1fr);position:fixed;left:0;right:0;bottom:0;z-index:10;
             border-top:1px solid var(--rule);background:var(--bg);font-size:12px;text-align:center;
             padding-bottom:env(safe-area-inset-bottom)}
@@ -325,6 +379,11 @@
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function tel(d){ return d ? 'tel:+1' + d : ''; }
+  // On a phone, Call and Text open the RingCentral app (RingEX); a desktop keeps tel:.
+  var MQ = window.matchMedia ? window.matchMedia('(max-width:520px)') : null;
+  function isPhone(){ return !!(MQ && MQ.matches); }
+  function callHref(d){ return d && isPhone() ? 'rcapp://r/call?number=+1' + d : tel(d); }
+  function smsHref(d){ return d ? 'rcapp://r/sms?type=new&number=+1' + d : ''; }
 
   // ── the name switch ──
   var sw = $('sw');
@@ -388,7 +447,7 @@
   function rowHtml(r, sec){
     ROWS[r.key] = r;
     var last = r.last && r.last.date ? esc(r.last.date) + ' <i>· ' + esc(r.last.what) + '</i>' : '<i>' + esc(r.last ? r.last.what : '') + '</i>';
-    var call = r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + ' title="Calls her from your phone">Call</a>'
+    var call = r.phone ? '<a class="btn go" href="' + esc(callHref(r.phone)) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + ' title="Calls her from your phone">Call</a>'
                        : '<button class="btn go" disabled title="No number on the deal">Call</button>';
     return '<div class="r' + (OPEN_KEY === r.key ? ' open' : '') + (SAVED[r.key] ? ' done' : '') + '" data-key="' + esc(r.key) + '" data-sec="' + sec + '">' +
       whenCell(r) +
@@ -397,7 +456,7 @@
       '<div class="why">' + (SAVED[r.key] ? '<span class="pill saved">\u2713 ' + esc(SAVED[r.key].label) + '</span>'
                                           : '<span class="pill p-' + esc(r.why) + '" title="' + esc(WHY_TIPS[r.why] || '') + '">' + esc(r.why_label) + '</span>') + '</div>' +
       '<div class="last">' + last + '</div>' +
-      '<div class="acts">' + call + '<button class="btn" data-result="' + esc(r.key) + '" title="Tap what happened on this call. We update Zoho and book the next step.">Result</button>' + consultBtn(r) + '</div>' +
+      '<div class="acts">' + call + (isPhone() ? (r.phone ? '<a class="btn tx" href="' + esc(smsHref(r.phone)) + '" title="New text in the RingCentral app">Text</a>' : '<button class="btn tx" disabled>Text</button>') : '') + '<button class="btn" data-result="' + esc(r.key) + '" title="Tap what happened on this call. We update Zoho and book the next step.">Result</button>' + consultBtn(r) + '</div>' +
       '</div>' + (OPEN_KEY === r.key ? detHtml(r) : '');
   }
   // The estimator for this deal, exactly the Zoho "Start Consultation" button.
@@ -417,8 +476,11 @@
     var past = (r.history || []).filter(function(h){ return !h.up; });
     var hist = (ahead.length ? '<p class="lbl">Coming up</p><div class="hist">' + histRows(ahead) + '</div>' : '') +
                (past.length ? '<p class="lbl">Before this</p><div class="hist">' + histRows(past) + '</div>' : '');
-    var callbar = '<div class="callbar">' + (r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + '>Call ' + esc(r.phone_label) + '</a>' : '') +
-      consultBtn(r) + (r.zoho ? '<a class="btn" href="' + esc(r.zoho) + '" target="_blank" rel="noopener">Open in Zoho</a>' : '') + '<button class="btn" data-close="1">Close</button></div>';
+    var claim = r.claim ? ' data-claim="1"' : '';
+    var callbar = '<div class="callbar">' + (r.phone ? '<a class="btn go" href="' + esc(callHref(r.phone)) + '" data-call="' + esc(r.key) + '"' + claim + '>Call ' + esc(r.phone_label) + '</a>' : '') +
+      (r.phone && isPhone() ? '<a class="btn" href="' + esc(smsHref(r.phone)) + '">Text</a><button class="btn" data-copy="' + esc(r.phone) + '" title="Copies the number to dial by hand in RingCX">Copy for RingCX</button>' : '') +
+      consultBtn(r) + (r.zoho ? '<a class="btn" href="' + esc(r.zoho) + '" target="_blank" rel="noopener">Open in Zoho</a>' : '') + '<button class="btn" data-close="1">Close</button>' +
+      (r.phone && isPhone() ? '<a class="telalt" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + claim + '>Use phone dialer instead</a>' : '') + '</div>';
     var live = PAGE.outcomes_live && CAN_WRITE && !!r.deal_id;
     var groups = [['talked', 'Talked to ' + (r.first || 'them')], ['stop', 'Stop calling'], ['missed', 'Did not reach ' + (r.first || 'them')]];
     var obs = groups.map(function(g){
@@ -493,12 +555,12 @@
   // their goals. Green is on plan, red is not; a measure with nothing to count
   // yet shows a dash. The floor view shows the same tiles for every rep.
   var PLAN_TILES = [
-    ['promised', 'promised times kept', 'goal 90%', 'Calls booked at a time a patient agreed to that came due today, made within 15 minutes of the time. A missed time is a broken promise.'],
-    ['fast_leads', 'new leads called in 5 min', 'goal 60%', 'Your leads that came in today (8 AM to 9 PM), called within 5 minutes. The first minutes decide whether they pick up.'],
-    ['results', 'calls with a result', 'goal 90%', 'Calls you made today with a result written. Every call needs one: it books the next step and the right text.'],
-    ['talked_none', 'talked, nothing booked', 'goal 20% or less', 'Calls where you talked to the patient but no next call is booked. Every conversation should end with a next step.'],
-    ['texts_waiting', 'texts waiting 15 min+', 'goal 0', 'Patients who texted you and have waited more than 15 minutes for an answer.'],
-    ['late', 'late calls', 'goal 0', 'Calls booked for earlier that nobody has made yet.']
+    ['promised', 'promised times kept', 'goal 90%', 'Calls booked at a time a patient agreed to that came due today, made within 15 minutes of the time. A missed time is a broken promise.', 'times kept'],
+    ['fast_leads', 'new leads called in 5 min', 'goal 60%', 'Your leads that came in today (8 AM to 9 PM), called within 5 minutes. The first minutes decide whether they pick up.', 'leads in 5 min'],
+    ['results', 'calls with a result', 'goal 90%', 'Calls you made today with a result written. Every call needs one: it books the next step and the right text.', 'with result'],
+    ['talked_none', 'talked, nothing booked', 'goal 20% or less', 'Calls where you talked to the patient but no next call is booked. Every conversation should end with a next step.', 'talked, none booked'],
+    ['texts_waiting', 'texts waiting 15 min+', 'goal 0', 'Patients who texted you and have waited more than 15 minutes for an answer.', 'texts waiting'],
+    ['late', 'late calls', 'goal 0', 'Calls booked for earlier that nobody has made yet.', 'late']
   ];
   function planVal(v){
     if (!v) return {big: '–', small: ''};
@@ -512,7 +574,7 @@
       PLAN_TILES.map(function(t){
         var v = pl[t[0]], x = planVal(v), cls = !v || (v.of === 0) ? 'na' : (v.ok ? 'ok' : 'bad');
         return '<div class="pt2 ' + cls + '" title="' + esc(t[3]) + '"><b>' + esc(x.big) + (x.small ? ' <small>' + esc(x.small) + '</small>' : '') + '</b>' +
-               '<span>' + esc(t[1]) + '</span><em>' + esc(t[2]) + '</em></div>';
+               '<span>' + esc(t[1]) + '</span><i class="ps">' + esc(t[4]) + '</i><em>' + esc(t[2]) + '</em></div>';
       }).join('') + '</div><p class="psub">' + p.nums.done + ' calls done today · ' + p.nums.new_leads + ' new leads waiting</p></div>';
   }
   function section(id, title, cls, count, hint, rows, extra, sec){
@@ -543,7 +605,7 @@
     var p = PAGE, n = p.nums;
     ROWS = {};
     var upd = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-    $('who').innerHTML = '<b>' + esc(p.rep.name || REP.name || '') + '</b> · ' + esc(p.date_label) + ' · updated ' + esc(upd);
+    $('who').innerHTML = '<b>' + esc(p.rep.name || REP.name || '') + '</b> · ' + esc(p.date_label) + '<span class="upd"> · updated ' + esc(upd) + '</span>';
     var ban = '';
     if (p.fake) ban += '<p class="banner">Fake data mode. Made-up patients and 555 numbers.</p>';
     if (p.stale) ban += '<p class="banner err">' + esc(p.error || 'Showing the last good copy.') + '</p>';
@@ -676,10 +738,29 @@
     if (e.target.closest('[data-close]')) { OPEN_KEY = null; FLOW = null; render(); return; }
     var ob = e.target.closest('[data-ob]');
     if (ob && !ob.disabled) { startOutcome(ob.getAttribute('data-ob')); return; }
+    var cp = e.target.closest('[data-copy]');
+    if (cp) { copyNumber(cp.getAttribute('data-copy')); return; }
     if (e.target.closest('.det') || e.target.closest('a,button,select,input,label')) return;
     var row = e.target.closest('.r[data-key]');
     if (row) { var k = row.getAttribute('data-key'); OPEN_KEY = OPEN_KEY === k ? null : k; FLOW = null; render(); }
   });
+
+  // RingCX has no link to dial, so the rep copies the number and dials it there.
+  function copyNumber(d){
+    var done = function(){ toast('Number copied for RingCX'); };
+    var fallback = function(){
+      var t = document.createElement('textarea'); t.value = d; t.setAttribute('readonly', '');
+      t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (x) {}
+      document.body.removeChild(t);
+      if (ok) done(); else toast('Could not copy. The number is ' + d + '.');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(d).then(done, fallback);
+    else fallback();
+  }
+  // Crossing the phone width re-draws the rows with the right buttons.
+  if (MQ) { var mqChange = function(){ if (PAGE && !FLOW) render(); };
+    if (MQ.addEventListener) MQ.addEventListener('change', mqChange); else if (MQ.addListener) MQ.addListener(mqChange); }
 
   function onCall(e, a){
     var r = ROWS[a.getAttribute('data-call')];
@@ -909,7 +990,7 @@
           '<span title="Talk plus after-call work (wrap)"><b>' + fmtDur(j.handle) + '</b> handle</span>' +
           '<span><b>' + j.dials + '</b> calls</span><span><b>' + j.connected + '</b> connected</span>' + med +
           (j.books ? '<span title="From Zoho Books, today: quotes sent, retainer invoices sent, retainers paid."><b>' + (j.books.quotes_sent || 0) + '</b> quotes · <b>' + (j.books.retainers_sent || 0) + '</b> invoices · <b>' + (j.books.retainers_paid || 0) + '</b> paid</span>' : '') +
-          (j.covers_to ? '<span title="The dialer report covers calls up to this time.">dialer to ' + esc(j.covers_to.slice(0, 5)) + '</span>' : '');
+          (j.covers_to ? '<span class="cov" title="The dialer report covers calls up to this time.">dialer to ' + esc(j.covers_to.slice(0, 5)) + '</span>' : '');
       }).catch(function(){});
   }
 
