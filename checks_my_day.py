@@ -548,6 +548,35 @@ try:
     c.post("/my-day/api/outcome", json={"rep": "u2", "dealId": "123", "outcome": "no_answer"})
     ck("...and a result written there is filed under that rep", sent and sent[-1]["json"]["repZohoId"] == "u2", sent[-1:])
 
+    # the admin password, typed in the My Day box, opens any rep's page and writes
+    with c.session_transaction() as s:
+        s.clear()
+    A.MY_DAY_ADMIN_PASSWORDS = ("admin",)
+    A._v5_pw_tries.clear()
+    r = c.post("/my-day/u2", data={"password": "nope"})
+    ck("a wrong password at My Day stays on the door and says so",
+       r.status_code == 401 and b"not the password" in r.data, r.status_code)
+    r = c.post("/my-day/u2", data={"password": "admin"})
+    ck("the admin password at My Day comes back to the same page", r.status_code == 302
+       and r.headers.get("Location", "").endswith("/my-day/u2"), (r.status_code, r.headers.get("Location")))
+    with c.session_transaction() as s:
+        ck("...as the My Day admin, not a signed-in user of the whole app",
+           s.get("md_admin") is True and "user" not in s and not s.get("v5_pw"), dict(s))
+    A._md_cache.clear()
+    r = c.get("/my-day/u2")
+    ck("...which opens any rep's page with the name switch", r.status_code == 200 and "Mabel Alvarez" in r.get_data(as_text=True)
+       and '"manager": true' in r.get_data(as_text=True), r.status_code)
+    sent.clear()
+    c.post("/my-day/api/outcome", json={"rep": "u2", "dealId": "123", "outcome": "no_answer"})
+    ck("...and can write a result, filed under that rep", sent and sent[-1]["json"]["repZohoId"] == "u2", sent[-1:])
+    ck("...but does not open the rest of the app", c.get("/v6").status_code != 200 or b"password" in c.get("/v6").data.lower(),
+       c.get("/v6").status_code)
+    A.MY_DAY_ADMIN_PASSWORDS = ()
+    A._v5_pw_tries.clear()
+    with c.session_transaction() as s:
+        s.clear()
+        s["user"] = {"email": "boss@goalsplasticsurgery.com", "name": "Boss"}
+
     # unconfigured back office reads as coming soon, not a crash
     A.BACKOFFICE_URL = ""
     r = c.post("/my-day/api/outcome", json={"rep": "u2", "dealId": "123", "outcome": "no_answer"})
