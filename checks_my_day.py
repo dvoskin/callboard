@@ -598,9 +598,29 @@ try:
     ck("a form post (cross-site) is refused: JSON only", r.status_code == 415, r.status_code)
     r = c.post("/my-day/api/outcome/undo", json={"undoToken": "tok1"})
     ck("undo forwards the token", r.get_json().get("ok") and sent[-1]["json"] == {"undoToken": "tok1"}, sent[-1])
+    import time as _t
+    A._md_holds.clear()
+    A._md_holds["555"] = {"rep_id": "u2", "name": "Mabel Alvarez", "at": _t.time()}
+    n_posts = len(sent)
     r = c.post("/my-day/api/claim", json={"dealId": "555"})
-    ck("a queue lead someone else claimed stops the call", r.get_json().get("go") is False
+    ck("an unclaimed lead another rep is calling now stops the call, naming her", r.get_json().get("go") is False
        and "Mabel" in r.get_json().get("message", ""), r.get_json())
+    r = c.post("/my-day/api/claim", json={"dealId": "556"})
+    ck("...a free one goes through and is held for this rep, with nothing sent to the back office",
+       r.get_json().get("go") is True and A._md_holds["556"]["rep_id"] == "u1" and len(sent) == n_posts, r.get_json())
+    A._md_holds["555"]["at"] = _t.time() - 16 * 60
+    ck("...a hold lasts 15 minutes", c.post("/my-day/api/claim", json={"dealId": "555"}).get_json().get("go") is True, "expired")
+    A._md_holds.clear()
+    A._md_holds["q1"] = {"rep_id": "u2", "name": "Mabel Alvarez", "at": _t.time()}
+    A._md_cache.clear()
+    _qo = A.MY_DAY_QUEUE_OWNER_IDS
+    A.MY_DAY_QUEUE_OWNER_IDS = ["5212466000000357001"]
+    q = c.get("/my-day/api/data").get_json().get("queue") or []
+    A.MY_DAY_QUEUE_OWNER_IDS = _qo
+    A._md_cache.clear()
+    ck("...and the unclaimed list shows who is calling", any(x.get("deal_id") == "q1" and x.get("held_by") == "Mabel Alvarez"
+       and x.get("held_mine") is False for x in q), q)
+    A._md_holds.clear()
 
     # the floor password reads, never writes
     with c.session_transaction() as s:
