@@ -80,6 +80,13 @@
        color:var(--ink-2);line-height:1.5;max-width:640px}
   .tipon > .tip{display:block}
   .tools{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  .prio{flex:none;width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:11px;font-weight:750;
+        display:inline-flex;align-items:center;justify-content:center;align-self:center;order:-1}
+  .prio.clock{background:transparent;color:var(--ink);border:1px solid var(--rule);font-size:12px}
+  .guide{margin:14px 0 0}
+  .guide .gbody{display:none;margin:8px 0 0;padding:12px 14px;border-radius:9px;background:var(--tint);font-size:13px;line-height:1.5;max-width:680px}
+  .guide.on .gbody{display:block}
+  .guide ol{margin:6px 0 8px;padding-left:20px} .guide li{margin:3px 0} .guide p{margin:6px 0}
   /* Alert bar: same tone and mute as the billing board (scoreboard_v6). */
   #alertbar{position:sticky;top:0;z-index:9}
   .abar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 0;padding:9px 12px;border-radius:9px;
@@ -89,8 +96,18 @@
   .abar.quiet .dot{background:var(--muted);animation:none}
   .abar .what{font-weight:650}
   .abar .hint,.abar .mutedtxt{color:var(--muted);font-size:12px}
-  .abar button{margin-left:auto}
+  .abar [data-amute],.abar [data-aunmute]{margin-left:auto}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .abar .what{display:flex;flex-wrap:wrap;gap:6px}
+  .achip{font:inherit;font-size:12.5px;font-weight:650;padding:4px 10px;border-radius:999px;cursor:pointer;
+         border:1px solid var(--dn);background:transparent;color:var(--dn)}
+  .abar.quiet .achip{border-color:var(--rule);color:var(--muted)}
+  .achip:hover{background:var(--tint)}
+  .achip.next{border-color:var(--rule);color:var(--ink);font-weight:500}
+  /* the row an alert opened */
+  .r.flash{animation:flash 2.4s ease-out}
+  @keyframes flash{0%,35%{box-shadow:0 0 0 3px var(--dn);background:color-mix(in srgb,var(--dn) 12%,var(--bg))}100%{box-shadow:0 0 0 0 transparent}}
+  @media (prefers-reduced-motion:reduce){.r.flash{animation:none;box-shadow:0 0 0 3px var(--dn)}}
   @media (prefers-reduced-motion:reduce){.abar .dot{animation:none}}
   .handle{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:baseline;margin:10px 0 0;font-size:12.5px;color:var(--muted)}
   .handle b{color:var(--ink);font-size:15px;font-variant-numeric:tabular-nums}
@@ -225,6 +242,21 @@
     .nums .nl{display:none}          /* the tab bar carries it on a phone */
     .alert{font-size:12.5px;padding:7px 10px}
     .sh .h{order:5;flex-basis:100%}
+    /* Phone: the pinned alert bar is one row that scrolls sideways, so it never
+       takes more than ~60px of the screen; every control is a thumb-size target. */
+    .abar{flex-wrap:nowrap;gap:8px;padding:7px 8px;margin-top:8px}
+    .abar .what{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;min-width:0;flex:1}
+    .abar .what::-webkit-scrollbar{display:none}
+    .abar .achip{white-space:nowrap;min-height:38px;padding:6px 12px}
+    .abar .achip.next{display:none}
+    .abar .hint{display:none}
+    .abar [data-amute],.abar [data-aunmute]{min-height:38px;padding:6px 10px;flex:none}
+    .abar .mutedtxt{display:none}
+    .tools .btn{min-height:40px;padding:8px 14px;font-size:13px}
+    .info{width:28px;height:28px;line-height:26px;font-size:12px}
+    .sh{min-height:44px}
+    .gbody{font-size:14px}
+    .handle{gap:4px 14px}
     .alert .hint{display:none}
     .alert .btn{margin-left:0}
     .r{grid-template-columns:minmax(0,1fr);grid-template-areas:"p" "w" "y" "l" "a";gap:3px 0;
@@ -407,9 +439,39 @@
   function infoBtn(tip){ return tip ? '<button class="info" data-info="1" aria-label="What is this?" title="What is this?">i</button>' : ''; }
   function secWrap(id, title, cls, count, hint, tip, body){
     return '<div class="sec' + (folded(id, count) ? ' closed' : '') + (TIPS_ON[id] ? ' tipon' : '') + '" id="' + id + '">' +
-      '<div class="sh" data-fold="' + id + '" role="button" aria-expanded="' + !folded(id, count) + '"><h2' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(title) + '</h2><span class="c">' + count + '</span><span class="h">' + esc(hint) + '</span>' +
+      '<div class="sh" data-fold="' + id + '" role="button" aria-expanded="' + !folded(id, count) + '">' + prioBadge(id) + '<h2' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(title) + '</h2><span class="c">' + count + '</span><span class="h">' + esc(hint) + '</span>' +
       infoBtn(tip) + '<span class="chev" aria-hidden="true">&#9660;</span></div>' +
       (tip ? '<p class="tip">' + esc(tip) + '</p>' : '') + body + '</div>';
+  }
+  // ── The plan's order, on the page (Patient Flow Plan, "My Day: How a Rep
+  // Works the Day"). Each list carries its number; the guide spells it out. Up
+  // Next applies the same order to the next three patients.
+  var PRIO = {'s-late': [1, 'A late call: the patient was promised this time.'],
+              's-new': [2, 'A new lead: call within 5 minutes.'], 's-queue': [2, 'An unclaimed new lead: call within 5 minutes; tap Call to take it.'],
+              's-texts': [3, 'A patient who texted you is waiting on an answer.'],
+              's-tasks': [4, 'A follow-up due today: fit it in between booked calls.'],
+              's-invoices': [5, 'Retainer invoice unpaid: about 1 in 2 of these pay.'],
+              's-quotes': [6, 'Quote sent: about 1 in 8 pay. Newest first.'],
+              's-nostep': [7, 'No call booked: call and book the next step.']};
+  function prioBadge(id){
+    if (id === 's-today') return '<span class="prio clock" title="Booked calls: make each one at its time. It moves to the top of Up Next 5 minutes before.">&#9719;</span>';
+    var x = PRIO[id];
+    return x ? '<span class="prio" title="Priority ' + x[0] + ' of 7. ' + esc(x[1]) + '">' + x[0] + '</span>' : '';
+  }
+  var GUIDE_OPEN = false;
+  function guideHtml(){
+    return '<div class="guide' + (GUIDE_OPEN ? ' on' : '') + '"><div class="tools"><button class="btn gbtn" data-guide="1" aria-expanded="' + GUIDE_OPEN + '">How to work your day</button><button class="btn" data-foldall="1">Fold all</button></div>' +
+      '<div class="gbody"><p>Work from <b>Up Next</b>: it always shows the next three patients in this order. The numbers on each list below are the same order.</p><ol>' +
+      '<li><b>Late calls.</b> A time we promised comes first. A call due in the next 5 minutes joins them.</li>' +
+      '<li><b>New leads.</b> Call within 5 minutes. Unclaimed ones become yours when you tap Call.</li>' +
+      '<li><b>Patients who texted back.</b> They are waiting on you right now.</li>' +
+      '<li><b>Follow-ups due.</b> Zoho tasks due today with no set time. Do them between booked calls.</li>' +
+      '<li><b>Unpaid retainer invoices.</b> About 1 in 2 pay: the best odds on your page.</li>' +
+      '<li><b>Quotes waiting.</b> About 1 in 8 pay. Fresh quotes first.</li>' +
+      '<li><b>No next step.</b> Newer deals with nothing booked. The goal of the call is a quote.</li></ol>' +
+      '<p><b>Booked calls</b> (&#9719; Today) happen at their time, whatever else you are doing.</p>' +
+      '<p><b>After every call, tap Result</b> and pick what happened. That writes Zoho, books the next call and sends the right text. Never leave a call with no result: the red bar counts them.</p>' +
+      '<p><b>Alerts:</b> the red bar and the soft tone mean a call is due, a new lead is waiting, or someone texted. Tap a red chip to jump to that patient. Mute quiets what is listed; anything new sounds again.</p></div></div>';
   }
   function section(id, title, cls, count, hint, rows, extra, sec){
     return secWrap(id, title, cls, count, hint, extra && extra.tip,
@@ -452,7 +514,7 @@
       '<div title="Calls booked for earlier that nobody has made yet."><b' + (n.late ? ' class="dn"' : '') + '>' + n.late + '</b>late, still to call</div>' +
       '<div title="You talked to her today but no next call is booked. Book one."><b>' + n.talked_nothing_booked + '</b>talked, nothing booked</div>' +
       '<div class="nl" title="New patients from the last 24 hours not called yet."><b>' + n.new_leads + '</b>new leads waiting</div></div>' +
-      '<div class="tools"><button class="btn" data-foldall="1">Fold all</button></div>';
+      guideHtml();
     h += '<span id="s-day"></span>';
     var up = p.up_next || {rows: []};
     if (up.rows.length) {
@@ -461,7 +523,6 @@
       h += secWrap('s-up', 'Right Now', '', up.rows.length, up.next_booked ? 'Your next booked call is ' + up.next_booked.short + ' at ' + up.next_booked.when + '.' : 'No more booked calls today.',
         '', HD + up.rows.map(function(r){ return rowHtml(r, 'up'); }).join(''));
     }
-    h += closingHtml(p.pipeline);
     h += group('g-calls', 'Calls for Today', 'Late first, then the rest of the day in time order.',
       "These are the calls on your calendar. Work top to bottom. After each call, tap Result and pick what happened: that writes it in Zoho and books the next step. A red line means a call is late or still needs a result.");
     var nr = p.no_result.length;
@@ -493,6 +554,7 @@
         {tip: 'New leads still on the shared calendar, not owned by any rep. The first rep who taps Call gets the lead: it moves to you in Zoho, and nobody else can take it. The dialer also calls these if nobody does.',
          empty: 'No unclaimed leads right now.', more: p.queue_more ? '+ ' + p.queue_more + ' more' : ''}, 'queue');
     }
+    h += closingHtml(p.pipeline);
     h += nextStepHtml(p.pipeline);
     h += secWrap('s-done', 'Done Today', '', n.done, 'By call result.',
       'Your finished calls today, counted by result. "No result yet" means a call still needs a tap.',
@@ -725,10 +787,11 @@
   function saveMuted(){ try { localStorage.setItem(alertStoreKey(), JSON.stringify(Object.keys(ALERT.muted || {}))); } catch (e) {} }
   function alertItems(p){
     var out = [], now = Date.now();
-    (p.late || []).forEach(function(r){ out.push({k: 'late:' + r.key, t: 'late call', r: r}); });
-    (p.today || []).forEach(function(r){ var t = Date.parse(r.start); if (t && t - now <= 5 * 60000) out.push({k: 'due:' + r.key, t: 'call due now', r: r}); });
-    (p.new_leads || []).concat(p.queue || []).forEach(function(r){ var t = Date.parse(r.start); if (t && now - t <= 15 * 60000) out.push({k: 'lead:' + r.key, t: 'new lead', r: r}); });
-    (((p.pipeline || {}).texts || {}).rows || []).forEach(function(r){ out.push({k: 'text:' + r.key + ':' + r.start, t: 'text waiting', r: r}); });
+    (p.late || []).forEach(function(r){ out.push({k: 'late:' + r.key, t: 'late call', r: r, sec: 's-late'}); });
+    (p.today || []).forEach(function(r){ var t = Date.parse(r.start); if (t && t - now <= 5 * 60000) out.push({k: 'due:' + r.key, t: 'call due now', r: r, sec: 's-today'}); });
+    (p.new_leads || []).forEach(function(r){ var t = Date.parse(r.start); if (t && now - t <= 15 * 60000) out.push({k: 'lead:' + r.key, t: 'new lead', r: r, sec: 's-new'}); });
+    (p.queue || []).forEach(function(r){ var t = Date.parse(r.start); if (t && now - t <= 15 * 60000) out.push({k: 'lead:' + r.key, t: 'new lead', r: r, sec: 's-queue'}); });
+    (((p.pipeline || {}).texts || {}).rows || []).forEach(function(r){ out.push({k: 'text:' + r.key + ':' + r.start, t: 'text waiting', r: r, sec: 's-texts'}); });
     return out;
   }
   function alertUnlock(){
@@ -753,10 +816,13 @@
     var fresh = items.filter(function(x){ return !muted[x.k]; });
     var counts = {}; items.forEach(function(x){ counts[x.t] = (counts[x.t] || 0) + 1; });
     var PL = {'late call': 'late calls', 'call due now': 'calls due now', 'new lead': 'new leads', 'text waiting': 'texts waiting'};
-    var what = Object.keys(counts).map(function(t){ return counts[t] + ' ' + (counts[t] > 1 ? PL[t] : t); }).join(' · ');
-    var first = (fresh[0] || items[0] || {}).r;
+    // Each kind is a button: it opens that list and the next patient in it, highlighted.
+    var what = Object.keys(counts).map(function(t){
+      return '<button class="achip" data-akind="' + esc(t) + '">' + counts[t] + ' ' + esc(counts[t] > 1 ? PL[t] : t) + '</button>';
+    }).join('');
+    var firstItem = fresh[0] || items[0], first = (firstItem || {}).r;
     $('alertbar').innerHTML = items.length ? '<div class="abar' + (fresh.length ? '' : ' quiet') + '" role="status"><span class="dot"></span>' +
-      '<span class="what">' + esc(what) + '</span>' + (first ? '<span class="hint">Next: ' + esc(first.short) + '</span>' : '') +
+      '<span class="what">' + what + '</span>' + (first ? '<button class="achip next" data-akey="' + esc(firstItem.k) + '">Next: ' + esc(first.short) + '</button>' : '') +
       (fresh.length ? '<button class="btn" data-amute="1">Mute</button>' : '<span class="mutedtxt">muted, a new one will sound</span><button class="btn" data-aunmute="1">Unmute</button>') +
       (fresh.length && !(ALERT.ctx && ALERT.ctx.state === 'running') ? '<span class="hint">Tap anywhere once to turn the sound on.</span>' : '') + '</div>' : '';
     if (fresh.length && !ALERT.timer) { alertTone(); ALERT.timer = setInterval(alertTone, 40000); }
@@ -766,7 +832,30 @@
   }
   document.addEventListener('pointerdown', alertUnlock);
   document.addEventListener('keydown', alertUnlock);
+  // Open the list an alert points at, open that patient, and flash the row.
+  var AKIND_AT = {};
+  function goAlert(item){
+    if (!item) return;
+    OPEN_SEC = item.sec; OPEN_KEY = item.r.key; FLOW = null;
+    render(); alertRender();
+    var row = document.querySelector('.r[data-key="' + CSS.escape(item.r.key) + '"]');
+    if (row) {
+      row.scrollIntoView({block: 'center', behavior: 'smooth'});
+      row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+    }
+  }
   document.addEventListener('click', function(e){
+    var gb = e.target.closest('[data-guide]');
+    if (gb) { GUIDE_OPEN = !GUIDE_OPEN; var g = gb.closest('.guide'); g.classList.toggle('on', GUIDE_OPEN); gb.setAttribute('aria-expanded', String(GUIDE_OPEN)); return; }
+    var ak = e.target.closest('[data-akind]');
+    if (ak) {
+      // repeated taps step through that kind, one patient at a time
+      var kind = ak.getAttribute('data-akind'), list = ALERT.items.filter(function(x){ return x.t === kind; });
+      var i = ((AKIND_AT[kind] == null ? -1 : AKIND_AT[kind]) + 1) % (list.length || 1);
+      AKIND_AT[kind] = i; goAlert(list[i]); return;
+    }
+    var akey = e.target.closest('[data-akey]');
+    if (akey) { var k = akey.getAttribute('data-akey'); goAlert(ALERT.items.filter(function(x){ return x.k === k; })[0]); return; }
     if (e.target.closest('[data-amute]')) { var m = mutedSet(); ALERT.keys.forEach(function(k){ m[k] = 1; }); saveMuted(); alertRender(); }
     else if (e.target.closest('[data-aunmute]')) { ALERT.muted = {}; saveMuted(); alertRender(); }
   });
