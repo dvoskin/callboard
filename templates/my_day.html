@@ -80,6 +80,9 @@
        color:var(--ink-2);line-height:1.5;max-width:640px}
   .tipon > .tip{display:block}
   .tools{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  .tiphint{display:none;align-items:center;gap:8px;margin:6px 0 0;padding:6px 10px;border-radius:8px;background:var(--tint);font-size:12px;color:var(--ink-2)}
+  .tiphint button{margin-left:auto;font:inherit;font-size:12px;border:0;background:none;color:var(--up);font-weight:650;padding:4px}
+  .pill,.prio,.pt2{cursor:help}
   .tag.held{background:color-mix(in srgb,var(--mid) 18%,var(--bg));color:var(--ink)}
   .plan{margin:12px 0 0;padding:10px 0 12px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
   .ptiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:6px}
@@ -292,7 +295,9 @@
     .tools .gbtn{min-height:34px;padding:4px 0;border:0;background:none;font-size:12.5px;font-weight:650;color:var(--up)}
     .gbody{font-size:13.5px}
     /* Groups and lists: smaller headings, no subtitles or hints (the (i) holds them). */
-    .grp{margin:14px 0 0}
+    .grp{margin:10px 0 0}
+    #g-up .gh{display:none}          /* "Right Now" below says it */
+    .tiphint{display:flex}
     .gh{gap:6px}
     .gh h3{font-size:14.5px}
     .gh .gs,.sh .h{display:none}
@@ -306,7 +311,7 @@
     .alert .btn{margin-left:auto;min-height:36px}
     /* Rows: name and details on one line, time and pill on one line, three buttons in one row. */
     .r{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"p p" "w y" "l l" "a a";gap:2px 8px;align-items:center;
-       border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin:6px 0 0}
+       border:1px solid var(--rule);border-radius:10px;padding:7px 9px;margin:5px 0 0}
     .r.open{border-radius:10px 10px 0 0;border-bottom:0}
     .r .pt{display:flex;align-items:baseline;gap:6px}
     .r .pt b{flex:0 1 auto;min-width:0;max-width:72%;font-size:14.5px}
@@ -314,9 +319,9 @@
     .r .when{display:flex;gap:6px;align-items:baseline;font-size:12.5px;white-space:nowrap;overflow:hidden}
     .r .when small{display:inline;min-width:0;overflow:hidden;text-overflow:ellipsis}
     .r .why{justify-self:end}
-    .r .last{font-size:12px}
+    .r .last{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .r .acts{display:flex;gap:6px;margin-top:4px}
-    .r .acts .btn{flex:1 1 0;min-width:0;min-height:40px;padding:6px 8px;font-size:13.5px}
+    .r .acts .btn{flex:1 1 0;min-width:0;min-height:38px;padding:5px 8px;font-size:13.5px}
     .btn.cs{display:none}            /* no estimator on a phone */
     .telalt{font-size:12px;color:var(--muted);align-self:center;padding:8px 2px}
     /* The open row: tight facts, short history lines, results two per row. */
@@ -573,7 +578,7 @@
     return '<div class="plan"><p class="lbl2" title="The same measures as the Patient Flow Plan. Green is on plan.">Your day vs the plan</p><div class="ptiles">' +
       PLAN_TILES.map(function(t){
         var v = pl[t[0]], x = planVal(v), cls = !v || (v.of === 0) ? 'na' : (v.ok ? 'ok' : 'bad');
-        return '<div class="pt2 ' + cls + '" title="' + esc(t[3]) + '"><b>' + esc(x.big) + (x.small ? ' <small>' + esc(x.small) + '</small>' : '') + '</b>' +
+        return '<div class="pt2 ' + cls + '" title="' + esc(t[3] + ' Goal: ' + t[2].replace('goal ', '') + '.') + '"><b>' + esc(x.big) + (x.small ? ' <small>' + esc(x.small) + '</small>' : '') + '</b>' +
                '<span>' + esc(t[1]) + '</span><i class="ps">' + esc(t[4]) + '</i><em>' + esc(t[2]) + '</em></div>';
       }).join('') + '</div><p class="psub">' + p.nums.done + ' calls done today · ' + p.nums.new_leads + ' new leads waiting</p></div>';
   }
@@ -612,7 +617,8 @@
     if (p.role === 'coordinator') ban += '<p class="banner">Coordinator view. Your own buttons (Confirmed, Rescheduled, Paid, Call back at a time, No answer) are coming soon.</p>';
     $('banners').innerHTML = ban;
 
-    var h = planHtml(p) + guideHtml();
+    var hintOff = false; try { hintOff = localStorage.getItem('myday.tiphint') === '1'; } catch (e) {}
+    var h = planHtml(p) + (hintOff ? '' : '<div class="tiphint" id="tiphint">Tip: tap any tag, number or (i) to see what it means.<button data-hintoff="1">Got it</button></div>') + guideHtml();
     h += '<span id="s-day"></span>';
     var up = p.up_next || {rows: []};
     if (up.rows.length) {
@@ -961,6 +967,22 @@
       row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
     }
   }
+  // Phones have no hover: a tap on a tag, a priority number or a plan chip says
+  // what it means at the bottom of the screen (the same words as the desktop tip).
+  var TOUCH = window.matchMedia && window.matchMedia('(hover: none)').matches;
+  document.addEventListener('click', function(e){
+    var off = e.target.closest('[data-hintoff]');
+    if (off) { try { localStorage.setItem('myday.tiphint', '1'); } catch (x) {} var hb = $('tiphint'); if (hb) hb.remove(); return; }
+    if (TOUCH) {
+      var tipEl = e.target.closest('.pill[title],.prio[title],.pt2[title],[data-tip]');
+      if (tipEl && (tipEl.getAttribute('title') || tipEl.getAttribute('data-tip'))) {
+        e.preventDefault(); e.stopPropagation();
+        var label = (tipEl.textContent || '').trim();
+        toast((label && label.length < 30 ? label + ': ' : '') + (tipEl.getAttribute('title') || tipEl.getAttribute('data-tip')));
+        return;
+      }
+    }
+  }, true);
   document.addEventListener('click', function(e){
     var gb = e.target.closest('[data-guide]');
     if (gb) { GUIDE_OPEN = !GUIDE_OPEN; var g = gb.closest('.guide'); g.classList.toggle('on', GUIDE_OPEN); gb.setAttribute('aria-expanded', String(GUIDE_OPEN)); return; }
