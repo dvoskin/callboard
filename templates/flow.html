@@ -66,7 +66,8 @@
   function people(rows, label){
     if (!rows || !rows.length) return '';
     return '<p>' + esc(label) + '</p><table>' + rows.map(function(r){
-      return '<tr><td><a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' + (r.rep ? ' <span style="color:var(--muted)">· ' + esc(r.rep) + '</span>' : '') + '</td><td class="r">' + esc(r.when) + '</td></tr>';
+      return '<tr><td><a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' + (r.rep ? ' <span style="color:var(--muted)">· ' + esc(r.rep) + '</span>' : '') +
+        (r.why ? '<br><span style="color:var(--muted);font-size:12px">' + esc(r.why) + '</span>' : '') + '</td><td class="r">' + esc(r.when) + '</td></tr>';
     }).join('') + '</table>';
   }
   function pairs(rows, a, b){
@@ -100,11 +101,12 @@
     var p2 = pct(P.dialed15, P.due);
     steps.push(['s-picked', {
       name: '2. Times patients picked', big: p2 == null ? '–' : p2 + '%',
-      line: P.due ? P.dialed15 + ' of ' + P.due + ' called at the time they picked' : 'No picked times due yet',
+      line: P.due ? P.dialed15 + ' of ' + P.due + ' called on time' + (P.late != null ? ' · ' + P.late + ' late · ' + P.notCalled + ' not called yet' : '') : 'No picked times due yet',
       tone: p2 == null ? 'ok' : (p2 >= 90 ? 'ok' : (p2 >= 60 ? 'warn' : 'bad')),
-      todo: P.missed ? P.missed + ' patients were not called at their time. Someone must be on the dialer every hour.' : '',
-      more: '<p>When a patient picks a time, the dialer calls them then. Whoever is logged in to the dialer takes it (goal: 9 in 10 within 15 minutes).</p>' + people(P.stuck, 'Missed their time:')}]);
-    if (P.missed) now.push(['s-picked', P.missed + ' picked times missed', 'put someone on the dialer']);
+      todo: P.notCalled ? P.notCalled + ' not called yet' + (P.waiting ? ' (' + P.waiting + ' waiting in the dialer)' : '') + '. Whoever is on the dialer takes them first.'
+        : (P.late ? P.late + ' were called late. Keep someone on the dialer every hour.' : ''),
+      more: '<p>When a patient picks a time, they go on the dialer\'s Scheduled list just before it, and whoever is logged in to the dialer takes them (goal: 9 in 10 within 15 minutes).</p>' + people(P.stuck, 'Missed their time:')}]);
+    if (P.notCalled) now.push(['s-picked', P.notCalled + ' picked times not called yet', P.waiting ? P.waiting + ' waiting in the dialer' : 'put someone on the dialer']);
 
     // 3. Calls we promised
     var p3 = pct(C.kept, C.due);
