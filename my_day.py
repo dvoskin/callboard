@@ -813,14 +813,82 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             return is_reached(c)
         return is_reached(b)
 
-    talked_none = []
+    talked_none, talked = [], 0
     for t, c in done:
         try:
             secs = int(float(c.get("Call_Duration_in_seconds") or 0))
         except (TypeError, ValueError):
             secs = 0
-        if secs >= TALK_MIN_SECONDS and conv_reached(c) and not has_next(c, t):
-            talked_none.append(c)
+        if secs >= TALK_MIN_SECONDS and conv_reached(c):
+            talked += 1
+            if not has_next(c, t):
+                talked_none.append(c)
+
+    # ---- the plan's measures for this rep, today (Patient Flow Plan, "The
+    # Numbers We Watch"). Each is {"n", "of", "goal", "ok"} so the page can show
+    # the value, the target and whether the day is on plan.
+    day_start = datetime.combine(today, datetime.min.time(), tz).astimezone(timezone.utc)
+    #   Promised times kept: calls booked at a time a patient agreed to (a rep's
+    #   own booking or a call back, not the robot ladders) that came due today,
+    #   made within LATE_MINUTES of their time.
+    dial_at = {str(b.get("id")): ts(d.get("Call_Start_Time")) for d in own.values()
+               for b in [pairs.get(str(d.get("id")))] if b is not None}
+    promised = kept = 0
+    for c in own.values():
+        t = ts(c.get("Call_Start_Time"))
+        if not t or t < day_start or t > late_cut or (c.get("Call_Type") or "Outbound") != "Outbound":
+            continue
+        if LOGGED_CALL.match(c.get("Subject") or "") or status_of(c) == "cancelled":
+            continue
+        # closed with no dial and no result: nobody called (a dial paired to it is the call)
+        if is_auto_completed(c) and str(c.get("id")) not in dial_at:
+            continue
+        if why(c, role) not in ("booked", "cb"):
+            continue
+        promised += 1
+        d_t = dial_at.get(str(c.get("id")))
+        if (d_t and abs((d_t - t).total_seconds()) <= LATE_MINUTES * 60) or \
+                (status_of(c) == "completed" and result_of(c)):
+            kept += 1
+    #   New leads called within 5 minutes: the rep's leads that came in today
+    #   during calling hours (8 AM to 9 PM) at least 5 minutes ago.
+    first_dial = {}
+    for c in own.values():
+        if DIAL_CALL.match(c.get("Subject") or "") and counts_as_done(c):
+            did, t = deal_of(c), ts(c.get("Call_Start_Time"))
+            if did and t and (did not in first_dial or t < first_dial[did]):
+                first_dial[did] = t
+    leads = fast = 0
+    for d in world.get("deals_new") or []:
+        cr = ts(d.get("Created_Time"))
+        if not cr or cr < day_start or cr > now_utc - timedelta(minutes=5):
+            continue
+        if not (8 <= cr.astimezone(tz).hour < 21):
+            continue
+        leads += 1
+        fd = first_dial.get(str(d.get("id")))
+        if fd and fd >= cr - timedelta(minutes=1) and (fd - cr) <= timedelta(minutes=5):
+            fast += 1
+    #   Texts waiting more than 15 minutes for an answer.
+    waiting = 0
+    for p in world.get("replies") or []:
+        t = ts(p.get("inboundAt"))
+        if t and now_utc - t > timedelta(minutes=15):
+            waiting += 1
+    def pct(n, of):
+        return round(100 * n / of) if of else None
+    plan = {
+        "results": {"n": len(done) - len(no_result), "of": len(done), "pct": pct(len(done) - len(no_result), len(done)),
+                    "goal": 90, "ok": (not done) or pct(len(done) - len(no_result), len(done)) >= 90},
+        "promised": {"n": kept, "of": promised, "pct": pct(kept, promised), "goal": 90,
+                     "ok": (not promised) or pct(kept, promised) >= 90},
+        "fast_leads": {"n": fast, "of": leads, "pct": pct(fast, leads), "goal": 60,
+                       "ok": (not leads) or pct(fast, leads) >= 60},
+        "talked_none": {"n": len(talked_none), "of": talked, "pct": pct(len(talked_none), talked), "goal": 20,
+                        "ok": (not talked) or pct(len(talked_none), talked) <= 20},
+        "texts_waiting": {"n": waiting, "goal": 0, "ok": waiting == 0},
+        "late": {"n": len(late_rows), "goal": 0, "ok": not late_rows},
+    }
 
     # ---- new leads (and the shared queue)
     shown = {r["deal_id"] for r in late_rows + today_rows if r["deal_id"]}
@@ -888,6 +956,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
         "reasons": [{"key": k, "label": l} for k, l in REASONS],
         "outcomes_live": role != "coordinator",
         "pipeline": pipeline,
+        "plan": plan,
     }
     page["up_next"] = up_next(page, now_utc)
     return page

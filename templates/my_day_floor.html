@@ -1,0 +1,106 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Floor · My Day</title>
+<style>
+  :root{ --bg:#fff; --ink:#111; --muted:#6b7280; --rule:#e5e7eb; --hair:#f0f1f3; --tint:#f7f8f9;
+         --up:#0B6E67; --dn:#B03A31; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0b0c0e; --ink:#f3f4f6; --muted:#9ca3af; --rule:#23262b; --hair:#1a1d21; --tint:#14171a;
+           --up:#4FCCBF; --dn:#EE8177; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+  .app{max-width:1200px;margin:0 auto;padding:16px 16px 40px}
+  .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  h1{font-size:22px;margin:0;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:12.5px;margin:4px 0 0}
+  a{color:inherit}
+  .back{margin-left:auto;font-size:12.5px;padding:4px 10px;border:1px solid var(--rule);border-radius:7px;text-decoration:none}
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-variant-numeric:tabular-nums}
+  th{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:right;padding:8px 8px;border-bottom:1px solid var(--rule);cursor:help;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:9px 8px;border-bottom:1px solid var(--hair);text-align:right;white-space:nowrap}
+  td.ok b{color:var(--up)} td.bad b{color:var(--dn)}
+  td small{color:var(--muted);font-size:11px;margin-left:4px}
+  tr.goal td{color:var(--muted);font-size:11.5px;background:var(--tint)}
+  .wait{color:var(--muted)}
+  .cards{display:none}
+  @media(max-width:760px){
+    table{display:none}
+    .cards{display:block}
+    .card{border:1px solid var(--rule);border-radius:11px;padding:10px 12px;margin:10px 0 0}
+    .card h3{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}
+    .card h3 a{font-size:12.5px;font-weight:500}
+    .g{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;color:var(--muted)}
+    .g b{display:block;font-size:16px;color:var(--ink)} .g .ok b{color:var(--up)} .g .bad b{color:var(--dn)}
+    .g b small{font-size:11px;font-weight:500;color:var(--muted);margin-left:5px} .g span{display:block}
+  }
+</style>
+<div class="app">
+  <div class="top"><h1>Floor</h1><a class="back" href="/my-day">My Day</a></div>
+  <p class="sub">Every sales rep today against the Patient Flow Plan. Green is on plan, red is not, a dash means nothing to count yet. Tap a name to open that rep's day. Refreshes every 3 minutes.</p>
+  <table><thead><tr>
+    <th>Rep</th>
+    <th title="Calls booked at a time a patient agreed to, made within 15 minutes. Goal 90%.">Promised kept</th>
+    <th title="Leads that came in today (8 AM to 9 PM) called within 5 minutes. Goal 60%.">Leads in 5 min</th>
+    <th title="Calls with a result written. Goal 90%.">Results</th>
+    <th title="Talked to the patient, no next call booked. Goal 20% or less.">Talked, no next</th>
+    <th title="Texts waiting more than 15 minutes for an answer. Goal 0.">Texts waiting</th>
+    <th title="Booked calls not made yet. Goal 0.">Late</th>
+    <th title="Calls done today.">Calls</th>
+    <th title="Talk time, and handle time (talk plus wrap), from the sales board's phone report.">Talk / handle</th>
+    <th title="From Zoho Books today.">Quotes · inv · paid</th>
+  </tr></thead><tbody id="rows">
+    <tr class="goal"><td>Goal</td><td>90%</td><td>60%</td><td>90%</td><td>20% or less</td><td>0</td><td>0</td><td></td><td></td><td></td></tr>
+  </tbody></table>
+  <div class="cards" id="cards"></div>
+</div>
+<script>
+(function(){
+  var BOOT = {{ boot|tojson }};
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function dur(sec){ sec = Math.round(sec || 0); var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); return h ? h + 'h ' + m + 'm' : m + 'm'; }
+  function cell(v){
+    if (!v) return {cls: '', html: '<span class="wait">…</span>'};
+    if (v.of == null) return {cls: v.ok ? 'ok' : 'bad', html: '<b>' + v.n + '</b>'};
+    if (!v.of) return {cls: '', html: '–'};
+    return {cls: v.ok ? 'ok' : 'bad', html: '<b>' + v.pct + '%<small>' + v.n + '/' + v.of + '</small></b>'};
+  }
+  var KEYS = ['promised', 'fast_leads', 'results', 'talked_none', 'texts_waiting', 'late'];
+  var LABELS = ['Promised kept', 'Leads in 5 min', 'Results', 'Talked, no next', 'Texts waiting', 'Late'];
+  var STATE = {};
+  BOOT.reps.forEach(function(r){ STATE[r.id] = {rep: r, page: null, handle: null}; });
+  function render(){
+    var rows = '', cards = '';
+    BOOT.reps.forEach(function(r){
+      var st = STATE[r.id], pl = (st.page || {}).plan, h = st.handle || {}, link = '/my-day/' + encodeURIComponent(r.id);
+      var cs = KEYS.map(function(k){ return cell(pl ? pl[k] : null); });
+      var calls = st.page ? st.page.nums.done : '…';
+      var ph = h.found ? dur(h.talk) + ' / ' + dur(h.handle) : (st.handle ? '–' : '…');
+      var bk = h.books ? (h.books.quotes_sent || 0) + ' · ' + (h.books.retainers_sent || 0) + ' · ' + (h.books.retainers_paid || 0) : (st.handle ? '–' : '…');
+      rows += '<tr><td><a href="' + link + '">' + esc(r.name) + '</a></td>' + cs.map(function(c){ return '<td class="' + c.cls + '">' + c.html + '</td>'; }).join('') +
+              '<td>' + calls + '</td><td>' + ph + '</td><td>' + bk + '</td></tr>';
+      cards += '<div class="card"><h3>' + esc(r.name) + '<a href="' + link + '">Open day</a></h3><div class="g">' +
+               cs.map(function(c, i){ return '<div class="' + c.cls + '">' + c.html + '<span>' + LABELS[i] + '</span></div>'; }).join('') +
+               '<div><b>' + calls + '</b><span>calls</span></div><div><b>' + ph + '</b><span>talk / handle</span></div></div></div>';
+    });
+    var tb = document.getElementById('rows');
+    tb.innerHTML = tb.rows[0].outerHTML + rows;
+    document.getElementById('cards').innerHTML = cards;
+  }
+  function get(url){ return fetch(url, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; }); }
+  // One rep at a time: each reuses that rep's own My Day cache.
+  function sweep(){
+    var i = 0;
+    (function next(){
+      if (i >= BOOT.reps.length) return;
+      var r = BOOT.reps[i++];
+      Promise.all([get('/my-day/api/data?rep=' + encodeURIComponent(r.id)), get('/my-day/api/handle?rep=' + encodeURIComponent(r.id))])
+        .then(function(x){ STATE[r.id].page = x[0] && !x[0].error ? x[0] : STATE[r.id].page; STATE[r.id].handle = x[1] || {}; render(); setTimeout(next, 250); });
+    })();
+  }
+  render(); sweep();
+  setInterval(function(){ if (!document.hidden) sweep(); }, 180000);
+})();
+</script>

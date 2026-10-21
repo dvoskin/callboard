@@ -6571,6 +6571,21 @@ def my_day_page(rep_id=None):
                                  "role": _md_role((rep or {}).get("name") or "")})
 
 
+@app.route("/my-day/floor")
+def my_day_floor_page():
+    """Every sales rep's day against the plan, side by side, for managers (and
+    the floor word, read only). The page fetches each rep's own My Day data in
+    turn, so it shares the per-rep cache and never builds the floor at once."""
+    gated = _md_gate()
+    if gated is not None:
+        return gated
+    viewer = _md_viewer()
+    if not (viewer["manager"] or viewer["word_only"]):
+        return redirect("/my-day")
+    reps = [u for u in _md_floor(_md_users_list()) if u["role"] == "sales"]
+    return render_template("my_day_floor.html", boot={"reps": reps})
+
+
 @app.route("/my-day/api/data")
 def my_day_api_data():
     if not _md_allowed():
@@ -6637,7 +6652,9 @@ def my_day_api_handle():
         out.update(talk=me.get("talk") or 0, wrap=me.get("wrap") or 0,
                    handle=(me.get("talk") or 0) + (me.get("wrap") or 0),
                    dials=me.get("attempts") or 0, connected=me.get("connected") or 0,
-                   reached=me.get("reached") or 0, over_3=me.get("over_3") or 0)
+                   reached=me.get("reached") or 0, over_3=me.get("over_3") or 0,
+                   books={k: (me.get("books") or {}).get(k, 0) for k in
+                          ("quotes_sent", "retainers_sent", "retainers_paid", "paid_amount")})
     return jsonify(out)
 
 
