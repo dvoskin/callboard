@@ -46,7 +46,9 @@ Added 2026-10-20 (Danny, same day):
                               deals have their own lists, so no deal is in
                               two of these lists.
                Quotes waiting Stage Quote Sent, Quote_Sent_Date in the last
-                              PIPE_DAYS. Newest quote first, days since it.
+                              PIPE_DAYS and not a 2026-09-24 bulk stamp
+                              (BULK_STAMP_WINDOWS; same for invoices). Newest
+                              quote first, days since it.
                Unpaid retainer invoices
                               Stage Retainer Invoice Sent, Retainer_Paid not
                               true, Retainer_Sent_Date in the last PIPE_DAYS
@@ -69,6 +71,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 LATE_MINUTES = 15
 TALK_MIN_SECONDS = 60
@@ -90,6 +93,35 @@ PIPE_STAGES = ("New Deal", "Call Scheduled", "Quote Sent", "Retainer Invoice Sen
 NO_STEP_STAGES = ("New Deal", "Call Scheduled")
 # The rep's completed calls are read this far back (last contact, history).
 CALLS_DAYS = 30
+
+# NOT A SEND DATE. On 2026-09-24 a bulk update stamped Quote_Sent_Date and
+# Retainer_Sent_Date on thousands of deals at once (read-only count, all
+# deals, 2026-10-20): Quote_Sent_Date 6,826 between 11:17 and 11:41 ET, 442 at
+# 13:18-13:21 and ~50 at 23:00-23:04; Retainer_Sent_Date 1,036 at 13:18-13:21
+# and 14 at 23:00-23:04. The rest of that day has one or two a minute, which
+# is people. A deal stamped inside a batch has no real send date, so My Day
+# leaves it out of Quotes waiting and Unpaid retainer invoices (Danny,
+# 2026-10-20) rather than calling it "26 days since quote". Both fields are
+# datetimes kept to the minute, so the test is the minute windows (Eastern),
+# not the whole day: a quote sent by hand at 3 PM that day still counts.
+BULK_STAMP_WINDOWS = {
+    "Quote_Sent_Date": (("2026-09-24 11:17", "2026-09-24 11:41"),
+                        ("2026-09-24 13:18", "2026-09-24 13:21"),
+                        ("2026-09-24 23:00", "2026-09-24 23:04")),
+    "Retainer_Sent_Date": (("2026-09-24 13:18", "2026-09-24 13:21"),
+                           ("2026-09-24 23:00", "2026-09-24 23:04")),
+}
+_ET = ZoneInfo("America/New_York")
+
+
+def is_bulk_stamp(field, value) -> bool:
+    """True when this Quote_Sent_Date / Retainer_Sent_Date is one of the
+    2026-09-24 bulk stamps (BULK_STAMP_WINDOWS), not a day anything was sent."""
+    t = ts(value)
+    if not t:
+        return False
+    minute = t.astimezone(_ET).strftime("%Y-%m-%d %H:%M")
+    return any(a <= minute <= b for a, b in BULK_STAMP_WINDOWS.get(field, ()))
 # Zoho Admin and Ariel Voskin hold unassigned leads (back office QUEUE_USER_IDS).
 # Only used to keep "Missed Call" deals with no name off a queue user's own
 # No next step list; MY_DAY_QUEUE_OWNER_IDS adds to it.
@@ -924,7 +956,7 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
         if not mine(d) or (d.get("Stage") or "") != "Quote Sent" or did in texted:
             continue
         qt = ts(d.get("Quote_Sent_Date"))
-        if not qt or qt < pipe_cut:
+        if not qt or qt < pipe_cut or is_bulk_stamp("Quote_Sent_Date", d.get("Quote_Sent_Date")):
             continue
         quotes.append((qt, d))
     quotes.sort(key=lambda x: x[0], reverse=True)
@@ -944,6 +976,10 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
             continue
         rt = ts(d.get("Retainer_Sent_Date"))
         if rt and rt < pipe_cut:
+            continue
+        # A bulk stamp is not a send date, and not "no date" either: the deal
+        # is left out, not counted by its created date.
+        if is_bulk_stamp("Retainer_Sent_Date", d.get("Retainer_Sent_Date")):
             continue
         if not rt:
             created = ts(d.get("Created_Time"))

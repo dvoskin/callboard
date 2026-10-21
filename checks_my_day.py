@@ -347,6 +347,32 @@ coql_deal = dict(pdeal("1011", "x", -2 * D, Owner=OWN), **{"Contact_Name": {"id"
 nm = M.build(dict(QW, pipe_deals=[coql_deal]), NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]["no_step"]["rows"]
 ck("the name comes from Contact_Name.First_Name/Last_Name (COQL gives the lookup as an id only)",
    nm and nm[0]["short"] == "Rosa M." and nm[0]["full"] == "Rosa Medina", nm and nm[0]["full"])
+# ── the 2026-09-24 bulk stamp is not a send date (Danny, 2026-10-20) ──────
+BULK = [
+    pdeal("1101", "Bulk Quote", -40 * D, stage="Quote Sent", Quote_Sent_Date="2026-09-24T11:30:00-04:00", Owner=OWN),
+    pdeal("1102", "Bulk Quote Pm", -40 * D, stage="Quote Sent", Quote_Sent_Date="2026-09-24T13:19:00-04:00", Owner=OWN),
+    pdeal("1103", "Real Quote Same Day", -40 * D, stage="Quote Sent", Quote_Sent_Date="2026-09-24T15:02:00-04:00", Owner=OWN),
+    pdeal("1104", "Real Quote 23rd", -40 * D, stage="Quote Sent", Quote_Sent_Date="2026-09-23T11:30:00-04:00", Owner=OWN),
+    pdeal("1105", "Real Quote 25th", -40 * D, stage="Quote Sent", Quote_Sent_Date="2026-09-25T11:30:00-04:00", Owner=OWN),
+    pdeal("1106", "Bulk Invoice", -5 * D, stage=RIS, Retainer_Sent_Date="2026-09-24T13:20:00-04:00", Owner=OWN),
+    pdeal("1107", "Real Invoice 25th", -40 * D, stage=RIS, Retainer_Sent_Date="2026-09-25T13:20:00-04:00", Owner=OWN),
+    pdeal("1108", "Real Invoice 23rd", -40 * D, stage=RIS, Retainer_Sent_Date="2026-09-23T13:20:00-04:00", Owner=OWN),
+]
+BP = M.build(dict(QW, pipe_deals=BULK, replies=[]), NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]
+bq = [r["deal_id"] for r in BP["quotes"]["rows"]]
+bi = [r["deal_id"] for r in BP["invoices"]["rows"]]
+bn = [r["deal_id"] for r in BP["no_step"]["rows"]]
+ck("a Quote_Sent_Date in a 2026-09-24 bulk batch (11:30, 13:19) is not a quote waiting", "1101" not in bq and "1102" not in bq, bq)
+ck("...a real quote that day outside the batches, or on 09-23 or 09-25, is kept",
+   bq == ["1105", "1103", "1104"], bq)
+ck("a Retainer_Sent_Date in the 13:18-13:21 batch is not an unpaid invoice (and not counted by its created date)",
+   "1106" not in bi, bi)
+ck("...a real invoice on 09-23 or 09-25 is kept", bi == ["1107", "1108"], bi)
+ck("...and the bulk-stamped deals do not move into No next step", not {"1101", "1102", "1106"} & set(bn), bn)
+ck("is_bulk_stamp: the windows are per field and to the minute, Eastern",
+   M.is_bulk_stamp("Quote_Sent_Date", "2026-09-24T15:17:00Z") and not M.is_bulk_stamp("Quote_Sent_Date", "2026-09-24T15:42:00Z")
+   and M.is_bulk_stamp("Retainer_Sent_Date", "2026-09-24T17:21:00Z") and not M.is_bulk_stamp("Retainer_Sent_Date", "2026-09-24T15:30:00Z")
+   and not M.is_bulk_stamp("Quote_Sent_Date", None), "is_bulk_stamp")
 ck("coordinators get no pipeline (sales role only)", PC["pipeline"] == {"enabled": False}, PC["pipeline"])
 
 # ---- the time picker ----
