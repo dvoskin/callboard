@@ -45,8 +45,23 @@
   td.r{text-align:right;color:var(--muted);white-space:nowrap}
   a{color:inherit}
   .err{color:var(--bad);margin-top:14px}
-  .dl{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:999px;font-size:11px;border:1px solid var(--rule);color:var(--muted)}
+  /* a list of patients: one compact row each */
+  .pl{margin:4px 0 0;border-top:1px solid var(--hair)}
+  .pr{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--hair)}
+  .pm{flex:1;min-width:0}
+  .pn{display:flex;gap:6px;align-items:baseline;min-width:0}
+  .pn a{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none;border-bottom:1px solid var(--rule)}
+  .pn .rp{color:var(--muted);font-size:12px;white-space:nowrap}
+  .pt{flex:none;color:var(--muted);font-size:12px;white-space:nowrap;padding-top:2px}
+  .px{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;margin-top:3px;font-size:12px;color:var(--muted)}
+  .dl{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
   .dl.on{border-color:var(--ok);color:var(--ok)}
+  .dl.off{border-color:var(--warn);color:var(--warn)}
+  .rm{font:inherit;font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--bad);background:none;color:var(--bad);cursor:pointer}
+  .rm[disabled]{opacity:.5;cursor:default}
+  .lh{display:flex;justify-content:space-between;align-items:baseline;margin:12px 0 0;color:var(--ink);font-size:13px;font-weight:650}
+  .lh span{color:var(--muted);font-weight:400;font-size:12px}
+  .sa{font:inherit;font-size:12.5px;border:0;background:none;color:var(--ok);font-weight:650;cursor:pointer;padding:8px 0 0}
   .rf{font:inherit;font-size:12.5px;border:0;background:none;color:var(--ok);font-weight:650;cursor:pointer;padding:0 0 0 6px}
   @media(max-width:520px){
     .app{padding:12px 12px 40px}
@@ -65,14 +80,39 @@
 (function(){
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function pct(n, of){ return of ? Math.round(100 * n / of) : null; }
-  var OPEN = {};
-  function people(rows, label){
+  var OPEN = {}, SHOWALL = {}, REMOVED = {}, CAN_REMOVE = {{ 'true' if can_remove else 'false' }};
+  var SHOW = 5;
+  // The dialer chip, short: "Dialer · retry", "Not on dialer", "Disconnected".
+  function chip(d){
+    if (!d) return '';
+    var m = /^on the dialer: (.*)$/.exec(d);
+    if (m) return '<span class="dl on">Dialer · ' + esc(m[1].replace(/ list$/, '')) + '</span>';
+    var t = {'not on the dialer': 'Not on dialer', 'do-not-call': 'Do not call', 'number disconnected': 'Disconnected', 'removed from the dialer': 'Removed from dialer'}[d] || d;
+    return '<span class="dl' + (d === 'not on the dialer' ? ' off' : '') + '">' + esc(t) + '</span>';
+  }
+  // Say why only when the list title and the chip don't already say it.
+  function whyText(w){
+    if (!w || /^(never called|not called yet)$/.test(w) || /^waiting in the dialer|^not called: (not on any dialer list|do-not-call|number disconnected)/.test(w)) return '';
+    if (/at least one lead record/i.test(w)) return 'phone number in Zoho can\'t be dialed: fix it';
+    return w.replace(/^not called: /, '').replace(/^missed call · /, '');
+  }
+  var SHARED = /^(admin|voskin|zoho admin|ariel voskin)$/i;
+  function row(r){
+    var d = REMOVED[r.dealId] || r.dialer, on = /^on the dialer/.test(d || '');
+    var w = whyText(r.why);
+    return '<div class="pr"><div class="pm"><div class="pn"><a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' +
+      (r.rep ? '<span class="rp">' + (SHARED.test(r.rep) ? 'shared' : esc(r.rep)) + '</span>' : '') + '</div>' +
+      ((w || d) ? '<div class="px">' + (w ? '<span>' + esc(w) + '</span>' : '') + chip(d) +
+        (on && CAN_REMOVE && r.dealId ? '<button class="rm" data-rm="' + esc(r.dealId) + '" data-nm="' + esc(r.name) + '">Remove</button>' : '') + '</div>' : '') +
+      '</div><span class="pt">' + esc(r.when) + '</span></div>';
+  }
+  // A titled list: the first 5, the rest behind "Show all".
+  function people(rows, label, key){
     if (!rows || !rows.length) return '';
-    return '<p>' + esc(label) + '</p><table>' + rows.map(function(r){
-      return '<tr><td><a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' + (r.rep ? ' <span style="color:var(--muted)">· ' + esc(r.rep) + '</span>' : '') +
-        (r.why ? '<br><span style="color:var(--muted);font-size:12px">' + esc(r.why) + '</span>' : '') +
-        (r.dialer ? ' <span class="dl' + (/^on the dialer/.test(r.dialer) ? ' on' : '') + '">' + esc(r.dialer) + '</span>' : '') + '</td><td class="r">' + esc(r.when) + '</td></tr>';
-    }).join('') + '</table>';
+    key = key || label;
+    var all = SHOWALL[key] || rows.length <= SHOW + 1, shown = all ? rows : rows.slice(0, SHOW);
+    return '<div class="lh">' + esc(label) + '<span>' + rows.length + '</span></div><div class="pl">' + shown.map(row).join('') + '</div>' +
+      (rows.length > SHOW + 1 ? '<button class="sa" data-all="' + esc(key) + '">' + (all ? 'Show fewer' : 'Show all ' + rows.length) + '</button>' : '');
   }
   function pairs(rows, a, b){
     if (!rows || !rows.length) return '';
@@ -97,8 +137,11 @@
       name: '1. New leads', big: p1 == null ? L.total : p1 + '%',
       line: p1 == null ? L.total + ' new leads today' : L.fast5 + ' of ' + L.due5 + ' new leads called within 5 minutes',
       tone: L.neverCalled ? 'bad' : (p1 == null || p1 >= 60 ? 'ok' : 'warn'),
-      todo: L.neverCalled ? L.neverCalled + ' new leads have not been called. Call them now.' : '',
-      more: '<p>' + L.total + ' came in today. ' + L.picked + ' picked a time to be called; the rest want a call now (goal: 6 in 10 within 5 minutes).</p>' + people(L.stuck, 'Not called yet:')}]);
+      todo: L.neverCalled ? (function(){ var m = L.stuck.filter(function(r){ return r.missed; }).length;
+        return L.neverCalled + ' new leads have not been called. Call them now.' + (m ? ' ' + m + ' of them are missed callers: they got a text, and the dialer takes them an hour after their call.' : ''); })() : '',
+      more: '<p>' + L.total + ' came in today. ' + L.picked + ' picked a time to be called; the rest want a call now (goal: 6 in 10 within 5 minutes).</p>' +
+        people(L.stuck.filter(function(r){ return !r.missed; }), 'Not called yet', 'leads') +
+        people(L.stuck.filter(function(r){ return r.missed; }), 'Missed callers, not called back', 'missed')}]);
     if (L.neverCalled) now.push(['s-leads', L.neverCalled + ' new leads not called yet', 'call them now']);
 
     // 2. Picked times
@@ -109,7 +152,7 @@
       tone: p2 == null ? 'ok' : (p2 >= 90 ? 'ok' : (p2 >= 60 ? 'warn' : 'bad')),
       todo: P.notCalled ? P.notCalled + ' not called yet' + (P.waiting ? ' (' + P.waiting + ' waiting in the dialer)' : '') + '. Whoever is on the dialer takes them first.'
         : (P.late ? P.late + ' were called late. Keep someone on the dialer every hour.' : ''),
-      more: '<p>When a patient picks a time, they go on the dialer\'s Scheduled list just before it, and whoever is logged in to the dialer takes them (goal: 9 in 10 within 15 minutes).</p>' + people(P.stuck, 'Missed their time:')}]);
+      more: '<p>When a patient picks a time, they go on the dialer\'s Scheduled list just before it, and whoever is logged in to the dialer takes them (goal: 9 in 10 within 15 minutes).</p>' + people(P.stuck, 'Missed their time', 'picked')}]);
     if (P.notCalled) now.push(['s-picked', P.notCalled + ' picked times not called yet', P.waiting ? P.waiting + ' waiting in the dialer' : 'put someone on the dialer']);
 
     // 3. Calls we promised
@@ -120,7 +163,7 @@
       tone: C.lateNow > 100 ? 'bad' : (C.lateNow ? 'warn' : 'ok'),
       todo: C.lateNow ? 'Reps work their late calls first in My Day.' : '',
       more: '<p>Calls booked on a rep\'s calendar that nobody made, from the last 7 days. Also ' + C.tasksToday + ' follow-up tasks due today, ' + C.tasksLate3d + ' overdue from the last 3 days.</p>' +
-        (C.lateByRep && C.lateByRep.length ? '<p>Late calls by rep:</p>' + pairs(C.lateByRep, 'rep', 'n') : '') + people(C.stuck, 'Not made today:')}]);
+        (C.lateByRep && C.lateByRep.length ? '<p>Late calls by rep:</p>' + pairs(C.lateByRep, 'rep', 'n') : '') + people(C.stuck, 'Not made today', 'promises')}]);
     if (C.lateNow) now.push(['s-promises', C.lateNow + ' late booked calls', 'reps clear them in My Day']);
 
     // 4. Texts waiting
@@ -141,7 +184,7 @@
       more: '<p>Reps have ' + (pv.repDeals || 0) + ' new leads; ' + (pv.reached || 0) + ' have been reached and ' + (pv.tooNew || 0) + ' were handed over less than 3 days ago. ' +
         O.manualWeek + ' leads were handed out by hand this week.</p>' +
         (O.lastReturn ? '<p>Last morning: ' + O.lastReturn.returned + ' went back, ' + O.lastReturn.reloaded + ' back on the dialer.</p>' : '') +
-        people((pv.sample || []).map(function(r){ return {name: r.name, rep: r.rep, when: r.days + ' days', link: 'https://crm.zoho.com/crm/org771460636/tab/Potentials/' + r.dealId}; }), 'Next to go back:') +
+        people((pv.sample || []).map(function(r){ return {name: r.name, rep: r.rep, when: r.days + ' days', link: 'https://crm.zoho.com/crm/org771460636/tab/Potentials/' + r.dealId}; }), 'Next to go back', 'return') +
         (O.manualByRep && O.manualByRep.length ? '<p>Handed out by hand this week:</p>' + pairs(O.manualByRep, 'rep', 'n') : '')}]);
 
     // 6. The dialer
@@ -178,15 +221,34 @@
     document.getElementById('body').innerHTML = h;
   }
   document.addEventListener('click', function(e){
+    var all = e.target.closest('[data-all]');
+    if (all) { var k = all.getAttribute('data-all'); SHOWALL[k] = !SHOWALL[k]; if (LAST) render(LAST); return; }
+    var rm = e.target.closest('[data-rm]');
+    if (rm) { removeFromDialer(rm); return; }
     var go = e.target.closest('[data-go]');
     if (go) { e.preventDefault(); var id = go.getAttribute('data-go'); OPEN[id] = true; var el = document.getElementById(id); if (el) { el.classList.add('open'); el.scrollIntoView({block: 'start', behavior: 'smooth'}); } return; }
     var sh = e.target.closest('[data-step]');
     if (sh) { var sid = sh.getAttribute('data-step'); OPEN[sid] = !OPEN[sid]; sh.parentNode.classList.toggle('open', !!OPEN[sid]); }
   });
+  var LAST = null;
+  function removeFromDialer(btn){
+    var id = btn.getAttribute('data-rm'), nm = btn.getAttribute('data-nm');
+    if (!confirm('Take ' + nm + ' off the dialer? Their deal and calls in Zoho stay as they are.')) return;
+    btn.disabled = true; btn.textContent = 'Removing…';
+    fetch('/flow/api/dialer-remove', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({dealId: id})})
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){
+        if (j.ok || (j.removed && j.removed.length && !(j.still || []).length)) { REMOVED[id] = 'removed from the dialer'; if (LAST) render(LAST); return; }
+        if (j.still && j.still.length) { REMOVED[id] = 'on the dialer: ' + j.still[0]; if (LAST) render(LAST); alert('Still on the ' + j.still.join(', ') + '. Try again in a minute.'); return; }
+        btn.disabled = false; btn.textContent = 'Remove';
+        alert(j.error === 'forbidden' ? 'Only a manager signed in with their own account can remove from the dialer.' : 'Could not remove: ' + (j.detail || j.error || 'try again'));
+      })
+      .catch(function(){ btn.disabled = false; btn.textContent = 'Remove'; alert('Could not reach the dialer. Try again.'); });
+  }
   function load(fresh){
     fetch('/flow/api/summary' + (fresh ? '?fresh=1' : ''), {credentials: 'same-origin'})
       .then(function(r){ return r.json(); })
-      .then(function(d){ if (d.error) throw new Error(d.error); render(d); })
+      .then(function(d){ if (d.error) throw new Error(d.error); LAST = d; render(d); })
       .catch(function(){ document.getElementById('body').innerHTML = '<p class="err">The flow could not be read just now. Trying again in a minute.</p>'; setTimeout(load, 60000); });
   }
   load();

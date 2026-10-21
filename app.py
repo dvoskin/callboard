@@ -6647,7 +6647,8 @@ def flow_page():
     door = _md_manager_door("Flow")
     if door is not None:
         return door
-    return render_template("flow.html")
+    viewer = _md_viewer()
+    return render_template("flow.html", can_remove=bool(viewer["manager"] and viewer["can_write"]))
 
 
 @app.route("/flow/api/summary")
@@ -6667,6 +6668,34 @@ def flow_api_summary():
         return jsonify(r.json())
     except Exception as e:  # noqa: BLE001
         log.warning("flow: summary read failed: %s", type(e).__name__)
+        return jsonify({"error": "unavailable"}), 502
+
+
+@app.route("/flow/api/dialer-remove", methods=["POST"])
+def flow_api_dialer_remove():
+    """A manager's "Remove from dialer" on a Flow row (Danny, 10-21). Needs a
+    real manager session, never the shared word: it changes the dialer."""
+    if not _md_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    if not (viewer["manager"] and viewer["can_write"]):
+        return jsonify({"error": "forbidden"}), 403
+    if not BACKOFFICE_URL or not OVERDUE_API_KEY:
+        return jsonify({"error": "not_configured"}), 503
+    deal_id = str((request.get_json(silent=True) or {}).get("dealId") or "")
+    if not re.fullmatch(r"\d{10,25}", deal_id):
+        return jsonify({"error": "bad_deal"}), 400
+    try:
+        r = requests.post(BACKOFFICE_URL + "/api/flow/dialer-remove",
+                          json={"dealId": deal_id, "by": viewer["email"] or "manager"},
+                          headers={"x-api-key": OVERDUE_API_KEY}, timeout=50, allow_redirects=False)
+        try:
+            body = r.json()
+        except ValueError:
+            body = {}
+        return jsonify(body or {"error": "backoffice_%d" % r.status_code}), (r.status_code if body else 502)
+    except Exception as e:  # noqa: BLE001
+        log.warning("flow: dialer remove failed: %s", type(e).__name__)
         return jsonify({"error": "unavailable"}), 502
 
 

@@ -491,6 +491,8 @@ def fake_post(url, json=None, headers=None, **k):
         return _R(200, {"ok": True, "saved": True, "next": "Call back Thursday", "undoToken": "tok1"})
     if url.endswith("/api/call-outcome/undo"):
         return _R(200, {"ok": True})
+    if url.endswith("/api/flow/dialer-remove"):
+        return _R(200, {"ok": True, "removed": ["retry list"], "still": []})
     if url.endswith("/api/lead-claim"):
         return _R(409, {"claimedBy": "Mabel"})
     return _R(404, {})
@@ -689,8 +691,18 @@ try:
     A.MY_DAY_ADMIN_PASSWORDS = ()
     with c.session_transaction() as s2:
         s2.pop("md_admin", None)
+    # "Remove from dialer" on a Flow row: a real manager only, sent with who did it
+    r = c.post("/flow/api/dialer-remove", json={"dealId": "5212466001050395494"})
+    ck("a rep cannot take a patient off the dialer from Flow", r.status_code == 403, r.status_code)
     with c.session_transaction() as s2:
         s2["user"] = _saved_user
+    sent.clear()
+    r = c.post("/flow/api/dialer-remove", json={"dealId": "5212466001050395494"})
+    ck("a manager can, and the back office is told who", r.status_code == 200 and r.get_json().get("ok") and sent
+       and sent[-1]["url"].endswith("/api/flow/dialer-remove") and sent[-1]["json"] == {"dealId": "5212466001050395494", "by": "boss@goalsplasticsurgery.com"},
+       (r.status_code, sent[-1:]))
+    ck("...a bad deal id never leaves the tracker", c.post("/flow/api/dialer-remove", json={"dealId": "1 or 1"}).status_code == 400, "400")
+    ck("...and Flow shows the Remove buttons to a manager", b"CAN_REMOVE = true" in c.get("/flow").data, "flag")
 
     # live phone time comes from the sales board's report, cut to the rep
     _fr = A._md_floor_report
