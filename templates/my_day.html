@@ -60,6 +60,26 @@
   .sh .c{font-size:12px;font-weight:700;color:var(--muted)}
   .sh .h{font-size:12px;color:var(--muted)}
   .empty{font-size:12.5px;color:var(--muted);padding:9px 0}
+  /* Groups: the day in four parts, each list folds to its header. */
+  .grp{margin:30px 0 0}
+  .gh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .gh h3{margin:0;font-size:17px;font-weight:750;letter-spacing:-.01em}
+  .gh .gs{font-size:12.5px;color:var(--muted);flex-basis:100%}
+  .sh{cursor:pointer;user-select:none;-webkit-user-select:none;align-items:center}
+  .sh h2{order:0} .sh .c{order:1} .sh .h{order:2} .sh .info{order:3} .sh .chev{order:4}
+  .sh .chev{margin-left:auto;font-size:11px;color:var(--muted);transition:transform .15s}
+  .sec.closed .chev{transform:rotate(-90deg)}
+  .sec.closed > :not(.sh):not(.tip){display:none}
+  .sec.closed .sh{border-bottom-color:var(--hair)}
+  .info{font:inherit;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;padding:0;flex:none;
+        border:1px solid var(--rule);background:var(--bg);color:var(--muted);cursor:pointer;line-height:18px;text-align:center;
+        align-self:center}
+  .info:hover,.tipon > .sh .info,.tipon > .gh .info{border-color:var(--up);color:var(--up)}
+  .tip{display:none;margin:8px 0 4px;padding:9px 12px;border-radius:8px;background:var(--tint);font-size:12.5px;
+       color:var(--ink-2);line-height:1.5;max-width:640px}
+  .tipon > .tip{display:block}
+  .tools{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  .tools .btn{font-size:12px;padding:4px 10px;min-height:0}
 
   .hd,.r{display:grid;grid-template-columns:118px minmax(0,1.3fr) 178px minmax(0,1fr) 300px;
          gap:0 14px;align-items:center}
@@ -67,7 +87,7 @@
   .r{padding:9px 0;border-bottom:1px solid var(--hair);cursor:pointer}
   .r:hover{background:var(--tint)}
   .r.open{background:var(--tint);border-bottom:0}
-  .r.done{opacity:.4;pointer-events:none}
+  .r.done{opacity:.55}
   .when{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums;min-width:0}
   .when small{display:block;font-size:11.5px;font-weight:650;color:var(--dn)}
   .when small.q{color:var(--muted);font-weight:500}
@@ -134,7 +154,14 @@
   .ob small{display:block;font-size:11px;color:var(--muted);margin-top:1px}
   .ob.stop{border-style:dashed}
   .ob:hover{border-color:var(--up)}
-  .ob.on{border-color:var(--up);box-shadow:inset 0 0 0 1px var(--up)}
+  .ob.on{border-color:var(--up);box-shadow:inset 0 0 0 1px var(--up);background:color-mix(in srgb,var(--up) 10%,var(--bg))}
+  /* The saved result stays filled, so the rep sees what was recorded, not only a toast. */
+  .ob.saved,.ob.saved:hover{background:var(--up);border-color:var(--up);color:var(--bg)}
+  .ob.saved small{color:var(--bg);opacity:.85}
+  .ob.saved b::before{content:"\2713  "}
+  .ob.saving{opacity:.7;cursor:progress}
+  .savedline{margin:8px 0 0;font-size:13px;font-weight:650;color:var(--up)}
+  .pill.saved{background:var(--up);color:var(--bg);border-color:var(--up)}
   .ob[disabled]{opacity:.5;cursor:default}
   .why-no{font-size:12px;color:var(--muted);margin:8px 0 0}
 
@@ -181,6 +208,7 @@
     .nums b{font-size:20px}
     .nums .nl{display:none}          /* the tab bar carries it on a phone */
     .alert{font-size:12.5px;padding:7px 10px}
+    .sh .h{order:5;flex-basis:100%}
     .alert .hint{display:none}
     .alert .btn{margin-left:0}
     .r{grid-template-columns:minmax(0,1fr);grid-template-areas:"p" "w" "y" "l" "a";gap:3px 0;
@@ -226,6 +254,9 @@
   var REP = BOOT.rep || {};
   var CAN_WRITE = !!(BOOT.viewer && BOOT.viewer.can_write);
   var PAGE = null, OPEN_KEY = null, ROWS = {}, FLOW = null;
+  // Results saved in this visit, by row key: {outcome, label, next}. Kept across
+  // reloads so a row still on the page shows what was recorded.
+  var SAVED = {};
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -293,19 +324,20 @@
   function rowHtml(r, sec){
     ROWS[r.key] = r;
     var last = r.last && r.last.date ? esc(r.last.date) + ' <i>· ' + esc(r.last.what) + '</i>' : '<i>' + esc(r.last ? r.last.what : '') + '</i>';
-    var call = r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + '>Call</a>'
+    var call = r.phone ? '<a class="btn go" href="' + tel(r.phone) + '" data-call="' + esc(r.key) + '"' + (r.claim ? ' data-claim="1"' : '') + ' title="Calls her from your phone">Call</a>'
                        : '<button class="btn go" disabled title="No number on the deal">Call</button>';
-    return '<div class="r' + (OPEN_KEY === r.key ? ' open' : '') + '" data-key="' + esc(r.key) + '" data-sec="' + sec + '">' +
+    return '<div class="r' + (OPEN_KEY === r.key ? ' open' : '') + (SAVED[r.key] ? ' done' : '') + '" data-key="' + esc(r.key) + '" data-sec="' + sec + '">' +
       whenCell(r) +
       '<div class="pt"><b>' + esc(r.short) + (r.dialer ? '<span class="tag" title="A RingCX dialer call">dialer</span>' : '') + '</b><span class="meta">' + esc(r.meta) + '</span></div>' +
-      '<div class="why"><span class="pill p-' + esc(r.why) + '">' + esc(r.why_label) + '</span></div>' +
+      '<div class="why">' + (SAVED[r.key] ? '<span class="pill saved">\u2713 ' + esc(SAVED[r.key].label) + '</span>'
+                                          : '<span class="pill p-' + esc(r.why) + '" title="' + esc(WHY_TIPS[r.why] || '') + '">' + esc(r.why_label) + '</span>') + '</div>' +
       '<div class="last">' + last + '</div>' +
-      '<div class="acts">' + call + '<button class="btn" data-result="' + esc(r.key) + '">Result</button>' + consultBtn(r) + '</div>' +
+      '<div class="acts">' + call + '<button class="btn" data-result="' + esc(r.key) + '" title="Tap what happened on this call. We update Zoho and book the next step.">Result</button>' + consultBtn(r) + '</div>' +
       '</div>' + (OPEN_KEY === r.key ? detHtml(r) : '');
   }
   // The estimator for this deal, exactly the Zoho "Start Consultation" button.
   function consultBtn(r){
-    return r.consult ? '<a class="btn cs" href="' + esc(r.consult) + '" target="_blank" rel="noopener">Start consultation</a>' : '';
+    return r.consult ? '<a class="btn cs" href="' + esc(r.consult) + '" target="_blank" rel="noopener" title="Opens the estimator for this deal, the same as the Start Consultation button in Zoho.">Start consultation</a>' : '';
   }
   var HD = '<div class="hd"><span>When</span><span>Patient</span><span>Why</span><span>Last contact</span><span></span></div>';
 
@@ -328,7 +360,8 @@
       var list = PAGE.outcomes.filter(function(o){ return o.group === g[0]; });
       if (!list.length) return '';
       return '<p class="glabel">' + esc(g[1]) + '</p><div class="obs">' + list.map(function(o){
-        return '<button class="ob' + (g[0] === 'stop' ? ' stop' : '') + (FLOW && FLOW.key === r.key && FLOW.outcome === o.key ? ' on' : '') + '" data-ob="' + esc(o.key) + '"' + (live ? '' : ' disabled') + '><b>' + esc(o.label) + '</b><small>' + esc(o.hint) + '</small></button>';
+        var sv = SAVED[r.key] && SAVED[r.key].outcome === o.key;
+        return '<button class="ob' + (g[0] === 'stop' ? ' stop' : '') + (sv ? ' saved' : (FLOW && FLOW.key === r.key && FLOW.outcome === o.key ? ' on' : '')) + '" data-ob="' + esc(o.key) + '"' + (live ? '' : ' disabled') + '><b>' + esc(o.label) + '</b><small>' + esc(o.hint) + '</small></button>';
       }).join('') + '</div>';
     }).join('');
     var why = '';
@@ -336,15 +369,50 @@
     else if (!CAN_WRITE) why = 'Sign in with Google to write results. The floor password can only read.';
     else if (!r.deal_id) why = 'This call is not on a deal, so it has no result buttons. Write it in Zoho.';
     return '<div class="det" data-det="' + esc(r.key) + '"><div><div class="full">' + esc(r.full) + '</div><div class="dg">' + facts + '</div>' + note + hist + '</div>' +
-      '<div>' + callbar + '<p class="q">What happened?<span>One tap. We do the rest.</span></p>' + obs +
-      (why ? '<p class="why-no">' + esc(why) + '</p>' : '') + '<div id="flow"></div></div></div>';
+      '<div>' + callbar + '<p class="q" title="Pick the one thing that happened. We write the result in Zoho, book or cancel the next call, and send the patient the right text.">What happened?<span>One tap. We do the rest.</span></p>' + obs +
+      (why ? '<p class="why-no">' + esc(why) + '</p>' : '') +
+      (SAVED[r.key] ? '<p class="savedline">\u2713 Saved: ' + esc(SAVED[r.key].label) + (SAVED[r.key].next ? '. ' + esc(SAVED[r.key].next) : '') + '</p>' : '') +
+      '<div id="flow"></div></div></div>';
   }
 
-  function section(id, title, cls, count, hint, rows, extra, sec){
-    return '<div class="sec" id="' + id + '"><div class="sh"><h2' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(title) + '</h2><span class="c">' + count + '</span><span class="h">' + esc(hint) + '</span></div>' +
-      (rows.length ? HD + rows.map(function(r){ return rowHtml(r, sec); }).join('') : '<p class="empty">' + esc(extra && extra.empty || 'Nothing here.') + '</p>') +
-      (extra && extra.more ? '<div class="more">' + extra.more + '</div>' : '') + '</div>';
+  // ── folding and the (i) explanations ──
+  // A list folds to its header; the choice is remembered on this phone. Until a
+  // rep chooses, an empty list and the pipeline lists start folded, so the day
+  // reads as a whole and the calls to make now are what is open.
+  var FOLD = {};
+  try { FOLD = JSON.parse(localStorage.getItem('myday.fold') || '{}') || {}; } catch (e) { FOLD = {}; }
+  var START_FOLDED = {'s-nostep':1};
+  var TIPS_ON = {};
+  function folded(id, count){ return id in FOLD ? !!FOLD[id] : (!!START_FOLDED[id] || !count); }
+  function saveFold(){ try { localStorage.setItem('myday.fold', JSON.stringify(FOLD)); } catch (e) {} }
+  function infoBtn(tip){ return tip ? '<button class="info" data-info="1" aria-label="What is this?" title="What is this?">i</button>' : ''; }
+  function secWrap(id, title, cls, count, hint, tip, body){
+    return '<div class="sec' + (folded(id, count) ? ' closed' : '') + (TIPS_ON[id] ? ' tipon' : '') + '" id="' + id + '">' +
+      '<div class="sh" data-fold="' + id + '" role="button" aria-expanded="' + !folded(id, count) + '"><h2' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(title) + '</h2><span class="c">' + count + '</span><span class="h">' + esc(hint) + '</span>' +
+      infoBtn(tip) + '<span class="chev" aria-hidden="true">&#9660;</span></div>' +
+      (tip ? '<p class="tip">' + esc(tip) + '</p>' : '') + body + '</div>';
   }
+  function section(id, title, cls, count, hint, rows, extra, sec){
+    return secWrap(id, title, cls, count, hint, extra && extra.tip,
+      (rows.length ? HD + rows.map(function(r){ return rowHtml(r, sec); }).join('') : '<p class="empty">' + esc(extra && extra.empty || 'Nothing here.') + '</p>') +
+      (extra && extra.more ? '<div class="more">' + extra.more + '</div>' : ''));
+  }
+  function group(id, title, sub, tip){
+    return '<div class="grp' + (TIPS_ON[id] ? ' tipon' : '') + '" id="' + id + '"><div class="gh"><h3>' + esc(title) + '</h3>' + infoBtn(tip) +
+      '<span class="gs">' + esc(sub) + '</span></div>' + (tip ? '<p class="tip">' + esc(tip) + '</p>' : '') + '</div>';
+  }
+  var WHY_TIPS = {
+    'new': 'A brand new lead. Call fast: the first minutes matter most.',
+    'quote': "A follow-up Zoho books after a quote (24 hours, 3 days, 1 week, 10 days, 2 weeks, 1 month). Skip it if you already have a call booked with her.",
+    'cb': 'The patient asked for a call back.',
+    'booked': 'A call booked on your calendar, by you or by the patient.',
+    'retry': 'An automatic try again after a call nobody answered.',
+    'nostep': 'A newer deal with no call booked. Book the next call.',
+    'quotewait': 'Quoted, not paid yet. Follow up until she pays or says no.',
+    'invoice': 'Retainer invoice sent, not paid yet.',
+    'texted': 'She texted us and has no answer yet.',
+    'missed': 'She called us and nobody picked up.'
+  };
 
   var showNoResult = false;
   function render(){
@@ -359,41 +427,51 @@
     $('banners').innerHTML = ban;
 
     var h = '<div class="nums">' +
-      '<div><b>' + n.done + '</b>calls done</div>' +
-      '<div><b>' + n.results + ' <small>of ' + n.done + '</small></b>results written</div>' +
-      '<div><b' + (n.late ? ' class="dn"' : '') + '>' + n.late + '</b>late, still to call</div>' +
-      '<div><b>' + n.talked_nothing_booked + '</b>talked, nothing booked</div>' +
-      '<div class="nl"><b>' + n.new_leads + '</b>new leads waiting</div></div>';
+      '<div title="Calls you made today. One conversation counts once."><b>' + n.done + '</b>calls done</div>' +
+      '<div title="How many of today\'s calls have a result. Aim for all of them."><b>' + n.results + ' <small>of ' + n.done + '</small></b>results written</div>' +
+      '<div title="Calls booked for earlier that nobody has made yet."><b' + (n.late ? ' class="dn"' : '') + '>' + n.late + '</b>late, still to call</div>' +
+      '<div title="You talked to her today but no next call is booked. Book one."><b>' + n.talked_nothing_booked + '</b>talked, nothing booked</div>' +
+      '<div class="nl" title="New patients from the last 24 hours not called yet."><b>' + n.new_leads + '</b>new leads waiting</div></div>' +
+      '<div class="tools"><button class="btn" data-foldall="0">Open all</button><button class="btn" data-foldall="1">Fold all</button></div>';
+    h += '<span id="s-day"></span>';
+    h += closingHtml(p.pipeline);
+    h += group('g-calls', 'Calls for Today', 'Late first, then the rest of the day in time order.',
+      "These are the calls on your calendar. Work top to bottom. After each call, tap Result and pick what happened: that writes it in Zoho and books the next step. A red line means a call is late or still needs a result.");
     var nr = p.no_result.length;
     if (nr) {
       h += '<div class="alert"><span class="dot"></span><span class="what">' + nr + (nr === 1 ? ' call has' : ' calls have') + ' no result yet.</span><span class="hint">Tap to finish them. It takes one tap each.</span><button class="btn" id="finish">Finish them</button></div>';
-      if (showNoResult) h += section('s-nores', 'No Result Yet', 'dn', nr, 'Calls you made today with no result written.', p.no_result, null, 'nores');
+      if (showNoResult) h += section('s-nores', 'No Result Yet', 'dn', nr, 'Calls you made today with no result written.', p.no_result,
+        {tip: 'You called but did not pick what happened. Open each one and tap one result. Until you do, Zoho does not know the next step.'}, 'nores');
     }
-    h += '<span id="s-day"></span>';
-    h += section('s-late', 'Late', 'dn', n.late, 'Should have been called already. Oldest first.', p.late,
-      {empty: 'Nothing late. Nice.', more: p.late_more ? '+ ' + p.late_more + ' more late, oldest <b>' + esc(p.late_oldest) + '</b>' : ''}, 'late');
+    h += section('s-late', 'Late', 'dn', n.late, 'Should have been called already. Invoice and quote patients first.', p.late,
+      {tip: 'Calls booked for earlier that nobody made yet. A call is late ' + p.late_minutes + ' minutes after its time. Patients with an invoice or a quote come first, then the oldest.',
+       empty: 'Nothing late. Nice.', more: p.late_more ? '+ ' + p.late_more + ' more late, oldest <b>' + esc(p.late_oldest) + '</b>' : ''}, 'late');
 
     var trows = p.today.map(function(r){ return rowHtml(r, 'today'); });
     trows.splice(p.now_index, 0, '<div class="now">Now ' + esc(p.now_label) + '</div>');
-    h += '<div class="sec" id="s-today"><div class="sh"><h2>Today</h2><span class="c">' + (p.today.length + p.today_more) + '</span><span class="h">Still to come, in time order.</span></div>' +
+    h += secWrap('s-today', 'Today', '', p.today.length + p.today_more, 'Still to come, in time order.',
+      'Calls booked on your calendar for the rest of today. The green line is the time now. They come from you, from patients who picked a time, and from Zoho follow-up plans.',
       (p.today.length ? HD + trows.join('') : '<div class="now">Now ' + esc(p.now_label) + '</div><p class="empty">No more calls booked today.</p>') +
-      (p.today_more ? '<div class="more">+ ' + p.today_more + ' more today, last one at <b>' + esc(p.today_last) + '</b></div>' : '') + '</div>';
+      (p.today_more ? '<div class="more">+ ' + p.today_more + ' more today, last one at <b>' + esc(p.today_last) + '</b></div>' : ''));
 
     var newMore = [];
     if (p.new_more) newMore.push('+ ' + p.new_more + ' more');
     if (p.new_elsewhere) newMore.push(p.new_elsewhere + (p.new_elsewhere === 1 ? ' is' : ' are') + ' already in Late or Today above');
-    h += section('s-new', 'New Leads', '', n.new_leads, 'Call now. Newest first.', p.new_leads,
-      {empty: p.new_elsewhere ? 'Every new lead is already listed above.' : 'No new leads in the last 24 hours.', more: esc(newMore.join(' · '))}, 'new');
+    h += group('g-new', 'New Leads', 'Call these as soon as they come in.',
+      'Patients who filled in a form in the last 24 hours. About 1 in 20 new leads pay, and almost only after a quote, so the goal of the first call is a quote. The faster you call, the more of them pick up.');
+    h += section('s-new', 'Not Called Yet', '', n.new_leads, 'Call now. Newest first.', p.new_leads,
+      {tip: 'Your new patients from the last 24 hours that nobody has called yet. Newest first.', empty: p.new_elsewhere ? 'Every new lead is already listed above.' : 'No new leads in the last 24 hours.', more: esc(newMore.join(' · '))}, 'new');
     if (p.queue_enabled) {
-      h += '<p class="sub2">Shared, call now</p>';
+      h += '<p class="sub2" title="New leads nobody owns yet. The first rep to tap Call gets the lead.">Shared, call now</p>';
       h += (p.queue.length ? HD + p.queue.map(function(r){ return rowHtml(r, 'queue'); }).join('') : '<p class="empty">The shared queue is empty.</p>') +
         '<div class="more">The first rep to tap Call takes the lead.' + (p.queue_more ? ' + ' + p.queue_more + ' more.' : '') + '</div>';
     }
-    h += pipelineHtml(p.pipeline);
-    h += '<div class="sec" id="s-done"><div class="sh"><h2>Done Today</h2><span class="c">' + n.done + '</span><span class="h">By call result.</span></div>' +
+    h += nextStepHtml(p.pipeline);
+    h += secWrap('s-done', 'Done Today', '', n.done, 'By call result.',
+      'Your finished calls today, counted by result. "No result yet" means a call still needs a tap.',
       (p.done_summary.length ? '<div class="donesum">' + p.done_summary.map(function(d){
         return '<span' + (d.label === 'No result yet' ? ' class="dn"' : '') + '><b>' + d.n + '</b> ' + esc(d.label.toLowerCase()) + '</span>';
-      }).join('') + '</div>' : '<p class="empty">No calls done yet today.</p>') + '</div>';
+      }).join('') + '</div>' : '<p class="empty">No calls done yet today.</p>'));
     $('body').innerHTML = h;
     $('tb-new').textContent = n.new_leads; $('tb-done').textContent = n.done;
     $('foot').textContent = 'Late means more than ' + p.late_minutes + ' minutes past the call time. From Zoho; refreshes every 2 minutes.';
@@ -402,20 +480,38 @@
   }
 
   // The rep's own pipeline (sales). A list whose source could not be read says
-  // so; it never shows a zero it does not know.
-  function pipelineHtml(pl){
-    if (!pl || !pl.enabled) return '';
-    var lists = [
-      ['s-texts', 'Patients Who Texted Back', pl.texts, 'texts', 'Their latest text has no answer yet. Newest first.', 'Nobody is waiting on a reply.'],
-      ['s-nostep', 'No Next Step', pl.no_step, 'nostep', 'New deals from the last ' + pl.days + ' days with no call booked. Oldest contact first.', 'Every new deal has a next call.'],
-      ['s-quotes', 'Quotes Waiting', pl.quotes, 'quotes', 'Quoted in the last ' + pl.days + ' days. Newest first.', 'No quotes waiting.'],
-      ['s-invoices', 'Unpaid Retainer Invoices', pl.invoices, 'invoices', 'Invoiced in the last ' + pl.days + ' days, retainer not paid. Newest first.', 'No unpaid invoices.']
+  // so; it never shows a zero it does not know. Ordered by the chance of
+  // closing, measured on our own deals (my_day.CLOSE_RANK): an unpaid invoice
+  // pays about 1 in 2, a quote about 1 in 8, a new lead about 1 in 20.
+  function pipeLists(pl){
+    return [
+      ['s-texts', 'Patients Who Texted Back', pl.texts, 'texts', 'Waiting on your answer. Invoice and quote patients first.', 'Nobody is waiting on a reply.',
+       'She texted us and nobody answered. Text or call her back first: she is waiting on you.'],
+      ['s-nostep', 'No Next Step', pl.no_step, 'nostep', 'New deals from the last ' + pl.days + ' days with no call booked. Oldest contact first.', 'Every new deal has a next call.',
+       'Your newer deals with no call booked. Call, then tap a result so the next call gets booked and nobody is forgotten.'],
+      ['s-quotes', 'Quotes Waiting', pl.quotes, 'quotes', 'Quoted in the last ' + pl.days + ' days. Newest first.', 'No quotes waiting.',
+       'Patients you quoted who have not paid the retainer. About 1 in 8 pay. Fresh quotes close best, so newest first. Follow up until she pays or says no.'],
+      ['s-invoices', 'Unpaid Retainer Invoices', pl.invoices, 'invoices', 'Invoiced in the last ' + pl.days + ' days, retainer not paid. Newest first.', 'No unpaid invoices.',
+       'Retainer invoice sent, not paid yet. About 1 in 2 of these patients pay, the best odds on your page. Help her pay or answer her questions.']
     ];
-    return '<p class="sub2" style="margin-top:26px">Your pipeline</p>' + lists.map(function(x){
-      var L = x[2] || {rows: [], n: 0};
-      if (L.error) return '<div class="sec" id="' + x[0] + '"><div class="sh"><h2>' + esc(x[1]) + '</h2></div><p class="empty">' + esc(L.error) + '</p></div>';
-      return section(x[0], x[1], '', L.n, x[4], L.rows || [], {empty: x[5], more: L.more ? '+ ' + L.more + ' more' : ''}, x[3]);
-    }).join('');
+  }
+  function pipeSec(x){
+    var L = x[2] || {rows: [], n: 0};
+    if (L.error) return secWrap(x[0], x[1], '', '?', '', x[6], '<p class="empty">' + esc(L.error) + '</p>');
+    return section(x[0], x[1], '', L.n, x[4], L.rows || [], {tip: x[6], empty: x[5], more: L.more ? '+ ' + L.more + ' more' : ''}, x[3]);
+  }
+  function closingHtml(pl){
+    if (!pl || !pl.enabled) return '';
+    var L = pipeLists(pl), by = {}; L.forEach(function(x){ by[x[0]] = x; });
+    return group('g-close', 'Closest to Closing', 'Start here. These patients are the most likely to pay.',
+      'Your own deals from the last ' + pl.days + ' days, most likely to pay first. On our own numbers, about 1 in 2 patients with a retainer invoice pay, and about 1 in 8 with a quote. A patient who texted you is waiting on you right now. Each patient is in one list only.') +
+      pipeSec(by['s-invoices']) + pipeSec(by['s-texts']) + pipeSec(by['s-quotes']);
+  }
+  function nextStepHtml(pl){
+    if (!pl || !pl.enabled) return '';
+    var x = pipeLists(pl).filter(function(y){ return y[0] === 's-nostep'; })[0];
+    return group('g-step', 'Needs a Next Step', 'Newer deals with nothing booked.',
+      'Almost nobody pays without a quote: 2 of 14,264 never-quoted leads did. The goal of these calls is to get them to a quote.') + pipeSec(x);
   }
 
   function scrollToOpen(){
@@ -425,6 +521,24 @@
 
   // ── clicks ──
   document.addEventListener('click', function(e){
+    var inf = e.target.closest('[data-info]');
+    if (inf) {
+      var box = inf.closest('.sec,.grp');
+      if (box) { TIPS_ON[box.id] = !TIPS_ON[box.id]; box.classList.toggle('tipon', !!TIPS_ON[box.id]); }
+      return;
+    }
+    var fa = e.target.closest('[data-foldall]');
+    if (fa) {
+      var shut = fa.getAttribute('data-foldall') === '1';
+      document.querySelectorAll('.sec[id]').forEach(function(s){ FOLD[s.id] = shut; s.classList.toggle('closed', shut); });
+      saveFold(); return;
+    }
+    var fh = e.target.closest('[data-fold]');
+    if (fh && !e.target.closest('a,button:not(.sh)')) {
+      var sec = fh.parentNode, shutNow = !sec.classList.contains('closed');
+      FOLD[sec.id] = shutNow; sec.classList.toggle('closed', shutNow); fh.setAttribute('aria-expanded', String(!shutNow));
+      saveFold(); return;
+    }
     var a = e.target.closest('[data-call]');
     if (a) { onCall(e, a); return; }
     var res = e.target.closest('[data-result]');
@@ -527,29 +641,40 @@
     if (FLOW.outcome === 'booked_call') body.sendConfirmation = !!FLOW.send;
     if (FLOW.confirm) body.confirm = true;
     busy = true;
+    var tapped = document.querySelector('.ob[data-ob="' + CSS.escape(FLOW.outcome) + '"]');
+    if (tapped) tapped.classList.add('saving');
+    var unsaving = function(){ if (tapped) tapped.classList.remove('saving'); };
     post('/my-day/api/outcome', body).then(function(j){
-      busy = false;
+      busy = false; unsaving();
       if (j.coming_soon) { toast(j.message || 'Results are coming soon.'); return; }
       if (!j.ok) { toast(j.message || 'The result was not saved.'); return; }
-      var row = document.querySelector('.r[data-key="' + CSS.escape(r.key) + '"]');
-      if (row) row.classList.add('done');
       var next = j.next ? (typeof j.next === 'string' ? j.next : (j.next.label || j.next.text || '')) : '';
+      var o = outcomeDef(FLOW.outcome);
+      SAVED[r.key] = {outcome: FLOW.outcome, label: o ? o.label : 'Saved', next: next, undo: j.undoToken};
       toast('Saved' + (next ? '. ' + next : '.'), j.undoToken);
-      OPEN_KEY = null; FLOW = null;
-      setTimeout(function(){ load(true); }, 1200);
-    }).catch(function(){ busy = false; toast('The result was not saved. Check the connection.'); });
+      // Keep the panel open with the saved button filled, then close and refresh.
+      FLOW = null; render();
+      setTimeout(function(){ if (OPEN_KEY === r.key) OPEN_KEY = null; load(true); }, 2500);
+    }).catch(function(){ busy = false; unsaving(); toast('The result was not saved. Check the connection.'); });
   }
 
   function undo(tok){
     post('/my-day/api/outcome/undo', {undoToken: tok}).then(function(j){
       toast(j.ok ? 'Undone.' : (j.message || 'Undo did not go through.'));
-      if (j.ok) load(true);
+      if (j.ok) {
+        Object.keys(SAVED).forEach(function(k){ if (SAVED[k].undo === tok) delete SAVED[k]; });
+        load(true);
+      }
     });
   }
 
   // tab bar: mark the section in view
   document.querySelectorAll('.tabbar a').forEach(function(a){
-    a.addEventListener('click', function(){ document.querySelectorAll('.tabbar a').forEach(function(x){ x.classList.toggle('on', x === a); }); });
+    a.addEventListener('click', function(){
+      document.querySelectorAll('.tabbar a').forEach(function(x){ x.classList.toggle('on', x === a); });
+      var t = document.getElementById((a.getAttribute('href') || '').slice(1));
+      if (t && t.classList.contains('sec') && t.classList.contains('closed')) { FOLD[t.id] = false; t.classList.remove('closed'); saveFold(); }
+    });
   });
 
   load(false);

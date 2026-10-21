@@ -198,6 +198,17 @@ WHY_LABELS = {
 }
 
 
+# Chance of closing by how far the deal got. Measured 2026-10-21 on the 21,663
+# deals created 45 to 120 days earlier: retainer invoice sent, 49% paid; quote
+# sent, 13%; every lead, 4.6%; never quoted, 2 of 14,264. Lists that mix stages
+# put the patient closest to paying first.
+CLOSE_RANK = {"Retainer Invoice Sent": 0, "Quote Sent": 1}
+
+
+def close_rank(stage) -> int:
+    return CLOSE_RANK.get((stage or "").strip(), 2)
+
+
 def outcomes_for(role):
     rows = COORDINATOR_OUTCOMES if role == "coordinator" else SALES_OUTCOMES
     return [{"key": k, "label": l, "hint": h, "group": g, "needs": n} for k, l, h, g, n in rows]
@@ -741,7 +752,9 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             late.append((t, c))
         elif t < end_of_today:
             upcoming.append((t, c))
-    late.sort(key=lambda x: x[0])
+    # Late: closest to paying first (invoice, then quote), oldest first within.
+    # Today stays in time order: it is a schedule of promised times.
+    late.sort(key=lambda x: (close_rank((deals.get(deal_of(x[1])) or {}).get("Stage")), x[0]))
     upcoming.sort(key=lambda x: x[0])
 
     def dedupe(pairs):
@@ -1033,7 +1046,9 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
         r["last"] = {"date": "", "what": ("“%s”" % text) if text else "texted, words not kept"}
         r["sub"], r["sub_kind"] = ("%d texts" % p["textCount"], "q") if int(p.get("textCount") or 1) > 1 else ("", "")
         r["key"] = "tx" + (did or digits10(p.get("phone")))
-        t_rows.append(r)
+        t_rows.append((close_rank(d.get("Stage")), r))
+    # Invoice, then quote, then the rest; the back office's order (newest) within.
+    t_rows = [r for _, r in sorted(t_rows, key=lambda x: x[0])]
 
     nope = "Zoho could not be read for this list."
     return {

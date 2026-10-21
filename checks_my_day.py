@@ -340,9 +340,11 @@ ck("...a paid retainer is not listed", "1008" not in iv, iv)
 ck("...days since the invoice", pl["invoices"]["rows"][0]["when"] == "4 days"
    and pl["invoices"]["rows"][0]["sub"] == "since invoice", pl["invoices"]["rows"][0]["when"])
 tx = pl["texts"]["rows"]
-ck("texted back: the back office's open replies, newest first, with the words when kept",
-   [r["deal_id"] for r in tx] == ["1020", "1010", "1022"] and tx[0]["last"]["what"] == "“is 3pm ok?”"
+ck("texted back: closest to paying first (invoice 1022, quote 1010, then 1020), with the words when kept",
+   [r["deal_id"] for r in tx] == ["1022", "1010", "1020"] and tx[2]["last"]["what"] == "“is 3pm ok?”"
    and tx[1]["last"]["what"] == "texted, words not kept", [(r["deal_id"], r["last"]) for r in tx])
+ck("M.close_rank: invoice before quote before the rest",
+   [M.close_rank(x) for x in ("Retainer Invoice Sent", "Quote Sent", "Call Scheduled", None)] == [0, 1, 2, 2], "rank")
 ck("a patient who texted back is in that list only (not No next step, Quotes waiting or Unpaid invoices)",
    "1020" not in ns and "1010" not in qs and "1022" not in iv, (ns, qs, iv))
 every = [r["deal_id"] for k in ("no_step", "quotes", "invoices", "texts") for r in pl[k]["rows"]]
