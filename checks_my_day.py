@@ -173,11 +173,54 @@ ck("...and nothing without a real deal id", M.consult_url("") == "" and M.consul
 ck("every row carries its consult link (empty when the row has no deal id)",
    all("consult" in r for r in P["late"] + P["today"] + P["new_leads"] + P["queue"] + P["no_result"]), "consult key")
 
+# ── one conversation, one result (2026-10-20) ──────────────────────────────
 def pdeal(did, name, created_min=-9 * 1440, stage="Call Scheduled", **kw):
     d = deal(did, name, created_min, stage=stage)
     d.update(kw)
     return d
 
+
+PD = {d["id"]: d for d in [pdeal("2001", "Ana Booked"), pdeal("2002", "Bea Logged"), pdeal("2003", "Cora Neither"),
+                           pdeal("2004", "Dee Auto"), pdeal("2005", "Eve Later")]}
+PCALLS = [
+    # A: the engine completed the booked call with the result; the dial has none
+    call("a-b", "2001", "Follow-up: Ana", -60, "Completed", "Reached", 0),
+    call("a-l", "2001", "Outgoing call to Ana Booked", -55, "Completed", None, 240),
+    # B: the rep wrote the result on the dial in Zoho; the booked call is still open
+    call("b-b", "2002", "Follow-up: Bea", -120, "Overdue"),
+    call("b-l", "2002", "Outgoing call to Bea Logged", -110, "Completed", "Left Voicemail", 40),
+    # C: neither has a result (the dial filed on the contact only, as a quarter are)
+    call("c-b", "2003", "Follow-up: Cora", -200, "Overdue"),
+    dict(call("c-l", None, "Outbound Call to Cora Neither", -190, "Completed", None, 90), Who_Id={"id": "c2003"}),
+    # D: a workflow auto-completed the booked call (the rep wrote the result there);
+    #    the dial is filed on the contact only
+    call("d-b", "2004", "Follow-up Call", -300, "Completed", "Requested call back", 0, desc="Auto-completed by workflow"),
+    dict(call("d-l", None, "Outgoing call to Dee Auto", -295, "Completed", None, 130), Who_Id={"id": "c2004"}),
+    # E: a booked call due 35 minutes after the dial is a new attempt, not the same conversation
+    call("e-l", "2005", "Outgoing call to Eve Later", -30, "Completed", None, 20),
+    call("e-b", "2005", "Call scheduled with Eve", 5),
+]
+PW = {"calls_open": [c for c in PCALLS if c["Outgoing_Call_Status"] in ("Overdue", "Scheduled")],
+      "calls_today": PCALLS, "deals": PD, "deals_new": [], "deal_calls": [], "contacts": {}}
+PP = M.build(PW, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"})
+nr_p = sorted(r["call_id"] for r in PP["no_result"])
+lt_p = [r["call_id"] for r in PP["late"] + PP["today"]]
+ck("booked + dial, result on the booked call: no red row", "a-l" not in nr_p and "a-b" not in nr_p, nr_p)
+ck("booked + dial, result on the dial: no red row, and the booked call is not Late", "b-l" not in nr_p and "b-b" not in lt_p,
+   (nr_p, lt_p))
+ck("booked + dial, no result on either: ONE red row (the dial), not two, and not Late too",
+   nr_p.count("c-l") == 1 and "c-b" not in nr_p and "c-b" not in lt_p, (nr_p, lt_p))
+ck("...and that red row is on Cora's deal (found through her contact), so its Result button works",
+   [r["deal_id"] for r in PP["no_result"] if r["call_id"] == "c-l"] == ["2003"], [(r["call_id"], r["deal_id"]) for r in PP["no_result"]])
+ck("a booked call a workflow auto-completed does not strand its dial (paired through the contact)", "d-l" not in nr_p, nr_p)
+ck("a booked call due well after the dial is the next attempt: still Today, the dial stays red",
+   "e-b" in lt_p and "e-l" in nr_p, (nr_p, lt_p))
+ck("the red bar counts conversations: C and E", nr_p == ["c-l", "e-l"], nr_p)
+ck("done counts each conversation once (5 conversations, not 7 records)", PP["nums"]["done"] == 5, PP["nums"])
+ck("results written counts conversations with a result on either record", PP["nums"]["results"] == 3, PP["nums"])
+lab_p = {d["label"]: d["n"] for d in PP["done_summary"]}
+ck("done is grouped by the conversation's result", lab_p.get("Reached") == 1 and lab_p.get("Left Voicemail") == 1
+   and lab_p.get("Requested call back") == 1 and lab_p.get("No result yet") == 2, lab_p)
 
 # ── the dialer tag (RingCX) ────────────────────────────────────────────────
 DW = {"calls_open": [], "deals": {"3001": pdeal("3001", "Dial Timeout"), "3002": pdeal("3002", "Dial Picked")}, "deals_new": [],

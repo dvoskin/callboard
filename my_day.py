@@ -51,6 +51,12 @@ Added 2026-10-20 (Danny, same day):
                               patients whose latest text is unanswered.
   Dialer tag a row from a RingCX dialer call ("Outbound Call to ...", or a
              dialer disposition on it) says "dialer".
+  One conversation, one result
+             a rep's call often leaves two Zoho records: the booked call and
+             the dial RingCentral logged. They are paired (same patient, the
+             booked call due no more than PAIR_EARLY_MINUTES after the dial)
+             and counted as ONE conversation: done once, with a result when
+             either record has one, and the booked half is no longer Late.
 """
 from __future__ import annotations
 
@@ -74,6 +80,11 @@ PIPE_STAGES = ("New Deal", "Call Scheduled", "Quote Sent", "Retainer Invoice Sen
 # Only used to keep "Missed Call" deals with no name off a queue user's own
 # No next step list; MY_DAY_QUEUE_OWNER_IDS adds to it.
 QUEUE_USER_IDS = ("5212466000000357001", "5212466000034327806")
+# A booked call due this long after a dial is still that dial's conversation
+# (the rep rang a few minutes early). Later than that it is a new attempt: the
+# follow-up ladder books its next call after a no-answer, and that call is not
+# the same conversation.
+PAIR_EARLY_MINUTES = 10
 ZOHO_DEAL_URL = "https://crm.zoho.com/crm/org771460636/tab/Potentials/%s"
 ZOHO_CONTACT_URL = "https://crm.zoho.com/crm/org771460636/tab/Contacts/%s"
 
@@ -90,7 +101,8 @@ REACHED = {"reached", "interested", "requested more info", "requested call back"
 # was scheduled. zoho_client._LOGGED_CALL also matches "Missed call", but here
 # a "MISSED ..." subject is a scheduled try-again call and must stay a row.
 LOGGED_CALL = re.compile(r"^\s*(outbound|outgoing|inbound|incoming)\s+call\b", re.I)
-# The RingCX dialer logs "Outbound Call to ..." (RingEX logs "Outgoing call to ...").
+# The dials: RingEX logs "Outgoing call to ...", the RingCX dialer "Outbound Call to ...".
+DIAL_CALL = re.compile(r"^\s*(outbound|outgoing)\s+call\b", re.I)
 RINGCX_CALL = re.compile(r"^\s*outbound\s+call\b", re.I)
 MISSED_DEAL = re.compile(r"^\s*missed call", re.I)
 # Text Zoho or a workflow put in Description that is not a rep's note.
@@ -261,6 +273,55 @@ def days_label(n) -> str:
     if n == 0:
         return "today"
     return "1 day" if n == 1 else "%d days" % n
+
+
+def pair_dials(calls, deal_contact, today, tz):
+    """One conversation, one result: {dial call id: booked call} for the rep's
+    dials today. A dial is a completed "Outgoing/Outbound call to" record; its
+    booked half is a non-logged outbound call on the same patient (deal id, or
+    the contact, through the deal's Contact_Name) that is open (any day) or was
+    completed today, due no later than PAIR_EARLY_MINUTES after the dial. The
+    nearest such call wins; each booked call pairs with one dial, earliest dial
+    first."""
+    def keys(c):
+        k = set()
+        did, cid = ref_id(c.get("What_Id")), ref_id(c.get("Who_Id"))
+        if did:
+            k.add("d" + did)
+            if deal_contact.get(did):
+                k.add("c" + deal_contact[did])
+        if cid:
+            k.add("c" + cid)
+        return k
+
+    dials, booked = [], []
+    for c in calls:
+        t = ts(c.get("Call_Start_Time"))
+        if not t:
+            continue
+        subj = c.get("Subject") or ""
+        st = status_of(c)
+        if DIAL_CALL.match(subj):
+            if counts_as_done(c) and t.astimezone(tz).date() == today:
+                dials.append((t, c))
+        elif (c.get("Call_Type") or "Outbound") == "Outbound" and not LOGGED_CALL.match(subj):
+            if st in OPEN or (st == "completed" and t.astimezone(tz).date() == today):
+                booked.append((t, c))
+    dials.sort(key=lambda x: x[0])
+    used, out = set(), {}
+    for t, d in dials:
+        dk = keys(d)
+        best = None
+        for bt, b in booked:
+            bid = str(b.get("id"))
+            if bid in used or not (dk & keys(b)) or bt > t + timedelta(minutes=PAIR_EARLY_MINUTES):
+                continue
+            if best is None or abs((bt - t).total_seconds()) < abs((best[0] - t).total_seconds()):
+                best = (bt, b)
+        if best:
+            used.add(str(best[1].get("id")))
+            out[str(d.get("id"))] = best[1]
+    return out
 
 
 def status_of(call) -> str:
@@ -585,12 +646,23 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
                 r["sub"], r["sub_kind"] = "no result", "late"
         return r
 
+    # ---- one conversation, one result: pair each dial with its booked call
+    own = {}
+    for c in list(world.get("calls_today") or []) + list(world.get("calls_open") or []):
+        own.setdefault(str(c.get("id") or ""), c)
+    pairs = pair_dials(own.values(), deal_contact, today, tz)
+    paired_booked = {str(b.get("id")) for b in pairs.values()}
+
     # ---- open calls: late and today
     open_calls = {}
     for c in list(world.get("calls_open") or []) + list(world.get("calls_today") or []):
         if status_of(c) not in OPEN or (c.get("Call_Type") or "Outbound") != "Outbound":
             continue
         if LOGGED_CALL.match(c.get("Subject") or ""):
+            continue
+        # Already rung today: the dial is this call's conversation. It is
+        # done (with or without a result, which the red bar asks for), not late.
+        if str(c.get("id")) in paired_booked:
             continue
         open_calls[str(c.get("id"))] = c
     late, upcoming = [], []
@@ -624,18 +696,26 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
     today_rows = [row(c, kind="today") for _, c in upcoming]
     now_index = sum(1 for t, _ in upcoming if t <= now_utc)
 
-    # ---- done today
+    # ---- done today, one entry per conversation
+    # A booked call paired with a dial is that dial's other record: it is not
+    # a second call done, and its result is the conversation's result too.
+    def conv_result(c):
+        b = pairs.get(str(c.get("id")))
+        return result_of(c) or (result_of(b) if b is not None else "")
+
     done = []
     for c in world.get("calls_today") or []:
         t = ts(c.get("Call_Start_Time"))
         if not t or t.astimezone(tz).date() != today or not counts_as_done(c):
             continue
+        if str(c.get("id")) in paired_booked:
+            continue
         done.append((t, c))
     done.sort(key=lambda x: x[0])
-    no_result = [(t, c) for t, c in done if not result_of(c)]
+    no_result = [(t, c) for t, c in done if not conv_result(c)]
     summary = {}
     for _, c in done:
-        k = result_of(c) or "No result yet"
+        k = conv_result(c) or "No result yet"
         summary[k] = summary.get(k, 0) + 1
     done_summary = sorted(({"label": k, "n": n} for k, n in summary.items()),
                           key=lambda x: (x["label"] == "No result yet", -x["n"], x["label"]))
@@ -644,7 +724,15 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
     def has_next(c, t):
         did = deal_of(c)
         pool = by_deal.get(did, []) if did else []
-        return any(status_of(x) in OPEN and (ts(x.get("Call_Start_Time")) or t) > t for x in pool)
+        return any(status_of(x) in OPEN and (ts(x.get("Call_Start_Time")) or t) > t
+                   and str(x.get("id")) not in paired_booked for x in pool)
+
+    def conv_reached(c):
+        """Reached by whichever record carries the result (the dial first)."""
+        b = pairs.get(str(c.get("id")))
+        if result_of(c) or b is None or not result_of(b):
+            return is_reached(c)
+        return is_reached(b)
 
     talked_none = []
     for t, c in done:
@@ -652,7 +740,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             secs = int(float(c.get("Call_Duration_in_seconds") or 0))
         except (TypeError, ValueError):
             secs = 0
-        if secs >= TALK_MIN_SECONDS and is_reached(c) and not has_next(c, t):
+        if secs >= TALK_MIN_SECONDS and conv_reached(c) and not has_next(c, t):
             talked_none.append(c)
 
     # ---- new leads (and the shared queue)
