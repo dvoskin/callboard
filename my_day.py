@@ -374,10 +374,26 @@ def status_of(call) -> str:
     return (call.get("Outgoing_Call_Status") or "").strip().lower()
 
 
+# Subjects of calls Zoho's ladders book on a rep's calendar. Zoho Admin books a
+# "Quote Follow Up 1 - 24 Hours" for midnight the day after a quote, and at
+# midnight Zoho marks it Completed with its default 5-minute duration. Nobody
+# dialed: Charlotte's page showed five of them on 10-21 as "12:00 AM · no
+# result" and as "Call, 5 min" in history, next to follow-ups she had booked
+# herself. A real call is the dial record ("Outbound call to ..."), or one with
+# a result written; this is neither.
+ROBOT_BOOKED = re.compile(r"^\s*(missed - )?scheduled call\b|^\s*call scheduled\b|^\s*follow-up:"
+                          r"|^\s*\d+(st|nd|rd|th) attempt\b|quote follow[ -]up|automated follow[ -]up", re.I)
+
+
 def is_auto_completed(call) -> bool:
-    """A workflow closed it ("Auto-completed by workflow"); nobody dialed."""
-    return status_of(call) == "completed" and \
-        (call.get("Description") or "").strip().lower().startswith("auto-completed")
+    """Nobody dialed: a workflow closed it ("Auto-completed by workflow"), or
+    a ladder call Zoho completed by itself (robot subject, no result, no
+    dialer disposition)."""
+    if status_of(call) != "completed":
+        return False
+    if (call.get("Description") or "").strip().lower().startswith("auto-completed"):
+        return True
+    return bool(ROBOT_BOOKED.search(call.get("Subject") or "")) and not result_of(call)
 
 
 def counts_as_done(call) -> bool:
@@ -579,16 +595,20 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
                     "date": day_label(t.astimezone(tz), today) if t else ""}
         return None
 
-    def history(did):
+    def history(did, skip=""):
+        """The patient's calls, newest first. Calls still ahead are marked
+        "up" (the page shows them under "Coming up", not "Before this"); the
+        row's own call is left out, it is the row."""
         out = []
         for c in reversed(by_deal.get(did, [])):
             t = ts(c.get("Call_Start_Time"))
             st = status_of(c)
-            if not t or st == "cancelled" or is_auto_completed(c):
+            if not t or st == "cancelled" or is_auto_completed(c) or (skip and str(c.get("id")) == skip):
                 continue
             if t > now_utc and st in OPEN:
-                kind = "Next call"
-                x = clock(t.astimezone(tz))
+                out.append({"d": day_label(t.astimezone(tz), today), "k": "Next call",
+                            "x": clock(t.astimezone(tz)), "by": ref_name(c.get("Owner")), "up": True})
+                continue
             elif st in OPEN:
                 continue            # a past open call is a row on this page, not history
             else:
@@ -596,11 +616,11 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
                 x = result_of(c) or "no result written"
             out.append({"d": day_label(t.astimezone(tz), today), "k": kind, "x": x,
                         "by": ref_name(c.get("Owner"))})
-            if len(out) >= HISTORY_SHOW:
+            if sum(1 for h in out if not h.get("up")) >= HISTORY_SHOW:
                 break
         d = deals.get(did) or {}
         created = ts(d.get("Created_Time"))
-        if created and len(out) < HISTORY_SHOW:
+        if created and sum(1 for h in out if not h.get("up")) < HISTORY_SHOW:
             out.append({"d": day_label(created.astimezone(tz), today), "k": "New lead",
                         "x": d.get("Lead_Source") or "", "by": ""})
         return out
@@ -669,7 +689,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
         lc = last_contact(did, before=start if kind == "noresult" else None) if did else None
         r["last"] = lc or {"date": "", "what": "never called" if r["why"] == "new" else "no calls on record"}
         r["note"] = note_for(did, c)
-        r["history"] = history(did) if did else []
+        r["history"] = history(did, skip=r["call_id"]) if did else []
         r["facts"] = facts(deal, phone, cid) if deal else ([{"k": "Phone", "v": fmt_phone(phone)}] if phone else [])
         if start_local:
             if kind == "late":
