@@ -124,6 +124,36 @@ def _viewer_signed_in() -> bool:
     return bool(session.get("user") or _word_authed() or session.get("billing_pw"))
 
 
+def _safe_next(value) -> str:
+    """A post-sign-in destination we are willing to redirect to, or "".
+
+    Only a path on THIS site: it starts with one "/" and not "//" (a
+    protocol-relative URL is another host), carries no backslash (browsers
+    read "/\\evil.com" as "//evil.com"), no scheme and no control characters.
+    Anything else is an open redirect, so it is dropped, never repaired."""
+    v = str(value or "").strip()
+    if not v.startswith("/") or v.startswith("//") or "\\" in v or len(v) > 600:
+        return ""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+        return ""
+    return v
+
+
+def _here() -> str:
+    """The current path and query, as a `next` for the sign-in round trip."""
+    qs = request.query_string.decode("utf-8", "replace")
+    return request.path + ("?" + qs if qs else "")
+
+
+def _login_redirect():
+    """Send to Google sign-in and bring the person back to this page after.
+    (2026-10-20: "Sign in with Google" on /my-day ended on the sales board,
+    because every sign-in landed on "/".)"""
+    from urllib.parse import quote
+    nxt = _safe_next(_here()) if request.method in ("GET", "HEAD") else ""
+    return redirect("/login" + ("?next=" + quote(nxt, safe="") if nxt and nxt != "/" else ""))
+
+
 def login_required(f):
     """Redirect to /login if not authenticated.
 
@@ -142,7 +172,7 @@ def login_required(f):
                 return f(*args, **kwargs)
             if request.path.startswith("/api/"):
                 return jsonify({"error": "unauthorized"}), 401
-            return redirect("/login")
+            return _login_redirect()
         return f(*args, **kwargs)
     return wrapper
 
@@ -825,11 +855,19 @@ def auth_debug():
 
 @app.route("/login")
 def login():
+    # ?next= is where to land after signing in (the password page's Google
+    # link and every login redirect pass the page they came from). Kept in the
+    # session because Google's round trip drops the query string.
+    nxt = _safe_next(request.args.get("next"))
     if not GOOGLE_CLIENT_ID:
-        return redirect("/")
+        return redirect(nxt or "/")
     if session.get("user"):
-        return redirect("/")
-    return render_template("login.html")
+        return redirect(nxt or "/")
+    if nxt:
+        session["login_next"] = nxt
+    else:
+        session.pop("login_next", None)
+    return render_template("login.html", next=nxt)
 
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "ringcx2026")
@@ -853,6 +891,9 @@ def auth_password():
 
 @app.route("/auth/google")
 def auth_google():
+    nxt = _safe_next(request.args.get("next"))
+    if nxt:
+        session["login_next"] = nxt
     redirect_uri = GOOGLE_REDIRECT_URI or url_for("auth_callback", _external=True, _scheme="https")
     log.info("OAuth redirect_uri: %s", redirect_uri)
     return oauth.google.authorize_redirect(redirect_uri)
@@ -877,7 +918,9 @@ def auth_callback():
         "picture": userinfo.get("picture", ""),
     }
     log.info("User logged in: %s", email)
-    return redirect("/")
+    # Checked again on the way out: the session value is ours, but the check
+    # is the one place that decides what a safe destination is.
+    return redirect(_safe_next(session.pop("login_next", "")) or "/")
 
 
 @app.route("/logout")
@@ -1070,7 +1113,7 @@ def scoreboard_v5():
     # way in is Google, so send them there rather than showing a form that
     # cannot succeed.
     if not V5_PASSWORDS:
-        return redirect("/login")
+        return _login_redirect()
     return render_template("v5_password.html", error=error), (401 if error else 200)
 
 
@@ -5496,7 +5539,7 @@ def scoreboard_v6():
                                embed_title=DISTRIBUTION_BOARD_TITLE,
                                can_monitor=_viewer_signed_in())
     if not V5_PASSWORDS:
-        return redirect("/login")
+        return _login_redirect()
     # Danny, 2026-10-07: "the sign in page -- change the sales floor scoreboard
     # to make more sense". This gate fronts the dashboard, so it says so.
     return render_template("v5_password.html", error=error,
@@ -5562,7 +5605,7 @@ def hub_v7():
                                current_user=session.get("user") or {},
                                teams=_hub_team_tiles())
     if not V5_PASSWORDS and not V7_PASSWORDS:
-        return redirect("/login")
+        return _login_redirect()
     return render_template("v5_password.html", error=error,
                            page_title="Goals Dashboards",
                            page_sub="Call and collections boards for every team.",
@@ -5601,7 +5644,7 @@ def _page_title(team):
 def _render_team_board(team):
     if not _v6_allowed():
         if not V5_PASSWORDS and not V7_PASSWORDS:
-            return redirect("/login")
+            return _login_redirect()
         return render_template("v5_password.html", error="",
                                page_title=TEAM_LABELS.get(team, "Team KPI Board"),
                                page_sub="Talk time and calls for the "
@@ -5787,7 +5830,7 @@ def board_callbacks():
             error = "That is not the password."
     if not _v6_allowed():
         if not V5_PASSWORDS and not V7_PASSWORDS:
-            return redirect("/login")
+            return _login_redirect()
         return render_template("v5_password.html", error=error,
                                page_title="Unreturned Calls",
                                page_sub="Booked patients who called and did not get a call back."), 200
@@ -6251,7 +6294,7 @@ def all_teams():
     each team type"). Signed in only; each section reads its own board's API,
     so each keeps its own gate."""
     if not (_v6_allowed() or _teams_token_ok()):
-        return redirect("/login")
+        return _login_redirect()
     return render_template("teams.html", current_user=session.get("user") or {})
 
 
@@ -6420,7 +6463,7 @@ def _md_gate():
     if _v6_allowed():
         return None
     if not V5_PASSWORDS and not V7_PASSWORDS:
-        return redirect("/login")
+        return _login_redirect()
     return render_template("v5_password.html", error="", page_title="My Day",
                            page_sub="Your calls for today, in the order to make them."), 200
 
