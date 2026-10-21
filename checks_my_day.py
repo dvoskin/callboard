@@ -158,6 +158,21 @@ ck("history: a call still ahead is marked 'up' (Coming up), past calls are not, 
    hr is not None and [h["k"] for h in hr["history"] if h.get("up")] == ["Next call"]
    and not any(h["k"].startswith("Call,") for h in hr["history"]),
    hr and hr["history"])
+# ---- Up Next: a promised time first, then a fresh lead and a text, then chance of closing
+def _r(key, did, start_min, when="x"):
+    return {"key": key, "deal_id": did, "start": (NOW + timedelta(minutes=start_min)).isoformat(), "when": when, "short": key}
+UP = M.up_next({"late": [_r("late1", "a", -40)],
+                "today": [_r("due", "b", 3, "9:44 AM"), _r("later", "c", 90, "11:11 AM")],
+                "new_leads": [_r("fresh", "d", -6), _r("old", "e", -300)],
+                "pipeline": {"texts": {"rows": [_r("tx", "f", -20)]}, "invoices": {"rows": [_r("inv", "g", -4000), _r("dup", "a", -4000)]},
+                             "quotes": {"rows": [_r("q", "h", -9000)]}, "no_step": {"rows": [_r("ns", "i", -9000)]}}},
+               NOW, show=9)
+ck("up next: late, due now, fresh lead, texted back, invoice, quote, older lead, no next step",
+   [r["key"] for r in UP["rows"]] == ["uplate1", "updue", "upfresh", "uptx", "upinv", "upq", "upold", "upns"], [r["key"] for r in UP["rows"]])
+ck("...one row per patient (the invoice for the late patient is not repeated)", "updup" not in [r["key"] for r in UP["rows"]], "dup")
+ck("...and it names the next booked call after the due ones", UP["next_booked"] == {"when": "11:11 AM", "short": "later"}, UP["next_booked"])
+ck("...three on the page by default", len(M.up_next({"late": [_r(str(i), str(i), -30) for i in range(5)]}, NOW)["rows"]) == 3, "3")
+ck("the built page carries up_next", isinstance(P.get("up_next"), dict) and P["up_next"]["rows"], P.get("up_next"))
 P_off = M.build(WORLD, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"}, queue_enabled=False)
 ck("...and not at all when it is off", P_off["queue"] == [] and P_off["queue_enabled"] is False, P_off["queue"])
 

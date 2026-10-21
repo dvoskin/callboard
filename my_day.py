@@ -860,7 +860,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
     new_show, new_more = cap(new_rows, NEW_SHOW)
     queue_show, queue_more = cap(queue_rows, NEW_SHOW)
 
-    return {
+    page = {
         "rep": {"id": str(rep.get("id") or ""), "name": rep.get("name") or "",
                 "short": short_name(rep.get("name") or "")},
         "role": role,
@@ -889,6 +889,58 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
         "outcomes_live": role != "coordinator",
         "pipeline": pipeline,
     }
+    page["up_next"] = up_next(page, now_utc)
+    return page
+
+
+UP_NEXT_SHOW = 3
+DUE_SOON_MINUTES = 5       # a booked call this close to its time is due now
+FRESH_LEAD_MINUTES = 15    # a new lead this young beats everything but a promised time
+
+
+def up_next(page, now_utc, show=UP_NEXT_SHOW):
+    """Priority and time in one list: what to do right now (Danny, 10-21: "in
+    priority order of what has the highest chance of closing ... it should also
+    somehow be chronological").
+
+    A time we promised comes first, because the patient is waiting for it: late
+    booked calls, then calls due within DUE_SOON_MINUTES. Then a new lead under
+    FRESH_LEAD_MINUTES old, then a patient who texted back. After that, the
+    flexible work by chance of closing: unpaid invoices (about 1 in 2 pay),
+    quotes (1 in 8), older new leads, no next step. One row per patient. Also
+    returns the next booked call after the due ones, so the rep knows the gap."""
+    def mins_to(r):
+        t = ts(r.get("start"))
+        return (t - now_utc).total_seconds() / 60 if t else None
+    pl = page.get("pipeline") or {}
+    lists = lambda k: ((pl.get(k) or {}).get("rows") or [])
+    today = page.get("today") or []
+    due = [r for r in today if (mins_to(r) or 0) <= DUE_SOON_MINUTES]
+    fresh = [r for r in page.get("new_leads") or [] if (mins_to(r) or -1e9) >= -FRESH_LEAD_MINUTES]
+    steps = [
+        (page.get("late") or [], lambda r: r.get("sub") or "Late"),
+        (due, lambda r: "Due now"),
+        (fresh, lambda r: "New lead, call now"),
+        (lists("texts"), lambda r: "Texted you"),
+        (lists("invoices"), lambda r: "Invoice unpaid, 1 in 2 pay"),
+        (lists("quotes"), lambda r: "Quote sent, 1 in 8 pay"),
+        (page.get("new_leads") or [], lambda r: "New lead"),
+        (lists("no_step"), lambda r: "No next step"),
+    ]
+    out, seen = [], set()
+    for rows, why_now in steps:
+        for r in rows:
+            k = r.get("deal_id") or r.get("phone") or r.get("key")
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(dict(r, key="up" + str(r.get("key")), sub=why_now(r), sub_kind="up"))
+            if len(out) >= show:
+                break
+        if len(out) >= show:
+            break
+    nxt = next((r for r in today if (mins_to(r) or 0) > DUE_SOON_MINUTES), None)
+    return {"rows": out, "next_booked": {"when": nxt["when"], "short": nxt["short"]} if nxt else None}
 
 
 def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, cap, queue_ids=()):
