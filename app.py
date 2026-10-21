@@ -6598,6 +6598,12 @@ def my_day_api_data():
         page = _md_page(rep, fresh=request.args.get("fresh") == "1")
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": "zoho_failed", "detail": _redact(e)[:200]}), 502
+    holds = _md_live_holds()
+    if holds and page.get("queue"):
+        # who is calling an unclaimed lead right now (holds change faster than the page cache)
+        page = dict(page, queue=[dict(r, held_by=(holds[r["deal_id"]]["name"] or "Another rep"),
+                                      held_mine=holds[r["deal_id"]]["rep_id"] == rep["id"])
+                                 if r.get("deal_id") in holds else r for r in page["queue"]])
     return jsonify(page)
 
 
@@ -6786,10 +6792,32 @@ def my_day_api_undo():
     return jsonify({"ok": False, "message": str(data.get("error") or "Undo did not go through.")[:200]}), 502
 
 
+# "Calling now" holds on unclaimed leads (Danny, 10-21: "if it's claimed does it
+# remove from the dialer ... gap?"). The plan keeps a new lead on the shared
+# calendar until someone really talks to the patient: the back office's
+# owner-on-connect job makes it the rep's after a 60 s+ conversation, within 10
+# minutes, and until then the dialer keeps working it. Tapping Call here changes
+# nothing in Zoho or RingCX. It holds the lead for MY_DAY_HOLD_MINUTES so a second
+# rep on My Day sees "X is calling" instead of ringing the same patient. One
+# gunicorn worker, so a dict is shared by every request; a restart forgets holds,
+# which only lets a second rep call.
+MY_DAY_HOLD_MINUTES = 15
+_md_holds = {}                       # deal id -> {"rep_id", "name", "at"}
+
+
+def _md_live_holds(now=None):
+    now = now or time.time()
+    with _md_lock:
+        for k in [k for k, v in _md_holds.items() if now - v["at"] > MY_DAY_HOLD_MINUTES * 60]:
+            _md_holds.pop(k, None)
+        return dict(_md_holds)
+
+
 @app.route("/my-day/api/claim", methods=["POST"])
 def my_day_api_claim():
-    """First tap on Call for a shared-queue lead claims it in the back office.
-    Answers {go: bool, message}. go=False only when someone else already has it."""
+    """First tap on Call for an unclaimed lead: hold it for this rep for
+    MY_DAY_HOLD_MINUTES. Answers {go: bool, message}; go=False only when another
+    rep is calling it now. Nothing is written to Zoho or the dialer."""
     gated = _md_write_gate()
     if gated is not None:
         return gated
@@ -6801,17 +6829,16 @@ def my_day_api_claim():
     deal_id = str(body.get("dealId") or "").strip()
     if not deal_id:
         return jsonify({"error": "deal_required"}), 400
-    status, data = _md_backoffice("/api/lead-claim", {"dealId": deal_id, "repZohoId": rep["id"]})
-    if status == 409:
-        who = str(data.get("claimedBy") or "another rep")[:60]
-        return jsonify({"go": False, "message": "%s already has this lead." % who})
-    if status == 200 and data.get("ok", True):
-        with _md_lock:
-            _md_cache.pop(rep["id"], None)
-        return jsonify({"go": True, "claimed": True})
-    # Not deployed yet (404) or not reachable: let the call go through rather
-    # than stop a rep dialing a fresh lead, and say claiming is not on.
-    return jsonify({"go": True, "claimed": False, "message": "Claiming is coming soon. Call goes through."})
+    holds = _md_live_holds()
+    h = holds.get(deal_id)
+    if h and h["rep_id"] != rep["id"]:
+        since = datetime.fromtimestamp(h["at"], MY_DAY_TZ).strftime("%-I:%M %p")
+        return jsonify({"go": False, "message": "%s is calling this lead now (since %s)." % (h["name"] or "Another rep", since)})
+    with _md_lock:
+        _md_holds[deal_id] = {"rep_id": rep["id"], "name": rep.get("name") or "", "at": time.time()}
+    log.info("my-day: %s holds unclaimed deal %s", rep.get("name"), deal_id)
+    return jsonify({"go": True, "held": True,
+                    "message": "Calling. Talk for a minute or more and the lead becomes yours."})
 
 
 @app.route("/v6/board")
