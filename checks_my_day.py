@@ -678,7 +678,17 @@ try:
        r.status_code == 200 and "/my-day/u2" in r.get_data(as_text=True) or '"id": "u2"' in r.get_data(as_text=True), r.status_code)
     with c.session_transaction() as s2:
         _saved_user = s2.get("user"); s2["user"] = {"email": "jess@goalsplasticsurgery.com", "name": "Jessica Morales"}
-    ck("...a rep is sent back to their own day", c.get("/my-day/floor").status_code == 302, "302")
+    r = c.get("/my-day/floor")
+    ck("...a rep gets the manager password form saying who she is signed in as, not a bounce",
+       r.status_code == 200 and b"jess@goalsplasticsurgery.com" in r.data and b"password" in r.data.lower(), r.status_code)
+    A.MY_DAY_ADMIN_PASSWORDS = ("admin",)
+    A._v5_pw_tries.clear()
+    r = c.post("/flow", data={"password": "admin"})
+    ck("...the manager password typed there opens Flow even with her Google session", r.status_code == 302
+       and r.headers.get("Location", "").endswith("/flow") and c.get("/flow").status_code == 200, r.status_code)
+    A.MY_DAY_ADMIN_PASSWORDS = ()
+    with c.session_transaction() as s2:
+        s2.pop("md_admin", None)
     with c.session_transaction() as s2:
         s2["user"] = _saved_user
 

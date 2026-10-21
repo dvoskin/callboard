@@ -6415,7 +6415,7 @@ def _md_viewer():
         me = next((u for u in _md_users_list() if u["email"] == email), None)
     if MY_DAY_FAKE and not me:
         me = _MD_FAKE_USERS[0]
-    manager = admin or (email in MY_DAY_MANAGERS) or (MY_DAY_FAKE and not GOOGLE_CLIENT_ID)
+    manager = admin or bool(session.get("md_admin")) or (email in MY_DAY_MANAGERS) or (MY_DAY_FAKE and not GOOGLE_CLIENT_ID)
     return {"email": email, "name": (me or {}).get("name") or user.get("name") or "",
             "zoho_id": (me or {}).get("id") or "", "manager": bool(manager),
             "can_write": bool(user) or not GOOGLE_CLIENT_ID,
@@ -6604,17 +6604,49 @@ _MD_LINK_PAGES = {"all_teams", "board_sales", "board_sales_ringex", "board_billi
                   "scoreboard_v5", "scoreboard_v6"}
 
 
-@app.route("/flow")
+def _md_manager_door(title):
+    """Managers' pages (/flow, /my-day/floor). A POST is the password form: the
+    admin password makes this browser a manager, the floor word gives read-only
+    access. Anyone else gets the form again, saying who they are signed in as,
+    never a silent bounce to My Day (Danny, 10-21: "keeps going back to my day").
+    Returns a response to stop, or None to go on."""
+    error = ""
+    if request.method == "POST":
+        ip = (request.headers.get("CF-Connecting-IP")
+              or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+              or request.remote_addr or "?")
+        supplied = request.form.get("password", "").strip()
+        if _v5_pw_throttled(ip):
+            error = "Too many tries. Wait five minutes."
+        else:
+            is_admin, is_word = _md_admin_password_matches(supplied), _v5_password_matches(supplied)
+            if is_admin:
+                session["md_admin"] = True
+                return redirect(request.path)
+            if is_word:
+                session["v5_pw"] = True
+                return redirect(request.path)
+            _v5_pw_record_failure(ip)
+            error = "That is not the manager password."
+    if _md_allowed():
+        viewer = _md_viewer()
+        if viewer["manager"] or viewer["word_only"]:
+            return None
+        who = viewer["email"] or "a rep account"
+        sub = "You are signed in as %s, which is not a manager. Type the manager password to open %s." % (who, title)
+    else:
+        sub = "For managers. Type the manager password, or sign in with a manager's Google account."
+    return render_template("v5_password.html", error=error, page_title=title, page_sub=sub), (401 if error else 200)
+
+
+@app.route("/flow", methods=["GET", "POST"])
 def flow_page():
     """The whole patient flow on one page for managers (Danny, 10-21): each part
     of the Patient Flow Plan in order, its count, the promise kept, and the
     patients stuck there. Data from the back office's /api/flow/summary."""
-    gated = _md_gate()
-    if gated is not None:
-        return gated
-    viewer = _md_viewer()
-    if not (viewer["manager"] or viewer["word_only"]):
-        return redirect("/my-day")
+    door = _md_manager_door("Flow")
+    if door is not None:
+        return door
     return render_template("flow.html")
 
 
@@ -6638,17 +6670,14 @@ def flow_api_summary():
         return jsonify({"error": "unavailable"}), 502
 
 
-@app.route("/my-day/floor")
+@app.route("/my-day/floor", methods=["GET", "POST"])
 def my_day_floor_page():
     """Every sales rep's day against the plan, side by side, for managers (and
     the floor word, read only). The page fetches each rep's own My Day data in
     turn, so it shares the per-rep cache and never builds the floor at once."""
-    gated = _md_gate()
-    if gated is not None:
-        return gated
-    viewer = _md_viewer()
-    if not (viewer["manager"] or viewer["word_only"]):
-        return redirect("/my-day")
+    door = _md_manager_door("Floor")
+    if door is not None:
+        return door
     reps = [u for u in _md_floor(_md_users_list()) if u["role"] == "sales"]
     return render_template("my_day_floor.html", boot={"reps": reps})
 
