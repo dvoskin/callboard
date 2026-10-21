@@ -6571,6 +6571,40 @@ def my_day_page(rep_id=None):
                                  "role": _md_role((rep or {}).get("name") or "")})
 
 
+@app.route("/flow")
+def flow_page():
+    """The whole patient flow on one page for managers (Danny, 10-21): each part
+    of the Patient Flow Plan in order, its count, the promise kept, and the
+    patients stuck there. Data from the back office's /api/flow/summary."""
+    gated = _md_gate()
+    if gated is not None:
+        return gated
+    viewer = _md_viewer()
+    if not (viewer["manager"] or viewer["word_only"]):
+        return redirect("/my-day")
+    return render_template("flow.html")
+
+
+@app.route("/flow/api/summary")
+def flow_api_summary():
+    if not _md_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    if not (viewer["manager"] or viewer["word_only"]):
+        return jsonify({"error": "forbidden"}), 403
+    if not BACKOFFICE_URL or not OVERDUE_API_KEY:
+        return jsonify({"error": "not_configured"}), 503
+    try:
+        r = requests.get(BACKOFFICE_URL + "/api/flow/summary", params={"fresh": "1"} if request.args.get("fresh") == "1" else None,
+                         headers={"x-api-key": OVERDUE_API_KEY}, timeout=80, allow_redirects=False)
+        if r.status_code != 200:
+            return jsonify({"error": "backoffice_%d" % r.status_code}), 502
+        return jsonify(r.json())
+    except Exception as e:  # noqa: BLE001
+        log.warning("flow: summary read failed: %s", type(e).__name__)
+        return jsonify({"error": "unavailable"}), 502
+
+
 @app.route("/my-day/floor")
 def my_day_floor_page():
     """Every sales rep's day against the plan, side by side, for managers (and

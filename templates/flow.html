@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flow · Patient Flow</title>
+<style>
+  :root{ --bg:#fff; --ink:#111; --muted:#6b7280; --rule:#e5e7eb; --hair:#f0f1f3; --tint:#f7f8f9;
+         --up:#0B6E67; --dn:#B03A31; --mid:#9C6712; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0b0c0e; --ink:#f3f4f6; --muted:#9ca3af; --rule:#23262b; --hair:#1a1d21; --tint:#14171a;
+           --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+  .app{max-width:1100px;margin:0 auto;padding:16px 16px 48px}
+  .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  h1{font-size:22px;margin:0;letter-spacing:-.02em;margin-right:auto}
+  .nav a{font-size:12.5px;padding:5px 10px;border:1px solid var(--rule);border-radius:7px;text-decoration:none;color:inherit;margin-left:4px}
+  .sub{color:var(--muted);font-size:12.5px;margin:6px 0 0}
+  .part{margin:14px 0 0;border:1px solid var(--rule);border-radius:12px;padding:12px 14px}
+  .ph{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .ph .n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:12px;font-weight:750;display:inline-flex;align-items:center;justify-content:center;align-self:center}
+  .ph h2{margin:0;font-size:15px}
+  .ph .w{font-size:12px;color:var(--muted)}
+  .kpis{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .k{min-width:120px;flex:1 1 120px;padding:8px 10px;border-radius:9px;background:var(--tint);font-size:12px;color:var(--muted);line-height:1.3}
+  .k b{display:block;font-size:20px;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .k b small{font-size:11.5px;color:var(--muted);font-weight:500;margin-left:4px}
+  .k.ok b{color:var(--up)} .k.bad b{color:var(--dn)} .k em{display:block;font-style:normal;font-size:10.5px}
+  details{margin-top:10px} summary{cursor:pointer;font-size:12.5px;font-weight:650}
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:12.5px}
+  td,th{padding:6px 6px;border-bottom:1px solid var(--hair);text-align:left;vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+  a{color:inherit}
+  .note{font-size:12px;color:var(--muted);margin:8px 0 0}
+  .err{color:var(--dn);font-size:13px;margin-top:14px}
+  @media(max-width:520px){
+    .app{padding:12px 12px 40px}
+    h1{font-size:19px}
+    .part{padding:10px 11px;border-radius:11px}
+    .kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .k{min-width:0;padding:7px 8px}
+    .k b{font-size:17px}
+    .ph .w{display:none}
+    td,th{padding:5px 4px}
+    .hide-m{display:none}
+  }
+</style>
+<div class="app">
+  <div class="top"><h1>Flow</h1><span class="nav"><a href="/my-day/floor">Floor</a><a href="/my-day">My Day</a></span></div>
+  <p class="sub" id="sub">The whole patient flow today, in the plan's order. Green is on plan, red needs attention. Loading…</p>
+  <div id="body"></div>
+</div>
+<script>
+(function(){
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function pct(n, of){ return of ? Math.round(100 * n / of) : null; }
+  function k(label, value, opts){
+    opts = opts || {};
+    var cls = opts.ok == null ? '' : (opts.ok ? ' ok' : ' bad');
+    return '<div class="k' + cls + '"' + (opts.tip ? ' title="' + esc(opts.tip) + '"' : '') + '><b>' + value + (opts.small ? '<small>' + esc(opts.small) + '</small>' : '') + '</b>' + esc(label) + (opts.goal ? '<em>' + esc(opts.goal) + '</em>' : '') + '</div>';
+  }
+  function rate(n, of, goal, label, tip, lower){
+    var p = pct(n, of);
+    if (p == null) return k(label, '–', {small: 'none yet', goal: goal, tip: tip});
+    var g = parseInt(goal.replace(/\D/g, ''), 10);
+    return k(label, p + '%', {small: n + ' of ' + of, goal: goal, ok: lower ? p <= g : p >= g, tip: tip});
+  }
+  function stuck(title, rows){
+    if (!rows || !rows.length) return '';
+    return '<details><summary>' + esc(title) + ' (' + rows.length + ')</summary><table><tr><th>Patient</th><th>Rep</th><th class="r">When</th><th class="hide-m">Why</th></tr>' +
+      rows.map(function(r){ return '<tr><td><a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a></td><td>' + esc(r.rep) + '</td><td class="r">' + esc(r.when) + '</td><td class="hide-m">' + esc(r.why) + '</td></tr>'; }).join('') + '</table></details>';
+  }
+  function part(n, title, what, inner){
+    return '<section class="part"><div class="ph"><span class="n">' + n + '</span><h2>' + esc(title) + '</h2><span class="w">' + esc(what) + '</span></div>' + inner + '</section>';
+  }
+  function render(d){
+    var L = d.leads, D = d.dialer, P = d.picked, O = d.ownership, C = d.commitments, Pi = d.pipeline, A = d.automation;
+    var built = new Date(d.builtAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+    document.getElementById('sub').textContent = 'The whole patient flow today, in the plan\'s order. Green is on plan, red needs attention. As of ' + built + '; refreshes every 5 minutes.';
+    var h = '';
+    h += part(1, 'New leads today', 'Arrive on the shared calendar; called within 5 minutes',
+      '<div class="kpis">' + k('arrived today', L.total) + k('still shared', L.shared, {tip: 'Nobody has talked to them yet'}) +
+      rate(L.fast5, L.due5, 'goal 60%', 'called in 5 min', 'Leads in by 8 AM to 9 PM, first call within 5 minutes') +
+      k('never called (30 min+)', L.neverCalled, {ok: L.neverCalled === 0, goal: 'goal 0'}) + '</div>' + stuck('Never called', L.stuck));
+    var lists = D.lists.map(function(x){ return '<tr><td>' + esc(x.name) + '</td><td class="r">' + (x.ready == null ? '–' : x.ready) + '</td></tr>'; }).join('');
+    var queues = D.queues.slice(0, 10).map(function(q){ return '<tr><td>' + esc(q.queue) + '</td><td class="r">' + q.dialed + '</td><td class="r">' + q.reached + '</td></tr>'; }).join('');
+    h += part(2, 'Dialer lists', 'Call-now, scheduled, retry: who is ready and what was reached',
+      '<div class="kpis">' + k('dialer calls today', D.dialedToday) + rate(D.reachedToday, D.dialedToday, 'about 5%+', 'reached', 'A minute or more, not voicemail or no answer') + '</div>' +
+      '<details open><summary>Ready to dial now, per list</summary><table><tr><th>List</th><th class="r">Ready</th></tr>' + lists + '</table></details>' +
+      (queues ? '<details><summary>Dialed and reached today, per queue</summary><table><tr><th>Queue</th><th class="r">Dialed</th><th class="r">Reached</th></tr>' + queues + '</table></details>' : ''));
+    h += part(3, 'Picked times', 'Times patients chose on the shared calendar; the dialer seat calls them',
+      '<div class="kpis">' + k('due so far today', P.due) + rate(P.dialed15, P.due, 'goal 90%', 'dialed within 15 min') +
+      k('missed', P.missed, {ok: P.missed === 0, goal: 'goal 0'}) + '</div>' + stuck('Picked times not dialed', P.stuck));
+    var pv = O.preview || {}, lr = O.lastReturn || {};
+    var byRep = (O.manualByRep || []).map(function(r){ return '<tr><td>' + esc(r.rep) + '</td><td class="r">' + r.n + '</td></tr>'; }).join('');
+    var ret = (pv.sample || []).map(function(r){ return {name: r.name, rep: r.rep, when: r.days + ' days', why: r.handedBy || 'owned, never reached', link: 'https://crm.zoho.com/crm/org771460636/tab/Potentials/' + r.dealId}; });
+    h += part(4, 'Who owns the patient', 'A deal moves only on a real conversation; unreached hand-outs go back after 3 days',
+      '<div class="kpis">' + k('rep-owned early deals', pv.repDeals == null ? '…' : pv.repDeals) + k('reached', pv.reached == null ? '…' : pv.reached) +
+      k('never reached, 3+ days', pv.candidates == null ? '…' : pv.candidates, {ok: pv.candidates === 0, goal: 'go back at 7:05 AM', tip: 'They return to the shared calendar and the dialer at the next morning run'}) +
+      k('handed out by hand this week', O.manualWeek) + '</div>' +
+      (lr.at ? '<p class="note">Last return run ' + esc(new Date(lr.at).toLocaleString([], {weekday: 'short', hour: 'numeric', minute: '2-digit'})) + ': ' + lr.returned + ' returned, ' + lr.reloaded + ' back on the dialer.</p>' : '<p class="note">The first return run is tomorrow at 7:05 AM.</p>') +
+      stuck('Next to go back (sample)', ret) + (byRep ? '<details><summary>Hand-outs by rep this week</summary><table><tr><th>Rep</th><th class="r">Deals</th></tr>' + byRep + '</table></details>' : ''));
+    var late = (C.lateByRep || []).map(function(r){ return '<tr><td>' + esc(r.rep) + '</td><td class="r">' + r.n + '</td></tr>'; }).join('');
+    h += part(5, 'Commitments', 'Calls we promised, follow-ups due, patients waiting on a reply',
+      '<div class="kpis">' + rate(C.kept, C.due, 'goal 90%', 'rep calls due today made') + k('late calls now (7 days)', C.lateNow, {ok: C.lateNow === 0, goal: 'goal 0'}) +
+      k('follow-up tasks due today', C.tasksToday) + k('tasks overdue 1 to 3 days', C.tasksLate3d, {ok: C.tasksLate3d === 0}) +
+      k('texts waiting 15 min+', C.textsWaiting, {ok: C.textsWaiting === 0, goal: 'goal 0'}) + '</div>' +
+      stuck('Booked calls not made today', C.stuck) + (late ? '<details><summary>Late calls by rep</summary><table><tr><th>Rep</th><th class="r">Late</th></tr>' + late + '</table></details>' : ''));
+    h += part(6, 'Pipeline', 'Closest to paying: about 1 in 2 invoices pay, 1 in 8 quotes',
+      '<div class="kpis">' + k('unpaid retainer invoices (30 days)', Pi.invoices) + k('quotes waiting (30 days)', Pi.quotes) + '</div>');
+    var fam = (A.byFamily || []).map(function(f){ return '<tr><td>' + esc(f.family) + '</td><td class="r">' + f.n + '</td></tr>'; }).join('');
+    h += part(7, 'What automation did today', 'Calls the system booked and cancelled',
+      '<div class="kpis">' + k('calls booked by the system', A.bookedToday) + k('calls cancelled by the system', A.cancelledToday) + '</div>' +
+      (fam ? '<details><summary>Booked, by source</summary><table><tr><th>Source</th><th class="r">Calls</th></tr>' + fam + '</table></details>' : ''));
+    document.getElementById('body').innerHTML = h;
+  }
+  function load(fresh){
+    fetch('/flow/api/summary' + (fresh ? '?fresh=1' : ''), {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.error) { document.getElementById('body').innerHTML = '<p class="err">The flow could not be read just now (' + esc(d.error) + '). It retries in a minute.</p>'; setTimeout(load, 60000); return; } render(d); })
+      .catch(function(){ document.getElementById('body').innerHTML = '<p class="err">The flow could not be read just now. It retries in a minute.</p>'; setTimeout(load, 60000); });
+  }
+  load(false);
+  setInterval(function(){ if (!document.hidden) load(false); }, 300000);
+})();
+</script>
