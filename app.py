@@ -6490,8 +6490,10 @@ def _md_page(rep, fresh=False):
                                     b["new_from"], b["hist_from"], queue_owner_ids=MY_DAY_QUEUE_OWNER_IDS)
                 f_pipe = f_replies = None
                 if role == "sales":
+                    _td = now_utc.astimezone(MY_DAY_TZ).date()
                     f_pipe = ex.submit(_zoho.my_day_pipeline, rid, now_utc,
-                                       now_utc - timedelta(days=_md.PIPE_DAYS), now_utc - timedelta(days=_md.CALLS_DAYS))
+                                       now_utc - timedelta(days=_md.PIPE_DAYS), now_utc - timedelta(days=_md.CALLS_DAYS),
+                                       task_dates=((_td - timedelta(days=_md.TASK_DAYS)).isoformat(), _td.isoformat()))
                     f_replies = ex.submit(_md_reply_pings, rid)
                 world = f_world.result()
                 if f_pipe is not None:
@@ -6582,6 +6584,61 @@ def my_day_api_data():
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": "zoho_failed", "detail": _redact(e)[:200]}), 502
     return jsonify(page)
+
+
+# Live phone time for My Day: the same report the sales board shows (/api/v5/report,
+# RingEX live plus the RingCX report), read for today once every 2 minutes for the
+# whole floor and cut to one rep. Handle = talk + wrap. Fetched by the page on its
+# own, so a slow phone report never holds up the call list.
+_MD_HANDLE_TTL = 120.0
+_md_handle_cache = {"at": 0.0, "report": None}
+_md_handle_lock = threading.Lock()
+
+
+def _md_floor_report():
+    with _md_handle_lock:
+        if _md_handle_cache["report"] is not None and time.time() - _md_handle_cache["at"] < _MD_HANDLE_TTL:
+            return _md_handle_cache["report"]
+    off_west = -int(datetime.now(MY_DAY_TZ).utcoffset().total_seconds() // 60)
+    with app.test_request_context("/api/v5/report", query_string={"tz": str(off_west)}):
+        session["user"] = {"email": "my-day@system", "name": "My Day"}
+        resp = api_v5_report()
+        resp = resp[0] if isinstance(resp, tuple) else resp
+        report = resp.get_json(silent=True) or {}
+    if report.get("error"):
+        raise RuntimeError(report.get("error"))
+    with _md_handle_lock:
+        _md_handle_cache.update(at=time.time(), report=report)
+    return report
+
+
+@app.route("/my-day/api/handle")
+def my_day_api_handle():
+    if not _md_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    rep, err = _md_resolve_rep(viewer, request.args.get("rep") or None)
+    if err:
+        return jsonify({"error": err}), (403 if err == "forbidden" else 400)
+    try:
+        report = _md_floor_report()
+    except Exception as e:  # noqa: BLE001
+        log.warning("my-day: handle read failed: %s", _redact(e)[:160])
+        return jsonify({"error": "unavailable"}), 502
+    rows = (report.get("ranked") or []) + (report.get("unranked") or [])
+    me = next((a for a in rows if _norm_name(a.get("name")) == _norm_name(rep.get("name"))), None)
+    ranked = report.get("ranked") or []
+    talks = sorted(a.get("talk") or 0 for a in ranked)
+    median = talks[len(talks) // 2] if talks else None
+    meta = report.get("meta") or {}
+    out = {"found": me is not None, "covers_to": meta.get("covers_to"), "generated": meta.get("generated_utc"),
+           "floor_median_talk": median}
+    if me:
+        out.update(talk=me.get("talk") or 0, wrap=me.get("wrap") or 0,
+                   handle=(me.get("talk") or 0) + (me.get("wrap") or 0),
+                   dials=me.get("attempts") or 0, connected=me.get("connected") or 0,
+                   reached=me.get("reached") or 0, over_3=me.get("over_3") or 0)
+    return jsonify(out)
 
 
 @app.route("/my-day/api/slots")

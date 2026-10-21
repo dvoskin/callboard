@@ -191,7 +191,7 @@ WHY_LABELS = {
     "new": "New lead", "quote": "Quote follow-up", "cb": "Asked for a call back",
     "booked": "Booked call", "retry": "No answer, try again",
     "nostep": "No next step", "quotewait": "Quote sent", "invoice": "Invoice unpaid",
-    "texted": "Texted back",
+    "texted": "Texted back", "task": "Follow-up due",
     # coordinator reasons (scaffold)
     "preop": "Pre-op call", "balance": "Balance due", "postop": "Post-op check",
     "missed": "Missed their call",
@@ -894,6 +894,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
 
 
 UP_NEXT_SHOW = 3
+TASK_DAYS = 3              # a Zoho task due up to this many days ago is still a follow-up to do
 DUE_SOON_MINUTES = 5       # a booked call this close to its time is due now
 FRESH_LEAD_MINUTES = 15    # a new lead this young beats everything but a promised time
 
@@ -922,6 +923,7 @@ def up_next(page, now_utc, show=UP_NEXT_SHOW):
         (due, lambda r: "Due now"),
         (fresh, lambda r: "New lead, call now"),
         (lists("texts"), lambda r: "Texted you"),
+        (lists("tasks"), lambda r: "Follow-up " + r.get("when", "due")),
         (lists("invoices"), lambda r: "Invoice unpaid, 1 in 2 pay"),
         (lists("quotes"), lambda r: "Quote sent, 1 in 8 pay"),
         (page.get("new_leads") or [], lambda r: "New lead"),
@@ -1003,6 +1005,45 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
     # A patient who texted back is listed there, first, and in no other list:
     # one deal, one row in the pipeline (Danny, 2026-10-20).
     texted = {str(p.get("dealId") or "") for p in (world.get("replies") or [])} - {""}
+
+    # ---- Follow-ups due: the rep's open Zoho tasks due today or in the last
+    # TASK_DAYS days. They have a day, not a time: work them between booked
+    # calls. Older ones are the robot backlog (184,320 open on 10-21, 179,925 of
+    # them over a month old) and are left out. One row per patient, the latest
+    # step; a patient here is in no list below it (texted back stays first).
+    have_tasks = world.get("tasks") is not None
+    today_local = now_utc.astimezone(tz).date()
+    task_cut = today_local - timedelta(days=TASK_DAYS)
+    tasks = {}
+    for t in world.get("tasks") or []:
+        did = ref_id(t.get("What_Id"))
+        try:
+            due = datetime.strptime(str(t.get("Due_Date") or "")[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if not did or did in texted or due > today_local or due < task_cut:
+            continue
+        if did not in tasks or due > tasks[did][0]:
+            tasks[did] = (due, t)
+    tk = []
+    for did, (due, t) in tasks.items():
+        d = pipe_deals.get(did) or (world.get("deals") or {}).get(did) or (world.get("task_deals") or {}).get(did) or {
+            "id": did, "Deal_Name": (t.get("What_Id") or {}).get("name") or "",
+            "Contact_Name": {"id": ref_id(t.get("Who_Id")), "name": (t.get("Who_Id") or {}).get("name") or ""}}
+        if (d.get("Stage") or "").startswith("Closed") or (d.get("Stage") or "") in ("Unsubscribe", "Expired", "Duplicates / Junk"):
+            continue
+        tk.append((close_rank(d.get("Stage")), -due.toordinal(), d, t, due))
+    tk.sort(key=lambda x: (x[0], x[1]))
+    k_rows = []
+    for _, _, d, t, due in tk:
+        r = prow(d, "tk", "task")
+        n = (today_local - due).days
+        r["when"] = "due today" if n == 0 else ("due yesterday" if n == 1 else "due %d days ago" % n)
+        r["sub"], r["sub_kind"] = (t.get("Subject") or "")[:60], "q"
+        r["task_id"] = str(t.get("id") or "")
+        with_next(r)
+        k_rows.append(r)
+    texted = texted | set(tasks)
 
     # ---- No next step
     nostep = []
@@ -1111,6 +1152,7 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
         "invoices": finish(i_rows, invs, "" if have_pipe else nope),
         "texts": finish(t_rows, t_rows,
                         "" if replies is not None else "Couldn't load the texts just now."),
+        "tasks": finish(k_rows, tk, "" if have_tasks else "Zoho tasks could not be read just now."),
     }
 
 
@@ -1312,6 +1354,8 @@ def fake_world(now_utc, tz, rep_id="u-jess"):
         ],
         "future_open": [],
         "rep_calls": [],
+        "tasks": [{"id": "t1", "Subject": "Quote Follow Up 3 - 1 Week - Lipo 360", "Due_Date": now_local.date().isoformat(),
+                   "What_Id": {"id": "9000000001", "name": "June Park"}, "Who_Id": None}],
         "replies": [{"phone": "5550144002", "dealId": "9000000002", "patientName": "Iris Vale",
                      "inboundAt": rel(-25), "lastText": "Is the price the same if I book this week?", "textCount": 1}],
     }

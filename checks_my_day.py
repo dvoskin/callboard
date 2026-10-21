@@ -158,6 +158,23 @@ ck("history: a call still ahead is marked 'up' (Coming up), past calls are not, 
    hr is not None and [h["k"] for h in hr["history"] if h.get("up")] == ["Next call"]
    and not any(h["k"].startswith("Call,") for h in hr["history"]),
    hr and hr["history"])
+# ---- Follow-ups due: Zoho tasks due today or the last 3 days, one per patient
+_today = NOW.astimezone(TZ).date()
+TW = dict(WORLD, pipe_deals=[dict(d, Owner={"id": "u1"}) for d in PIPE] if "PIPE" in globals() else [],
+          future_open=[], rep_calls=[], replies=[],
+          tasks=[{"id": "k1", "Subject": "Quote Follow Up 3 - 1 Week", "Due_Date": _today.isoformat(), "What_Id": {"id": "tq", "name": "Tia Q"}},
+                 {"id": "k2", "Subject": "Quote Follow Up 2 - 72 Hours", "Due_Date": (_today - timedelta(days=4)).isoformat(), "What_Id": {"id": "tq", "name": "Tia Q"}},
+                 {"id": "k3", "Subject": "Call back", "Due_Date": (_today - timedelta(days=2)).isoformat(), "What_Id": {"id": "tn", "name": "Nia N"}},
+                 {"id": "k4", "Subject": "Old one", "Due_Date": (_today - timedelta(days=40)).isoformat(), "What_Id": {"id": "to", "name": "Old O"}},
+                 {"id": "k5", "Subject": "Tomorrow", "Due_Date": (_today + timedelta(days=1)).isoformat(), "What_Id": {"id": "tt", "name": "Tom T"}}],
+          task_deals={"tq": {"id": "tq", "Deal_Name": "Tia Q", "Stage": "Quote Sent", "Contact_Name": {"id": "c1", "name": "Tia Q"}},
+                      "tn": {"id": "tn", "Deal_Name": "Nia N", "Stage": "Call Scheduled", "Contact_Name": {"id": "c2", "name": "Nia N"}}})
+TP = M.build(TW, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"})["pipeline"]["tasks"]
+ck("follow-ups due: tasks due today or the last 3 days, one per patient, quote patients first",
+   [r["deal_id"] for r in TP["rows"]] == ["tq", "tn"] and TP["rows"][0]["when"] == "due today"
+   and TP["rows"][1]["when"] == "due 2 days ago", [(r["deal_id"], r["when"]) for r in TP["rows"]])
+ck("...a task's own step is shown", TP["rows"][0]["sub"].startswith("Quote Follow Up 3"), TP["rows"][0]["sub"])
+
 # ---- Up Next: a promised time first, then a fresh lead and a text, then chance of closing
 def _r(key, did, start_min, when="x"):
     return {"key": key, "deal_id": did, "start": (NOW + timedelta(minutes=start_min)).isoformat(), "when": when, "short": key}
@@ -620,6 +637,19 @@ try:
     with c.session_transaction() as s:
         s.clear()
         s["user"] = {"email": "boss@goalsplasticsurgery.com", "name": "Boss"}
+
+    # live phone time comes from the sales board's report, cut to the rep
+    _fr = A._md_floor_report
+    A._md_floor_report = lambda: {"ranked": [{"name": "Mabel Alvarez", "talk": 3600, "wrap": 300, "attempts": 40, "connected": 9},
+                                             {"name": "Other Rep", "talk": 1200, "wrap": 0, "attempts": 10, "connected": 2},
+                                             {"name": "Third Rep", "talk": 2400, "wrap": 0, "attempts": 20, "connected": 4}],
+                                  "meta": {"covers_to": "09:41:00"}}
+    j = c.get("/my-day/api/handle?rep=u2").get_json()
+    ck("phone time: talk, handle = talk + wrap, calls, connected, floor middle", j.get("found") and j["talk"] == 3600
+       and j["handle"] == 3900 and j["dials"] == 40 and j["connected"] == 9 and j["floor_median_talk"] == 2400, j)
+    A._md_floor_report = lambda: (_ for _ in ()).throw(RuntimeError("down"))
+    ck("...the report down is a 502, not a crash", c.get("/my-day/api/handle?rep=u2").status_code == 502, "502")
+    A._md_floor_report = _fr
 
     # unconfigured back office reads as coming soon, not a crash
     A.BACKOFFICE_URL = ""

@@ -3803,7 +3803,7 @@ class ZohoClient:
             self._md_future.update(at=time.time(), rows=rows)
         return rows
 
-    def my_day_pipeline(self, owner_id: str, now, pipe_from, calls_from) -> dict:
+    def my_day_pipeline(self, owner_id: str, now, pipe_from, calls_from, task_dates=None) -> dict:
         """The rep's pipeline for My Day, three reads run side by side:
         their deals in the four open stages created, quoted or invoiced since
         pipe_from (one query; the ORs nest in pairs), the floor's open calls
@@ -3825,9 +3825,19 @@ class ZohoClient:
                 f"select {F} from Calls where ((Owner.id = '{uid}' and Outgoing_Call_Status = 'Completed') "
                 f"and Call_Start_Time >= '{iso(calls_from)}')", page=2000, cap=10000)
 
+        def tasks():
+            # Open tasks due in [task_dates[0], task_dates[1]] (dates, local).
+            d0, d1 = task_dates
+            return self._coql_all(
+                f"select id, Subject, Due_Date, Status, What_Id, Who_Id from Tasks where "
+                f"((Owner.id = '{uid}' and Status != 'Completed') and Due_Date between '{d0}' and '{d1}')",
+                page=200, cap=600)
+
         jobs = {"pipe_deals": deals, "future_open": lambda: self.my_day_future_open(now), "rep_calls": rep_calls}
+        if task_dates:
+            jobs["tasks"] = tasks
         out = {}
-        with ThreadPoolExecutor(max_workers=3) as ex:
+        with ThreadPoolExecutor(max_workers=4) as ex:
             futs = {k: ex.submit(fn) for k, fn in jobs.items()}
             for k, f in futs.items():
                 try:
@@ -3835,6 +3845,20 @@ class ZohoClient:
                 except Exception as e:  # noqa: BLE001
                     logging.getLogger(__name__).warning("my-day: pipeline read %s failed: %s", k, str(e)[:160])
                     out[k] = None
+        # Deals behind those tasks that the pipeline read did not bring (older
+        # deals), for their stage and name. At most 200; a failure leaves the
+        # rows on the task's own names.
+        if out.get("tasks"):
+            have = {str(d.get("id")) for d in out.get("pipe_deals") or []}
+            want = sorted({str((t.get("What_Id") or {}).get("id") or "") for t in out["tasks"]} - have - {""})[:200]
+            got = {}
+            try:
+                for i in range(0, len(want), 50):
+                    for d in self._coql_all(f"select {D} from Deals where id in ({','.join(want[i:i + 50])})", page=50, cap=50):
+                        got[str(d.get("id"))] = d
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger(__name__).warning("my-day: task deals read failed: %s", str(e)[:160])
+            out["task_deals"] = got
         return out
 
     def my_day_world(self, owner_id: str, day_start, day_end, late_from, new_from, hist_from,
