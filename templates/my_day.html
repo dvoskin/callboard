@@ -66,6 +66,7 @@
   .gh h3{margin:0;font-size:17px;font-weight:750;letter-spacing:-.01em}
   .gh .gs{font-size:12.5px;color:var(--muted);flex-basis:100%}
   .sh{cursor:pointer;user-select:none;-webkit-user-select:none;align-items:center}
+  .when small.up{color:var(--up);font-weight:650}
   .sh h2{order:0} .sh .c{order:1} .sh .h{order:2} .sh .info{order:3} .sh .chev{order:4}
   .sh .chev{margin-left:auto;font-size:11px;color:var(--muted);transition:transform .15s}
   .sec.closed .chev{transform:rotate(-90deg)}
@@ -318,7 +319,7 @@
   }
 
   function whenCell(r){
-    var cls = r.sub_kind === 'late' ? '' : ' class="q"';
+    var cls = r.sub_kind === 'late' ? '' : (r.sub_kind === 'up' ? ' class="up"' : ' class="q"');
     return '<div class="when">' + esc(r.when) + (r.sub ? '<small' + cls + '>' + esc(r.sub) + '</small>' : '') + '</div>';
   }
   function rowHtml(r, sec){
@@ -434,6 +435,13 @@
       '<div class="nl" title="New patients from the last 24 hours not called yet."><b>' + n.new_leads + '</b>new leads waiting</div></div>' +
       '<div class="tools"><button class="btn" data-foldall="0">Open all</button><button class="btn" data-foldall="1">Fold all</button></div>';
     h += '<span id="s-day"></span>';
+    var up = p.up_next || {rows: []};
+    if (up.rows.length) {
+      h += group('g-up', 'Up Next', 'Do these now, top first.',
+        'One list for right now. A time we promised a patient always comes first: late calls, then calls due in the next 5 minutes. Then a brand new lead (the first minutes matter most) and anyone who texted you. After that, the patients most likely to pay: unpaid invoices, then quotes. Every patient is also in their own list below.');
+      h += secWrap('s-up', 'Right Now', '', up.rows.length, up.next_booked ? 'Your next booked call is ' + up.next_booked.short + ' at ' + up.next_booked.when + '.' : 'No more booked calls today.',
+        '', HD + up.rows.map(function(r){ return rowHtml(r, 'up'); }).join(''));
+    }
     h += closingHtml(p.pipeline);
     h += group('g-calls', 'Calls for Today', 'Late first, then the rest of the day in time order.',
       "These are the calls on your calendar. Work top to bottom. After each call, tap Result and pick what happened: that writes it in Zoho and books the next step. A red line means a call is late or still needs a result.");
