@@ -689,6 +689,9 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             "zoho": (ZOHO_DEAL_URL % did) if did else ((ZOHO_CONTACT_URL % cid) if cid else ""),
             "consult": consult_url(did),
             "dialer": bool(c is not None and is_dialer(c)),
+            # The dialer has this patient queued right now (the deal's DialerStatus, synced every
+            # 15 minutes): a rep calling them too would double up (Danny, 10-21).
+            "on_dialer": (deal.get("DialerStatus") or "").strip().upper() in ("READY", "ACTIVE", "PENDING"),
         }
         if c is not None:
             r["why"] = why(c, role, deal_is_new(did) if did else False)
