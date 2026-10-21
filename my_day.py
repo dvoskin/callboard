@@ -39,16 +39,23 @@ Added 2026-10-20 (Danny, same day):
              deal page.
   Pipeline   (sales only) four lists of the rep's OWN deals, each counted in
              its header and capped like the sections above:
-               No next step   open stage, created in the last PIPE_DAYS, no
-                              open call on the deal from now on. Oldest last
-                              contact first.
+               No next step   New Deal or Call Scheduled (NO_STEP_STAGES),
+                              created in the last PIPE_DAYS, no open call on
+                              the deal from now on. Oldest last contact
+                              first. Quote Sent and Retainer Invoice Sent
+                              deals have their own lists, so no deal is in
+                              two of these lists.
                Quotes waiting Stage Quote Sent, Quote_Sent_Date in the last
                               PIPE_DAYS. Newest quote first, days since it.
                Unpaid retainer invoices
                               Stage Retainer Invoice Sent, Retainer_Paid not
-                              true. Newest invoice first, days since it.
+                              true, Retainer_Sent_Date in the last PIPE_DAYS
+                              (no date: created in the last PIPE_DAYS).
+                              Newest invoice first, days since it.
                Texted back    the back office's ReplyPing ledger: the rep's
-                              patients whose latest text is unanswered.
+                              patients whose latest text is unanswered. A
+                              deal listed here is left out of the other
+                              three; no deal is in two pipeline lists.
   Dialer tag a row from a RingCX dialer call ("Outbound Call to ...", or a
              dialer disposition on it) says "dialer".
   One conversation, one result
@@ -73,9 +80,16 @@ HISTORY_SHOW = 6
 
 # The "Start Consultation" custom button on Zoho deal pages opens exactly this.
 CONSULT_URL = "https://estimator.goalsplasticsurgery.com?dealid=%s"
-PIPE_DAYS = 90
+# Danny, 2026-10-20 (second pass): 30 days, not 90. The 90-day lists ran to
+# hundreds of deals per rep (Maria Carvajal: 609 no next step, 930 quotes).
+PIPE_DAYS = 30
 PIPE_SHOW = 20
 PIPE_STAGES = ("New Deal", "Call Scheduled", "Quote Sent", "Retainer Invoice Sent")
+# No next step only: a quoted or invoiced deal is in Quotes waiting or Unpaid
+# retainer invoices instead, so the same patient is never listed twice.
+NO_STEP_STAGES = ("New Deal", "Call Scheduled")
+# The rep's completed calls are read this far back (last contact, history).
+CALLS_DAYS = 30
 # Zoho Admin and Ariel Voskin hold unassigned leads (back office QUEUE_USER_IDS).
 # Only used to keep "Missed Call" deals with no name off a queue user's own
 # No next step list; MY_DAY_QUEUE_OWNER_IDS adds to it.
@@ -869,10 +883,16 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
         r["why"], r["why_label"] = why, WHY_LABELS.get(why, "")
         return r
 
+    # A patient who texted back is listed there, first, and in no other list:
+    # one deal, one row in the pipeline (Danny, 2026-10-20).
+    texted = {str(p.get("dealId") or "") for p in (world.get("replies") or [])} - {""}
+
     # ---- No next step
     nostep = []
     for did, d in pipe_deals.items():
-        if not mine(d) or (d.get("Stage") or "") not in PIPE_STAGES:
+        if did in texted:
+            continue
+        if not mine(d) or (d.get("Stage") or "") not in NO_STEP_STAGES:
             continue
         created = ts(d.get("Created_Time"))
         if not created or created < pipe_cut:
@@ -891,17 +911,17 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
     ns_rows = []
     for lc, created, d in nostep:
         r = prow(d, "ns", "nostep")
-        # Calls are read 30 days back: a deal older than that with none in
+        # Calls are read CALLS_DAYS back: a deal older than that with none in
         # the window was called before it, or never; the page cannot say which.
         r["when"] = ago_days(lc, now_utc) if lc else (
-            "never called" if created > now_utc - timedelta(days=30) else "30+ days ago")
+            "never called" if created > now_utc - timedelta(days=CALLS_DAYS) else "%d+ days ago" % CALLS_DAYS)
         r["sub"], r["sub_kind"] = "no next call", "late"
         ns_rows.append(r)
 
     # ---- Quotes waiting
     quotes = []
     for did, d in pipe_deals.items():
-        if not mine(d) or (d.get("Stage") or "") != "Quote Sent":
+        if not mine(d) or (d.get("Stage") or "") != "Quote Sent" or did in texted:
             continue
         qt = ts(d.get("Quote_Sent_Date"))
         if not qt or qt < pipe_cut:
@@ -919,7 +939,8 @@ def build_pipeline(world, now_utc, tz, rep, pipe_deals, by_deal, deal_of, row, c
     # ---- Unpaid retainer invoices
     invs = []
     for did, d in pipe_deals.items():
-        if not mine(d) or (d.get("Stage") or "") != "Retainer Invoice Sent" or d.get("Retainer_Paid") is True:
+        if not mine(d) or (d.get("Stage") or "") != "Retainer Invoice Sent" or d.get("Retainer_Paid") is True \
+                or did in texted:
             continue
         rt = ts(d.get("Retainer_Sent_Date"))
         if rt and rt < pipe_cut:

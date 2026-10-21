@@ -6465,7 +6465,7 @@ def _md_page(rep, fresh=False):
                 f_pipe = f_replies = None
                 if role == "sales":
                     f_pipe = ex.submit(_zoho.my_day_pipeline, rid, now_utc,
-                                       now_utc - timedelta(days=_md.PIPE_DAYS), now_utc - timedelta(days=30))
+                                       now_utc - timedelta(days=_md.PIPE_DAYS), now_utc - timedelta(days=_md.CALLS_DAYS))
                     f_replies = ex.submit(_md_reply_pings, rid)
                 world = f_world.result()
                 if f_pipe is not None:

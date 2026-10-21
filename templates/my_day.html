@@ -402,9 +402,9 @@
     if (!pl || !pl.enabled) return '';
     var lists = [
       ['s-texts', 'Patients Who Texted Back', pl.texts, 'texts', 'Their latest text has no answer yet. Newest first.', 'Nobody is waiting on a reply.'],
-      ['s-nostep', 'No Next Step', pl.no_step, 'nostep', 'Open deals from the last ' + pl.days + ' days with no call booked. Oldest contact first.', 'Every open deal has a next call.'],
+      ['s-nostep', 'No Next Step', pl.no_step, 'nostep', 'New deals from the last ' + pl.days + ' days with no call booked. Oldest contact first.', 'Every new deal has a next call.'],
       ['s-quotes', 'Quotes Waiting', pl.quotes, 'quotes', 'Quoted in the last ' + pl.days + ' days. Newest first.', 'No quotes waiting.'],
-      ['s-invoices', 'Unpaid Retainer Invoices', pl.invoices, 'invoices', 'Invoice sent, retainer not paid. Newest first.', 'No unpaid invoices.']
+      ['s-invoices', 'Unpaid Retainer Invoices', pl.invoices, 'invoices', 'Invoiced in the last ' + pl.days + ' days, retainer not paid. Newest first.', 'No unpaid invoices.']
     ];
     return '<p class="sub2" style="margin-top:26px">Your pipeline</p>' + lists.map(function(x){
       var L = x[2] || {rows: [], n: 0};

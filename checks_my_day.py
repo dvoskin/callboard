@@ -241,66 +241,88 @@ ck("M.is_dialer reads the subject or a disposition", M.is_dialer({"Subject": "Ou
    and M.is_dialer({"Subject": "x", "DialerDisposition": "No Answer"}) and not M.is_dialer({"Subject": "Outgoing call to X"}),
    "is_dialer")
 
-# ── the pipeline (sales, the rep's own deals) ──────────────────────────────
+# ── the pipeline (sales, the rep's own deals; 30-day windows, Danny 2026-10-20) ──
 OWN = {"id": "u1", "name": "Rep"}
+D = 1440
+RIS = "Retainer Invoice Sent"
 PIPE = [
-    pdeal("1001", "Pat Contacted", -10 * 1440, Owner=OWN),
-    pdeal("1002", "Quinn Quoted", -20 * 1440, stage="Quote Sent", Quote_Sent_Date=at(-2 * 1440), Owner=OWN),
-    pdeal("1003", "Old Deal", -100 * 1440, stage="New Deal", Owner=OWN),
-    pdeal("1004", "Lost Deal", -5 * 1440, stage="Closed Lost", Owner=OWN),
-    pdeal("1005", "Nora Never", -3 * 1440, Owner=OWN),
-    pdeal("1006", "Old Quote", -30 * 1440, stage="Quote Sent", Quote_Sent_Date=at(-120 * 1440), Owner=OWN),
-    pdeal("1007", "Ivy Invoiced", -12 * 1440, stage="Retainer Invoice Sent", Retainer_Sent_Date=at(-4 * 1440),
-          Retainer_Paid=False, Owner=OWN),
-    pdeal("1008", "Paid Retainer", -12 * 1440, stage="Retainer Invoice Sent", Retainer_Sent_Date=at(-1 * 1440),
-          Retainer_Paid=True, Owner=OWN),
-    dict(pdeal("1009", "Unknown", -1 * 1440, Owner=OWN), Deal_Name="Missed Call - 5550100999",
+    pdeal("1001", "Pat Contacted", -10 * D, Owner=OWN),
+    pdeal("1002", "Quinn Quoted", -20 * D, stage="Quote Sent", Quote_Sent_Date=at(-2 * D), Owner=OWN),
+    pdeal("1003", "Old Deal", -100 * D, stage="New Deal", Owner=OWN),
+    pdeal("1004", "Lost Deal", -5 * D, stage="Closed Lost", Owner=OWN),
+    pdeal("1005", "Nora Never", -3 * D, Owner=OWN),
+    pdeal("1006", "Old Quote", -10 * D, stage="Quote Sent", Quote_Sent_Date=at(-120 * D), Owner=OWN),
+    pdeal("1007", "Ivy Invoiced", -12 * D, stage=RIS, Retainer_Sent_Date=at(-4 * D), Retainer_Paid=False, Owner=OWN),
+    pdeal("1008", "Paid Retainer", -12 * D, stage=RIS, Retainer_Sent_Date=at(-1 * D), Retainer_Paid=True, Owner=OWN),
+    dict(pdeal("1009", "Unknown", -1 * D, Owner=OWN), Deal_Name="Missed Call - 5550100999",
          Contact_Name={"id": "c1009", "name": "Unknown"}),
-    pdeal("1010", "Quinn Two", -6 * 1440, stage="Quote Sent", Quote_Sent_Date=at(-6 * 1440), Owner=OWN),
+    pdeal("1010", "Quinn Two", -6 * D, stage="Quote Sent", Quote_Sent_Date=at(-6 * D), Owner=OWN),
+    pdeal("1012", "Edge In", -29 * D, stage="New Deal", Owner=OWN),                       # 29 days: in
+    pdeal("1013", "Edge Out", -31 * D, stage="New Deal", Owner=OWN),                      # 31 days: out
+    pdeal("1014", "Quote Edge In", -40 * D, stage="Quote Sent", Quote_Sent_Date=at(-29 * D), Owner=OWN),
+    pdeal("1015", "Quote Edge Out", -40 * D, stage="Quote Sent", Quote_Sent_Date=at(-31 * D), Owner=OWN),
+    pdeal("1016", "Inv Edge In", -40 * D, stage=RIS, Retainer_Sent_Date=at(-29 * D), Owner=OWN),
+    pdeal("1017", "Inv Edge Out", -40 * D, stage=RIS, Retainer_Sent_Date=at(-31 * D), Owner=OWN),
+    pdeal("1018", "Inv No Date", -5 * D, stage=RIS, Owner=OWN),                            # no date, new deal: in, last
+    pdeal("1019", "Inv No Date Old", -31 * D, stage=RIS, Owner=OWN),                       # no date, old deal: out
+    pdeal("1020", "Tess Texted", -8 * D, Owner=OWN),                                       # texted back: only there
+    pdeal("1022", "Vera Invoiced", -9 * D, stage=RIS, Retainer_Sent_Date=at(-3 * D), Owner=OWN),   # invoiced, texted back
 ]
 FUT = [call("f1", "1002", "Quote Follow Up 2", 24 * 60, "Scheduled"),
        call("f2", "1001", "Follow-up: Pat", -90, "Overdue")]          # past: not a next step
-RC = [call("r1", "1001", "Outgoing call to Pat", -5 * 1440, "Completed", "Reached", 300)]
-REPLIES = [{"phone": "5550190042", "dealId": "1002", "patientName": "Quinn Quoted", "inboundAt": at(-12),
+RC = [call("r1", "1001", "Outgoing call to Pat", -5 * D, "Completed", "Reached", 300)]
+REPLIES = [{"phone": "5550190042", "dealId": "1020", "patientName": "Tess Texted", "inboundAt": at(-12),
             "lastText": "is 3pm ok?", "textCount": 2, "status": "sent"},
            {"phone": "5550190043", "dealId": "1010", "patientName": "Quinn Two", "inboundAt": at(-40),
-            "lastText": "", "textCount": 1, "status": "sent"}]
+            "lastText": "", "textCount": 1, "status": "sent"},
+           {"phone": "5550190044", "dealId": "1022", "patientName": "Vera Invoiced", "inboundAt": at(-60),
+            "lastText": "", "textCount": 1, "status": "held"}]
 QW = dict(WORLD, pipe_deals=PIPE, future_open=FUT, rep_calls=RC, replies=REPLIES)
 PQ = M.build(QW, NOW, TZ, rep={"id": "u1", "name": "Jessica Morales"})
 pl = PQ["pipeline"]
+ck("M.PIPE_DAYS is 30 (Danny's second answer)", M.PIPE_DAYS == 30, M.PIPE_DAYS)
 ns = [r["deal_id"] for r in pl["no_step"]["rows"]]
-ck("no next step: open stage, last 90 days, no open call from now on", set(ns) == {"1001", "1005", "1006", "1007", "1008", "1009", "1010"}, ns)
-ck("...a deal with a call booked ahead has a next step", "1002" not in ns, ns)
-ck("...a deal created over 90 days ago is not listed", "1003" not in ns, ns)
-ck("...a closed stage is not listed", "1004" not in ns, ns)
+ck("no next step: New Deal / Call Scheduled, created in 30 days, no open call from now on",
+   set(ns) == {"1001", "1005", "1009", "1012"}, ns)
+ck("...created 29 days ago is in, 31 days ago is out", "1012" in ns and "1013" not in ns, ns)
+ck("...Quote Sent and Retainer Invoice Sent deals are not in it (their own lists)",
+   not {"1002", "1006", "1007", "1010", "1014", "1016", "1018"} & set(ns), ns)
+ck("...a closed stage is not listed", "1004" not in ns and "1003" not in ns, ns)
 ck("...an overdue call in the past is not a next step", "1001" in ns, ns)
 ck("...oldest last contact first: never called first (oldest deal first), then by last call",
-   ns == ["1006", "1007", "1008", "1010", "1005", "1009", "1001"], ns)
-ck("...the header count is the whole list", pl["no_step"]["n"] == 7, pl["no_step"]["n"])
+   ns == ["1012", "1005", "1009", "1001"], ns)
+ck("...the header count is the whole list", pl["no_step"]["n"] == 4, pl["no_step"]["n"])
 ck("...on a rep's own page a nameless 'Missed Call' deal stays (the rep owns it)", "1009" in ns, ns)
 QOWN = {"id": M.QUEUE_USER_IDS[0], "name": "Zoho Admin"}
 PQQ = M.build(dict(QW, pipe_deals=[dict(d, Owner=QOWN) for d in PIPE]), NOW, TZ, rep=QOWN)
 nsq = [r["deal_id"] for r in PQQ["pipeline"]["no_step"]["rows"]]
 ck("...on a queue user's page it is left off (and the rest of that page's list stays)", "1009" not in nsq and "1005" in nsq, nsq)
 qs = [r["deal_id"] for r in pl["quotes"]["rows"]]
-ck("quotes waiting: Quote Sent, quoted in the last 90 days, newest quote first", qs == ["1002", "1010"], qs)
+ck("quotes waiting: Quote Sent, quoted in the last 30 days, newest quote first", qs == ["1002", "1014"], qs)
+ck("...quoted 29 days ago is in, 31 days ago is out, 120 days ago is out", "1014" in qs and "1015" not in qs and "1006" not in qs, qs)
 ck("...shows days since the quote and the next call", pl["quotes"]["rows"][0]["when"] == "2 days"
    and pl["quotes"]["rows"][0]["sub"] == "since quote" and pl["quotes"]["rows"][0]["next"].startswith("next call")
    and pl["quotes"]["rows"][1]["next"] == "no next call" and "no next call" in pl["quotes"]["rows"][1]["last"]["what"],
    [(r["when"], r["sub"], r.get("next")) for r in pl["quotes"]["rows"]])
 iv = [r["deal_id"] for r in pl["invoices"]["rows"]]
-ck("unpaid retainer invoices: Retainer Invoice Sent and Retainer_Paid not true", iv == ["1007"], iv)
+ck("unpaid retainer invoices: Retainer Invoice Sent, Retainer_Paid not true, sent in 30 days, newest first, undated last",
+   iv == ["1007", "1016", "1018"], iv)
+ck("...sent 29 days ago is in, 31 days ago is out; undated counts by its created date",
+   "1016" in iv and "1017" not in iv and "1018" in iv and "1019" not in iv, iv)
+ck("...a paid retainer is not listed", "1008" not in iv, iv)
 ck("...days since the invoice", pl["invoices"]["rows"][0]["when"] == "4 days"
    and pl["invoices"]["rows"][0]["sub"] == "since invoice", pl["invoices"]["rows"][0]["when"])
 tx = pl["texts"]["rows"]
 ck("texted back: the back office's open replies, newest first, with the words when kept",
-   [r["deal_id"] for r in tx] == ["1002", "1010"] and tx[0]["last"]["what"] == "“is 3pm ok?”"
+   [r["deal_id"] for r in tx] == ["1020", "1010", "1022"] and tx[0]["last"]["what"] == "“is 3pm ok?”"
    and tx[1]["last"]["what"] == "texted, words not kept", [(r["deal_id"], r["last"]) for r in tx])
+ck("a patient who texted back is in that list only (not No next step, Quotes waiting or Unpaid invoices)",
+   "1020" not in ns and "1010" not in qs and "1022" not in iv, (ns, qs, iv))
+every = [r["deal_id"] for k in ("no_step", "quotes", "invoices", "texts") for r in pl[k]["rows"]]
+ck("no deal appears in two pipeline lists", len(every) == len(set(every)), every)
 ck("pipeline rows have Call, Result (a deal id) and Start consultation",
    all(r["deal_id"] and r["consult"] == M.CONSULT_URL % r["deal_id"] and r["phone"]
        for k in ("no_step", "quotes", "invoices", "texts") for r in pl[k]["rows"]), "rows")
-keys = [r["key"] for k in ("no_step", "quotes", "invoices", "texts") for r in pl[k]["rows"]]
-ck("one deal in two lists still gets two distinct rows", len(keys) == len(set(keys)), keys)
 cap_world = dict(QW, pipe_deals=[pdeal(str(5000 + i), "Lead %d" % i, -i * 60, Owner=OWN) for i in range(M.PIPE_SHOW + 7)])
 pc = M.build(cap_world, NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]["no_step"]
 ck("capped like the other lists, with + N more", len(pc["rows"]) == M.PIPE_SHOW and pc["more"] == 7 and pc["n"] == M.PIPE_SHOW + 7,
@@ -309,11 +331,18 @@ PE = M.build(dict(WORLD, replies=None), NOW, TZ, rep={"id": "u1", "name": "x"})[
 ck("texts that could not be loaded say so (never a false zero), and the rest still builds",
    PE["texts"].get("error") == "Couldn't load the texts just now." and PE["texts"]["rows"] == []
    and PE["no_step"].get("error"), PE["texts"])
-ck("a deal older than the 30-day call window with no call in it reads '30+ days ago', a newer one 'never called'",
-   {r["deal_id"]: r["when"] for r in pl["no_step"]["rows"]}.get("1006") == "30+ days ago"
-   and {r["deal_id"]: r["when"] for r in pl["no_step"]["rows"]}.get("1005") == "never called",
-   [(r["deal_id"], r["when"]) for r in pl["no_step"]["rows"]])
-coql_deal = dict(pdeal("1011", "x", -2 * 1440, Owner=OWN), **{"Contact_Name": {"id": "c1011"},
+ck("a deal with no call in the window reads 'never called'", {r["deal_id"]: r["when"] for r in pl["no_step"]["rows"]}.get("1005")
+   == "never called", [(r["deal_id"], r["when"]) for r in pl["no_step"]["rows"]])
+_pd = M.PIPE_DAYS
+try:
+    M.PIPE_DAYS = 90          # should the window ever be wider than the 30 days of calls read
+    wide = M.build(dict(QW, pipe_deals=[pdeal("1021", "Older", -60 * D, Owner=OWN)], replies=[]), NOW, TZ,
+                   rep={"id": "u1", "name": "x"})["pipeline"]["no_step"]["rows"]
+finally:
+    M.PIPE_DAYS = _pd
+ck("...and a deal older than the calls read says '30+ days ago', not 'never called'",
+   [r["when"] for r in wide] == ["30+ days ago"], [r["when"] for r in wide])
+coql_deal = dict(pdeal("1011", "x", -2 * D, Owner=OWN), **{"Contact_Name": {"id": "c1011"},
                  "Contact_Name.First_Name": "Rosa", "Contact_Name.Last_Name": "Medina"})
 nm = M.build(dict(QW, pipe_deals=[coql_deal]), NOW, TZ, rep={"id": "u1", "name": "x"})["pipeline"]["no_step"]["rows"]
 ck("the name comes from Contact_Name.First_Name/Last_Name (COQL gives the lookup as an id only)",
@@ -419,14 +448,14 @@ try:
     ck("texted back is read from the back office with the shared key, for this rep, 48 h",
        g.get("url") == "https://backoffice.example.test/api/reply-pings/open" and g["params"] == {"rep": "u1", "hours": 48}
        and g["headers"].get("x-api-key") == "SECRET-KEY-123", g)
-    ck("...and its rows reach the page", [r["deal_id"] for r in d["pipeline"]["texts"]["rows"]] == ["1002"],
+    ck("...and its rows reach the page", [r["deal_id"] for r in d["pipeline"]["texts"]["rows"]] == ["1020"],
        d.get("pipeline", {}).get("texts"))
     GET_MODE["ok"] = False
     A._md_cache.clear()
     d2 = c.get("/my-day/api/data").get_json()
     ck("the back office down: the page still loads, the texts list says it couldn't load",
        d2.get("nums") == want and d2["pipeline"]["texts"].get("error") == "Couldn't load the texts just now."
-       and d2["pipeline"]["no_step"]["n"] == 7, d2.get("pipeline", {}).get("texts"))
+       and d2["pipeline"]["no_step"]["n"] == 5, d2.get("pipeline", {}).get("texts"))
     GET_MODE["ok"] = True
 
     sent.clear()
