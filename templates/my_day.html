@@ -80,6 +80,21 @@
        color:var(--ink-2);line-height:1.5;max-width:640px}
   .tipon > .tip{display:block}
   .tools{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  /* Alert bar: same tone and mute as the billing board (scoreboard_v6). */
+  #alertbar{position:sticky;top:0;z-index:9}
+  .abar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 0;padding:9px 12px;border-radius:9px;
+        border:1px solid var(--dn);background:var(--bg);font-size:13px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+  .abar.quiet{border-color:var(--rule)}
+  .abar .dot{width:9px;height:9px;border-radius:50%;background:var(--dn);flex:none;animation:pulse 1.6s infinite}
+  .abar.quiet .dot{background:var(--muted);animation:none}
+  .abar .what{font-weight:650}
+  .abar .hint,.abar .mutedtxt{color:var(--muted);font-size:12px}
+  .abar button{margin-left:auto}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.abar .dot{animation:none}}
+  .handle{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:baseline;margin:10px 0 0;font-size:12.5px;color:var(--muted)}
+  .handle b{color:var(--ink);font-size:15px;font-variant-numeric:tabular-nums}
+  .handle .lbl2{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
   .tools .btn{font-size:12px;padding:4px 10px;min-height:0}
 
   .hd,.r{display:grid;grid-template-columns:118px minmax(0,1.3fr) 178px minmax(0,1fr) 300px;
@@ -241,6 +256,8 @@
     <select class="sw" id="sw" aria-label="Open someone else's day" hidden></select>
   </div>
   <div id="banners"></div>
+  <div id="alertbar"></div>
+  <div id="handle" class="handle"></div>
   <div id="body"><p class="empty">Loading your day…</p></div>
   <p class="foot" id="foot"></p>
 </div>
@@ -380,12 +397,13 @@
   // A list folds to its header; the choice is remembered on this phone. Until a
   // rep chooses, an empty list and the pipeline lists start folded, so the day
   // reads as a whole and the calls to make now are what is open.
-  var FOLD = {};
-  try { FOLD = JSON.parse(localStorage.getItem('myday.fold') || '{}') || {}; } catch (e) { FOLD = {}; }
-  var START_FOLDED = {'s-nostep':1};
+  // Every list starts folded except Right Now, and only one list is open at a
+  // time: opening one folds the rest (Danny, 10-21). Kept for this visit only.
+  var FOLD = {}, OPEN_SEC = 's-up';
+  var START_FOLDED = {};
   var TIPS_ON = {};
-  function folded(id, count){ return id in FOLD ? !!FOLD[id] : (!!START_FOLDED[id] || !count); }
-  function saveFold(){ try { localStorage.setItem('myday.fold', JSON.stringify(FOLD)); } catch (e) {} }
+  function folded(id, count){ return id !== OPEN_SEC; }
+  function saveFold(){}
   function infoBtn(tip){ return tip ? '<button class="info" data-info="1" aria-label="What is this?" title="What is this?">i</button>' : ''; }
   function secWrap(id, title, cls, count, hint, tip, body){
     return '<div class="sec' + (folded(id, count) ? ' closed' : '') + (TIPS_ON[id] ? ' tipon' : '') + '" id="' + id + '">' +
@@ -412,6 +430,7 @@
     'quotewait': 'Quoted, not paid yet. Follow up until she pays or says no.',
     'invoice': 'Retainer invoice sent, not paid yet.',
     'texted': 'She texted us and has no answer yet.',
+    'task': 'A Zoho task due today with no set time. Call between your booked calls.',
     'missed': 'She called us and nobody picked up.'
   };
 
@@ -433,12 +452,12 @@
       '<div title="Calls booked for earlier that nobody has made yet."><b' + (n.late ? ' class="dn"' : '') + '>' + n.late + '</b>late, still to call</div>' +
       '<div title="You talked to her today but no next call is booked. Book one."><b>' + n.talked_nothing_booked + '</b>talked, nothing booked</div>' +
       '<div class="nl" title="New patients from the last 24 hours not called yet."><b>' + n.new_leads + '</b>new leads waiting</div></div>' +
-      '<div class="tools"><button class="btn" data-foldall="0">Open all</button><button class="btn" data-foldall="1">Fold all</button></div>';
+      '<div class="tools"><button class="btn" data-foldall="1">Fold all</button></div>';
     h += '<span id="s-day"></span>';
     var up = p.up_next || {rows: []};
     if (up.rows.length) {
       h += group('g-up', 'Up Next', 'Do these now, top first.',
-        'One list for right now. A time we promised a patient always comes first: late calls, then calls due in the next 5 minutes. Then a brand new lead (the first minutes matter most) and anyone who texted you. After that, the patients most likely to pay: unpaid invoices, then quotes. Every patient is also in their own list below.');
+        'One list for right now. A time we promised a patient always comes first: late calls, then calls due in the next 5 minutes. Then a brand new lead (the first minutes matter most), anyone who texted you, and follow-ups due today. After that, the patients most likely to pay: unpaid invoices, then quotes. Every patient is also in their own list below.');
       h += secWrap('s-up', 'Right Now', '', up.rows.length, up.next_booked ? 'Your next booked call is ' + up.next_booked.short + ' at ' + up.next_booked.when + '.' : 'No more booked calls today.',
         '', HD + up.rows.map(function(r){ return rowHtml(r, 'up'); }).join(''));
     }
@@ -470,9 +489,9 @@
     h += section('s-new', 'Not Called Yet', '', n.new_leads, 'Call now. Newest first.', p.new_leads,
       {tip: 'Your new patients from the last 24 hours that nobody has called yet. Newest first.', empty: p.new_elsewhere ? 'Every new lead is already listed above.' : 'No new leads in the last 24 hours.', more: esc(newMore.join(' · '))}, 'new');
     if (p.queue_enabled) {
-      h += '<p class="sub2" title="New leads nobody owns yet. The first rep to tap Call gets the lead.">Shared, call now</p>';
-      h += (p.queue.length ? HD + p.queue.map(function(r){ return rowHtml(r, 'queue'); }).join('') : '<p class="empty">The shared queue is empty.</p>') +
-        '<div class="more">The first rep to tap Call takes the lead.' + (p.queue_more ? ' + ' + p.queue_more + ' more.' : '') + '</div>';
+      h += section('s-queue', 'Unclaimed New Leads', '', p.queue.length + (p.queue_more || 0), 'Nobody owns these yet. Tap Call and it is yours.', p.queue,
+        {tip: 'New leads still on the shared calendar, not owned by any rep. The first rep who taps Call gets the lead: it moves to you in Zoho, and nobody else can take it. The dialer also calls these if nobody does.',
+         empty: 'No unclaimed leads right now.', more: p.queue_more ? '+ ' + p.queue_more + ' more' : ''}, 'queue');
     }
     h += nextStepHtml(p.pipeline);
     h += secWrap('s-done', 'Done Today', '', n.done, 'By call result.',
@@ -484,7 +503,8 @@
     $('tb-new').textContent = n.new_leads; $('tb-done').textContent = n.done;
     $('foot').textContent = 'Late means more than ' + p.late_minutes + ' minutes past the call time. From Zoho; refreshes every 2 minutes.';
     var fin = $('finish');
-    if (fin) fin.onclick = function(){ showNoResult = true; OPEN_KEY = p.no_result[0] && p.no_result[0].key; FLOW = null; render(); scrollToOpen(); };
+    if (fin) fin.onclick = function(){ showNoResult = true; OPEN_SEC = 's-nores'; OPEN_KEY = p.no_result[0] && p.no_result[0].key; FLOW = null; render(); scrollToOpen(); };
+    alertRender();
   }
 
   // The rep's own pipeline (sales). A list whose source could not be read says
@@ -493,6 +513,8 @@
   // pays about 1 in 2, a quote about 1 in 8, a new lead about 1 in 20.
   function pipeLists(pl){
     return [
+      ['s-tasks', 'Follow-Ups Due', pl.tasks, 'tasks', 'Due today, no set time. Do them between booked calls.', 'No follow-ups due.',
+       'Zoho tasks due today or in the last 3 days, one per patient. They have a day but no time, so fit them in between your booked calls. Invoice and quote patients come first. Older overdue tasks are not shown.'],
       ['s-texts', 'Patients Who Texted Back', pl.texts, 'texts', 'Waiting on your answer. Invoice and quote patients first.', 'Nobody is waiting on a reply.',
        'She texted us and nobody answered. Text or call her back first: she is waiting on you.'],
       ['s-nostep', 'No Next Step', pl.no_step, 'nostep', 'New deals from the last ' + pl.days + ' days with no call booked. Oldest contact first.', 'Every new deal has a next call.',
@@ -513,15 +535,25 @@
     var L = pipeLists(pl), by = {}; L.forEach(function(x){ by[x[0]] = x; });
     return group('g-close', 'Closest to Closing', 'Start here. These patients are the most likely to pay.',
       'Your own deals from the last ' + pl.days + ' days, most likely to pay first. On our own numbers, about 1 in 2 patients with a retainer invoice pay, and about 1 in 8 with a quote. A patient who texted you is waiting on you right now. Each patient is in one list only.') +
-      pipeSec(by['s-invoices']) + pipeSec(by['s-texts']) + pipeSec(by['s-quotes']);
+      pipeSec(by['s-texts']) + (by['s-tasks'] && by['s-tasks'][2] ? pipeSec(by['s-tasks']) : '') + pipeSec(by['s-invoices']) + pipeSec(by['s-quotes']);
   }
   function nextStepHtml(pl){
     if (!pl || !pl.enabled) return '';
     var x = pipeLists(pl).filter(function(y){ return y[0] === 's-nostep'; })[0];
+    if (!x) return '';
     return group('g-step', 'Needs a Next Step', 'Newer deals with nothing booked.',
       'Almost nobody pays without a quote: 2 of 14,264 never-quoted leads did. The goal of these calls is to get them to a quote.') + pipeSec(x);
   }
 
+  function openSec(id){
+    OPEN_SEC = id;
+    document.querySelectorAll('.sec[id]').forEach(function(s){
+      var shut = s.id !== id; s.classList.toggle('closed', shut);
+      var h = s.querySelector('[data-fold]'); if (h) h.setAttribute('aria-expanded', String(!shut));
+    });
+    var t = id && document.getElementById(id);
+    if (t) t.scrollIntoView({block:'start', behavior:'smooth'});
+  }
   function scrollToOpen(){
     var el = document.querySelector('.r.open');
     if (el) el.scrollIntoView({block:'start', behavior:'smooth'});
@@ -536,21 +568,13 @@
       return;
     }
     var fa = e.target.closest('[data-foldall]');
-    if (fa) {
-      var shut = fa.getAttribute('data-foldall') === '1';
-      document.querySelectorAll('.sec[id]').forEach(function(s){ FOLD[s.id] = shut; s.classList.toggle('closed', shut); });
-      saveFold(); return;
-    }
+    if (fa) { OPEN_SEC = null; document.querySelectorAll('.sec[id]').forEach(function(s){ s.classList.add('closed'); }); return; }
     var fh = e.target.closest('[data-fold]');
-    if (fh && !e.target.closest('a,button:not(.sh)')) {
-      var sec = fh.parentNode, shutNow = !sec.classList.contains('closed');
-      FOLD[sec.id] = shutNow; sec.classList.toggle('closed', shutNow); fh.setAttribute('aria-expanded', String(!shutNow));
-      saveFold(); return;
-    }
+    if (fh && !e.target.closest('a,button:not(.sh)')) { openSec(fh.parentNode.classList.contains('closed') ? fh.parentNode.id : null); return; }
     var a = e.target.closest('[data-call]');
     if (a) { onCall(e, a); return; }
     var res = e.target.closest('[data-result]');
-    if (res) { OPEN_KEY = res.getAttribute('data-result'); FLOW = null; render(); scrollToOpen(); return; }
+    if (res) { OPEN_KEY = res.getAttribute('data-result'); var sc = res.closest('.sec'); if (sc) OPEN_SEC = sc.id; FLOW = null; render(); scrollToOpen(); return; }
     if (e.target.closest('[data-close]')) { OPEN_KEY = null; FLOW = null; render(); return; }
     var ob = e.target.closest('[data-ob]');
     if (ob && !ob.disabled) { startOutcome(ob.getAttribute('data-ob')); return; }
@@ -681,12 +705,93 @@
     a.addEventListener('click', function(){
       document.querySelectorAll('.tabbar a').forEach(function(x){ x.classList.toggle('on', x === a); });
       var t = document.getElementById((a.getAttribute('href') || '').slice(1));
-      if (t && t.classList.contains('sec') && t.classList.contains('closed')) { FOLD[t.id] = false; t.classList.remove('closed'); saveFold(); }
+      if (t && t.classList.contains('sec') && t.classList.contains('closed')) openSec(t.id);
     });
   });
 
+  // ── alerts: the billing board's tone (scoreboard_v6), for a rep's day ──
+  // While something needs the rep NOW, a soft two-note tone every 40 s and a bar
+  // saying what. Now = a booked call due within 5 minutes or late, a new lead
+  // under 15 minutes old, a patient who texted back. Mute silences what is on
+  // the bar; anything new sounds again. Browsers allow sound only after the page
+  // has been touched once, so the bar asks for that tap.
+  var ALERT = {ctx: null, timer: null, keys: [], items: [], muted: null, armed: false};
+  function alertStoreKey(){ return 'myday-alert-muted-' + (REP.id || ''); }
+  function mutedSet(){
+    if (ALERT.muted) return ALERT.muted;
+    var m = {}; try { (JSON.parse(localStorage.getItem(alertStoreKey()) || '[]') || []).forEach(function(k){ m[k] = 1; }); } catch (e) {}
+    return (ALERT.muted = m);
+  }
+  function saveMuted(){ try { localStorage.setItem(alertStoreKey(), JSON.stringify(Object.keys(ALERT.muted || {}))); } catch (e) {} }
+  function alertItems(p){
+    var out = [], now = Date.now();
+    (p.late || []).forEach(function(r){ out.push({k: 'late:' + r.key, t: 'late call', r: r}); });
+    (p.today || []).forEach(function(r){ var t = Date.parse(r.start); if (t && t - now <= 5 * 60000) out.push({k: 'due:' + r.key, t: 'call due now', r: r}); });
+    (p.new_leads || []).concat(p.queue || []).forEach(function(r){ var t = Date.parse(r.start); if (t && now - t <= 15 * 60000) out.push({k: 'lead:' + r.key, t: 'new lead', r: r}); });
+    (((p.pipeline || {}).texts || {}).rows || []).forEach(function(r){ out.push({k: 'text:' + r.key + ':' + r.start, t: 'text waiting', r: r}); });
+    return out;
+  }
+  function alertUnlock(){
+    try { if (!ALERT.ctx) ALERT.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ALERT.ctx.state === 'suspended') ALERT.ctx.resume(); } catch (e) { return; }
+    if (ALERT.armed) return; ALERT.armed = true;
+    setTimeout(function(){ alertRender(); if (ALERT.timer) alertTone(); }, 300);
+  }
+  function alertTone(){
+    var c = ALERT.ctx; if (!c || c.state !== 'running') return;
+    [[660, 0], [880, 0.17]].forEach(function(q){
+      var o = c.createOscillator(), g = c.createGain(), t = c.currentTime + q[1];
+      o.type = 'sine'; o.frequency.value = q[0]; o.connect(g); g.connect(c.destination);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      o.start(t); o.stop(t + 0.16);
+    });
+  }
+  function alertRender(){
+    if (!PAGE) return;
+    var items = alertItems(PAGE), muted = mutedSet(), keys = items.map(function(x){ return x.k; });
+    Object.keys(muted).forEach(function(k){ if (keys.indexOf(k) < 0) delete muted[k]; }); saveMuted();
+    ALERT.items = items; ALERT.keys = keys;
+    var fresh = items.filter(function(x){ return !muted[x.k]; });
+    var counts = {}; items.forEach(function(x){ counts[x.t] = (counts[x.t] || 0) + 1; });
+    var PL = {'late call': 'late calls', 'call due now': 'calls due now', 'new lead': 'new leads', 'text waiting': 'texts waiting'};
+    var what = Object.keys(counts).map(function(t){ return counts[t] + ' ' + (counts[t] > 1 ? PL[t] : t); }).join(' · ');
+    var first = (fresh[0] || items[0] || {}).r;
+    $('alertbar').innerHTML = items.length ? '<div class="abar' + (fresh.length ? '' : ' quiet') + '" role="status"><span class="dot"></span>' +
+      '<span class="what">' + esc(what) + '</span>' + (first ? '<span class="hint">Next: ' + esc(first.short) + '</span>' : '') +
+      (fresh.length ? '<button class="btn" data-amute="1">Mute</button>' : '<span class="mutedtxt">muted, a new one will sound</span><button class="btn" data-aunmute="1">Unmute</button>') +
+      (fresh.length && !(ALERT.ctx && ALERT.ctx.state === 'running') ? '<span class="hint">Tap anywhere once to turn the sound on.</span>' : '') + '</div>' : '';
+    if (fresh.length && !ALERT.timer) { alertTone(); ALERT.timer = setInterval(alertTone, 40000); }
+    else if (!fresh.length && ALERT.timer) { clearInterval(ALERT.timer); ALERT.timer = null; }
+    var base = document.title.replace(/^\(\d+\) /, '');
+    document.title = fresh.length ? '(' + fresh.length + ') ' + base : base;
+  }
+  document.addEventListener('pointerdown', alertUnlock);
+  document.addEventListener('keydown', alertUnlock);
+  document.addEventListener('click', function(e){
+    if (e.target.closest('[data-amute]')) { var m = mutedSet(); ALERT.keys.forEach(function(k){ m[k] = 1; }); saveMuted(); alertRender(); }
+    else if (e.target.closest('[data-aunmute]')) { ALERT.muted = {}; saveMuted(); alertRender(); }
+  });
+
+  // ── phone time today, from the sales board's report ──
+  function fmtDur(sec){ sec = Math.round(sec || 0); var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); return h ? h + 'h ' + m + 'm' : m + 'm'; }
+  function loadHandle(){
+    if (!REP.id || (PAGE && PAGE.role === 'coordinator')) return;
+    fetch('/my-day/api/handle?rep=' + encodeURIComponent(REP.id), {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); }).then(function(j){
+        if (j.error || !j.found) { $('handle').innerHTML = j.error ? '' : '<span>No calls on the phone report for you yet today.</span>'; return; }
+        var med = j.floor_median_talk != null ? ' <span title="Half the floor talked more than this today, half less.">floor middle ' + fmtDur(j.floor_median_talk) + '</span>' : '';
+        $('handle').innerHTML = '<span class="lbl2" title="From the same phone report as the sales board. RingCX calls show up about 20 minutes late.">Phone today</span>' +
+          '<span title="Time on the phone with patients"><b>' + fmtDur(j.talk) + '</b> talk</span>' +
+          '<span title="Talk plus after-call work (wrap)"><b>' + fmtDur(j.handle) + '</b> handle</span>' +
+          '<span><b>' + j.dials + '</b> calls</span><span><b>' + j.connected + '</b> connected</span>' + med +
+          (j.covers_to ? '<span title="The dialer report covers calls up to this time.">dialer to ' + esc(j.covers_to.slice(0, 5)) + '</span>' : '');
+      }).catch(function(){});
+  }
+
   load(false);
+  loadHandle();
   setInterval(function(){ if (!OPEN_KEY && !document.hidden) load(false); }, 120000);
+  setInterval(function(){ if (!document.hidden) loadHandle(); }, 120000);
+  setInterval(function(){ if (PAGE) alertRender(); }, 30000);
 })();
 </script>
 </body>
