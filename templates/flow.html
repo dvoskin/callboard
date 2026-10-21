@@ -45,6 +45,9 @@
   td.r{text-align:right;color:var(--muted);white-space:nowrap}
   a{color:inherit}
   .err{color:var(--bad);margin-top:14px}
+  .dl{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:999px;font-size:11px;border:1px solid var(--rule);color:var(--muted)}
+  .dl.on{border-color:var(--ok);color:var(--ok)}
+  .rf{font:inherit;font-size:12.5px;border:0;background:none;color:var(--ok);font-weight:650;cursor:pointer;padding:0 0 0 6px}
   @media(max-width:520px){
     .app{padding:12px 12px 40px}
     .sh{padding:11px 12px;gap:10px}
@@ -67,7 +70,8 @@
     if (!rows || !rows.length) return '';
     return '<p>' + esc(label) + '</p><table>' + rows.map(function(r){
       return '<tr><td><a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' + (r.rep ? ' <span style="color:var(--muted)">· ' + esc(r.rep) + '</span>' : '') +
-        (r.why ? '<br><span style="color:var(--muted);font-size:12px">' + esc(r.why) + '</span>' : '') + '</td><td class="r">' + esc(r.when) + '</td></tr>';
+        (r.why ? '<br><span style="color:var(--muted);font-size:12px">' + esc(r.why) + '</span>' : '') +
+        (r.dialer ? ' <span class="dl' + (/^on the dialer/.test(r.dialer) ? ' on' : '') + '">' + esc(r.dialer) + '</span>' : '') + '</td><td class="r">' + esc(r.when) + '</td></tr>';
     }).join('') + '</table>';
   }
   function pairs(rows, a, b){
@@ -84,7 +88,7 @@
   }
   function render(d){
     var L = d.leads, D = d.dialer, P = d.picked, O = d.ownership, C = d.commitments, Pi = d.pipeline, A = d.automation, pv = O.preview || {};
-    document.getElementById('asof').textContent = 'Today, as of ' + new Date(d.builtAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) + '. Green is fine, red needs someone now. Tap a step for the names.';
+    document.getElementById('asof').innerHTML = 'Today, as of ' + esc(new Date(d.builtAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})) + ', updates every 2 minutes.<button class="rf" data-refresh="1">Refresh now</button><br>Green is fine, red needs someone now. Tap a step for the names; each name says whether the dialer has them, so nobody calls twice.';
     var steps = [], now = [];
 
     // 1. New leads
@@ -179,13 +183,14 @@
     var sh = e.target.closest('[data-step]');
     if (sh) { var sid = sh.getAttribute('data-step'); OPEN[sid] = !OPEN[sid]; sh.parentNode.classList.toggle('open', !!OPEN[sid]); }
   });
-  function load(){
-    fetch('/flow/api/summary', {credentials: 'same-origin'})
+  function load(fresh){
+    fetch('/flow/api/summary' + (fresh ? '?fresh=1' : ''), {credentials: 'same-origin'})
       .then(function(r){ return r.json(); })
       .then(function(d){ if (d.error) throw new Error(d.error); render(d); })
       .catch(function(){ document.getElementById('body').innerHTML = '<p class="err">The flow could not be read just now. Trying again in a minute.</p>'; setTimeout(load, 60000); });
   }
   load();
-  setInterval(function(){ if (!document.hidden) load(); }, 300000);
+  setInterval(function(){ if (!document.hidden) load(); }, 120000);
+  document.addEventListener('click', function(e){ if (e.target.closest('[data-refresh]')) { document.getElementById('asof').textContent = 'Refreshing…'; load(true); } });
 })();
 </script>

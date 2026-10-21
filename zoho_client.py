@@ -3722,7 +3722,7 @@ class ZohoClient:
     _MD_CALL_FIELDS = ("id, Subject, Call_Type, Outgoing_Call_Status, Call_Start_Time, "
                        "Call_Duration_in_seconds, Call_Result, Outgoing_call_disposition, "
                        "DialerDisposition, Description, What_Id, Who_Id, Owner, Created_Time")
-    _MD_DEAL_FIELDS = ("id, Deal_Name, Contact_Name, Phone, Stage, Amount, Lead_Source, Language, "
+    _MD_DEAL_FIELDS = ("id, Deal_Name, Contact_Name, Phone, Stage, Amount, Lead_Source, Language, DialerStatus, "
                        "Timezone, Created_Time, Procedure, Location, Quote_Sent_Date, Owner, "
                        "Retainer_Sent_Date, Retainer_Paid, Contact_Name.First_Name, Contact_Name.Last_Name")
     _md_future = {"at": 0.0, "rows": None}

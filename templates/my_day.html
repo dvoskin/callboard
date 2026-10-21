@@ -83,6 +83,7 @@
   .tiphint{display:none;align-items:center;gap:8px;margin:6px 0 0;padding:6px 10px;border-radius:8px;background:var(--tint);font-size:12px;color:var(--ink-2)}
   .tiphint button{margin-left:auto;font:inherit;font-size:12px;border:0;background:none;color:var(--up);font-weight:650;padding:4px}
   .pill,.prio,.pt2{cursor:help}
+  .tag.ondial{background:color-mix(in srgb,var(--up) 14%,var(--bg));color:var(--ink)}
   .tag.held{background:color-mix(in srgb,var(--mid) 18%,var(--bg));color:var(--ink)}
   .plan{margin:12px 0 0;padding:10px 0 12px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
   .ptiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:6px}
@@ -457,6 +458,7 @@
     return '<div class="r' + (OPEN_KEY === r.key ? ' open' : '') + (SAVED[r.key] ? ' done' : '') + '" data-key="' + esc(r.key) + '" data-sec="' + sec + '">' +
       whenCell(r) +
       '<div class="pt"><b>' + esc(r.short) + (r.dialer ? '<span class="tag" title="A RingCX dialer call">dialer</span>' : '') +
+        (r.on_dialer ? '<span class="tag ondial" data-tip="The dialer has this patient queued right now. Let the dialer call them, or call now and the dialer will skip them once you talk." title="The dialer has this patient queued right now. Let the dialer call them, or call now and the dialer will skip them once you talk.">on dialer</span>' : '') +
         (r.held_by ? '<span class="tag held" title="Tapped Call in the last 15 minutes">' + esc(r.held_mine ? 'you are calling' : r.held_by.split(' ')[0] + ' is calling') + '</span>' : '') + '</b><span class="meta">' + esc(r.meta) + '</span></div>' +
       '<div class="why">' + (SAVED[r.key] ? '<span class="pill saved">\u2713 ' + esc(SAVED[r.key].label) + '</span>'
                                           : '<span class="pill p-' + esc(r.why) + '" title="' + esc(WHY_TIPS[r.why] || '') + '">' + esc(r.why_label) + '</span>') + '</div>' +
