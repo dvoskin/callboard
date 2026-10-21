@@ -2,6 +2,8 @@ import os
 import re
 import logging
 import requests
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -3721,7 +3723,10 @@ class ZohoClient:
                        "Call_Duration_in_seconds, Call_Result, Outgoing_call_disposition, "
                        "DialerDisposition, Description, What_Id, Who_Id, Owner, Created_Time")
     _MD_DEAL_FIELDS = ("id, Deal_Name, Contact_Name, Phone, Stage, Amount, Lead_Source, Language, "
-                       "Timezone, Created_Time, Procedure, Location, Quote_Sent_Date, Owner")
+                       "Timezone, Created_Time, Procedure, Location, Quote_Sent_Date, Owner, "
+                       "Retainer_Sent_Date, Retainer_Paid, Contact_Name.First_Name, Contact_Name.Last_Name")
+    _md_future = {"at": 0.0, "rows": None}
+    _md_future_lock = threading.Lock()
 
     def _coql_all(self, query: str, page: int = 200, cap: int = 4000) -> list:
         """Every row of a COQL query, paged. Raises on an HTTP failure: a page
@@ -3782,10 +3787,62 @@ class ZohoClient:
         return dt.strftime("%Y-%m-%dT%H:%M:%S") + (dt.strftime("%z")[:3] + ":" + dt.strftime("%z")[3:]
                                                     if dt.utcoffset() is not None else "+00:00")
 
+    def my_day_future_open(self, now) -> list:
+        """Every open call (any owner) from now on: who has a next step. One
+        read for the whole floor (about 4,000 rows, two pages, 2026-10-20),
+        shared by every rep's page for a minute."""
+        with self._md_future_lock:
+            hit = self._md_future
+            if hit["rows"] is not None and time.time() - hit["at"] < 60:
+                return hit["rows"]
+        rows = self._coql_all(
+            "select id, What_Id, Who_Id, Call_Start_Time, Outgoing_Call_Status from Calls where "
+            f"(Outgoing_Call_Status in ('Scheduled','Overdue') and Call_Start_Time >= '{self._md_iso(now)}')",
+            page=2000, cap=20000)
+        with self._md_future_lock:
+            self._md_future.update(at=time.time(), rows=rows)
+        return rows
+
+    def my_day_pipeline(self, owner_id: str, now, pipe_from, calls_from) -> dict:
+        """The rep's pipeline for My Day, three reads run side by side:
+        their deals in the four open stages created, quoted or invoiced since
+        pipe_from (one query; the ORs nest in pairs), the floor's open calls
+        from now on, and their own completed calls since calls_from (last
+        contact and history; about 3,000 rows, two pages). A read that fails
+        comes back as None so the page says so instead of showing zero."""
+        uid = str(owner_id).replace("'", "")
+        D, F, iso = self._MD_DEAL_FIELDS, self._MD_CALL_FIELDS, self._md_iso
+        p = iso(pipe_from)
+
+        def deals():
+            return self._coql_all(
+                f"select {D} from Deals where ((Owner.id = '{uid}' and Stage in ('New Deal','Call Scheduled',"
+                f"'Quote Sent','Retainer Invoice Sent')) and ((Created_Time >= '{p}' or Quote_Sent_Date >= '{p}') "
+                f"or Retainer_Sent_Date >= '{p}'))", page=2000, cap=6000)
+
+        def rep_calls():
+            return self._coql_all(
+                f"select {F} from Calls where ((Owner.id = '{uid}' and Outgoing_Call_Status = 'Completed') "
+                f"and Call_Start_Time >= '{iso(calls_from)}')", page=2000, cap=10000)
+
+        jobs = {"pipe_deals": deals, "future_open": lambda: self.my_day_future_open(now), "rep_calls": rep_calls}
+        out = {}
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            futs = {k: ex.submit(fn) for k, fn in jobs.items()}
+            for k, f in futs.items():
+                try:
+                    out[k] = f.result()
+                except Exception as e:  # noqa: BLE001
+                    logging.getLogger(__name__).warning("my-day: pipeline read %s failed: %s", k, str(e)[:160])
+                    out[k] = None
+        return out
+
     def my_day_world(self, owner_id: str, day_start, day_end, late_from, new_from, hist_from,
-                     queue_owner_ids=()) -> dict:
+                     queue_owner_ids=(), extra_deal_ids=()) -> dict:
         """Raw rows for one rep's My Day. All datetimes aware; sent with their
-        offset. COQL here rejects three bare ANDs, so conditions nest in pairs."""
+        offset. COQL here rejects three bare ANDs, so conditions nest in pairs.
+        extra_deal_ids: deals the page needs rows for besides its calls (the
+        patients who texted back)."""
         uid = str(owner_id).replace("'", "")
         F, D, iso = self._MD_CALL_FIELDS, self._MD_DEAL_FIELDS, self._md_iso
         calls_open = self._coql_all(
@@ -3816,6 +3873,7 @@ class ZohoClient:
                 who = c.get("Who_Id")
                 if isinstance(who, dict) and who.get("id"):
                     contact_only.add(str(who["id"]))
+        want |= {str(x) for x in (extra_deal_ids or ()) if str(x).isdigit()}
         missing = sorted(want - set(deals))
         for i in range(0, len(missing), 50):
             ids = ",".join("'%s'" % x for x in missing[i:i + 50])

@@ -194,7 +194,8 @@ ck("the page asks for the word or sends to login", r.status_code in (200, 302), 
 if r.status_code == 200:
     ck("…and it is the password page, not the board", b"password" in r.data.lower() and b"Unreturned" in r.data, r.data[:200])
 else:
-    ck("…redirect goes to /login", r.headers.get("Location", "").endswith("/login"), r.headers.get("Location"))
+    # Since 2026-10-20 the login redirect carries the page back (/login?next=/callbacks).
+    ck("…redirect goes to /login", r.headers.get("Location", "").split("?")[0].endswith("/login"), r.headers.get("Location"))
 r = c.get("/api/v6/callbacks?days=99")
 ck("still shut with a silly window", r.status_code == 401, r.status_code)
 ck("the window is capped in code", A._CB_MAX_DAYS == 14, A._CB_MAX_DAYS)
