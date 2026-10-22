@@ -519,7 +519,7 @@
   // reads as a whole and the calls to make now are what is open.
   // Every list starts folded except Right Now, and only one list is open at a
   // time: opening one folds the rest (Danny, 10-21). Kept for this visit only.
-  var FOLD = {}, OPEN_SEC = 's-up';
+  var FOLD = {}, OPEN_SEC = 's-up', FIRST_OPEN = true;
   var START_FOLDED = {};
   var TIPS_ON = {};
   function folded(id, count){ return id !== OPEN_SEC; }
@@ -629,8 +629,10 @@
     // Today's follow-ups in one line, counted the way the managers' board counts them.
     var fu = p.followups;
     if (fu) h += '<div class="daycount">Follow-ups today: <b>' + fu.done + '</b> done · <b>' + fu.late + '</b> late · <b>' + fu.due + '</b> due now · <b>' + fu.to_come + '</b> still to come</div>';
-    // Results first: a conversation with no result has no next step.
+    // Results first: a conversation with no result has no next step. On the first load the page opens
+    // there instead of on Up Next; after that it keeps whatever the rep opened.
     var nr = p.no_result.length;
+    if (FIRST_OPEN) { FIRST_OPEN = false; if (nr) OPEN_SEC = 's-nores'; }
     if (nr) {
       h += '<div class="alert"><span class="dot"></span><span class="what">' + nr + (nr === 1 ? ' call has' : ' calls have') + ' no result yet.</span><span class="hint">Tap one result on each. Without it nobody knows the next step.</span><button class="btn" id="finish">Finish them</button></div>';
       if (showNoResult) h += section('s-nores', 'No Result Yet', 'dn', nr, 'Calls you made today with no result written. Do these first.', p.no_result,
