@@ -72,6 +72,28 @@
   }
 
   function sum(days, k) { return (days || []).reduce(function (s, d) { return s + (+d[k] || 0); }, 0); }
+  // A seat's texts (/api/v6/report) in the shape TB's texts tracker reads --
+  // in, out, responded, unanswered -- the tracker the Sales Training Class
+  // carried here (Danny, 2026-10-22: "add the sms tracker from the teams page
+  // to the billing and scheduling page too"). null when the board does not
+  // read texts at all; unknown when this seat's were not read: never zero.
+  function smsOf(a, j) {
+    var s = a && a.sms;
+    if (!s || (j && j.sms_enabled === false)) return null;
+    var rp = s.replies || {};
+    return { received: +s.received || 0, sent: +s.sent || 0, sent_typed: s.sent_typed, sent_auto: s.sent_auto,
+             replied: +rp.replied || 0, unanswered: +rp.unanswered || 0, threads: +rp.threads || 0,
+             complete: s.complete !== false, unknown: !!s.unknown, stale_minutes: s.stale_minutes };
+  }
+  function smsTotals(list, j, extraUnread) {
+    var got = list.map(function (a) { return smsOf(a, j); });
+    var read = got.filter(function (x) { return x && !x.unknown; });
+    var t = { received: 0, sent: 0, replied: 0, unanswered: 0 };
+    read.forEach(function (x) { for (var k in t) t[k] += x[k]; });
+    t.seats = read.length; t.seats_total = got.filter(Boolean).length + (extraUnread || 0);
+    t.unknown_seats = t.seats_total - t.seats;
+    return t;
+  }
   function press(missedOpen, sms) {
     var bits = [];
     if (missedOpen) bits.push('<b class="hot">' + w(missedOpen) + '</b> missed');
@@ -123,7 +145,7 @@
     return ' <i>expected ' + e + (unit || '') + ' by now (' + (pct > 0 ? '+' : '') + pct + '%)</i>';
   }
 
-  function v6Row(a, team, T6, longLbl) {
+  function v6Row(a, team, T6, longLbl, j) {
     var D = a.days || [], c = a.crm || {}, calls = c.calls || {}, jn = c.journeys || {}, jc = jn.journey_calls || {},
         q = jn.queue || {}, soon = jn.soon || {}, t = c.tasks || {}, f = (a.day || {}).focus || {}, ms = a.missed_summary || {};
     var due = calls.due || 0, done = calls.completed || 0, od = calls.overdue || 0;
@@ -175,7 +197,8 @@
       row.t3Html = pr == null ? '—' : (Math.round((pr - 1) * 100) > 0 ? '+' : '') + Math.round((pr - 1) * 100) + '%';
       row.t3Lbl = ' vs exp';
       row.g.over3 = pr == null ? '' : (pr >= 0.8 ? 'pace-ok' : 'pace-low');
-      row.press = press(ms.open);
+      var bits = [ms.open ? '<b class="hot">' + w(ms.open) + '</b> missed' : '', TB.smsPress(smsOf(a, j))].filter(Boolean);
+      row.press = bits.length ? '<span class="press">' + bits.join(' · ') + '</span>' : '';
       row.a = { html: a.collected_total ? money(a.collected_total) : '—', zero: !a.collected_total,
                 title: 'What this biller recorded as collected in this window' };
       row.b = crmIn ? { html: w(od), zero: !od, hot: od > 0, title: 'Zoho calls past their time and still open' }
@@ -191,10 +214,12 @@
       // red past 5 minutes, the same rule as their own board
       ['Started', f.first ? esc(f.first) + (f.late_minutes ? ' <i' + (f.late_minutes > 5 ? ' class="hot"' : '') + '>' + w(f.late_minutes) + ' min late</i>' : ' <i>on time</i>') : '—', !f.first],
       ['Longest gap', f.gap_minutes ? w(f.gap_minutes) + 'm <i>' + esc(f.gap_window || '') + '</i>' : '—', !f.gap_minutes],
-      ['Texts', w(sum(D, 'sms_sent')) + ' sent <i>' + w(sum(D, 'sms_received')) + ' received</i>', !sum(D, 'sms_sent') && !sum(D, 'sms_received')],
+    ].concat(smsOf(a, j) ? TB.smsCells(smsOf(a, j)) :
+      [['Texts', w(sum(D, 'sms_sent')) + ' sent <i>' + w(sum(D, 'sms_received')) + ' received</i>', !sum(D, 'sms_sent') && !sum(D, 'sms_received')]]
+    ).concat([
       'rule',
       ['Zoho calls', crmIn ? done + ' of ' + due + (od ? ' <i class="hot">' + od + ' overdue</i>' : '') + (calls.created ? ' <i>' + calls.created + ' logged</i>' : '') : 'loading…', !due]
-    ];
+    ]);
     if (team === 'surgical') {
       var tdone = Math.max(0, (t.due || 0) - (t.open || 0));
       pane.push(['Planner calls', w(jc.completed) + ' of ' + w(jc.due) + (jc.overdue ? ' <i class="hot">' + w(jc.overdue) + ' overdue</i>' : '') +
@@ -216,7 +241,7 @@
   function v6Model(j, team, label, href) {
     var T6 = j.targets || {}, longLbl = '≥' + Math.round((j.long_call_seconds || 120) / 60) + 'm';
     var rows = (j.ranked || []).map(function (a, i) {
-      var r = v6Row(a, team, T6, longLbl);
+      var r = v6Row(a, team, T6, longLbl, j);
       r.ord = i;
       r.unread = a.complete === false && !r.talk && !r.dials && !sum(a.days, 'inbound');
       r.quiet = !r.unread && !!j.live && !sum(a.days, 'calls');
@@ -271,6 +296,9 @@
     var C = j.collections || {};
     if (team === 'billing' && (C.today != null || C.total != null)) T.coll = j.live && C.today != null ? C.today : (C.total || 0);
     var one = function (k) { return T6[k] ? T6[k].target : '—'; };
+    // the team's texts: seats whose calls were not read yet are not read for texts either
+    var unreadSeats = (j.unknown || []).concat(j.silent || [], j.stalled || []).filter(function (a) { return a && a.name && !a.sms; }).length;
+    var smsT = j.sms_enabled === false ? null : smsTotals((j.ranked || []).concat((j.unknown || []), j.silent || [], j.stalled || []), j, unreadSeats);
     var result = team === 'billing'
       ? '<b>' + money(T.coll) + '</b> logged by billers' +
         (((j.collections || {}).payments || {}).all_payments ? ' <i>Books: ' + money(j.collections.payments.all_payments) + ' in all payments</i>' : '') +
@@ -293,7 +321,8 @@
         '<b>' + T.onT + '</b> of ' + T.people + ' on target' + sep + '<b>' + hm(T.talk) + '</b> talk' + sep + '<b>' + fmt(T.dials) + '</b> calls' +
         (team === 'surgical' && T.crm ? sep + '<b>' + fmt(T.pDone) + '</b> of ' + fmt(T.pDue) + ' done' + sep + '<b' + (T.pOd ? ' class="hot"' : '') + '>' + fmt(T.pOd) + '</b> overdue' : '') +
         (team === 'billing' && T.crm ? sep + '<b' + (T.od ? ' class="hot"' : '') + '>' + fmt(T.od) + '</b> overdue' : '') +
-        (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed' : ''),
+        (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed' : '') +
+        (smsT && smsT.unanswered ? sep + '<b class="hot">' + fmt(smsT.unanswered) + '</b> texts unanswered' : ''),
       notes: (team === 'billing' ? [
         '<b>Where.</b> Each biller’s RingEX extension, the billers’ collections sheets, and their Zoho calls.',
         '<b>Delay.</b> Calls refresh about every 2½ minutes; the subtitle says how far they reach (“calls through”). ' +
@@ -314,7 +343,7 @@
           'done out of those due in this window, the same as the coloured bar. Overdue is planner calls overdue from before. The line under ' +
           'each name is the coordinators’ board’s priorities, in order: deals to schedule, missed inbound, tasks open, planner ' +
           'calls today. Tap a row for each figure against its target.'
-      ]).concat([marks]),
+      ]).concat([TEXTS_NOTE, marks]),
       sub: rows.length + ' ' + people + (rows.length === 1 ? '' : 's') +
            (j.as_of ? ' \u00b7 calls through ' + esc(j.as_of) : '') + (n < rows.length ? ' \u00b7 ' + (rows.length - n) + ' not read yet' : '') +
            (function () { var st = (j.ranked || []).filter(function (a) { return a.stale_minutes; });
@@ -338,9 +367,13 @@
         ['Result', result],
         ['Calls', '<b>' + fmt(T.inb) + '</b> inbound <i>' + fmt(T.inbA) + ' answered</i>' + sep + '<b>' + fmt(T.conn) + '</b> connected' +
                   (T.mo ? sep + '<b class="hot">' + fmt(T.mo) + '</b> missed not called back' : '')]
-      ]
+      ].concat(smsT ? TB.smsSum(smsT) : [])
     };
   }
+  var TEXTS_NOTE = '<b>Texts.</b> From each person’s own RingEX line, the same counts as their own board. In is texts received, out is ' +
+    'texts sent (Zoho automations that text through their number count as sent; the panel splits typed from auto). Responded is a ' +
+    'patient’s text answered by their next text to that number; unanswered is a number whose last text came from the patient with no ' +
+    'reply yet. Someone not read yet says so, not zero.';
 
   // The RingCX sales floor (/api/v5/report) as a row: the sales board's own columns.
   function v5Model(j) {

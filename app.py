@@ -7408,6 +7408,17 @@ def _sales_roster():
                     "not filtering", len(days))
         meta["error"] = "no campaign activity in the inbox"
         return None, meta
+    # The declared sales roster is on the board whatever its dialler. The
+    # former training class (joined the floor 2026-10-22) calls from RingEX
+    # extensions, never a RingCX campaign, so the campaign test alone kept
+    # four of the five off /v5 -- only Seydi Medrano, who also dials a
+    # campaign, showed (Danny, 2026-10-22: "check why sales trainees other
+    # than seydi not on sales call tracker v5"). Added only once the inbox
+    # has spoken, so an empty inbox still filters nobody.
+    declared = {_norm_name(s.get("name") or "") for s in _TEAM_ROSTERS.get("sales") or []}
+    declared -= _NOT_SALES_NAMES
+    meta["declared"] = len(declared)
+    names |= declared
     with _v5_roster_lock:
         _v5_roster_cache.update({"at": time.time(), "names": set(names),
                                  "why": {k: sorted(v) for k, v in why.items()}})

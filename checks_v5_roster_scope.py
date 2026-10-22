@@ -67,7 +67,16 @@ def run():
         ("inbound agent excluded", appmod._norm_name(INBOUND) in names, False),
         ("scheduler excluded", appmod._norm_name(SCHED) in names, False),
         ("billing agent excluded", appmod._norm_name(BILLING) in names, False),
-        ("roster is not empty", len(names), 1),
+        ("roster is not empty", len(names) > 0, True),
+        # 2026-10-22: the declared sales roster is admitted even with no
+        # campaign dials -- the RingEX reps never touch a RingCX campaign
+        ("a declared RingEX rep with no campaign dials is admitted",
+         all(appmod._norm_name(x["name"]) in names for x in appmod._TEAM_ROSTERS["sales"]
+             if x.get("source") == "ringex"), True),
+        ("and there is at least one such rep (not vacuous)",
+         any(x.get("source") == "ringex" for x in appmod._TEAM_ROSTERS["sales"]), True),
+        ("only the declared roster and the campaign dialler, nobody else",
+         names == {appmod._norm_name(SALES)} | {appmod._norm_name(x["name"]) for x in appmod._TEAM_ROSTERS["sales"]}, True),
         ("removals are reported", len(meta.get("excluded_other_teams") or []), 3),
     ]
 
