@@ -47,7 +47,6 @@
   </div>
   <!-- Sales first, then coordinators and billing (Danny, 2026-10-16) -->
   <section class="tb-sec first" id="t-sales"><h2 class="bt">Sales Floor</h2><div class="msg">Loading…</div></section>
-  <section class="tb-sec" id="t-ringex"><h2 class="bt">Sales Training Class</h2><div class="msg">Loading…</div></section>
   <section class="tb-sec" id="t-surgical"><h2 class="bt">Surgical Coordinators</h2><div class="msg">Loading…</div></section>
   <section class="tb-sec" id="t-billing"><h2 class="bt">Billing</h2><div class="msg">Loading…</div></section>
 </div>
@@ -411,16 +410,6 @@
 
   var SOURCES = [
     { id: 't-sales', url: '/api/v5/report?', label: 'Sales Floor', model: v5Model },
-    { id: 't-ringex', url: '/api/v5/ringex?', label: 'Sales Training Class',
-      model: function (j) {
-        return TB.ringexModel(j, {
-          key: 'ringex', label: 'Sales Training Class', href: '/v5',
-          bar: function (a) { return TB.fuBar(fuOf(a.name)); },
-          panelExtra: function (a) { return [['Follow-ups', TB.fuLine(fuOf(a.name), fuState(a.name)), !!fuOf(a.name) && !fuOf(a.name).due]]; },
-          sumExtra: function (d) { return fuRow((d.ranked || []).map(function (a) { return a.name; })); },
-          notesExtra: [TB.FU_NOTE]
-        });
-      } },
     { id: 't-surgical', url: '/api/v6/report?team=surgical&', label: 'Surgical Coordinators',
       model: function (j) { return v6Model(j, 'surgical', 'Surgical Coordinators', '/surgical-coordinator'); } },
     { id: 't-billing', url: '/api/v6/report?team=billing&', label: 'Billing',
@@ -485,7 +474,7 @@
         }
         FU = j;
         SOURCES.forEach(function (src) {
-          if ((src.id === 't-sales' || src.id === 't-ringex') && LASTJ[src.id]) TB.render($(src.id), src.model(LASTJ[src.id]));
+          if (src.id === 't-sales' && LASTJ[src.id]) TB.render($(src.id), src.model(LASTJ[src.id]));
         });
       })
       .catch(function () {});

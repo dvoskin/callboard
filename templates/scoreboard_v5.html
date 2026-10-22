@@ -111,12 +111,9 @@
 
   function smsPaint() {
     var out = $('out'); if (!out) return;
-    // the RingCX roster only: the training class under it (#exout, inside
-    // #out) carries its own texts from /api/v5/ringex, painted by TB
     [out].forEach(function (box) {
       if (!box) return;
       box.querySelectorAll('.nm[data-name]').forEach(function (el) {
-        if (el.closest('#exout')) return;
         var old = el.querySelector('.press'); if (old) old.remove();
         var html = pressLine(el.getAttribute('data-name'));
         var bar = el.querySelector('.prog.fu');
@@ -124,7 +121,6 @@
       });
       // the full texts line lives in the panel
       box.querySelectorAll('.dsms[data-name]').forEach(function (el) {
-        if (el.closest('#exout')) return;
         el.innerHTML = smsLine(el.getAttribute('data-name')) || '\u2014';
       });
     });
@@ -167,9 +163,7 @@
   function loadSms(q) {
     var key = q.toString();
     if (key !== SMS_KEY) { SMS = null; SMS_KEY = key; SMS_TRIES = 0; }
-    // the floor's names only: the training class's texts come with its own board
-    var names = Array.prototype.filter.call(document.querySelectorAll('#out .nm[data-name]'), function (el) { return !el.closest('#exout'); })
-                  .map(function (el) { return el.getAttribute('data-name'); });
+    var names = Array.prototype.map.call(document.querySelectorAll('#out .nm[data-name]'), function (el) { return el.getAttribute('data-name'); });
     fetch('/api/v5/sms?' + key + (names.length && SMS_TRIES === 0 ? '&names=' + encodeURIComponent(names.join('|')) : ''), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
@@ -190,8 +184,8 @@
   function fuPaint() {
     if (!window.TB) return;
     var by = (FU && FU.by) || {};
-    [$('out'), $('exout')].forEach(function (box) {
-      if (!box) return;
+    var box = $('out');
+    if (box) {
       var names = [];
       box.querySelectorAll('.nm[data-name]').forEach(function (el) {
         var n = el.getAttribute('data-name'); names.push(n);
@@ -203,26 +197,27 @@
         var n = el.getAttribute('data-name');
         el.innerHTML = TB.fuLine(by[n], fuState(n));
       });
-      // the team's line in its own summary
       var sum = box.querySelector('.sum'), line = FU ? TB.fuSum(by, names) : '';
-      if (!sum) return;
-      var row = sum.querySelector('.srow.fu-sum');
-      if (!line) { if (row) row.remove(); return; }
-      if (!row) {
-        sum.insertAdjacentHTML('beforeend', '<div class="srow fu-sum" title="Scheduled follow-up calls in Zoho whose time has come, and the ones still to come">' +
-                                            '<span class="sl">Due</span><span class="sv"></span></div>');
-        row = sum.querySelector('.srow.fu-sum');
+      if (sum) {
+        var row = sum.querySelector('.srow.fu-sum');
+        if (!line) { if (row) row.remove(); }
+        else {
+          if (!row) {
+            sum.insertAdjacentHTML('beforeend', '<div class="srow fu-sum" title="Scheduled follow-up calls in Zoho whose time has come, and the ones still to come">' +
+                                                '<span class="sl">Due</span><span class="sv"></span></div>');
+            row = sum.querySelector('.srow.fu-sum');
+          }
+          row.querySelector('.sv').innerHTML = TB.segs(line);
+        }
       }
-      row.querySelector('.sv').innerHTML = TB.segs(line);
-    });
+    }
   }
   function loadFu(q) {
     var key = q.toString();
     if (key !== FU_KEY) { FU = null; FU_KEY = key; FU_TRIES = 0; }
     var names = [];
-    [$('out'), $('exout')].forEach(function (box) {
-      if (box) box.querySelectorAll('.nm[data-name]').forEach(function (el) { names.push(el.getAttribute('data-name')); });
-    });
+    var box = $('out');
+    if (box) box.querySelectorAll('.nm[data-name]').forEach(function (el) { names.push(el.getAttribute('data-name')); });
     fetch('/api/v5/followups?' + key + (names.length ? '&names=' + encodeURIComponent(names.join('|')) : ''), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
@@ -232,42 +227,6 @@
           return;
         }
         FU = j; fuPaint();
-      })
-      .catch(function () {});
-  }
-
-  // The nine reps who dial from RingEX (/api/v5/ringex), as a second board in
-  // the same design under the roster. Danny, 2026-10-16: "Add a new board below
-  // the current roster for the 9 new RingEX reps on the sales page".
-  var EX_KEY = '', EX_MODEL = null;
-  function loadEx(q) {
-    var key = q.toString();
-    EX_KEY = key;
-    fetch('/api/v5/ringex?' + key, { credentials: 'same-origin' })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-      .then(function (res) {
-        if (key !== EX_KEY || !window.TB) return;
-        var box = $('exout');
-        if (!res.ok) {
-          TB.render(box, { label: 'Sales Training Class', error: esc(res.j.error || 'error') + ' ' + esc(res.j.detail || '') });
-          return;
-        }
-        var model = TB.ringexModel(res.j, {
-          key: 'rx', label: 'Sales Training Class', href: '',   // it lives on this page
-          // missed calls and texts unanswered under the name, the texts in
-          // the panel: both from the class's own row (/api/v5/ringex)
-          panelExtra: function (a) {
-            return [['Follow-ups', '<span class="dfu" data-name="' + esc(a.name) + '">' + TB.fuLine((FU && FU.by || {})[a.name], fuState(a.name)) + '</span>']];
-          },
-          note: 'The training class dials from RingEX (the roster above is RingCX). ' +
-                '\u25B2\u25BC compare with the class\u2019s own median rep.'
-        });
-        EX_MODEL = model;
-        TB.render(box, model);
-        smsPaint();
-        fuPaint();
-        var bm = (res.j.meta || {}).books;
-        if (bm && bm.loading) setTimeout(function () { if (key === EX_KEY) loadEx(q); }, 10000);
       })
       .catch(function () {});
   }
@@ -458,10 +417,6 @@
       h += '</ul><p class="note">No calls logged yet in this window.</p>';
     }
 
-    // The RingEX reps' board sits here, directly under the roster -- above the
-    // texts table and the data notes. Repainted at once from the last model so
-    // a refresh of the roster does not blank it while its own fetch runs.
-    h += '<div id="exout"></div>';
 
     (d.warnings || []).forEach(function (x) {
       if (x.kind === 'report_stale') h += '<div class="warn">' + esc(x.detail) + '</div>';
@@ -511,7 +466,6 @@
     if (window.TB) $('out').querySelectorAll(':scope > .sum .sv').forEach(function (el) {
       if (el.id !== 'smsrowv') el.innerHTML = TB.segs(el.innerHTML);
     });
-    if (EX_MODEL && window.TB) TB.render($('exout'), EX_MODEL);
 
     // Expand on click. Delegated so it survives every refresh, and keyboard
     // reachable because the rows are the only way into this detail.
@@ -646,7 +600,6 @@
         loadSms(q);            // and the window's own texts, when they land
         loadFu(q);             // each rep's scheduled follow-ups in Zoho (forgets another window's at once)
         fuPaint();
-        loadEx(q);             // the RingEX reps' board under the roster
         // Books is fetched in the background, so the first load of a day usually
         // lands before it has. Waiting out the five-minute timer left Quotes and
         // Retainers blank for that long; ask again shortly, a few times at most.

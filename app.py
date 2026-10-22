@@ -1327,6 +1327,15 @@ _TEAM_ROSTERS["sales"] = [
               "Wellington Santiago", "Cristina Cots", "Charlotte McKay",
               "Adriana Gentry", "Sandra Rivas", "Maria Carvajal",
               "Claudia Villalobo", "Gregory Beltran")
+] + [
+    # Former training class — joined the sales team 2026-10-22. These five
+    # dial from RingEX, not RingCX, so each carries its own extension and
+    # source tag. Ambar Luciano was disabled before the move and is not here.
+    {"name": "Annyta Santiago",  "source": "ringex", "ext": "149", "ext_id": 1251376035, "always_rank": True},
+    {"name": "Ramon Gallardo",   "source": "ringex", "ext": "135", "ext_id": 1251371035, "always_rank": True},
+    {"name": "Roman Gomez",      "source": "ringex", "ext": "146", "ext_id": 1251375035, "always_rank": True},
+    {"name": "Jabes Perdomo",    "source": "ringex", "ext": "141", "ext_id": 1251373035, "always_rank": True},
+    {"name": "Seydi Medrano",    "source": "ringex", "ext": "160", "ext_id": 1251381035, "always_rank": True},
 ]
 
 TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
@@ -1378,58 +1387,18 @@ _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx
 # well, sending from ringex"). Seats with a RingEX extension are read from the
 # message store; the RingCX-only seats (no extension) read "SMS not read" with
 # the reason, never zero.
-_TEAM_SMS = {"sales": False}
+_TEAM_SMS = {}
 
-# Seats the unanswered-texts view reads on top of a team's roster. The nine
-# reps who joined the floor on RingEX in October (extensions created
-# 2026-10-12) dial and text from these extensions and sit on no board yet.
-# Danny, 2026-10-15: "check unread sms across all sales team members".
+# Departed reps whose extensions the STOP scan still reads. The five active
+# former training-class reps moved to _TEAM_ROSTERS["sales"] on 2026-10-22.
 _SMS_EXTRA_SEATS = {
     "sales": [
-        {"name": "Annyta Santiago",  "ext": "149", "ext_id": 1251376035},
-        {"name": "Ramon Gallardo",   "ext": "135", "ext_id": 1251371035},
         {"name": "Roberto Castillo", "ext": "109", "ext_id": 1250719035},
-        {"name": "Roman Gomez",      "ext": "146", "ext_id": 1251375035},
-        {"name": "Jabes Perdomo",    "ext": "141", "ext_id": 1251373035},
         {"name": "Howard Salmon",    "ext": "156", "ext_id": 1251378035},
         {"name": "Javier Perez",     "ext": "153", "ext_id": 1251377035},
-        {"name": "Seydi Medrano",    "ext": "160", "ext_id": 1251381035},
         {"name": "Ambar Luciano",    "ext": "140", "ext_id": 1251372035},
     ],
 }
-
-# The same nine as a TEAM of their own on the RingEX engine (Danny, 2026-10-16:
-# "Add a new board below the current roster for the 9 new RingEX reps on the
-# sales page"). They dial from these extensions, not RingCX, so the /v5 roster
-# -- built from RingCX -- never shows them. The per-extension call log, the
-# day snapshots, the 429 handling and the warm loop come with the engine.
-# Texts stay off here: /v5 already reads these seats' message store for its
-# texts line, and reading it twice would spend the same budget twice.
-# Roberto Castillo was let go on 2026-10-15; off this board (Danny, 2026-10-16:
-# "remove Roberto Castillo from the new reps board"). His extension stays in
-# _SMS_EXTRA_SEATS so the STOP scan still reads it. Shown as the sales
-# TRAINING CLASS ("make new sales show as training class for sales").
-# Howard Salmon and Javier Perez off too (Danny, 2026-10-19: "remove Howard
-# and Javier from the sales training class rosters"); their lines stay in
-# the STOP scan like Roberto's.
-_RINGEX_OFF_BOARD = {"Roberto Castillo", "Howard Salmon", "Javier Perez"}
-_TEAM_ROSTERS["ringex"] = [dict(s, always_rank=True, cache_only_today=True) for s in _SMS_EXTRA_SEATS["sales"]
-                           if s["name"] not in _RINGEX_OFF_BOARD]
-TEAM_LABELS["ringex"] = "Sales Training Class"
-# NOT in _TEAM_SOURCES, on purpose (same as surgical): the report still reads
-# RingEX -- that is the default -- but the warm loop only warms the teams
-# listed there, and listing these nine queued 810 seat-days of 90-day backfill
-# that took RingEX's 10-a-minute budget from billing's live day (2026-10-16:
-# billing read "not known" for five minutes after a deploy). Read on demand,
-# cached like every v6 report.
-# Texts ON since 2026-10-20 (Danny: "add the inbound outbound sms and unread /
-# responded for the training team as well"). Read the way their calls are:
-# today only by loop:ringex (_tc_sms_pass), one rep at a time, never by a
-# request (cache_only_today, honoured in _v6_fetch_sms too); /v5's own texts
-# build (_v5_sms_build) skips these six now, so their message store is read
-# once, not twice. The message store is RingEX's "sms" rate group, not the
-# heavy call-log budget the class's call reads are rationed on.
-_TEAM_SMS["ringex"] = True
 # Which boards carry a Zoho CRM count on each row: activities the person
 # CREATED in the window shown (Danny, 2026-10-07: "#1 of calls/tasks completed
 # created in Zoho CRM by each user for the time range shown"). Reuses the
@@ -4152,14 +4121,6 @@ def _v5_sms_read(seat, start_dt, end_dt, grp):
 def _v5_sms_build(start_iso, end_iso, tz_off):
     """{agents: {name: counts}, totals, unresolved} for the sales floor."""
     seats, unresolved = _sms_seats("sales", sorted(_V5_SMS_NAMES))
-    # The training class's texts are read by loop:ringex and shown on their own
-    # board (/api/v5/ringex); reading them here too spent the same message
-    # store twice and put their texts in the floor's total.
-    elsewhere = []
-    if _team_sms_enabled("ringex"):
-        tc = {s.get("ext_id") for s in _TEAM_ROSTERS.get("ringex") or []}
-        elsewhere = [s["name"] for s in seats if s.get("ext_id") in tc]
-        seats = [s for s in seats if s.get("ext_id") not in tc]
     start_dt = _parse_local_date_to_utc(start_iso, 0, 0, 0, tz_off)
     end_dt = _parse_local_date_to_utc(end_iso, 23, 59, 59, tz_off)
     agents = {}
@@ -5631,7 +5592,7 @@ def hub_v7_logout():
 # those. /v6?team= still works so existing links do not break.
 _TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
                "inbound": "customer-service", "surgical": "surgical-coordinator",
-               "sales": "sales", "ringex": "sales-ringex"}
+               "sales": "sales"}
 
 
 def _page_title(team):
@@ -5872,7 +5833,7 @@ def board_sales():
 
 @app.route("/sales-ringex")
 def board_sales_ringex():
-    return _render_team_board("ringex")
+    return redirect(url_for("board_sales"))
 
 
 def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
@@ -5896,117 +5857,6 @@ def _v6_cached_report(team, date_start, date_end, tz_offset_minutes):
     report = dict(report)
     report["meta"] = dict(report["meta"], cached=False)
     return report
-
-
-# loop:ringex -- the training class's TODAY, LAST in line for RingEX's
-# ~10-a-minute call-log budget: one seat a minute at most, and none while
-# RingEX is refusing or while any billing seat's day is stale (billing and the
-# coordinators come first -- at two a minute this loop tipped the account
-# over and billing read "not known" for ten minutes, 2026-10-16). A full pass
-# takes about eight minutes; a request accepts a reading up to 20 minutes old.
-_TC_TODAY_TTL = 1200.0       # what a request accepts
-_TC_REFRESH_AFTER = 420.0    # what the loop refreshes
-_TC_PAUSE = 60.0
-_TC_SMS_PAUSE = 5.0          # between two reps' texts (the message store's own budget)
-
-
-def _ringex_should_yield(today):
-    """True when the training class must wait: RingEX is in a cooldown, or a
-    billing seat's today is older than its board accepts."""
-    try:
-        if _ringcx.rate_limited():
-            return True
-    except Exception:  # noqa: BLE001
-        pass
-    for seat in _billing_roster("billing")[0]:
-        c = _v6_today_get(seat["ext_id"], today)
-        if not c or time.time() - c["at"] > _V6_TTL_TODAY * 2:
-            return True
-    return False
-_ringex_warm_state = {"running": False, "filled": 0, "last_error": None,
-                      "sms_filled": 0, "sms_yielded": 0, "sms_last_error": None}
-
-
-def _tc_sms_pass(today, tz_off):
-    """The training class's texts for today, one rep at a time, each at most
-    every _TC_REFRESH_AFTER seconds -- about one message-store read a minute
-    for six reps. The message store is RingEX's "sms" rate group (the billing
-    and coordinator boards share it, about 40 a minute), not the heavy
-    call-log budget, so this pass does not wait on billing's calls; it stands
-    down while that group is in a cooldown and stops at the first refusal.
-    Returns how many reps were read."""
-    grp = getattr(_ringcx, "SMS_RATE_GROUP", None)
-    n = 0
-    for seat in _billing_roster("ringex")[0]:
-        eid = seat.get("ext_id")
-        if not eid:
-            continue
-        c = _v6_sms_today_get(eid, today)
-        if c and time.time() - c["at"] < _TC_REFRESH_AFTER:
-            continue
-        if _ringcx.rate_limited(grp):
-            _ringex_warm_state["sms_yielded"] += 1
-            break
-        rows, ok, _g, why = _v6_fetch_sms_day(eid, today, tz_off)
-        if not ok:
-            _ringex_warm_state["sms_last_error"] = why or "incomplete read"
-            _ringex_warm_state["sms_last_error_at"] = time.time()
-            break
-        _v6_sms_today_put(eid, today, rows)
-        _ringex_warm_state["sms_filled"] += 1
-        _ringex_warm_state["sms_last_ok_at"] = time.time()
-        n += 1
-        time.sleep(_TC_SMS_PAUSE)
-    # earlier days' readings on disk (a finished day is read on request and
-    # kept as its own snapshot; these were only ever "today so far")
-    try:
-        for f in V6_SMS_TODAY_DIR.glob("*/*.json"):
-            if f.stem < today:
-                f.unlink()
-    except Exception:  # noqa: BLE001
-        pass
-    return n
-
-
-def _ringex_warm_loop():
-    time.sleep(45)
-    _ringex_warm_state["running"] = True
-    while True:
-        try:
-            if not _ringcx.configured:
-                time.sleep(300)
-                continue
-            tz_off = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
-            today = (datetime.now(timezone.utc) - timedelta(minutes=tz_off)).date().isoformat()
-            # Texts first, on their own budget: a heavy-budget yield below
-            # (billing's calls stale) must not hold the class's texts too.
-            if _V6_SMS_ENABLED and _team_sms_enabled("ringex"):
-                try:
-                    _tc_sms_pass(today, tz_off)
-                except Exception as e:  # noqa: BLE001
-                    _ringex_warm_state["sms_last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
-            for seat in _billing_roster("ringex")[0]:
-                c = _v6_today_get(seat["ext_id"], today)
-                if c and time.time() - c["at"] < _TC_REFRESH_AFTER:
-                    continue
-                if _ringex_should_yield(today):
-                    _ringex_warm_state["yielded"] = _ringex_warm_state.get("yielded", 0) + 1
-                    break
-                rows, ok, why = _v6_fetch_day_diag(seat["ext_id"], today, tz_off)
-                if ok:
-                    _v6_today_put(seat["ext_id"], today, rows)
-                    _ringex_warm_state["filled"] += 1
-                    _ringex_warm_state["last_ok_at"] = time.time()
-                    time.sleep(_TC_PAUSE)
-                else:
-                    _ringex_warm_state["last_error"] = why
-                    _ringex_warm_state["last_error_at"] = time.time()
-                    time.sleep(70)     # one refusal: the minute's budget is gone
-                    break
-        except Exception as e:  # noqa: BLE001
-            _ringex_warm_state["last_error"] = "%s: %s" % (type(e).__name__, str(e)[:160])
-            log.exception("ringex warm loop")
-        time.sleep(45)
 
 
 # ---- The company-wide call feed, for the missed-call lists ----
@@ -6173,66 +6023,6 @@ def _strip_missed_numbers(body):
     return body
 
 
-def _ringex_rows(report, books):
-    """The new reps' v6 rows in the /v5 row shape: talk in seconds, dials,
-    >3m, >10m, in/out, the missed calls, and Books' quotes and retainers by
-    name -- so the board under the sales roster reads exactly like it."""
-    rows = []
-    for a in report.get("ranked") or []:
-        days = a.get("days") or []
-        tot = lambda k: sum(int(d.get(k) or 0) for d in days)
-        b = books.get(_norm_name(a.get("name") or "")) or {}
-        focus = (a.get("day") or {}).get("focus") or {}
-        ms = a.get("missed_summary") or {}
-        rows.append({
-            "name": a.get("name"), "ext": a.get("ext"),
-            "talk": tot("talk_seconds"), "attempts": tot("dials"), "outbound": tot("dials"),
-            "inbound": tot("inbound"), "inbound_answered": tot("inbound_answered"),
-            "connected": tot("connected"), "calls": tot("calls"),
-            "over_3": tot("over_180s"), "over_10": tot("over_600s"),
-            "longest": max([int(d.get("longest_seconds") or 0) for d in days] or [0]),
-            "first": focus.get("first"), "late_minutes": focus.get("late_minutes"),
-            "missed_in": int(ms.get("missed") or 0), "missed_open": int(ms.get("open") or 0),
-            "missed_calls": a.get("missed_calls") or [],
-            "complete": a.get("complete", True), "stale_minutes": a.get("stale_minutes"),
-            "books": {k: b.get(k, 0) for k in ("quotes_sent", "quotes_invoiced", "retainers_sent",
-                                               "retainers_paid", "paid_amount")},
-            "sms": _ringex_sms(a.get("sms")),
-        })
-    rows.sort(key=lambda r: (-r["talk"], -r["attempts"], r["name"] or ""))
-    return rows
-
-
-def _ringex_sms(sm):
-    """A training-class rep's texts, counted the way the coordinators' and
-    billers' boards count them (billing_report: `sms` + `_sms_replies`): in =
-    received, out = sent (typed / auto when known), responded = inbound waits
-    closed by the rep's next text to that number, unanswered = numbers whose
-    newest inbound has no reply yet. None when texts were not read at all;
-    `unknown` when the window was not read and nothing came back -- "not read
-    yet", never zero."""
-    if not sm:
-        return None
-    rp = sm.get("replies") or {}
-    return {"received": int(sm.get("received") or 0), "sent": int(sm.get("sent") or 0),
-            "sent_typed": sm.get("sent_typed"), "sent_auto": sm.get("sent_auto"),
-            "replied": int(rp.get("replied") or 0), "unanswered": int(rp.get("unanswered") or 0),
-            "threads": int(rp.get("threads") or 0),
-            "complete": bool(sm.get("complete")), "unknown": bool(sm.get("unknown")),
-            "stale_minutes": sm.get("stale_minutes"), "note": sm.get("note")}
-
-
-def _ringex_sms_totals(rows):
-    """The class's texts in one line: summed over reps whose texts were read,
-    with how many were not, so a total missing two reps says so."""
-    got = [r["sms"] for r in rows if r.get("sms") and not r["sms"]["unknown"]]
-    t = {k: sum(s[k] for s in got) for k in ("received", "sent", "replied", "unanswered")}
-    t.update(seats=len(got), seats_total=len(rows),
-             unknown_seats=len(rows) - len(got),
-             partial_seats=sum(1 for s in got if not s["complete"]))
-    return t
-
-
 def _median(xs):
     xs = sorted(xs)
     if not xs:
@@ -6243,47 +6033,8 @@ def _median(xs):
 
 @app.route("/api/v5/ringex")
 def api_v5_ringex():
-    """The nine RingEX reps, for the board under the sales roster on /v5 and
-    for the all-teams page. Same gate as /api/v5/report, plus the /teams key."""
-    if not (_v5_allowed() or _teams_token_ok()):
-        return jsonify({"error": "unauthorized"}), 401
-    if not _ringcx.configured:
-        return jsonify({"error": "ringcentral_not_configured"}), 503
-    try:
-        tz_param = request.args.get("tz")
-        tz = int(tz_param) if tz_param is not None else None
-        _off = tz if tz is not None else -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
-        local_today = (datetime.now(timezone.utc) - timedelta(minutes=_off)).date().isoformat()
-        date_start = request.args.get("start") or local_today
-        date_end = request.args.get("end") or date_start
-        if date_end < date_start:
-            return jsonify({"error": "bad_range"}), 400
-        report = _v6_cached_report("ringex", date_start, date_end, tz)
-        books, bmeta = _v5_books(date_start, date_end)
-        rows = _ringex_rows(report, books)
-        # The share link (/v5/board?k=) gets counts, not patients' numbers --
-        # the same rule /api/v5/report applies to its missed calls.
-        if GOOGLE_CLIENT_ID and not session.get("user") and not _word_authed():
-            for r in rows:
-                r["missed_calls"] = []
-        floor = {k: _median([r[k] for r in rows if r["attempts"] or r["talk"]])
-                 for k in ("talk", "attempts", "over_3")}
-        totals = {k: sum(r[k] for r in rows) for k in ("talk", "attempts", "inbound", "inbound_answered",
-                                                       "connected", "over_3", "over_10", "missed_open")}
-        # each caller once across the class (a patient two reps missed is one call back)
-        if (report.get("missed_team") or {}).get("open") is not None:
-            totals["missed_open"] = int(report["missed_team"]["open"])
-        totals["sms"] = _ringex_sms_totals(rows) if _team_sms_enabled("ringex") else None
-        return jsonify({"label": TEAM_LABELS["ringex"], "window": {"start": date_start, "end": date_end},
-                        "as_of": report.get("as_of"), "ranked": rows, "floor": floor, "totals": totals,
-                        "warnings": report.get("warnings") or [],
-                        "meta": {"complete": (report.get("meta") or {}).get("complete"),
-                                 "cached": (report.get("meta") or {}).get("cached"),
-                                 "age_seconds": (report.get("meta") or {}).get("age_seconds"),
-                                 "books": bmeta}})
-    except Exception as e:  # noqa: BLE001
-        log.exception("ringex report failed")
-        return jsonify({"error": "report_failed", "detail": str(e)[:200]}), 500
+    """Removed: the training class merged into the sales team."""
+    return jsonify({"error": "gone", "detail": "Training class merged into sales team. Use /api/v5/report."}), 410
 
 
 @app.route("/teams")
@@ -6379,7 +6130,7 @@ def _md_role(name):
 def _md_floor(users):
     """The name switch: the sales floor and the coordinators, by roster name.
     Falls back to every active user when no roster name matches."""
-    names = {_norm_name(s["name"]) for t in ("sales", "ringex", "surgical", "scheduling")
+    names = {_norm_name(s["name"]) for t in ("sales", "surgical", "scheduling")
              for s in _TEAM_ROSTERS.get(t, [])}
     pick = [u for u in users if _norm_name(u["name"]) in names] or list(users)
     return sorted(({"id": u["id"], "name": u["name"], "role": _md_role(u["name"])} for u in pick),
@@ -6602,7 +6353,7 @@ def _inject_md_links():
     return {"myday_links": _md_links_for_viewer() if request.endpoint in _MD_LINK_PAGES else {}}
 
 
-_MD_LINK_PAGES = {"all_teams", "board_sales", "board_sales_ringex", "board_billing", "board_scheduling",
+_MD_LINK_PAGES = {"all_teams", "board_sales", "board_billing", "board_scheduling",
                   "scoreboard_v5", "scoreboard_v6"}
 
 
@@ -7265,7 +7016,7 @@ def _other_team_names() -> set:
         # left the Sales Floor Scoreboard with the two diallers on no roster at
         # all (Danny, 2026-10-08: "my sales call liveboard got thrown off ...
         # only 1 person showing").
-        if team in ("sales", "ringex"):     # both are the sales floor
+        if team == "sales":                  # the sales floor
             continue
         try:
             seats = _billing_roster(team)[0]
@@ -7496,7 +7247,7 @@ def api_v5_followups():
     # usually ask for the same set and share one read.
     asked = [n.strip() for n in (request.args.get("names") or "").split("|") if n.strip()][:60]
     names = sorted(set(asked) | {x["name"] for x in _TEAM_ROSTERS["sales"]}
-                   | {x["name"] for x in _TEAM_ROSTERS["ringex"]})
+)
     by, meta = _followups_for(names, "%sT00:00:00%s" % (date_start, tz), "%sT23:59:59%s" % (date_end, tz))
     meta = meta or {}
     return jsonify({"window": {"start": date_start, "end": date_end},
@@ -11882,7 +11633,6 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
                  ("loop:paid-guard", lambda: _paid_loop()),
-                 ("loop:ringex", lambda: _ringex_warm_loop()),
                  ("loop:company", lambda: _company_loop()),
                  ("loop:catalog", lambda: _catalog_loop()),
                  ("loop:task-sweep", lambda: _sweep_loop()))

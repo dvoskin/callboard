@@ -41,91 +41,26 @@ br._fold(b, {"direction": "Outbound", "result": "No Answer", "duration": 900})
 ck("a 200 s and a 700 s call: two over 3m, one over 10m; ring time never counts",
    b["over_180s"] == 2 and b["over_600s"] == 1 and b["dials"] == 3 and b["connected"] == 2, b)
 
-# ---- the team ----
-NINE = ["Annyta Santiago", "Ramon Gallardo", "Roberto Castillo", "Roman Gomez", "Jabes Perdomo",
-        "Howard Salmon", "Javier Perez", "Seydi Medrano", "Ambar Luciano"]
-ck("the training class is the October RingEX reps by extension -- Roberto Castillo (let go 10-15), Howard Salmon and Javier Perez (10-19) off",
-   [s["name"] for s in A._TEAM_ROSTERS["ringex"]] == [n for n in NINE if n not in ("Roberto Castillo", "Howard Salmon", "Javier Perez")]
-   and all(s["ext_id"] for s in A._TEAM_ROSTERS["ringex"]), [s["name"] for s in A._TEAM_ROSTERS["ringex"]])
-ck("...and shown as the Sales Training Class", A.TEAM_LABELS["ringex"] == "Sales Training Class", A.TEAM_LABELS["ringex"])
-ck("...read from RingEX on demand, NOT warmed: no 90-day backfill competing with billing's live day",
-   "ringex" not in A._TEAM_SOURCES and all(s.get("always_rank") for s in A._TEAM_ROSTERS["ringex"]), A._TEAM_SOURCES.get("ringex"))
-# 2026-10-20: texts ON for the class, read once -- by loop:ringex, and /v5's
-# own texts build skips them (checks_training_sms.py drives both)
-ck("...texts on, read once (by the class's loop; /v5's texts build skips them)", A._TEAM_SMS["ringex"] is True
-   and 'elsewhere = [s["name"] for s in seats if s.get("ext_id") in tc]' in open(os.path.join(HERE, "app.py"), encoding="utf-8").read(), A._TEAM_SMS)
-ck("...with a board of its own", A._TEAM_PATHS["ringex"] == "sales-ringex"
-   and any(r.rule == "/sales-ringex" for r in A.app.url_map.iter_rules()), A._TEAM_PATHS)
-ck("the team key resolves (it used to fall back to billing for an unknown name)", A._team_key("ringex") == "ringex",
-   A._team_key("ringex"))
+# ---- the team: training class merged into sales (2026-10-22) ----
+FIVE_EX = ["Annyta Santiago", "Ramon Gallardo", "Roman Gomez", "Jabes Perdomo", "Seydi Medrano"]
 _src = open(os.path.join(HERE, "app.py"), encoding="utf-8").read()
-ck("the new reps are not excluded from the sales floor as 'another team'",
-   'if team in ("sales", "ringex"):     # both are the sales floor' in _src, "exclusion")
-ck("the SMS seats for sales still read all nine lines (the STOP scan keeps Roberto's)",
-   [s["name"] for s in A._SMS_EXTRA_SEATS["sales"]] == NINE, A._SMS_EXTRA_SEATS["sales"])
+ck("the ringex team no longer exists as a separate roster",
+   "ringex" not in A._TEAM_ROSTERS, list(A._TEAM_ROSTERS.keys()))
+ck("the five active RingEX reps are on the sales roster with source=ringex",
+   all(any(s["name"] == n and s.get("source") == "ringex" and s.get("ext_id") for s in A._TEAM_ROSTERS["sales"]) for n in FIVE_EX),
+   [s["name"] for s in A._TEAM_ROSTERS["sales"] if s.get("source") == "ringex"])
+ck("/sales-ringex redirects to /sales",
+   any(r.rule == "/sales-ringex" for r in A.app.url_map.iter_rules()), A._TEAM_PATHS)
+ck("ringex is not in _TEAM_PATHS", "ringex" not in A._TEAM_PATHS, A._TEAM_PATHS)
+ck("the SMS extra seats for sales keep the departed reps' lines for the STOP scan",
+   all(s.get("ext_id") for s in A._SMS_EXTRA_SEATS.get("sales", [])), A._SMS_EXTRA_SEATS.get("sales"))
+ck("SMS is enabled for sales (training class texts now part of sales)",
+   A._team_sms_enabled("sales"), A._TEAM_SMS)
 
-# ---- the rows: v6 days -> the /v5 row shape ----
-day = lambda **k: dict({"calls": 0, "dials": 0, "inbound": 0, "inbound_answered": 0, "connected": 0,
-                        "talk_seconds": 0, "over_180s": 0, "over_600s": 0, "longest_seconds": 0}, **k)
-REPORT = {"as_of": "3:00 PM", "meta": {"complete": True}, "warnings": [], "ranked": [
-    {"name": "Roman Gomez", "ext": "146", "days": [day(calls=160, dials=160, connected=40, talk_seconds=5640,
-                                                       over_180s=8, over_600s=1, longest_seconds=900)],
-     "day": {"focus": {"first": "10:31 AM", "late_minutes": 31}}, "missed_summary": {"missed": 1, "open": 1},
-     "missed_calls": [{"at": "1:00 PM", "number": "(305) 555-0100", "resolved": False}]},
-    {"name": "Jabes Perdomo", "ext": "141", "days": [day(calls=153, dials=150, inbound=3, inbound_answered=2,
-                                                        connected=60, talk_seconds=8520, over_180s=6)],
-     "day": {"focus": {"first": "10:10 AM"}}, "missed_summary": {}},
-    {"name": "Howard Salmon", "ext": "156", "days": [day()], "day": {}, "missed_summary": {}},
-]}
-BOOKS = {A._norm_name("Jabes Perdomo"): {"quotes_sent": 1, "retainers_paid": 0, "retainers_sent": 1,
-                                         "quotes_invoiced": 0, "paid_amount": 0}}
-rows = A._ringex_rows(REPORT, BOOKS)
-ck("rows are ranked by talk", [r["name"] for r in rows] == ["Jabes Perdomo", "Roman Gomez", "Howard Salmon"],
-   [r["name"] for r in rows])
-j = rows[0]
-ck("talk in seconds, dials, >3m, in/out, connected -- the /v5 field names",
-   (j["talk"], j["attempts"], j["outbound"], j["over_3"], j["inbound"], j["inbound_answered"], j["connected"])
-   == (8520, 150, 150, 6, 3, 2, 60), j)
-ck("Books' quotes and retainers by name", j["books"]["quotes_sent"] == 1 and j["books"]["retainers_sent"] == 1, j["books"])
-r2 = rows[1]
-ck("first call, minutes late, missed calls and the open count carry through",
-   r2["first"] == "10:31 AM" and r2["late_minutes"] == 31 and r2["missed_open"] == 1 and len(r2["missed_calls"]) == 1, r2)
-ck("someone with no calls is still a row, at zero, with empty Books",
-   rows[2]["attempts"] == 0 and rows[2]["books"]["quotes_sent"] == 0, rows[2])
-
-# ---- the API: gated, totals and floor, numbers hidden from the share link ----
+# ---- the API: /api/v5/ringex returns 410 (merged) ----
 c = A.app.test_client()
-real = (A._v5_allowed, A._v6_cached_report, A._v5_books, A.GOOGLE_CLIENT_ID)
-try:
-    A._v5_allowed = lambda: False
-    ck("/api/v5/ringex is closed without the sales board's gate", c.get("/api/v5/ringex").status_code == 401, "401")
-    # No RingCentral credentials in a checkout: say "configured" for this block only.
-    _cfg = type(A._ringcx).__dict__.get("configured")
-    type(A._ringcx).configured = property(lambda self: True)
-    A._v5_allowed = lambda: True
-    seen = {}
-    A._v6_cached_report = lambda team, s, e, tz: (seen.update(team=team, s=s, e=e, tz=tz), REPORT)[1]
-    A._v5_books = lambda s, e: (BOOKS, {"cached": True})
-    A.GOOGLE_CLIENT_ID = ""
-    r = c.get("/api/v5/ringex?start=2026-10-16&tz=240")
-    d = r.get_json()
-    ck("it reads the ringex team for the window asked", r.status_code == 200 and seen == {"team": "ringex", "s": "2026-10-16",
-                                                                                        "e": "2026-10-16", "tz": 240}, (r.status_code, seen))
-    ck("totals add up across the nine", d["totals"]["talk"] == 14160 and d["totals"]["attempts"] == 310
-       and d["totals"]["over_3"] == 14 and d["totals"]["missed_open"] == 1, d["totals"])
-    ck("the floor is the median of those who worked (a zero day is not a person)",
-       d["floor"]["talk"] == (8520 + 5640) / 2 and d["floor"]["attempts"] == 155, d["floor"])
-    ck("signed in (or no Google gate): the missed numbers are there", d["ranked"][1]["missed_calls"], d["ranked"][1])
-    A.GOOGLE_CLIENT_ID = "x"
-    with c.session_transaction() as s:
-        s.clear()
-    d2 = c.get("/api/v5/ringex?start=2026-10-16&tz=240").get_json()
-    ck("the share link gets counts, never a patient's number",
-       all(not r["missed_calls"] for r in d2["ranked"]) and d2["ranked"][1]["missed_open"] == 1, d2["ranked"][1])
-finally:
-    A._v5_allowed, A._v6_cached_report, A._v5_books, A.GOOGLE_CLIENT_ID = real
-    if "_cfg" in globals() and _cfg is not None:
-        type(A._ringcx).configured = _cfg
+ck("/api/v5/ringex returns 410 (training class merged into sales)",
+   c.get("/api/v5/ringex").status_code == 410, c.get("/api/v5/ringex").status_code)
 
 # ---- /teams: signed in only, four sections, the sales board's own styles ----
 real6 = A._v6_allowed
@@ -138,12 +73,12 @@ try:
     html = c.get("/teams").get_data(as_text=True)
 finally:
     A._v6_allowed = real6
-ck("/teams: sales first, then the training class, coordinators, billing", [m for m in re.findall(r'id="t-([a-z]+)"', html)] ==
-   ["sales", "ringex", "surgical", "billing"], re.findall(r'id="t-([a-z]+)"', html))
+ck("/teams: sales first, then coordinators, billing (no training class)", [m for m in re.findall(r'id="t-([a-z]+)"', html)] ==
+   ["sales", "surgical", "billing"], re.findall(r'id="t-([a-z]+)"', html))
 ck("...titled like the dashboard's boards, in Title Case", all(t in html for t in ('<h2 class="bt">Sales Floor</h2>',
-   '<h2 class="bt">Sales Training Class</h2>', '<h2 class="bt">Surgical Coordinators</h2>', '<h2 class="bt">Billing</h2>')), "titles")
-ck("...each team carries its own notes on delays and meanings", html.count("'<b>Delay.</b>") >= 3
-   and "TRAINING_NOTES" in html and "15 to 20 minutes" in html and ("2\\u00bd minutes" in html or "2\u00bd minutes" in html), "notes")
+   '<h2 class="bt">Surgical Coordinators</h2>', '<h2 class="bt">Billing</h2>')), "titles")
+ck("...each team carries its own notes on delays and meanings", html.count("'<b>Delay.</b>") >= 2
+   and "15 to 20 minutes" in html and ("2\\u00bd minutes" in html or "2\u00bd minutes" in html), "notes")
 ck("coordinators and billing keep their own board's tracking: graded against the KPI target, paced, with the progress bar",
    "grade: true" in html and "function v6Grades(a)" in html and "pace.grades.talk_minutes" in html
    and "function progressBar(a)" in html and ": press(ms.open)) + progressBar(a);" in html
@@ -159,7 +94,7 @@ ck("...and a biller not read yet on the phone still shows her collected amount",
 ck("...the Sales Floor opens on a phone; the others start folded", "openOnPhone: true" in html
    and "return (FOLD[k] = phone && !m.openOnPhone);" in html, "fold")
 ck("...each from its own board's API", all(u in html for u in ("/api/v6/report?team=surgical&", "/api/v6/report?team=billing&",
-                                                               "/api/v5/report?", "/api/v5/ringex?")), "urls")
+                                                               "/api/v5/report?")), "urls")
 style = open(os.path.join(HERE, "templates", "_board_style.html"), encoding="utf-8").read()
 ck("...in the sales board's design: the same stylesheet, word for word", style in html, "style")
 ck("...and the same row renderer as the board under the sales roster", "window.TB = (function" in html, "TB")
@@ -192,45 +127,27 @@ try:
     ck("the key opens billing's report too", c2.get("/api/v6/report?team=billing&k=" + tok).status_code == 200, "billing")
     ck("...but no other board", c2.get("/api/v6/report?team=scheduling&k=" + tok).status_code == 401, "scheduling")
     ck("no key, no report", c2.get("/api/v6/report?team=surgical").status_code == 401, "nokey")
-    A._v6_cached_report = lambda team, s, e, tz: REPORT
-    A._v5_books = lambda s, e: (BOOKS, {})
-    _cfg2 = type(A._ringcx).__dict__.get("configured")
-    type(A._ringcx).configured = property(lambda self: True)
-    rx = c2.get("/api/v5/ringex?start=2026-10-16&k=" + tok)
-    ck("the key opens the RingEX reps' rows, numbers cut", rx.status_code == 200 and
-       all(not x["missed_calls"] for x in rx.get_json()["ranked"]), rx.status_code)
     ck("/api/v5/report accepts the key", "if not (_v5_allowed() or _teams_token_ok()):" in _src, "v5 gate")
 finally:
     A.COORD_LINK_SECRET, A.GOOGLE_CLIENT_ID, A._api_v6_report_impl, A._v6_cached_report, A._v5_books = realk
-    if "_cfg2" in globals() and _cfg2 is not None:
-        type(A._ringcx).configured = _cfg2
 A.COORD_LINK_SECRET = ""
 ck("no secret, no key: /teams?k= fails closed", A._teams_token() == "" and c.get("/teams?k=").status_code in (200, 302), "closed")
 ck("the page passes its key to every section", "if (K) q.set('k', K);" in open(os.path.join(HERE, "templates", "teams.html"), encoding="utf-8").read(), "K")
 
-# ---- RingEX pacing: a request never fetches the nine reps' today ----
+# ---- RingEX pacing: the merged reps fetch on demand like any seat ----
 calls = []
 real_fd = A._v6_fetch_day
 try:
     A._v6_fetch_day = lambda eid, day, tz: (calls.append(eid), ([], True))[1]
-    # through the real roster loader, which rebuilds every seat field by field
-    seat = dict(A._billing_roster("ringex")[0][0])
-    ck("the roster loader keeps the training class's cache-only flag (it dropped it)", seat.get("cache_only_today") is True, seat)
-    A._v6_today_cache.pop((seat["ext_id"], "2099-01-01"), None)
-    got, stats = A._v6_fetch_ringex([seat], ["2099-01-01"], "2099-01-01", 240)
-    ck("a RingEX rep with no fresh cache is 'not read yet', and the request made no RingEX call",
-       calls == [] and got[seat["name"]]["complete"] is False and stats["missing"] == 1, (calls, stats))
-    A._v6_today_cache[(seat["ext_id"], "2099-01-01")] = {"at": __import__("time").time() - 600, "rows": [{"x": 1}]}
-    got, stats = A._v6_fetch_ringex([seat], ["2099-01-01"], "2099-01-01", 240)
-    ck("...a 10-minute-old cache from their own loop is served (the board's own refresh is 5)",
-       calls == [] and got[seat["name"]]["complete"] is True and stats["cached"] == 1, stats)
+    ex_seats = [s for s in A._TEAM_ROSTERS["sales"] if s.get("source") == "ringex"]
+    ck("the RingEX seats on the sales roster do NOT have cache_only_today",
+       all(not s.get("cache_only_today") for s in ex_seats), [s.get("cache_only_today") for s in ex_seats])
     bill = dict(A._TEAM_ROSTERS["billing"][0])
     A._v6_today_cache.pop((bill["ext_id"], "2099-01-01"), None)
     A._v6_fetch_ringex([bill], ["2099-01-01"], "2099-01-01", 240)
-    ck("...while a billing seat still fetches in the request as before", calls == [bill["ext_id"]], calls)
+    ck("a billing seat still fetches in the request as before", calls == [bill["ext_id"]], calls)
 finally:
     A._v6_fetch_day = real_fd
-    A._v6_today_cache.pop((A._TEAM_ROSTERS["ringex"][0]["ext_id"], "2099-01-01"), None)
 # ---- a refused re-read keeps today's last reading (Danny's 6:32 PM phone screenshot) ----
 import time as _t
 _rf = A._v6_fetch_day
@@ -249,11 +166,6 @@ try:
     A._v6_fetch_day = lambda eid, day, tz: ([{"id": "fresh"}], True)
     got, st = A._v6_fetch_ringex([bseat], [D0], D0, 240)
     ck("...and a fresh read, when RingEX answers, always wins", got[bseat["name"]]["rows"] == [{"id": "fresh"}] and not st["stale_seats"], st)
-    tseat = dict(A._billing_roster("ringex")[0][0])
-    A._v6_today_cache[(tseat["ext_id"], D0)] = {"at": _t.time() - 1800, "rows": [{"id": "t"}]}
-    got, st = A._v6_fetch_ringex([tseat], [D0], D0, 240)
-    ck("a training-class rep's last reading stands however old, marked (their loop is last in line for RingEX)",
-       got[tseat["name"]]["complete"] is True and st["stale_seats"] == {tseat["name"]: 30}, st)
 finally:
     A._v6_fetch_day = _rf
     for _k in [k for k in A._v6_today_cache if k[1] == "2099-01-03"]:
@@ -279,22 +191,8 @@ ck("the report names the seats shown from an earlier reading and how old", '"kin
 ck("/teams shows 'read N min ago' under such a name",
    "'<span class=\"unr\">read ' + a.stale_minutes + ' min ago</span>'" in html, "teams")
 
-ck("their own slow loop is a worker loop, LAST in line: one seat a minute, a 70 s back-off on a refusal",
-   any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS) and A._TC_PAUSE == 60.0 and A._RINGEX_REFRESH_AFTER == 300.0 and A._TC_REFRESH_AFTER == 420.0 and "time.sleep(70)" in _src, "loop")
-_today = "2099-01-02"
-for _s in A._billing_roster("billing")[0]:
-    A._v6_today_cache.pop((_s["ext_id"], _today), None)
-ck("...and it yields while any billing seat's day is not fresh", A._ringex_should_yield(_today) is True, "yield")
-for _s in A._billing_roster("billing")[0]:
-    A._v6_today_cache[(_s["ext_id"], _today)] = {"at": __import__("time").time(), "rows": []}
-_rl = A._ringcx.rate_limited
-A._ringcx.rate_limited = lambda: False
-ck("...and goes when billing is fresh and RingEX is not refusing", A._ringex_should_yield(_today) is False, "go")
-A._ringcx.rate_limited = lambda: True
-ck("...and waits out a RingEX cooldown", A._ringex_should_yield(_today) is True, "cooldown")
-A._ringcx.rate_limited = _rl
-for _s in A._billing_roster("billing")[0]:
-    A._v6_today_cache.pop((_s["ext_id"], _today), None)
+ck("loop:ringex is removed (training class merged into sales, read on demand)",
+   not any(n == "loop:ringex" for n, _ in A._WORKER_LOOPS), [n for n, _ in A._WORKER_LOOPS])
 
 # ---- Johana: off Friday and Saturday (Danny, 2026-10-16) ----
 from datetime import datetime as _D
@@ -317,12 +215,8 @@ ck("...and the panel says how many were called back", "backP + ' called back'" i
 with A.app.test_request_context("/v5"):
     v5 = A.render_template("scoreboard_v5.html", share_mode=False, share_token="")
 ck("/v5 still has its own styles (moved to the partial, not lost)", style in v5 and v5.count("<style>") == 2, v5.count("<style>"))
-ck("/v5 has the RingEX board under the roster", v5.index('id="out"') < v5.index('id="exout"') and "loadEx(q);" in v5
-   and "/api/v5/ringex?" in v5, "exout")
-# 2026-10-20: the training class carries its own texts (/api/v5/ringex); the
-# floor's texts must not paint over its rows
-ck("the floor's texts paint on the floor only; the training class carries its own", "if (el.closest('#exout')) return;" in v5
-   and "[out, $('exout')].forEach" not in v5.split("function smsPaint")[1].split("function smsPanel")[0], "smsPaint")
+ck("/v5 no longer has the training class board (#exout removed)", 'id="exout"' not in v5
+   and "loadEx" not in v5 and "/api/v5/ringex?" not in v5, "exout removed")
 
 # ---- the renderer itself, run in node ----
 node = shutil.which("node")
