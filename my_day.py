@@ -417,6 +417,28 @@ def counts_as_done(call) -> bool:
     return not is_auto_completed(call)
 
 
+# PROMISED OR SUGGESTED (Danny, 10-22). Late mixed the calls a rep or a patient agreed on with the
+# follow-ups a robot put on the calendar (coverage, the quote ladder, the old no-answer ladder), and
+# with 40 to 70 calls a day the real promises drowned. A robot's follow-up is a suggestion: it goes
+# to its own list. A person's booking, a patient's picked time ("Scheduled Call: <name>") and a
+# hand-out's "Call now:" are promises.
+SUGGESTED = re.compile(r"^\s*follow-up:|quote follow[ -]up|automated follow[ -]up|^\s*\d+(st|nd|rd|th) attempt\b", re.I)
+
+
+def is_suggested(call) -> bool:
+    return bool(SUGGESTED.search(call.get("Subject") or ""))
+
+
+def call_tag(call) -> str:
+    """A short tag for the row: a sales-chat hand-out, or one of the best open quotes picked to close."""
+    s = call.get("Subject") or ""
+    if re.match(r"\s*call now:", s, re.I):
+        return "hand-out"
+    if re.match(r"\s*follow-up:", s, re.I) and (call.get("Description") or "").startswith("Best open quote"):
+        return "best quote"
+    return ""
+
+
 def why(call, role="sales", deal_is_new=False) -> str:
     """The pill on a row. Order matters: a quote follow-up for a deal created
     an hour ago is still a quote follow-up."""
@@ -693,6 +715,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             # 15 minutes): a rep calling them too would double up (Danny, 10-21).
             "on_dialer": (deal.get("DialerStatus") or "").strip().upper() in ("READY", "ACTIVE", "PENDING"),
         }
+        r["tag"] = call_tag(c) if c is not None else ""
         if c is not None:
             r["why"] = why(c, role, deal_is_new(did) if did else False)
         else:
@@ -774,7 +797,29 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
 
     late = dedupe(late)
     upcoming = dedupe(upcoming)
+    # Suggested follow-ups: best open quotes first, then closest to paying, then oldest.
+    suggested = sorted([x for x in late if is_suggested(x[1])],
+                       key=lambda x: (call_tag(x[1]) != "best quote", close_rank((deals.get(deal_of(x[1])) or {}).get("Stage")), x[0]))
+    late = [x for x in late if not is_suggested(x[1])]
     late_rows = [row(c, kind="late") for _, c in late]
+    suggested_rows = [row(c, kind="late") for _, c in suggested]
+    for r in suggested_rows:
+        r["sub_kind"] = "soon"
+
+    # Follow-ups today, counted the way the managers' board counts them: every booked call whose time
+    # is today (not the dials the phone logged), done, late, due now or still to come.
+    fu = {"done": 0, "late": 0, "due": 0, "to_come": 0}
+    for cid, c in own.items():
+        if (c.get("Call_Type") or "Outbound") != "Outbound" or LOGGED_CALL.match(c.get("Subject") or ""):
+            continue
+        t = ts(c.get("Call_Start_Time"))
+        if not t or t.astimezone(tz).date() != today:
+            continue
+        st = status_of(c)
+        if counts_as_done(c) or cid in paired_booked:
+            fu["done"] += 1
+        elif st in OPEN:
+            fu["late" if t < late_cut else "due" if t <= now_utc else "to_come"] += 1
     today_rows = [row(c, kind="today") for _, c in upcoming]
     now_index = sum(1 for t, _ in upcoming if t <= now_utc)
 
@@ -927,6 +972,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
                               queue_ids) if role == "sales" else {"enabled": False}
 
     late_show, late_more = cap(late_rows, LATE_SHOW)
+    sugg_show, sugg_more = cap(suggested_rows, LATE_SHOW)
     today_show, today_more = cap(today_rows, TODAY_SHOW)
     new_show, new_more = cap(new_rows, NEW_SHOW)
     queue_show, queue_more = cap(queue_rows, NEW_SHOW)
@@ -943,11 +989,14 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             "done": len(done),
             "results": len(done) - len(no_result),
             "late": len(late_rows),
+            "suggested": len(suggested_rows),
             "talked_nothing_booked": len(talked_none),
             "new_leads": len(new_all),
         },
         "no_result": [row(c, kind="noresult") for _, c in no_result],
         "late": late_show, "late_more": late_more,
+        "suggested": sugg_show, "suggested_more": sugg_more, "suggested_n": len(suggested_rows),
+        "followups": fu,
         "late_oldest": late_rows[0]["when"] if late_rows else "",
         "today": today_show, "today_more": today_more, "now_index": min(now_index, len(today_show)),
         "today_last": today_rows[-1]["when"] if today_rows else "",
@@ -992,10 +1041,11 @@ def up_next(page, now_utc, show=UP_NEXT_SHOW):
     fresh = [r for r in page.get("new_leads") or [] if (mins_to(r) or -1e9) >= -FRESH_LEAD_MINUTES]
     steps = [
         (page.get("late") or [], lambda r: r.get("sub") or "Late"),
-        (due, lambda r: "Due now"),
+        (due, lambda r: "Hand-out, call now" if r.get("tag") == "hand-out" else "Due now"),
         (fresh, lambda r: "New lead, call now"),
         (lists("texts"), lambda r: "Texted you"),
         (lists("tasks"), lambda r: "Follow-up " + r.get("when", "due")),
+        ([r for r in page.get("suggested") or [] if r.get("tag") == "best quote"], lambda r: "Best quote, call today"),
         (lists("invoices"), lambda r: "Invoice unpaid, 1 in 2 pay"),
         (lists("quotes"), lambda r: "Quote sent, 1 in 8 pay"),
         (page.get("new_leads") or [], lambda r: "New lead"),

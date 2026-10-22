@@ -93,12 +93,16 @@ P = M.build(WORLD, NOW, TZ, role="sales", rep={"id": "u1", "name": "Jessica Mora
 late_ids = [r["call_id"] for r in P["late"]]
 ck("late is 15 minutes past the call time: 16 min ago is late, 14 min ago is not",
    "late-16" in late_ids and "today-14" not in late_ids, late_ids)
-ck("late is oldest first", late_ids == ["late-old", "late-q", "late-16"], late_ids)
+# 10-22: robot follow-ups (no-answer ladder, quote ladder, coverage) are suggestions, not promises.
+ck("late keeps only promised calls: the ladder calls moved to Suggested", late_ids == ["late-16"], late_ids)
+sugg_ids = [r["call_id"] for r in P["suggested"]]
+ck("suggested follow-ups: robot-booked late calls, oldest first within the same stage", sugg_ids == ["late-old", "late-q"], sugg_ids)
+ck("the header counts suggested apart", P["nums"]["suggested"] == 2 and P["suggested_n"] == 2, P["nums"])
 ck("a cancelled call is on no list", all(r["call_id"] != "cancelled" for r in P["late"] + P["today"]), late_ids)
 ck("a logged call left open is not a call to make", all(r["call_id"] != "logged-open" for r in P["late"] + P["today"]),
    [r["call_id"] for r in P["today"]])
-ck("the late count in the header is the late list", P["nums"]["late"] == 3, P["nums"])
-ck("a late row says how late", P["late"][0]["sub"] == "4 h 41 m late" and P["late"][0]["sub_kind"] == "late", P["late"][0])
+ck("the late count in the header is the late list", P["nums"]["late"] == 1, P["nums"])
+ck("a late row says how late", P["suggested"][0]["sub"] == "4 h 41 m late" and P["late"][0]["sub_kind"] == "late", P["suggested"][0])
 ck("M.LATE_MINUTES is 15 (Danny's answer)", M.LATE_MINUTES == 15, M.LATE_MINUTES)
 
 # ---- today: time order, the Now line, nothing from tomorrow ----
@@ -107,7 +111,7 @@ ck("today is in time order and stops at midnight", today_ids == ["today-14", "to
 ck("the Now line sits after the calls whose time has passed", P["now_index"] == 1, P["now_index"])
 
 # ---- the why pill ----
-pill = {r["call_id"]: r["why"] for r in P["late"] + P["today"]}
+pill = {r["call_id"]: r["why"] for r in P["late"] + P["today"] + P["suggested"]}
 ck("'Quote Follow Up' in the subject is a quote follow-up", pill.get("late-q") == "quote", pill)
 ck("'Automated Follow Up' is no answer, try again", pill.get("late-old") == "retry", pill)
 ck("'MISSED' is no answer, try again", pill.get("today-soon") == "retry", pill)
@@ -115,7 +119,7 @@ ck("'call back' is asked for a call back", pill.get("late-16") == "cb", pill)
 ck("anything else is a booked call", pill.get("today-later") == "booked", pill)
 
 # ---- names: short on the list, full when opened ----
-r2 = next(r for r in P["late"] if r["call_id"] == "late-q")
+r2 = next(r for r in P["suggested"] if r["call_id"] == "late-q")
 ck("the list shows first name and last initial", r2["short"] == "Carmen V." and r2["full"] == "Carmen Vega", r2["short"])
 ck("the last call note is a rep's note, not the script Zoho puts on every call",
    r2["note"] and r2["note"]["text"].startswith("Likes the price"), r2["note"])
@@ -732,6 +736,22 @@ import re as _re  # noqa: E402
 _rc = _re.findall(r"_ringcx\b|_snapshot_ringex|_load_ringex_snapshot|_v6_fetch\w*|_fetch_supplemental\w*|"
                   r"_cx_\w+\(|ringcx_client|_presence\w*\(", blk)
 ck("the My Day block calls no RingCentral reader (the RingEX budget is billing's)", _rc == [], _rc)
+
+# ---- 10-22: hand-out and best-quote tags, the day counter, no unclaimed list ----
+TG = dict(WORLD, calls_open=list(WORLD["calls_open"]) + [
+    call("ho", "d1", "Call now: Shante Wilson (handed out by Mari S)", -2),
+    call("bq", "d5", "Follow-up: Nicole Hart", -40, "Overdue", desc="Best open quote, picked to close (10-22): Quote Sent"),
+    call("cov", "d3", "Follow-up: Lauren Pierce", -50, "Overdue")])
+PT = M.build(TG, NOW, TZ, role="sales", rep={"id": "u1", "name": "Jessica Morales"})
+tags = {r["call_id"]: r.get("tag") for r in PT["late"] + PT["today"] + PT["suggested"]}
+ck("a 'Call now:' hand-out is tagged and stays a promise", tags.get("ho") == "hand-out" and any(r["call_id"] == "ho" for r in PT["today"] + PT["late"]), tags)
+ck("a best open quote is tagged and leads Suggested", tags.get("bq") == "best quote" and PT["suggested"][0]["call_id"] == "bq", [r["call_id"] for r in PT["suggested"]])
+ck("a plain coverage follow-up is Suggested with no tag", tags.get("cov") == "" and any(r["call_id"] == "cov" for r in PT["suggested"]), tags)
+ck("Up Next names the hand-out", any(r.get("sub") == "Hand-out, call now" for r in PT["up_next"]["rows"]), PT["up_next"]["rows"])
+fu = P["followups"]
+ck("the day counter adds up the booked calls whose time is today", set(fu) == {"done", "late", "due", "to_come"} and fu["to_come"] >= 2, fu)
+ck("My Day no longer offers unclaimed shared leads (one patient, one caller)",
+   "queue_enabled=False," in open(os.path.join(HERE, "app.py"), encoding="utf-8").read())
 
 for e in errors:
     print("FAIL:", e)
