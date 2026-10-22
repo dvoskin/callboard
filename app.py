@@ -6500,7 +6500,9 @@ def _md_page(rep, fresh=False):
                     world.update(f_pipe.result())
                     world["replies"] = f_replies.result()
         page = _md.build(world, now_utc, MY_DAY_TZ, role=role, rep=rep,
-                         queue_enabled=bool(MY_DAY_QUEUE_OWNER_IDS) or MY_DAY_FAKE,
+                         # Off (Danny, 10-22): one patient, one caller. A shared lead is the dialer's;
+                         # the inbox team assigns warm ones by hand in the sales chat.
+                         queue_enabled=False,
                          queue_ids=MY_DAY_QUEUE_OWNER_IDS)
         page["stale"] = False
     except Exception as e:  # noqa: BLE001

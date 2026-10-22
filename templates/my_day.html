@@ -85,6 +85,10 @@
   .pill,.prio,.pt2{cursor:help}
   .tag.ondial{background:color-mix(in srgb,var(--up) 14%,var(--bg));color:var(--ink)}
   .tag.held{background:color-mix(in srgb,var(--mid) 18%,var(--bg));color:var(--ink)}
+  .tag.t-handout{background:color-mix(in srgb,var(--dn) 16%,var(--bg));color:var(--ink)}
+  .tag.t-best{background:color-mix(in srgb,var(--up) 22%,var(--bg));color:var(--ink)}
+  .daycount{margin:8px 0 4px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,var(--bg));font-size:14px}
+  .daycount b{font-weight:800}
   .plan{margin:12px 0 0;padding:10px 0 12px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
   .ptiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:6px}
   .pt2{padding:8px 10px;border-radius:9px;border:1px solid var(--rule);font-size:12px;color:var(--muted);line-height:1.3}
@@ -457,7 +461,7 @@
                        : '<button class="btn go" disabled title="No number on the deal">Call</button>';
     return '<div class="r' + (OPEN_KEY === r.key ? ' open' : '') + (SAVED[r.key] ? ' done' : '') + '" data-key="' + esc(r.key) + '" data-sec="' + sec + '">' +
       whenCell(r) +
-      '<div class="pt"><b>' + esc(r.short) + (r.dialer ? '<span class="tag" title="A RingCX dialer call">dialer</span>' : '') +
+      '<div class="pt"><b>' + esc(r.short) + (r.tag === 'hand-out' ? '<span class="tag t-handout" title="Handed to you in the sales chat. The patient is waiting for a call.">hand-out</span>' : r.tag === 'best quote' ? '<span class="tag t-best" title="One of the best open quotes, picked to close.">best quote</span>' : '') + (r.dialer ? '<span class="tag" title="A RingCX dialer call">dialer</span>' : '') +
         (r.on_dialer ? '<span class="tag ondial" data-tip="The dialer has this patient queued right now. Let the dialer call them, or call now and the dialer will skip them once you talk." title="The dialer has this patient queued right now. Let the dialer call them, or call now and the dialer will skip them once you talk.">on dialer</span>' : '') +
         (r.held_by ? '<span class="tag held" title="Tapped Call in the last 15 minutes">' + esc(r.held_mine ? 'you are calling' : r.held_by.split(' ')[0] + ' is calling') + '</span>' : '') + '</b><span class="meta">' + esc(r.meta) + '</span></div>' +
       '<div class="why">' + (SAVED[r.key] ? '<span class="pill saved">\u2713 ' + esc(SAVED[r.key].label) + '</span>'
@@ -607,7 +611,7 @@
     'missed': 'She called us and nobody picked up.'
   };
 
-  var showNoResult = false;
+  var showNoResult = true;   // 10-22: results first. 0 of 37 conversations got one; the list is open, at the top
   function render(){
     var p = PAGE, n = p.nums;
     ROWS = {};
@@ -622,6 +626,16 @@
     var hintOff = false; try { hintOff = localStorage.getItem('myday.tiphint') === '1'; } catch (e) {}
     var h = planHtml(p) + (hintOff ? '' : '<div class="tiphint" id="tiphint">Tip: tap any tag, number or (i) to see what it means.<button data-hintoff="1">Got it</button></div>') + guideHtml();
     h += '<span id="s-day"></span>';
+    // Today's follow-ups in one line, counted the way the managers' board counts them.
+    var fu = p.followups;
+    if (fu) h += '<div class="daycount">Follow-ups today: <b>' + fu.done + '</b> done · <b>' + fu.late + '</b> late · <b>' + fu.due + '</b> due now · <b>' + fu.to_come + '</b> still to come</div>';
+    // Results first: a conversation with no result has no next step.
+    var nr = p.no_result.length;
+    if (nr) {
+      h += '<div class="alert"><span class="dot"></span><span class="what">' + nr + (nr === 1 ? ' call has' : ' calls have') + ' no result yet.</span><span class="hint">Tap one result on each. Without it nobody knows the next step.</span><button class="btn" id="finish">Finish them</button></div>';
+      if (showNoResult) h += section('s-nores', 'No Result Yet', 'dn', nr, 'Calls you made today with no result written. Do these first.', p.no_result,
+        {tip: 'You called but did not pick what happened. Open each one and tap one result. Until you do, Zoho does not know the next step.'}, 'nores');
+    }
     var up = p.up_next || {rows: []};
     if (up.rows.length) {
       h += group('g-up', 'Up Next', 'Do these now, top first.',
@@ -631,14 +645,8 @@
     }
     h += group('g-calls', 'Calls for Today', 'Late first, then the rest of the day in time order.',
       "These are the calls on your calendar. Work top to bottom. After each call, tap Result and pick what happened: that writes it in Zoho and books the next step. A red line means a call is late or still needs a result.");
-    var nr = p.no_result.length;
-    if (nr) {
-      h += '<div class="alert"><span class="dot"></span><span class="what">' + nr + (nr === 1 ? ' call has' : ' calls have') + ' no result yet.</span><span class="hint">Tap to finish them. It takes one tap each.</span><button class="btn" id="finish">Finish them</button></div>';
-      if (showNoResult) h += section('s-nores', 'No Result Yet', 'dn', nr, 'Calls you made today with no result written.', p.no_result,
-        {tip: 'You called but did not pick what happened. Open each one and tap one result. Until you do, Zoho does not know the next step.'}, 'nores');
-    }
-    h += section('s-late', 'Late', 'dn', n.late, 'Should have been called already. Invoice and quote patients first.', p.late,
-      {tip: 'Calls booked for earlier that nobody made yet. A call is late ' + p.late_minutes + ' minutes after its time. Patients with an invoice or a quote come first, then the oldest.',
+    h += section('s-late', 'Late, You Promised', 'dn', n.late, 'Calls you or the patient agreed on, not made yet. Invoice and quote patients first.', p.late,
+      {tip: 'Calls a person booked, times a patient picked, and hand-outs, that nobody made yet. A call is late ' + p.late_minutes + ' minutes after its time. Follow-ups the system suggested are in their own list further down.',
        empty: 'Nothing late. Nice.', more: p.late_more ? '+ ' + p.late_more + ' more late, oldest <b>' + esc(p.late_oldest) + '</b>' : ''}, 'late');
 
     var trows = p.today.map(function(r){ return rowHtml(r, 'today'); });
@@ -647,6 +655,10 @@
       'Calls booked on your calendar for the rest of today. The green line is the time now. They come from you, from patients who picked a time, and from Zoho follow-up plans.',
       (p.today.length ? HD + trows.join('') : '<div class="now">Now ' + esc(p.now_label) + '</div><p class="empty">No more calls booked today.</p>') +
       (p.today_more ? '<div class="more">+ ' + p.today_more + ' more today, last one at <b>' + esc(p.today_last) + '</b></div>' : ''));
+
+    h += section('s-sugg', 'Suggested Follow-Ups', '', p.suggested_n || 0, 'Booked by the system, not promised to the patient. Best quotes first.', p.suggested || [],
+      {tip: 'Follow-ups the system put on your calendar (best open quotes, quote follow-ups, next-step calls) whose time has passed. Nobody promised the patient this time, so do them after your promised calls. Best quotes and invoices first.',
+       empty: 'No suggested follow-ups waiting.', more: p.suggested_more ? '+ ' + p.suggested_more + ' more' : ''}, 'sugg');
 
     var newMore = [];
     if (p.new_more) newMore.push('+ ' + p.new_more + ' more');
