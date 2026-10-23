@@ -1166,11 +1166,11 @@ _TEAM_ROSTERS = {
         # Seats kept, commented, for the same reason as Andrea's below.
         # {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
         # {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
-        # Andrea Pleasant was removed from this board on 2026-10-05 at Danny's
-        # request. Her seat is left here, commented, because deleting it loses
-        # the extension -- and a board that has to be rebuilt from memory is how
-        # a wrong ext_id gets typed in.
-        # {"name": "Andrea Pleasant",  "ext_id": 388372049,  "ext": "148"},
+        # Andrea Pleasant was taken off this board on 2026-10-05 and put back on
+        # 2026-10-23 ("add andrea pleasant to the biller team"), the day Yareth
+        # and Gabriela left and their lines went to her. Keeping the commented
+        # seat through the gap is why her ext_id did not have to be re-typed.
+        {"name": "Andrea Pleasant",    "ext_id": 388372049,  "ext": "148"},
         #
         # Ana Salazar is a RingEX seat on extension 271. Danny confirmed this on
         # 2026-10-05 ("she is supposed to be extension 271 on the RingEX side")
@@ -1436,9 +1436,9 @@ _BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
 # "Collecting from another line" footnote either. Dropping a seat from the roster
 # alone does not do this: her sheet tab still maps to her name, so she would
 # reappear below the board as an untracked collector, which is not what "take
-# her off" means. Andrea Pleasant, at Danny's request on 2026-10-05; Yareth
-# Pavon and Gabriela Maldonado on 2026-10-23 (both left the company).
-BILLING_BOARD_EXCLUDE = {"Andrea Pleasant", "Yareth Pavon", "Gabriela Maldonado"}
+# her off" means. Andrea Pleasant sat here 2026-10-05..10-23 (back on the
+# board since); Yareth Pavon and Gabriela Maldonado since 2026-10-23 (left).
+BILLING_BOARD_EXCLUDE = {"Yareth Pavon", "Gabriela Maldonado"}
 # Per-team KPI targets. Billing's were measured over 257 working agent-days
 # (2026-05-26..08-23): floor = p25 of observed days, target = median, stretch =
 # p75. A team with no entry here falls back to billing_report's defaults, which
