@@ -45,8 +45,9 @@ def ck(label, cond, got=None):
 
 DIRECTORY = {
     "137": {"id": "405657034", "name": "Vivian Martinez", "type": "User", "status": "Enabled"},
-    "220": {"id": "998743035", "name": "Yareth Pavon", "type": "User", "status": "Enabled"},
-    "125": {"id": "1027587035", "name": "Gabriela Maldonado", "type": "User", "status": "Enabled"},
+    # A synthetic seat whose roster id AGREES with the directory (see the roster
+    # patch below): the agreeing-seat exemplar after the real agreeing seats left.
+    "299": {"id": "999000111", "name": "Marisol Vega", "type": "User", "status": "Enabled"},
     # The mismatch: 271 is a DIFFERENT id from the one on Ana's seat.
     "271": {"id": "999999271", "name": "Ana Salazar", "type": "User", "status": "Enabled"},
 }
@@ -72,6 +73,11 @@ def _fake_day(ext_id, day_iso, tz):
     return ([{"direction": "Inbound", "result": "Accepted"}], True, None)
 
 
+# Yareth Pavon and Gabriela Maldonado left the billing board on 2026-10-23, which
+# took the real roster below the number of seats this check needs. Synthetic
+# seats stand in: the check is about the machinery, not about any one person.
+A._TEAM_ROSTERS = dict(A._TEAM_ROSTERS, billing=list(A._TEAM_ROSTERS["billing"]) + [
+    {"name": "Marisol Vega", "ext_id": 999000111, "ext": "299"}])
 _real = (A._ringcx.fetch_extension_directory, A._v6_fetch_day_diag)
 A._ringcx.fetch_extension_directory = _fake_dir
 A._v6_fetch_day_diag = _fake_day
@@ -92,7 +98,7 @@ if body is None:
     sys.exit(1)
 
 seats = {x["extension"]: x for x in body.get("checked", [])}
-ck("every billing seat is checked", sorted(seats) == ["125", "137", "220", "271"], sorted(seats))
+ck("every billing seat is checked", sorted(seats) == ["137", "271", "299"], sorted(seats))
 
 ana = seats.get("271", {})
 ck("the mismatch is detected", ana.get("ext_id_matches_directory") is False, ana)
@@ -113,7 +119,7 @@ ck("the roster's id is ALSO shown, so the illusion is visible",
    [d["calls"] for d in ana.get("calls_by_day_roster_ext_id", [])] == [0, 0],
    ana.get("calls_by_day_roster_ext_id"))
 
-ok_seat = seats.get("220", {})
+ok_seat = seats.get("299", {})
 ck("an agreeing seat matches", ok_seat.get("ext_id_matches_directory") is True, ok_seat)
 ck("an agreeing seat raises no warning", not ok_seat.get("warning"), ok_seat.get("warning"))
 ck("an agreeing seat is not given a second count",

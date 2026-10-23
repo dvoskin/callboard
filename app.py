@@ -1161,8 +1161,11 @@ BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
 _TEAM_ROSTERS = {
     "billing": [
         {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
-        {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
-        {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
+        # Yareth Pavon and Gabriela Maldonado left on 2026-10-23 and were taken
+        # off this board at Danny's request; both extensions are Disabled.
+        # Seats kept, commented, for the same reason as Andrea's below.
+        # {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
+        # {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
         # Andrea Pleasant was removed from this board on 2026-10-05 at Danny's
         # request. Her seat is left here, commented, because deleting it loses
         # the extension -- and a board that has to be rebuilt from memory is how
@@ -1335,7 +1338,12 @@ _TEAM_ROSTERS["sales"] = [
     {"name": "Ramon Gallardo",   "source": "ringex", "ext": "135", "ext_id": 1251371035, "always_rank": True},
     {"name": "Roman Gomez",      "source": "ringex", "ext": "146", "ext_id": 1251375035, "always_rank": True},
     {"name": "Jabes Perdomo",    "source": "ringex", "ext": "141", "ext_id": 1251373035, "always_rank": True},
-    {"name": "Seydi Medrano",    "source": "ringex", "ext": "160", "ext_id": 1251381035, "always_rank": True},
+    # Seydi Medrano left the sales team on 2026-10-23 (Danny: "Seydi also has
+    # to come off the sales team"). Her line (ext 160) moved to
+    # _SMS_EXTRA_SEATS so STOP texts on it are still read, and her name is in
+    # _DEPARTED_SALES_NAMES so her RingCX campaign dials do not put her back
+    # on /v5 by the behaviour test -- she is the one trainee who dials one.
+    # {"name": "Seydi Medrano",  "source": "ringex", "ext": "160", "ext_id": 1251381035, "always_rank": True},
 ]
 
 TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
@@ -1397,6 +1405,7 @@ _SMS_EXTRA_SEATS = {
         {"name": "Howard Salmon",    "ext": "156", "ext_id": 1251378035},
         {"name": "Javier Perez",     "ext": "153", "ext_id": 1251377035},
         {"name": "Ambar Luciano",    "ext": "140", "ext_id": 1251372035},
+        {"name": "Seydi Medrano",    "ext": "160", "ext_id": 1251381035},   # left 2026-10-23
     ],
 }
 # Which boards carry a Zoho CRM count on each row: activities the person
@@ -1427,8 +1436,9 @@ _BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
 # "Collecting from another line" footnote either. Dropping a seat from the roster
 # alone does not do this: her sheet tab still maps to her name, so she would
 # reappear below the board as an untracked collector, which is not what "take
-# her off" means. Andrea Pleasant, at Danny's request on 2026-10-05.
-BILLING_BOARD_EXCLUDE = {"Andrea Pleasant"}
+# her off" means. Andrea Pleasant, at Danny's request on 2026-10-05; Yareth
+# Pavon and Gabriela Maldonado on 2026-10-23 (both left the company).
+BILLING_BOARD_EXCLUDE = {"Andrea Pleasant", "Yareth Pavon", "Gabriela Maldonado"}
 # Per-team KPI targets. Billing's were measured over 257 working agent-days
 # (2026-05-26..08-23): floor = p25 of observed days, target = median, stretch =
 # p75. A team with no entry here falls back to billing_report's defaults, which
@@ -6991,6 +7001,13 @@ _v5_roster_lock = threading.Lock()
 # System accounts that carry estimates but never sell.
 # Normalised. "n/a" is RingCX's marker for a leg with no agent, not a person.
 _NOT_SALES_NAMES = {"zoho admin", "unassigned", "n/a", ""}
+# Reps who have LEFT but still show up in the inbox reports as campaign
+# diallers for a while (the report window trails the departure). Deleting the
+# seat alone does not take such a person off /v5: the behaviour test admits
+# any campaign dialler on no other board, which is exactly what a departed
+# sales rep is. Normalised, like _NOT_SALES_NAMES. Removals are reported in
+# meta so the board never drops a person silently.
+_DEPARTED_SALES_NAMES = {"seydi medrano"}      # left 2026-10-23
 
 
 def _other_team_names() -> set:
@@ -7394,7 +7411,13 @@ def _sales_roster():
 
     other = _other_team_names()
     excluded = sorted(n for n in why if n in other)
-    names = {n for n in why if n not in _NOT_SALES_NAMES and n not in other}
+    departed = sorted(n for n in why if n in _DEPARTED_SALES_NAMES)
+    if departed:
+        meta["excluded_departed"] = departed
+        log.info("v5 roster: %d campaign dialler(s) excluded as departed: %s",
+                 len(departed), ", ".join(departed))
+    names = {n for n in why if n not in _NOT_SALES_NAMES
+             and n not in _DEPARTED_SALES_NAMES and n not in other}
     # Say who was removed. A board that silently drops people is how a real rep
     # disappears from their own scoreboard and nobody notices for a week.
     if excluded:
@@ -7416,7 +7439,7 @@ def _sales_roster():
     # than seydi not on sales call tracker v5"). Added only once the inbox
     # has spoken, so an empty inbox still filters nobody.
     declared = {_norm_name(s.get("name") or "") for s in _TEAM_ROSTERS.get("sales") or []}
-    declared -= _NOT_SALES_NAMES
+    declared -= _NOT_SALES_NAMES | _DEPARTED_SALES_NAMES
     meta["declared"] = len(declared)
     names |= declared
     with _v5_roster_lock:

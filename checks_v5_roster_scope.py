@@ -31,7 +31,7 @@ import app as appmod  # noqa: E402
 SALES = "Demmi Valladares"          # dials campaigns, on no other board
 INBOUND = "Ariel Ramirez"           # dials campaigns, ranked on /customer-service
 SCHED = "Jorge Mier"                # dials campaigns, ranked on /scheduling
-BILLING = "Yareth Pavon"            # RingEX; here to prove the rule is general
+BILLING = "Vivian Martinez"         # RingEX billing seat; here to prove the rule is general
 
 
 def _roster_from(names):

@@ -43,6 +43,12 @@ import app as A  # noqa: E402
 
 A.app.config["TESTING"] = True
 CLIENT = A.app.test_client()
+# Yareth Pavon and Gabriela Maldonado left the billing board on 2026-10-23, which
+# took the real roster below the number of seats this check needs. Synthetic
+# seats stand in: the check is about the machinery, not about any one person.
+A._TEAM_ROSTERS = dict(A._TEAM_ROSTERS, billing=list(A._TEAM_ROSTERS["billing"]) + [
+    {"name": "Marisol Vega", "ext_id": 999000111, "ext": "299"},
+    {"name": "Tomas Reyes",  "ext_id": 999000222, "ext": "298"}])
 ROSTER = [s["name"] for s in A._billing_roster("billing")[0]]
 SEAT = {s["name"]: s for s in A._billing_roster("billing")[0]}
 
@@ -67,8 +73,8 @@ _real = A._ringcx.agent_statuses_with_age
 try:
     # ---- the states ----
     j = probe([rec("Vivian Martinez", tel="CallConnected"),
-               rec("Yareth Pavon", tel="Ringing"),
-               rec("Gabriela Maldonado", tel="OnHold"),
+               rec("Marisol Vega", tel="Ringing"),
+               rec("Tomas Reyes", tel="OnHold"),
                rec("Ana Salazar", tel="NoCall", status="Available")])
     by = {s["name"]: s for s in j.get("seats", [])}
     ck("every roster seat is reported", sorted(by) == sorted(ROSTER), sorted(by))
@@ -78,14 +84,14 @@ try:
        by.get("Vivian Martinez"))
     # A ringing phone is not a conversation. Folding it into "on a call" would
     # overstate how busy the floor is at exactly the moment someone checks.
-    ck("ringing is NOT on a call", by.get("Yareth Pavon", {}).get("on_call") is False,
-       by.get("Yareth Pavon"))
-    ck("but ringing is still named", by.get("Yareth Pavon", {}).get("label") == "Ringing",
-       by.get("Yareth Pavon"))
-    ck("on hold is NOT on a call", by.get("Gabriela Maldonado", {}).get("on_call") is False,
-       by.get("Gabriela Maldonado"))
-    ck("on hold is named", by.get("Gabriela Maldonado", {}).get("label") == "On Hold",
-       by.get("Gabriela Maldonado"))
+    ck("ringing is NOT on a call", by.get("Marisol Vega", {}).get("on_call") is False,
+       by.get("Marisol Vega"))
+    ck("but ringing is still named", by.get("Marisol Vega", {}).get("label") == "Ringing",
+       by.get("Marisol Vega"))
+    ck("on hold is NOT on a call", by.get("Tomas Reyes", {}).get("on_call") is False,
+       by.get("Tomas Reyes"))
+    ck("on hold is named", by.get("Tomas Reyes", {}).get("label") == "On Hold",
+       by.get("Tomas Reyes"))
     ck("an idle phone is Available, the same word RingCX uses", by.get("Ana Salazar", {}).get("state") == "idle"
    and by.get("Ana Salazar", {}).get("label") == "Available",
        by.get("Ana Salazar"))
