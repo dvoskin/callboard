@@ -5076,6 +5076,58 @@ def api_v6_ext_probe():
     })
 
 
+@app.route("/api/v6/cx-rows")
+def api_v6_cx_rows():
+    """Every delivered RingCX interaction, one row per call, for a date range.
+
+    The boards only ever show these rolled up per agent; a patient-level audit
+    ("who called this person, when, what was the disposition") needs the rows
+    themselves. Same dedupe as _v6_cx_rows_for_team: several reports cover the
+    same calls under different subjects, so an interaction is keyed by agent,
+    start time and the two numbers on it.
+
+    Rows carry patient phone numbers, so this takes the ingest key (X-API-Key
+    header or ?key=) or a signed-in session -- not the shared board tokens.
+
+    ?start=YYYY-MM-DD&end=YYYY-MM-DD   at most 62 days
+    """
+    supplied = request.headers.get("X-API-Key", "") or request.args.get("key", "")
+    key_ok = bool(INGEST_API_KEY) and hmac.compare_digest(supplied, INGEST_API_KEY)
+    if not (key_ok or session.get("user")):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        d0 = datetime.strptime(request.args.get("start", ""), "%Y-%m-%d").date()
+        d1 = datetime.strptime(request.args.get("end", "") or request.args.get("start", ""), "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "start/end must be YYYY-MM-DD"}), 400
+    if d1 < d0 or (d1 - d0).days > 61:
+        return jsonify({"error": "end must be on or after start, at most 62 days"}), 400
+    rows, days, missing = [], [], []
+    day = d0
+    while day <= d1:
+        iso = day.isoformat()
+        seen, n = set(), 0
+        for path in _inbox_paths_all_scopes(iso):
+            for r in (_parse_inbox_cached(path) or []):
+                key = ((r.get("agent_name") or "").strip().lower(), (r.get("start_time") or "").strip(),
+                       (r.get("ani") or "").strip(), (r.get("dnis") or "").strip())
+                if key in seen:
+                    continue
+                seen.add(key)
+                st = _cx_iso(r.get("start_time"), iso)
+                if not st:
+                    # parse_interaction_csv joins Date + start time as "YYYY-MM-DD HH:MM:SS".
+                    try:
+                        st = datetime.strptime((r.get("start_time") or "").strip()[:19], "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S") + _CX_TZ
+                    except ValueError:
+                        st = ""
+                rows.append(dict(r, day=iso, start_iso=st, report=path.name))
+                n += 1
+        (days if n else missing).append(iso)
+        day += timedelta(days=1)
+    return jsonify({"rows": rows, "count": len(rows), "days_with_data": days, "days_missing": missing})
+
+
 @app.route("/api/v6/cx-agents")
 def api_v6_cx_agents():
     """Every agent name that actually appears in the delivered RingCX reports.
