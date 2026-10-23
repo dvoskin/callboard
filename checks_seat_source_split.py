@@ -43,7 +43,7 @@ from billing_report import build_report  # noqa: E402
 # ---- 1. the roster: who is on it, and are the optional keys carried ----
 roster, meta = A._billing_roster("billing")
 by = {s["name"]: s for s in roster}
-ck("Andrea Pleasant is off the billing roster", "Andrea Pleasant" not in by, sorted(by))
+ck("Andrea Pleasant is back on the billing roster (2026-10-23)", "Andrea Pleasant" in by, sorted(by))
 ck("Ana Salazar is on the billing roster", "Ana Salazar" in by, sorted(by))
 ana = by.get("Ana Salazar", {})
 ck("Ana is on extension 271", ana.get("ext") == "271", ana)
@@ -163,8 +163,10 @@ ck("an unread seat is declared on the headline",
    "'</b> not read yet'" in _html, "no not-read-yet count on the headline")
 
 # ---- 4. off the board means off the footnote too ----
-ck("Andrea is excluded from the collectors footnote",
-   "Andrea Pleasant" in A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
+ck("the departed billers are excluded from the collectors footnote",
+   {"Yareth Pavon", "Gabriela Maldonado"} <= A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
+ck("...and a seat back on the roster is not also excluded",
+   "Andrea Pleasant" not in A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
 
 # ---- the coverage witness: her absence vs her report's absence ----
 import tempfile  # noqa: E402
