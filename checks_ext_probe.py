@@ -35,7 +35,7 @@ errors, passed = [], 0
 import app as A  # noqa: E402
 
 # The cases need more seats than the real billing roster has since 2026-10-23
-# (two), so two synthetic seats are added -- the case does not shrink with
+# (three), so two synthetic seats are added -- the case does not shrink with
 # whoever happens to be on the board.
 A._TEAM_ROSTERS = dict(A._TEAM_ROSTERS, billing=list(A._TEAM_ROSTERS["billing"]) + [
     {"name": "Synthetic Seat One", "ext_id": 998743035, "ext": "220"},
@@ -100,7 +100,7 @@ if body is None:
     sys.exit(1)
 
 seats = {x["extension"]: x for x in body.get("checked", [])}
-ck("every billing seat is checked", sorted(seats) == ["125", "137", "220", "271"], sorted(seats))
+ck("every billing seat is checked", sorted(seats) == ["125", "137", "148", "220", "271"], sorted(seats))
 
 ana = seats.get("271", {})
 ck("the mismatch is detected", ana.get("ext_id_matches_directory") is False, ana)

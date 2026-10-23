@@ -42,7 +42,7 @@ def ck(label, cond, got=None):
 import app as A  # noqa: E402
 
 # The cases need more seats than the real billing roster has since 2026-10-23
-# (two), so two synthetic seats are added -- the case does not shrink with
+# (three), so two synthetic seats are added -- the case does not shrink with
 # whoever happens to be on the board.
 A._TEAM_ROSTERS = dict(A._TEAM_ROSTERS, billing=list(A._TEAM_ROSTERS["billing"]) + [
     {"name": "Synthetic Seat One", "ext_id": 998743035, "ext": "220"},

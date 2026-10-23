@@ -57,10 +57,11 @@ ck("the RingCX-only people Danny listed are on it", EXTRA <= set(names), names)
 ck("and nobody else", set(names) == set(sched) | set(inb) | EXTRA, names)
 ck("every surgical seat is listed even at zero",
    all(x.get("always_rank") is True for x in surg), [x["name"] for x in surg if not x.get("always_rank")])
-# Yareth Pavon and Gabriela Maldonado came off billing on 2026-10-23 (Danny).
+# Yareth Pavon and Gabriela Maldonado came off billing on 2026-10-23, and
+# Andrea Pleasant went back on (Danny).
 ck("billing itself is untouched by the borrow",
    [x["name"] for x in A._TEAM_ROSTERS["billing"]]
-   == ["Vivian Martinez", "Ana Salazar"],
+   == ["Vivian Martinez", "Andrea Pleasant", "Ana Salazar"],
    [x["name"] for x in A._TEAM_ROSTERS["billing"]])
 ck("a RingCX-only newcomer is read from RingCX",
    by_name(surg, "Alex Morales").get("source") == "ringcx", by_name(surg, "Alex Morales"))

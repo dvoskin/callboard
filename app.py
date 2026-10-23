@@ -1163,16 +1163,15 @@ _TEAM_ROSTERS = {
         {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
         # Yareth Pavon and Gabriela Maldonado were taken off this board on
         # 2026-10-23 at Danny's request ("take Yareth and Gabriella off the
-        # billing rosters"). Seats kept, commented, for the same reason as
-        # Andrea's below; uncomment both and drop them from
-        # BILLING_BOARD_EXCLUDE to restore.
+        # billing rosters"). Their seats are left here, commented, because
+        # deleting them loses the extension -- and a board that has to be
+        # rebuilt from memory is how a wrong ext_id gets typed in. Uncomment
+        # both and drop them from BILLING_BOARD_EXCLUDE to restore.
         # {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
         # {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
-        # Andrea Pleasant was removed from this board on 2026-10-05 at Danny's
-        # request. Her seat is left here, commented, because deleting it loses
-        # the extension -- and a board that has to be rebuilt from memory is how
-        # a wrong ext_id gets typed in.
-        # {"name": "Andrea Pleasant",  "ext_id": 388372049,  "ext": "148"},
+        # Andrea Pleasant was off this board from 2026-10-05 and put back on
+        # 2026-10-23 ("put Andrea back on the billing roster for now").
+        {"name": "Andrea Pleasant",    "ext_id": 388372049,  "ext": "148"},
         #
         # Ana Salazar is a RingEX seat on extension 271. Danny confirmed this on
         # 2026-10-05 ("she is supposed to be extension 271 on the RingEX side")
@@ -1432,9 +1431,10 @@ _BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
 # "Collecting from another line" footnote either. Dropping a seat from the roster
 # alone does not do this: her sheet tab still maps to her name, so she would
 # reappear below the board as an untracked collector, which is not what "take
-# her off" means. Andrea Pleasant, at Danny's request on 2026-10-05.
-# Yareth Pavon and Gabriela Maldonado likewise, on 2026-10-23.
-BILLING_BOARD_EXCLUDE = {"Andrea Pleasant", "Yareth Pavon", "Gabriela Maldonado"}
+# her off" means. Yareth Pavon and Gabriela Maldonado, at Danny's request on
+# 2026-10-23. (Andrea Pleasant was here from 2026-10-05 until she went back on
+# the board the same day they came off.)
+BILLING_BOARD_EXCLUDE = {"Yareth Pavon", "Gabriela Maldonado"}
 # Per-team KPI targets. Billing's were measured over 257 working agent-days
 # (2026-05-26..08-23): floor = p25 of observed days, target = median, stretch =
 # p75. A team with no entry here falls back to billing_report's defaults, which
@@ -7035,6 +7035,7 @@ def _other_team_names() -> set:
     # Taken off the billing board is not the same as joining sales: Yareth
     # Pavon and Gabriela Maldonado (2026-10-23) are still billers, and a
     # campaign dial must not land them on /v5 now that no roster names them.
+    # Danny, 2026-10-23: "They shouldn't be on the sales board".
     out |= {_norm_name(n) for n in BILLING_BOARD_EXCLUDE}
     return out
 

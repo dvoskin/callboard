@@ -43,7 +43,8 @@ from billing_report import build_report  # noqa: E402
 # ---- 1. the roster: who is on it, and are the optional keys carried ----
 roster, meta = A._billing_roster("billing")
 by = {s["name"]: s for s in roster}
-ck("Andrea Pleasant is off the billing roster", "Andrea Pleasant" not in by, sorted(by))
+# Back on from 2026-10-23 (Danny: "put Andrea back on the billing roster for now").
+ck("Andrea Pleasant is on the billing roster", "Andrea Pleasant" in by, sorted(by))
 ck("Ana Salazar is on the billing roster", "Ana Salazar" in by, sorted(by))
 ana = by.get("Ana Salazar", {})
 ck("Ana is on extension 271", ana.get("ext") == "271", ana)
@@ -106,7 +107,7 @@ try:
     ck("Ana IS asked of RingEX now", "Ana Salazar" in asked_ex, asked_ex)
     ck("Ana is NOT asked of RingCX", "Ana Salazar" not in asked_cx, asked_cx)
     ck("every billing seat reaches the report", sorted(seen.get("rows", {})) == sorted(
-       ["Ana Salazar", "Marisol Vega", "Vivian Martinez"]), sorted(seen.get("rows", {})))
+       ["Ana Salazar", "Andrea Pleasant", "Marisol Vega", "Vivian Martinez"]), sorted(seen.get("rows", {})))
     got = seen.get("rows", {})
     ck("the overridden seat's half is labelled RingCX",
        got.get("Marisol Vega", {}).get("call_source") == "RingCX", got.get("Marisol Vega"))
@@ -162,8 +163,10 @@ ck("an unread seat is declared on the headline",
    "'</b> not read yet'" in _html, "no not-read-yet count on the headline")
 
 # ---- 4. off the board means off the footnote too ----
-ck("Andrea is excluded from the collectors footnote",
-   "Andrea Pleasant" in A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
+ck("Yareth and Gabriela are excluded from the collectors footnote",
+   {"Yareth Pavon", "Gabriela Maldonado"} <= A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
+ck("Andrea, back on the board, is not excluded",
+   "Andrea Pleasant" not in A.BILLING_BOARD_EXCLUDE, A.BILLING_BOARD_EXCLUDE)
 
 # ---- the coverage witness: her absence vs her report's absence ----
 import tempfile  # noqa: E402
