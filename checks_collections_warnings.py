@@ -22,6 +22,14 @@ os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 
 import app as appmod  # noqa: E402
 
+# The case needs a fresh, a dry, a typo'd and an empty tab -- four seats. The
+# real billing roster is two since 2026-10-23, so two synthetic seats make up
+# the number rather than the case shrinking with whoever is on the board.
+appmod._TEAM_ROSTERS = dict(appmod._TEAM_ROSTERS, billing=list(appmod._TEAM_ROSTERS["billing"]) + [
+    {"name": "Synthetic Seat One", "ext_id": 999000301, "ext": "301"},
+    {"name": "Synthetic Seat Two", "ext_id": 999000302, "ext": "302"},
+])
+
 TODAY = date(2026, 8, 26)
 
 

@@ -106,8 +106,7 @@ try:
     ck("Ana IS asked of RingEX now", "Ana Salazar" in asked_ex, asked_ex)
     ck("Ana is NOT asked of RingCX", "Ana Salazar" not in asked_cx, asked_cx)
     ck("every billing seat reaches the report", sorted(seen.get("rows", {})) == sorted(
-       ["Ana Salazar", "Gabriela Maldonado", "Marisol Vega",
-        "Vivian Martinez", "Yareth Pavon"]), sorted(seen.get("rows", {})))
+       ["Ana Salazar", "Marisol Vega", "Vivian Martinez"]), sorted(seen.get("rows", {})))
     got = seen.get("rows", {})
     ck("the overridden seat's half is labelled RingCX",
        got.get("Marisol Vega", {}).get("call_source") == "RingCX", got.get("Marisol Vega"))

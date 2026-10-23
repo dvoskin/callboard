@@ -57,9 +57,10 @@ ck("the RingCX-only people Danny listed are on it", EXTRA <= set(names), names)
 ck("and nobody else", set(names) == set(sched) | set(inb) | EXTRA, names)
 ck("every surgical seat is listed even at zero",
    all(x.get("always_rank") is True for x in surg), [x["name"] for x in surg if not x.get("always_rank")])
+# Yareth Pavon and Gabriela Maldonado came off billing on 2026-10-23 (Danny).
 ck("billing itself is untouched by the borrow",
    [x["name"] for x in A._TEAM_ROSTERS["billing"]]
-   == ["Vivian Martinez", "Yareth Pavon", "Gabriela Maldonado", "Ana Salazar"],
+   == ["Vivian Martinez", "Ana Salazar"],
    [x["name"] for x in A._TEAM_ROSTERS["billing"]])
 ck("a RingCX-only newcomer is read from RingCX",
    by_name(surg, "Alex Morales").get("source") == "ringcx", by_name(surg, "Alex Morales"))
@@ -853,7 +854,7 @@ finally:
     if _real_cfg is not None: _cls.configured = _real_cfg
 _s0 = (_su.get("seats") or [{}])[0]
 _byn = {t["digits"]: t for t in _s0.get("unanswered") or []}
-ck("every billing seat is read, with its message count", len(_su.get("seats") or []) >= 3 and _s0.get("messages") == 5, _su)
+ck("every billing seat is read, with its message count", len(_su.get("seats") or []) == len(A._TEAM_ROSTERS["billing"]) and _s0.get("messages") == 5, _su)
 ck("a reply closes the wait: only the inbound AFTER the last reply is open, with its text", _s0.get("unanswered_count") == 2
    and [(m["at"], m["text"]) for m in _byn["3055550101"]["inbound"]] == [("Thu 10:30 AM", "ok how")]
    and _byn["3055550101"]["inbound_total"] == 2, _s0.get("unanswered"))

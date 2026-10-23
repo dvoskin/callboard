@@ -34,6 +34,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 errors, passed = [], 0
 import app as A  # noqa: E402
 
+# The cases need more seats than the real billing roster has since 2026-10-23
+# (two), so two synthetic seats are added -- the case does not shrink with
+# whoever happens to be on the board.
+A._TEAM_ROSTERS = dict(A._TEAM_ROSTERS, billing=list(A._TEAM_ROSTERS["billing"]) + [
+    {"name": "Synthetic Seat One", "ext_id": 998743035, "ext": "220"},
+    {"name": "Synthetic Seat Two", "ext_id": 1027587035, "ext": "125"},
+])
+
 
 def ck(label, cond, got=None):
     global passed
@@ -45,8 +53,8 @@ def ck(label, cond, got=None):
 
 DIRECTORY = {
     "137": {"id": "405657034", "name": "Vivian Martinez", "type": "User", "status": "Enabled"},
-    "220": {"id": "998743035", "name": "Yareth Pavon", "type": "User", "status": "Enabled"},
-    "125": {"id": "1027587035", "name": "Gabriela Maldonado", "type": "User", "status": "Enabled"},
+    "220": {"id": "998743035", "name": "Synthetic Seat One", "type": "User", "status": "Enabled"},
+    "125": {"id": "1027587035", "name": "Synthetic Seat Two", "type": "User", "status": "Enabled"},
     # The mismatch: 271 is a DIFFERENT id from the one on Ana's seat.
     "271": {"id": "999999271", "name": "Ana Salazar", "type": "User", "status": "Enabled"},
 }

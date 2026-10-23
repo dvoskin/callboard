@@ -1161,8 +1161,13 @@ BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
 _TEAM_ROSTERS = {
     "billing": [
         {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
-        {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
-        {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
+        # Yareth Pavon and Gabriela Maldonado were taken off this board on
+        # 2026-10-23 at Danny's request ("take Yareth and Gabriella off the
+        # billing rosters"). Seats kept, commented, for the same reason as
+        # Andrea's below; uncomment both and drop them from
+        # BILLING_BOARD_EXCLUDE to restore.
+        # {"name": "Yareth Pavon",       "ext_id": 998743035,  "ext": "220"},
+        # {"name": "Gabriela Maldonado", "ext_id": 1027587035, "ext": "125"},
         # Andrea Pleasant was removed from this board on 2026-10-05 at Danny's
         # request. Her seat is left here, commented, because deleting it loses
         # the extension -- and a board that has to be rebuilt from memory is how
@@ -1428,7 +1433,8 @@ _BILLING_ROSTER_DEFAULT = _TEAM_ROSTERS[DEFAULT_TEAM]
 # alone does not do this: her sheet tab still maps to her name, so she would
 # reappear below the board as an untracked collector, which is not what "take
 # her off" means. Andrea Pleasant, at Danny's request on 2026-10-05.
-BILLING_BOARD_EXCLUDE = {"Andrea Pleasant"}
+# Yareth Pavon and Gabriela Maldonado likewise, on 2026-10-23.
+BILLING_BOARD_EXCLUDE = {"Andrea Pleasant", "Yareth Pavon", "Gabriela Maldonado"}
 # Per-team KPI targets. Billing's were measured over 257 working agent-days
 # (2026-05-26..08-23): floor = p25 of observed days, target = median, stretch =
 # p75. A team with no entry here falls back to billing_report's defaults, which
@@ -7026,6 +7032,10 @@ def _other_team_names() -> set:
             n = _norm_name(seat.get("name") or "")
             if n:
                 out.add(n)
+    # Taken off the billing board is not the same as joining sales: Yareth
+    # Pavon and Gabriela Maldonado (2026-10-23) are still billers, and a
+    # campaign dial must not land them on /v5 now that no roster names them.
+    out |= {_norm_name(n) for n in BILLING_BOARD_EXCLUDE}
     return out
 
 
