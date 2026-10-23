@@ -42,7 +42,8 @@ ck("a 200 s and a 700 s call: two over 3m, one over 10m; ring time never counts"
    b["over_180s"] == 2 and b["over_600s"] == 1 and b["dials"] == 3 and b["connected"] == 2, b)
 
 # ---- the team: training class merged into sales (2026-10-22) ----
-FIVE_EX = ["Annyta Santiago", "Ramon Gallardo", "Roman Gomez", "Jabes Perdomo", "Seydi Medrano"]
+# Seydi Medrano was the fifth until 2026-10-23, when she left the sales team.
+FIVE_EX = ["Annyta Santiago", "Ramon Gallardo", "Roman Gomez", "Jabes Perdomo"]
 _src = open(os.path.join(HERE, "app.py"), encoding="utf-8").read()
 ck("the ringex team no longer exists as a separate roster",
    "ringex" not in A._TEAM_ROSTERS, list(A._TEAM_ROSTERS.keys()))

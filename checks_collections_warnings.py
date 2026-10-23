@@ -22,6 +22,12 @@ os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
 
 import app as appmod  # noqa: E402
 
+# Yareth Pavon and Gabriela Maldonado left the billing board on 2026-10-23, which
+# took the real roster below the three seats this check needs. A synthetic seat
+# stands in: the check is about the machinery, not about any one person.
+appmod._TEAM_ROSTERS = dict(appmod._TEAM_ROSTERS, billing=list(appmod._TEAM_ROSTERS["billing"]) + [
+    {"name": "Marisol Vega", "ext_id": 999000111, "ext": "299"}])
+
 TODAY = date(2026, 8, 26)
 
 
