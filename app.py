@@ -4051,6 +4051,13 @@ _SALES_SMS_PANEL = [
     {"label": "Salome", "name": "Salome",              "ext": "151"},
     {"label": "Artem",  "name": "Artem Bezkorovainyi", "ext": "169", "ext_id": 701193035},
     {"label": "Umed",   "name": "Umed Makhsumov",      "ext": ""},
+    # Anna came off the sales board's panel on 2026-10-15 at Danny's word and
+    # is back for the Shared Inbox block on /teams only (Danny, 2026-10-24:
+    # "add the shared inbox stats for Sally Ariel Artem Uma Anna's rings for
+    # unopened and unanswered messages"). teams_only keeps her off /v5, which
+    # he set himself; /api/teams/inbox shows every line. ext_id from the
+    # RingEX line audit (she texts from her own line, see the Journeys work).
+    {"label": "Anna",   "name": "Anna Parizher",       "ext": "733", "ext_id": 683781035, "teams_only": True},
 ]
 _V5_SMS_PACE = 2.0              # seconds between lines: ~24 reads + pages inside a minute's budget
 
@@ -4161,7 +4168,8 @@ def _v5_sms_build(start_iso, end_iso, tz_off):
     for seat in pseats:
         rows, meta = _v5_sms_read(seat, start_dt, end_dt, grp)
         a = _v5_sms_seat(rows, meta)
-        a.update({"label": seat["label"], "name": seat.get("name"), "ext": str(seat.get("ext") or "")})
+        a.update({"label": seat["label"], "name": seat.get("name"), "ext": str(seat.get("ext") or ""),
+                  "teams_only": bool(seat.get("teams_only"))})
         panel.append(a)
         time.sleep(_V5_SMS_PACE)
     return {"agents": agents, "totals": tot, "unresolved": unresolved,
@@ -4192,6 +4200,90 @@ def _v5_sms_refresh(key):
             threading.Thread(target=_v5_sms_refresh, args=(key,), daemon=True, name="v5sms:again").start()
 
 
+def _v5_sms_lookup(s, e, today, tz, asked=()):
+    """(cache entry or None, fresh) for one window's texts build, starting or
+    re-queuing the background read when the cache is stale or never covered a
+    name the caller shows. Shared by /api/v5/sms and /api/teams/inbox so both
+    read the SAME build: the message store's budget is spent once, and the
+    Shared Inbox on /teams costs the sales board nothing."""
+    fresh_names = False
+    live = e >= today
+    key = (s.isoformat(), e.isoformat(), tz)
+    ttl = _V5_SMS_TTL_LIVE if live else _V5_SMS_TTL_PAST
+    with _V5_SMS_LOCK:
+        c = _V5_SMS_CACHE.get(key)
+        # A board asking for a rep the cached read never covered (a build
+        # started by a request without names) is stale for that board.
+        if c and asked:
+            covered = {" ".join(k.lower().split()) for k in (c["data"].get("agents") or {})}
+            covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("unresolved") or [])}
+            # the training class: read on its own board, never "not covered" here
+            covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("elsewhere") or [])}
+            if any(" ".join(n.lower().split()) not in covered for n in asked):
+                fresh_names = True
+        fresh = bool(c and time.time() - c["at"] < ttl) and not fresh_names
+        start_it = not fresh and key not in _V5_SMS_INFLIGHT
+        if start_it:
+            _V5_SMS_INFLIGHT.add(key)
+        elif fresh_names and key in _V5_SMS_INFLIGHT:
+            _V5_SMS_AGAIN.add(key)        # read again once the running build lands
+    if start_it:
+        threading.Thread(target=_v5_sms_refresh, args=(key + (live,),), daemon=True, name="v5sms:build").start()
+    return c, fresh
+
+
+def _sms_window_args():
+    """(start, end, today, tz) from ?start= ?end= ?tz=, or an error payload."""
+    try:
+        tz = int(request.args.get("tz"))
+    except (TypeError, ValueError):
+        tz = -int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60
+    today = (datetime.now(timezone.utc) - timedelta(minutes=tz)).date()
+    try:
+        s = datetime.strptime(request.args.get("start") or today.isoformat(), "%Y-%m-%d").date()
+        e = datetime.strptime(request.args.get("end") or s.isoformat(), "%Y-%m-%d").date()
+    except ValueError:
+        return None, None, today, tz
+    if e < s:
+        s, e = e, s
+    return s, e, today, tz
+
+
+@app.route("/api/teams/inbox")
+def api_teams_inbox():
+    """The shared office lines' texts for /teams -- Ariel, Salome, Artem, Umed
+    and Anna -- unopened (the store's own Unread flag) and unanswered (the
+    patient wrote last) per line. Danny, 2026-10-24: "add the shared inbox
+    stats for Sally Ariel Artem Uma Anna's rings for unopened and unanswered
+    messages". Reads the same cached build as the sales board's texts panel;
+    the first read of a window says {"loading": true} and the page asks again.
+    Opens on the /teams key, the staff words or a sign-in, like the page."""
+    if not (_v6_allowed() or _teams_token_ok() or _v5_allowed()):
+        return jsonify({"error": "unauthorized"}), 401
+    if not _ringcx.configured:
+        return jsonify({"lines": [], "note": "RingEX is not configured"})
+    s, e, today, tz = _sms_window_args()
+    if s is None:
+        return jsonify({"error": "bad date"}), 400
+    if (e - s).days + 1 > _V5_SMS_MAX_DAYS:
+        return jsonify({"lines": [], "too_long": True, "max_days": _V5_SMS_MAX_DAYS})
+    c, fresh = _v5_sms_lookup(s, e, today, tz)
+    if not c:
+        return jsonify({"lines": [], "loading": True})
+    d = c["data"]
+    lines = [dict(p) for p in (d.get("panel") or [])]      # the panel's order is Danny's
+    # A line the store refused is unknown, never zero: it is left out of the
+    # totals and counted apart, so a quiet total cannot hide a line not read.
+    known = [p for p in lines if not p.get("unknown")]
+    tot = {k: sum(p.get(k) or 0 for p in known) for k in ("sent", "received", "unread", "unanswered")}
+    tot["lines"] = len(lines)
+    tot["unknown_lines"] = len(lines) - len(known)
+    tot["incomplete_lines"] = sum(1 for p in known if not p.get("complete"))
+    return jsonify({"lines": lines, "unresolved": d.get("panel_unresolved") or [], "totals": tot,
+                    "window": d.get("window"), "age_seconds": round(time.time() - c["at"]),
+                    "refreshing": not fresh})
+
+
 @app.route("/api/v5/sms")
 def api_v5_sms():
     """Per-rep text counts for the sales board's window: sent (typed / auto),
@@ -4217,36 +4309,18 @@ def api_v5_sms():
         return jsonify({"agents": {}, "too_long": True, "max_days": _V5_SMS_MAX_DAYS})
     # The page passes the names it shows; one the build has not read yet is
     # added and the window is read again (bounded: a board has a few dozen).
-    fresh_names = False
     asked = [" ".join(n.split())[:60] for n in (request.args.get("names") or "").split("|") if n.strip()]
     for n in asked:
         if n not in _V5_SMS_NAMES and len(_V5_SMS_NAMES) < 80:
-            _V5_SMS_NAMES.add(n)      # read from the next build on; coverage below decides staleness
-    live = e >= today
-    key = (s.isoformat(), e.isoformat(), tz)
-    ttl = _V5_SMS_TTL_LIVE if live else _V5_SMS_TTL_PAST
-    with _V5_SMS_LOCK:
-        c = _V5_SMS_CACHE.get(key)
-        # A board asking for a rep the cached read never covered (a build
-        # started by a request without names) is stale for that board.
-        if c and asked:
-            covered = {" ".join(k.lower().split()) for k in (c["data"].get("agents") or {})}
-            covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("unresolved") or [])}
-            # the training class: read on its own board, never "not covered" here
-            covered |= {" ".join(str(k).lower().split()) for k in (c["data"].get("elsewhere") or [])}
-            if any(" ".join(n.lower().split()) not in covered for n in asked):
-                fresh_names = True
-        fresh = bool(c and time.time() - c["at"] < ttl) and not fresh_names
-        start_it = not fresh and key not in _V5_SMS_INFLIGHT
-        if start_it:
-            _V5_SMS_INFLIGHT.add(key)
-        elif fresh_names and key in _V5_SMS_INFLIGHT:
-            _V5_SMS_AGAIN.add(key)        # read again once the running build lands
-    if start_it:
-        threading.Thread(target=_v5_sms_refresh, args=(key + (live,),), daemon=True, name="v5sms:build").start()
+            _V5_SMS_NAMES.add(n)      # read from the next build on; coverage in the lookup decides staleness
+    c, fresh = _v5_sms_lookup(s, e, today, tz, asked)
     if not c:
         return jsonify({"agents": {}, "loading": True})
-    return jsonify(dict(c["data"], age_seconds=round(time.time() - c["at"]), refreshing=not fresh))
+    data = dict(c["data"], age_seconds=round(time.time() - c["at"]), refreshing=not fresh)
+    # A line that is on /teams' Shared Inbox only (Anna) stays off this panel,
+    # which Danny set himself on 2026-10-15.
+    data["panel"] = [p for p in (data.get("panel") or []) if not p.get("teams_only")]
+    return jsonify(data)
 
 
 @app.route("/api/v6/opt-outs")
