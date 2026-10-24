@@ -109,7 +109,8 @@ try:
 finally:
     A._ringcx.fetch_extension_directory = _real_dir2
 _pl = {x["label"]: x for x in _ps}
-ck("the four lines in the order named (Anna taken off 2026-10-15)", [x["label"] for x in _ps] == ["Ariel", "Salome", "Artem", "Umed"], [x["label"] for x in _ps])
+ck("the five lines in the order named (Anna back on 2026-10-24, for /teams only)", [x["label"] for x in _ps] == ["Ariel", "Salome", "Artem", "Umed", "Anna"], [x["label"] for x in _ps])
+ck("Anna is teams_only: off the sales board's panel, which Danny set on 2026-10-15", _pl["Anna"].get("teams_only") is True and _pl["Anna"]["ext_id"] == 683781035, _pl.get("Anna"))
 ck("an extension on file is used when its first name matches the directory", _pl["Ariel"]["ext_id"] == 9001 and _pl["Salome"]["ext_id"] == 9002, _pl)
 ck("a line with no number on file is found by name ('Last, First' too)", _pl["Umed"]["ext_id"] == 9005 and _pl["Umed"]["ext"] == "412", _pl["Umed"])
 A._ringcx.fetch_extension_directory = lambda **k: ({}, {})
@@ -118,7 +119,7 @@ try:
 finally:
     A._ringcx.fetch_extension_directory = _real_dir2
 ck("a name the directory lacks is reported, not guessed; ids on file still read",
-   [x["label"] for x in _ps2] == ["Artem"] and _pu2 == ["Ariel", "Salome", "Umed"], (_ps2, _pu2))
+   [x["label"] for x in _ps2] == ["Artem", "Anna"] and _pu2 == ["Ariel", "Salome", "Umed"], (_ps2, _pu2))
 
 # the build reads them with the same paced, patient reader
 A._sms_seats = lambda team, extra_names=(): ([], [])
