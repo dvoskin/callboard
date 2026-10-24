@@ -49,12 +49,16 @@
   <section class="tb-sec first" id="t-sales"><h2 class="bt">Sales Floor</h2><div class="msg">Loading…</div></section>
   <section class="tb-sec" id="t-surgical"><h2 class="bt">Surgical Coordinators</h2><div class="msg">Loading…</div></section>
   <section class="tb-sec" id="t-billing"><h2 class="bt">Billing</h2><div class="msg">Loading…</div></section>
+  <!-- The shared office lines' texts (Danny, 2026-10-24: "add the shared inbox
+       stats for Sally Ariel Artem Uma Anna's rings for unopened and unanswered
+       messages"). Not a team: no ranking, one line per number. -->
+  <section class="tb-sec" id="t-inbox"><h2 class="bt">Shared Inbox</h2><div class="msg">Loading…</div></section>
 </div>
 {% include "_teamboard.html" %}
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var hm = TB.hm, w = TB.w, fmt = TB.fmt, money = TB.money, esc = TB.esc;
+  var hm = TB.hm, w = TB.w, fmt = TB.fmt, money = TB.money, esc = TB.esc, segs = TB.segs;
   var sep = '<span class="sep">·</span>';
   // Each sales rep's scheduled Zoho follow-ups (/api/v5/followups): the
   // hairline under the name, a panel line and a summary row on both sales
@@ -441,6 +445,60 @@
     };
   }
 
+  // ---- Shared Inbox: the office lines that are nobody's own seat -- Ariel,
+  // Salome, Artem, Umed, Anna -- one line each. Unopened is the store's own
+  // Unread flag (a text nobody has opened); unanswered is a number whose last
+  // text came from the patient. Read by the same background build as the
+  // sales board's texts, so the same delay, and a line the store refused
+  // says "not read yet", never 0.
+  var INBOX_NOTE = '<b>Shared Inbox.</b> Texts on the office lines that are not a rep’s own, in the window shown. ' +
+    'Unopened is a text nobody has opened yet (RingEX’s own unread flag). Unanswered is a patient number whose last text ' +
+    'came from the patient, with no reply from that line yet. In is texts received, out is texts sent. Read with the sales ' +
+    'board’s texts, one line every few seconds, so a few minutes behind; a line not read yet says so rather than 0.';
+  function inboxLine(p) {
+    var sep = '<span class="sep">\u00b7</span>';
+    if (p.unknown) return '<i>not read yet' + (p.note ? ' \u00b7 ' + esc(p.note) : '') + '</i>';
+    return '<b' + (p.unread ? ' class="hot"' : '') + '>' + fmt(p.unread) + '</b> unopened' + sep +
+           '<b' + (p.unanswered ? ' class="hot"' : '') + '>' + fmt(p.unanswered) + '</b> unanswered' + sep +
+           fmt(p.received) + ' in' + sep + fmt(p.sent) + ' out' +
+           (p.complete ? '' : ' <i>part of the day not read yet</i>');
+  }
+  function renderInbox(el, j, err) {
+    var lines = (j && j.lines) || [], T = (j && j.totals) || {}, sep = '<span class="sep">\u00b7</span>';
+    var sub = err ? '' : j && j.loading ? 'reading the lines\u2026' :
+      lines.length + ' line' + (lines.length === 1 ? '' : 's') +
+      (T.unknown_lines ? sep + T.unknown_lines + ' not read yet' : '') +
+      ((j.unresolved || []).length ? sep + (j.unresolved || []).map(esc).join(', ') + ' not in the directory' : '') +
+      (j.refreshing ? sep + 'refreshing' : '');
+    var body;
+    if (err) body = '<div class="msg err">' + err + '</div>';
+    else if (j.loading) body = '<div class="msg">Reading the lines\u2026 a first read takes a minute or two.</div>';
+    else if (!lines.length) body = '<div class="msg">' + esc(j.note || 'No shared lines are set up.') + '</div>';
+    else body = '<div class="sum">' +
+      '<div class="srow"><span class="sl">All lines</span><span class="sv">' + segs(inboxLine({
+        unread: T.unread, unanswered: T.unanswered, received: T.received, sent: T.sent, complete: !T.incomplete_lines })) + '</span></div>' +
+      lines.map(function (p) {
+        return '<div class="srow"><span class="sl" title="' + esc(p.name || '') + (p.ext ? ' \u00b7 x' + esc(p.ext) : '') + '">' +
+               esc(p.label) + '</span><span class="sv">' + segs(inboxLine(p)) + '</span></div>';
+      }).join('') + '</div>' +
+      '<details class="notes tb-notes"><summary>Notes</summary><p class="note">' + INBOX_NOTE + '</p></details>';
+    el.innerHTML = '<div class="tb-head"><h2 class="bt"><span class="tb-t">Shared Inbox</span></h2></div>' +
+                   (sub ? '<p class="sub tb-sub">' + sub + '</p>' : '') + '<div class="tb-body">' + body + '</div>';
+  }
+  // Asked again while the build is still reading (the first read of a day).
+  function loadInbox(q, gen, n) {
+    n = n || 1;
+    fetch('/api/teams/inbox?' + q.toString(), { credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (gen !== GEN) return;
+        if (!res.ok) { renderInbox($('t-inbox'), null, '<b>' + esc(res.j.error || 'error') + '</b> ' + esc(res.j.detail || '')); return; }
+        renderInbox($('t-inbox'), res.j);
+        if ((res.j.loading || res.j.refreshing) && n < 20) setTimeout(function () { if (gen === GEN) loadInbox(q, gen, n + 1); }, res.j.loading ? 8000 : 30000);
+      })
+      .catch(function (e) { if (gen === GEN) renderInbox($('t-inbox'), null, 'Could not reach the lines: ' + esc(e)); });
+  }
+
   var SOURCES = [
     { id: 't-sales', url: '/api/v5/report?', label: 'Sales Floor', model: v5Model },
     { id: 't-surgical', url: '/api/v6/report?team=surgical&', label: 'Surgical Coordinators',
@@ -463,6 +521,7 @@
     if (win !== FU_WIN) { FU = null; FU_WIN = win; }
     var gen = ++GEN, left = SOURCES.length;
     $('spin').textContent = '…';
+    loadInbox(q, gen);
     SOURCES.forEach(function (src) {
       fetch(src.url + q.toString(), { credentials: 'same-origin' })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
