@@ -4135,13 +4135,51 @@ def _v5_sms_read(seat, start_dt, end_dt, grp):
     return rows, meta
 
 
+# The office lines of a window, published the moment they are read -- before
+# the sales floor's two dozen lines -- so /teams' Shared Inbox shows within a
+# minute of the first ask instead of after the whole build. (start, end, tz)
+# -> {"at", "panel", "panel_unresolved", "window"}. Replaced by the full
+# build's panel when that lands; read under _V5_SMS_LOCK.
+_TEAMS_INBOX_PARTIAL = {}
+# A build that raised: (start, end, tz) -> (when, why). Without this a failed
+# build leaves nothing in the cache and every reader waits forever -- which is
+# how the Shared Inbox sat on "reading the lines" on 2026-10-24: the build
+# ended in a NameError and nobody could tell.
+_V5_SMS_FAILED = {}
+_V5_SMS_STARTED = {}
+
+
 def _v5_sms_build(start_iso, end_iso, tz_off):
     """{agents: {name: counts}, totals, unresolved} for the sales floor."""
-    seats, unresolved = _sms_seats("sales", sorted(_V5_SMS_NAMES))
     start_dt = _parse_local_date_to_utc(start_iso, 0, 0, 0, tz_off)
     end_dt = _parse_local_date_to_utc(end_iso, 23, 59, 59, tz_off)
-    agents = {}
     grp = getattr(_ringcx, "SMS_RATE_GROUP", None)
+    # The other lines, in the order Danny named them -- read FIRST and handed
+    # to /teams at once (Danny, 2026-10-24: "Shared inbox still haven't
+    # loaded": they used to come after 24 sales lines and their cooldowns).
+    panel = []
+    try:
+        pseats, punres = _sms_panel_seats()
+    except Exception as e:  # noqa: BLE001
+        pseats, punres = [], ["directory: %s" % type(e).__name__]
+    for seat in pseats:
+        rows, meta = _v5_sms_read(seat, start_dt, end_dt, grp)
+        a = _v5_sms_seat(rows, meta)
+        a.update({"label": seat["label"], "name": seat.get("name"), "ext": str(seat.get("ext") or ""),
+                  "teams_only": bool(seat.get("teams_only"))})
+        panel.append(a)
+        time.sleep(_V5_SMS_PACE)
+    with _V5_SMS_LOCK:
+        _TEAMS_INBOX_PARTIAL[(start_iso, end_iso, tz_off)] = {
+            "at": time.time(), "panel": panel, "panel_unresolved": punres,
+            "window": {"start": start_iso, "end": end_iso}}
+    seats, unresolved = _sms_seats("sales", sorted(_V5_SMS_NAMES))
+    # Nobody is read on another board any more: the training class joined the
+    # sales roster on 2026-10-22 and is read here. The name stayed in the
+    # return after its definition went, and the NameError it raised at the end
+    # of EVERY build is why no texts build has landed since (found 2026-10-24).
+    elsewhere = []
+    agents = {}
     for seat in seats:
         # Paced, and patient: the message store allows about forty reads a
         # minute for the whole account (the billing and coordinator boards and
@@ -4159,28 +4197,19 @@ def _v5_sms_build(start_iso, end_iso, tz_off):
     tot["sent_auto"] = sum(a["sent_auto"] for a in agents.values()) if split else None
     tot["incomplete_seats"] = sum(1 for a in agents.values() if not a["complete"] and not a["unknown"])
     tot["unknown_seats"] = sum(1 for a in agents.values() if a["unknown"])
-    # The other lines, in the order Danny named them.
-    panel = []
-    try:
-        pseats, punres = _sms_panel_seats()
-    except Exception as e:  # noqa: BLE001
-        pseats, punres = [], ["directory: %s" % type(e).__name__]
-    for seat in pseats:
-        rows, meta = _v5_sms_read(seat, start_dt, end_dt, grp)
-        a = _v5_sms_seat(rows, meta)
-        a.update({"label": seat["label"], "name": seat.get("name"), "ext": str(seat.get("ext") or ""),
-                  "teams_only": bool(seat.get("teams_only"))})
-        panel.append(a)
-        time.sleep(_V5_SMS_PACE)
     return {"agents": agents, "totals": tot, "unresolved": unresolved,
             "panel": panel, "panel_unresolved": punres, "elsewhere": elsewhere,
             "window": {"start": start_iso, "end": end_iso}, "seats": len(agents)}
 
 
 def _v5_sms_refresh(key):
+    with _V5_SMS_LOCK:
+        _V5_SMS_STARTED[key[:3]] = time.time()
     try:
         data = _v5_sms_build(key[0], key[1], key[2])
         at = time.time()
+        with _V5_SMS_LOCK:
+            _V5_SMS_FAILED.pop(key[:3], None)
         # Mostly unread (rate limited): try again in half a minute, not three.
         if data["seats"] and (data["totals"].get("incomplete_seats", 0) + data["totals"].get("unknown_seats", 0)) * 4 > data["seats"]:
             at -= max(0, (_V5_SMS_TTL_LIVE if key[3] else _V5_SMS_TTL_PAST) - 30)
@@ -4188,10 +4217,13 @@ def _v5_sms_refresh(key):
             _V5_SMS_CACHE[key[:3]] = {"at": at, "data": data}
             while len(_V5_SMS_CACHE) > 12:
                 _V5_SMS_CACHE.pop(min(_V5_SMS_CACHE, key=lambda k: _V5_SMS_CACHE[k]["at"]))
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         log.exception("v5 sms build failed")
+        with _V5_SMS_LOCK:
+            _V5_SMS_FAILED[key[:3]] = (time.time(), "%s: %s" % (type(e).__name__, str(e)[:160]))
     finally:
         with _V5_SMS_LOCK:
+            _V5_SMS_STARTED.pop(key[:3], None)
             again = key[:3] in _V5_SMS_AGAIN
             _V5_SMS_AGAIN.discard(key[:3])
             if not again:
@@ -4268,9 +4300,25 @@ def api_teams_inbox():
     if (e - s).days + 1 > _V5_SMS_MAX_DAYS:
         return jsonify({"lines": [], "too_long": True, "max_days": _V5_SMS_MAX_DAYS})
     c, fresh = _v5_sms_lookup(s, e, today, tz)
-    if not c:
-        return jsonify({"lines": [], "loading": True})
-    d = c["data"]
+    key = (s.isoformat(), e.isoformat(), tz)
+    with _V5_SMS_LOCK:
+        part = _TEAMS_INBOX_PARTIAL.get(key)
+        failed = _V5_SMS_FAILED.get(key)
+        started = _V5_SMS_STARTED.get(key)
+    if not c and not part:
+        # Reading, or the last build broke: say which, never just "loading".
+        out = {"lines": [], "loading": True}
+        if started:
+            out["reading_seconds"] = int(time.time() - started)
+        elif failed:
+            out["loading"] = False
+            out["error"] = "the texts build failed"
+            out["detail"] = "%s (%s ago)" % (failed[1], _ago(failed[0]))
+        return jsonify(out)
+    if c:
+        d, at, partial = c["data"], c["at"], False
+    else:
+        d, at, partial = part, part["at"], True          # the office lines came first
     lines = [dict(p) for p in (d.get("panel") or [])]      # the panel's order is Danny's
     # A line the store refused is unknown, never zero: it is left out of the
     # totals and counted apart, so a quiet total cannot hide a line not read.
@@ -4280,8 +4328,13 @@ def api_teams_inbox():
     tot["unknown_lines"] = len(lines) - len(known)
     tot["incomplete_lines"] = sum(1 for p in known if not p.get("complete"))
     return jsonify({"lines": lines, "unresolved": d.get("panel_unresolved") or [], "totals": tot,
-                    "window": d.get("window"), "age_seconds": round(time.time() - c["at"]),
-                    "refreshing": not fresh})
+                    "window": d.get("window"), "age_seconds": round(time.time() - at),
+                    "refreshing": not fresh, "partial": partial})
+
+
+def _ago(t):
+    s = int(time.time() - t)
+    return "%d s" % s if s < 90 else "%d min" % (s // 60)
 
 
 @app.route("/api/v5/sms")

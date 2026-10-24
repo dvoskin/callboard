@@ -125,6 +125,72 @@ finally:
     with A._V5_SMS_LOCK:
         A._V5_SMS_CACHE.clear()
 
+# ---- the build itself: office lines first, published at once; no NameError at the end ----
+# (2026-10-24: "Shared inbox still haven't loaded" -- the panel came after 24 sales
+# lines, and the build ended in a NameError on `elsewhere` since 0df3e6c anyway)
+order = []
+_saved = (A._sms_panel_seats, A._sms_seats, A._v5_sms_read, A.time.sleep)
+A._sms_panel_seats = lambda: ([{"label": "Ariel", "name": "Ariel Voskin", "ext": "689", "ext_id": 1},
+                               {"label": "Anna", "name": "Anna Parizher", "ext": "733", "ext_id": 2, "teams_only": True}], [])
+A._sms_seats = lambda team, names=(): ([{"name": "Rep One", "ext": "101", "ext_id": 11}], [])
+seen_partial = {}
+def _read(seat, start_dt, end_dt, grp):
+    order.append(seat.get("label") or seat["name"])
+    if seat["name"] == "Rep One":
+        with A._V5_SMS_LOCK:
+            seen_partial["at_first_rep"] = {k: [x["label"] for x in v["panel"]] for k, v in A._TEAMS_INBOX_PARTIAL.items()}
+    return ([{"direction": "Inbound", "from_number": "+13055550101", "read": "Unread", "start_time": "2026-10-24T14:00:00Z"}], {})
+A._v5_sms_read = _read
+A.time.sleep = lambda s: None
+try:
+    with A._V5_SMS_LOCK:
+        A._TEAMS_INBOX_PARTIAL.clear()
+    data = A._v5_sms_build("2026-10-24", "2026-10-24", 240)
+    ck("the office lines are read BEFORE the sales floor", order == ["Ariel", "Anna", "Rep One"], order)
+    ck("...and handed to /teams before the first sales line is read",
+       seen_partial.get("at_first_rep") == {("2026-10-24", "2026-10-24", 240): ["Ariel", "Anna"]}, seen_partial)
+    ck("the build returns (no NameError on elsewhere) with the panel and an empty elsewhere",
+       [x["label"] for x in data.get("panel", [])] == ["Ariel", "Anna"] and data.get("elsewhere") == [], (data.get("elsewhere"), list(data)))
+    ck("a line's unopened count is the store's Unread flag", data["panel"][0]["unread"] == 1 and data["panel"][0]["unanswered"] == 1, data["panel"][0])
+finally:
+    A._sms_panel_seats, A._sms_seats, A._v5_sms_read, A.time.sleep = _saved
+
+# ---- /api/teams/inbox while the floor is still building: the early panel, marked partial ----
+_cls.configured = property(lambda self: True)
+try:
+    k3 = ("2026-10-24", "2026-10-24", 240)
+    with A._V5_SMS_LOCK:
+        A._V5_SMS_CACHE.clear(); A._V5_SMS_INFLIGHT.add(k3); A._V5_SMS_STARTED[k3] = time.time() - 42
+    r = c.get("/api/teams/inbox?start=2026-10-24&end=2026-10-24&tz=240&k=" + A._teams_token())
+    j = r.get_json() or {}
+    ck("the early panel is served while the floor builds, marked partial",
+       [x["label"] for x in j.get("lines", [])] == ["Ariel", "Anna"] and j.get("partial") is True, j)
+    with A._V5_SMS_LOCK:
+        A._TEAMS_INBOX_PARTIAL.clear()
+    r = c.get("/api/teams/inbox?start=2026-10-24&end=2026-10-24&tz=240&k=" + A._teams_token())
+    j = r.get_json() or {}
+    ck("before the office lines land it says how long it has been reading", j.get("loading") is True and j.get("reading_seconds", 0) >= 42, j)
+    with A._V5_SMS_LOCK:
+        A._V5_SMS_INFLIGHT.discard(k3); A._V5_SMS_STARTED.pop(k3, None); A._V5_SMS_FAILED[k3] = (time.time() - 5, "NameError: name 'elsewhere' is not defined")
+    _real_thread = A.threading.Thread
+    A.threading.Thread = type("T", (), {"__init__": lambda self, *a, **k: None, "start": lambda self: None})
+    try:
+        r = c.get("/api/teams/inbox?start=2026-10-24&end=2026-10-24&tz=240&k=" + A._teams_token())
+        j = r.get_json() or {}
+        ck("a failed build is reported, not shown as loading", j.get("loading") is False and "elsewhere" in (j.get("detail") or ""), j)
+    finally:
+        A.threading.Thread = _real_thread
+        with A._V5_SMS_LOCK:
+            A._V5_SMS_INFLIGHT.clear(); A._V5_SMS_FAILED.clear(); A._V5_SMS_STARTED.clear()
+finally:
+    if _real_cfg is not None:
+        _cls.configured = _real_cfg
+    else:
+        try:
+            delattr(_cls, "configured")
+        except AttributeError:
+            pass
+
 for e in errors:
     print("  FAIL " + e)
 print("%d passed, %d failed" % (passed, len(errors)))
