@@ -3285,12 +3285,12 @@ def _zoho_dnc(digits):
             return []
     def same(rec):
         return any("".join(ch for ch in str(rec.get(f) or "") if ch.isdigit())[-10:] == digits for f in ("Phone", "Mobile"))
-    where = f"(Phone like '%{digits}' or Mobile like '%{digits}')"
+    where = _optouts_mod.phone_where(digits)
     dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Contacts where {where} limit 50"))
     if not dnc:
         dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Leads where {where} limit 50"))
     if not dnc:
-        deals = [r for r in coql(f"select id, Phone, Stage from Deals where Phone like '%{digits}' limit 50")
+        deals = [r for r in coql(f"select id, Phone, Stage from Deals where {_optouts_mod.phone_where(digits, ('Phone',))} limit 50")
                  if "".join(ch for ch in str(r.get("Phone") or "") if ch.isdigit())[-10:] == digits]
         dnc = bool(deals) and all(r.get("Stage") == "Unsubscribe" for r in deals)
     _LEAKS["zoho_dnc"][digits] = (dnc, now)

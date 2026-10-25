@@ -102,7 +102,7 @@ class _Http:
         if "from Leads" in q: return _Resp(204, {})
         if "from Journeys" in q: return _Resp(200, {"data": [{"id": "j1", "Contact": {"id": "c2"}}]})
         if "from Deals where Contact_Name" in q: return _Resp(200, {"data": [{"id": "d1", "Stage": "Quote Sent"}, {"id": "d2", "Stage": "Closed Won - Surgery Scheduled"}]})
-        if "from Deals where Phone" in q: return _Resp(200, {"data": [{"id": "d3", "Stage": "Call Scheduled", "Phone": "(305) 555-0101"}, {"id": "dX", "Stage": "New Deal", "Phone": "3055550101 ext 9"}]})
+        if "from Deals where" in q and "Contact_Name" not in q: return _Resp(200, {"data": [{"id": "d3", "Stage": "Call Scheduled", "Phone": "(305) 555-0101"}, {"id": "dX", "Stage": "New Deal", "Phone": "3055550101 ext 9"}]})
         if "from Calls" in q and "Who_Id" in q: return _Resp(200, {"data": [{"id": "k1", "Outgoing_Call_Status": "Scheduled", "Description": "Quote follow up"}]})
         if "from Calls" in q and "What_Id" in q: return _Resp(200, {"data": [{"id": "k1", "Outgoing_Call_Status": "Scheduled", "Description": "Quote follow up"}, {"id": "k2", "Outgoing_Call_Status": "Overdue", "Description": None}]})
         return _Resp(400, {})
@@ -142,6 +142,9 @@ ck("every Scheduled / Overdue call on the person or her deals is Cancelled, once
 ck("no Leads write when no lead matched", "Leads" not in P, sorted(P))
 ck("the number is looked up by its full ten digits, never the last seven alone",
    "like '%3055550101'" in _calls[0][1] and "like '%5550101'" not in _calls[0][1], _calls[0][1])
+ck("...and in the formats Zoho stores it in, so '(305) 555-0101' is found too (678-472-3509 was not, 10-23..10-25)",
+   "'(305) 555-0101'" in _calls[0][1] and "'305-555-0101'" in _calls[0][1] and "'+13055550101'" in _calls[0][1]
+   and "Mobile in (" in _calls[0][1], _calls[0][1][:300])
 ck("...and a field whose digits do not END in them is dropped", [d["id"] for d in P["Contacts"]["data"]] == ["c1", "c2"], P["Contacts"]["data"])
 _calls.clear()
 class _Down(_Http):

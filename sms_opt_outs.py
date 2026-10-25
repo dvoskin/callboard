@@ -201,6 +201,21 @@ STOP_SEND_OFF = {"RC_SMS_Opt_Out": True, "Send_Welcome_SMS": False, "Send_No_Sho
                  "Send_Photo_Request_SMS": False, "New_Deal_24H_SMS": False, "Short_Call_SMS": False}
 
 
+def phone_where(digits, fields=("Phone", "Mobile")):
+    """A COQL clause that finds a ten-digit number however Zoho stores it.
+    `like '%3055550101'` only matches digits stored contiguously; a Contact
+    saved as "(305) 555-0101" or "305-555-0101" was never found, so her STOP
+    was never marked (678-472-3509, Fri 2026-10-23 to Sun 10-25). The caller
+    still filters with _same(): the digits must END the field."""
+    a, b, c = digits[:3], digits[3:6], digits[6:]
+    forms = [digits, "+1" + digits, "1" + digits, f"({a}) {b}-{c}", f"{a}-{b}-{c}", f"+1 ({a}) {b}-{c}",
+             f"+1 {a}-{b}-{c}", f"{a}.{b}.{c}", f"+1-{a}-{b}-{c}", f"1-{a}-{b}-{c}", f"{a} {b} {c}"]
+    inl = ",".join("'%s'" % f for f in forms)
+    # COQL takes two conditions per group, so the clause is built as nested pairs
+    per = [f"(({f} like '%{digits}') or ({f} in ({inl})))" for f in fields]
+    return per[0] if len(per) == 1 else "(" + " or ".join(per) + ")"
+
+
 def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
     """A STOP, honored everywhere the number appears -- the whole unsubscribe,
     not just the SMS flags (the flags alone left deals open and calls booked
@@ -259,14 +274,14 @@ def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
         return ok
 
     try:
-        where = f"(Phone like '%{digits}' or Mobile like '%{digits}')"
+        where = phone_where(digits)
         contacts = [r["id"] for r in coql(f"select id, Phone, Mobile from Contacts where {where} limit 50") if _same(r)]
         leads = [r["id"] for r in coql(f"select id, Phone, Mobile from Leads where {where} limit 50") if _same(r)]
         deals = {}
         if contacts:
             for r in coql("select id, Stage from Deals where Contact_Name.id in (%s) limit 100" % ",".join(contacts)):
                 deals[r["id"]] = r
-        for r in coql(f"select id, Stage, Phone from Deals where Phone like '%{digits}' limit 100"):
+        for r in coql(f"select id, Stage, Phone from Deals where {phone_where(digits, ('Phone',))} limit 100"):
             if "".join(ch for ch in str(r.get("Phone") or "") if ch.isdigit()).endswith(digits):
                 deals.setdefault(r["id"], r)
         journeys, booked = [], set()
