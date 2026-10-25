@@ -454,7 +454,8 @@
   var INBOX_NOTE = '<b>Shared Inbox.</b> Texts on the office lines that are not a rep’s own, in the window shown. ' +
     'Unopened is a text nobody has opened yet (RingEX’s own unread flag). Unanswered is a patient number whose last text ' +
     'came from the patient, with no reply from that line yet. In is texts received, out is texts sent. Read with the sales ' +
-    'board’s texts, one line every few seconds, so a few minutes behind; a line not read yet says so rather than 0.';
+    'board’s texts, one line every few seconds, so a few minutes behind; a line not read yet says so rather than 0. ' +
+    '<b>Opted out</b> counts texts SENT from these lines to a number that had replied STOP or is Do Not Contact in Zoho, read every ten minutes; it should be zero.';
   function inboxLine(p) {
     var sep = '<span class="sep">\u00b7</span>';
     if (p.unknown) return '<i>not read yet' + (p.note ? ' \u00b7 ' + esc(p.note) : '') + '</i>';
@@ -477,6 +478,12 @@
                                (j.reading_seconds ? ' (' + j.reading_seconds + ' s so far)' : '') + '.</div>';
     else if (!lines.length) body = '<div class="msg">' + esc(j.note || 'No shared lines are set up.') + '</div>';
     else body = '<div class="sum">' +
+      // texts sent from these lines to numbers that opted out: the leak Danny
+      // asked to close on 2026-10-25. Watched every ten minutes; a hot count
+      // here means somebody pasted a text to a number nobody may text.
+      (j.leaks_24h ? '<div class="srow"><span class="sl">Opted out</span><span class="sv"><b class="hot">' + fmt(j.leaks_24h) +
+        '</b> text' + (j.leaks_24h === 1 ? '' : 's') + ' sent to opted-out numbers in 24 h' + sep +
+        (j.leaks || []).slice(0, 5).map(function (o) { return esc(o.seat) + ' ***-' + esc(o.last4); }).join(', ') + '</span></div>' : '') +
       '<div class="srow"><span class="sl">All lines</span><span class="sv">' + segs(inboxLine({
         unread: T.unread, unanswered: T.unanswered, received: T.received, sent: T.sent, complete: !T.incomplete_lines })) + '</span></div>' +
       lines.map(function (p) {
