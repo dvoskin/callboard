@@ -190,16 +190,55 @@ class Store:
             self.data["runs"] = (self.data["runs"] + [info])[-30:]
 
 
-def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
-    """Set the org's opt-out fields for one number, everywhere it appears.
+# A STOP is a full unsubscribe (Danny, 2026-10-25: "when it marks it stops it
+# moves all active records to DNC stages and prevents texting again"). Deals in
+# these stages stay where they are: a paid patient's deal is not a sales deal
+# and the surgical side still needs it. Their SMS switches go off all the same.
+STOP_KEEP_STAGES = frozenset({"Unsubscribe", "Duplicates / Junk", "Closed Won - Surgery Scheduled",
+                              "Payment Received", "Payment Recieved"})
+STOP_UNSUB = "Unsubscribe"
+STOP_SEND_OFF = {"RC_SMS_Opt_Out": True, "Send_Welcome_SMS": False, "Send_No_Show_SMS": False,
+                 "Send_Photo_Request_SMS": False, "New_Deal_24H_SMS": False, "Short_Call_SMS": False}
 
-    Contact and Lead: ringcentralextensionabr__SMS_OPT_OUT, Unsubscribed_Mode
-    = Manual, Unsubscribed_Time; the Contact also Do_Not_Contact unless it has
-    an Active Journey. Deal (through its Contact): RC_SMS_Opt_Out
-    and every Send_*_SMS switch off. All with trigger: []. Returns a dict of
-    counts and errors; raises nothing.
-    """
-    out = {"contacts": 0, "leads": 0, "deals": 0, "errors": [], "at": now_iso}
+
+def phone_where(digits, fields=("Phone", "Mobile")):
+    """A COQL clause that finds a ten-digit number however Zoho stores it.
+    `like '%3055550101'` only matches digits stored contiguously; a Contact
+    saved as "(305) 555-0101" or "305-555-0101" was never found, so her STOP
+    was never marked (678-472-3509, Fri 2026-10-23 to Sun 10-25). The caller
+    still filters with _same(): the digits must END the field."""
+    a, b, c = digits[:3], digits[3:6], digits[6:]
+    forms = [digits, "+1" + digits, "1" + digits, f"({a}) {b}-{c}", f"{a}-{b}-{c}", f"+1 ({a}) {b}-{c}",
+             f"+1 {a}-{b}-{c}", f"{a}.{b}.{c}", f"+1-{a}-{b}-{c}", f"1-{a}-{b}-{c}", f"{a} {b} {c}"]
+    inl = ",".join("'%s'" % f for f in forms)
+    # COQL takes two conditions per group, so the clause is built as nested pairs
+    per = [f"(({f} like '%{digits}') or ({f} in ({inl})))" for f in fields]
+    return per[0] if len(per) == 1 else "(" + " or ".join(per) + ")"
+
+
+def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
+    """A STOP, honored everywhere the number appears -- the whole unsubscribe,
+    not just the SMS flags (the flags alone left deals open and calls booked
+    until 2026-10-25). All with trigger: [] so no workflow texts fire.
+
+      Contact   Do_Not_Contact, ringcentralextensionabr__SMS_OPT_OUT,
+                Email_Opt_Out, Unsubscribed_Mode = Manual, Unsubscribed_Time,
+                Deal_Stage mirror = Unsubscribe when a deal moved.
+                A Contact with an Active Journey keeps Do_Not_Contact OFF: the
+                coordinator still has to reach a booked patient by phone. Her
+                texts stop through the Journey's own switches instead.
+      Lead      the SMS opt-out and the Unsubscribed stamp.
+      Deals     found through the Contact AND by the deal's own Phone: every
+                deal not in STOP_KEEP_STAGES -> Stage Unsubscribe; RC_SMS_Opt_Out
+                on and every Send_*_SMS switch off on ALL of them, kept or moved.
+      Journeys  every Active Journey of the Contact: Send_SMS off,
+                Hold_Send_SMS_Follow_Up on.
+      Calls     every Scheduled / Overdue call on the Contact or its deals ->
+                Cancelled, with a line in its Description saying why.
+    Returns counts, what was found, and errors; raises nothing. Each step is
+    independent: one failed write is reported, the rest still happen."""
+    out = {"contacts": 0, "leads": 0, "deals": 0, "deals_moved": 0, "journeys": 0, "calls_cancelled": 0,
+           "errors": [], "at": now_iso, "full": True}       # full: the whole unsubscribe, not the flags alone
 
     def _same(rec):
         # The query matched the ten digits somewhere in the field; keep only a
@@ -217,46 +256,94 @@ def mark_in_zoho(base_url, headers_fn, digits, now_iso, http, log=None):
         return (r.json() or {}).get("data") or []
 
     def put(module, data):
-        r = http.put(f"{base_url}/crm/v6/{module}", headers=headers_fn(), json={"data": data, "trigger": []}, timeout=30)
-        body = r.json() if r.content else {}
-        ok = sum(1 for x in (body.get("data") or []) if x.get("code") == "SUCCESS")
-        bad = [x for x in (body.get("data") or []) if x.get("code") != "SUCCESS"]
-        if not r.ok or bad:
-            out["errors"].append({"module": module, "http": r.status_code, "detail": str(bad or body)[:160]})
+        if not data:
+            return 0
+        ok = 0
+        for i in range(0, len(data), 100):
+            part = data[i:i + 100]
+            try:
+                r = http.put(f"{base_url}/crm/v6/{module}", headers=headers_fn(), json={"data": part, "trigger": []}, timeout=30)
+                body = r.json() if r.content else {}
+            except Exception as e:  # noqa: BLE001
+                out["errors"].append({"module": module, "detail": "%s: %s" % (type(e).__name__, str(e)[:160])})
+                continue
+            ok += sum(1 for x in (body.get("data") or []) if x.get("code") == "SUCCESS")
+            bad = [x for x in (body.get("data") or []) if x.get("code") != "SUCCESS"]
+            if not r.ok or bad:
+                out["errors"].append({"module": module, "http": r.status_code, "detail": str(bad or body)[:160]})
         return ok
 
     try:
-        where = f"(Phone like '%{digits}' or Mobile like '%{digits}')"
+        where = phone_where(digits)
         contacts = [r["id"] for r in coql(f"select id, Phone, Mobile from Contacts where {where} limit 50") if _same(r)]
         leads = [r["id"] for r in coql(f"select id, Phone, Mobile from Leads where {where} limit 50") if _same(r)]
-        deals = []
+        deals = {}
         if contacts:
-            deals = [r["id"] for r in coql("select id from Deals where Contact_Name.id in (%s) limit 100" % ",".join(contacts))]
-        stamp = {"ringcentralextensionabr__SMS_OPT_OUT": True, "Unsubscribed_Mode": "Manual", "Unsubscribed_Time": now_iso}
-        # Do_Not_Contact as well (2026-10-16, the messaging-system gap list):
-        # it is the only field the Zoho Calls rules read -- the no-answer text,
-        # the reminders, the dialer push. Not on a Contact with an Active
-        # Journey: the surgical coordinator still has to reach a booked patient;
-        # that Contact keeps the SMS opt-out only.
-        booked = set()
+            for r in coql("select id, Stage from Deals where Contact_Name.id in (%s) limit 100" % ",".join(contacts)):
+                deals[r["id"]] = r
+        for r in coql(f"select id, Stage, Phone from Deals where {phone_where(digits, ('Phone',))} limit 100"):
+            if "".join(ch for ch in str(r.get("Phone") or "") if ch.isdigit()).endswith(digits):
+                deals.setdefault(r["id"], r)
+        journeys, booked = [], set()
         if contacts:
-            booked = {(r.get("Contact") or {}).get("id") for r in coql(
-                "select id, Contact from Journeys where (Contact.id in (%s) and Case_Status = 'Active') limit 200"
-                % ",".join(contacts))}
-            out["contacts"] = put("Contacts", [dict(id=i, **stamp, **({} if i in booked else {"Do_Not_Contact": True}))
-                                               for i in contacts])
-            out["do_not_contact"] = sum(1 for i in contacts if i not in booked)
-        if leads:
-            out["leads"] = put("Leads", [dict(id=i, **stamp) for i in leads])
-        if deals:
-            off = {"RC_SMS_Opt_Out": True, "Send_Welcome_SMS": False, "Send_No_Show_SMS": False,
-                   "Send_Photo_Request_SMS": False, "New_Deal_24H_SMS": False, "Short_Call_SMS": False}
-            out["deals"] = put("Deals", [dict(id=i, **off) for i in deals])
-        out["found"] = {"contacts": len(contacts), "leads": len(leads), "deals": len(deals)}
+            for r in coql("select id, Contact from Journeys where (Contact.id in (%s) and Case_Status = 'Active') limit 200"
+                          % ",".join(contacts)):
+                journeys.append(r["id"])
+                booked.add((r.get("Contact") or {}).get("id"))
+        out["found"] = {"contacts": len(contacts), "leads": len(leads), "deals": len(deals), "journeys": len(journeys)}
     except Exception as e:  # noqa: BLE001
         out["errors"].append({"module": "lookup", "detail": "%s: %s" % (type(e).__name__, str(e)[:160])})
         if log:
             log.warning("opt-out zoho mark failed for ...%s: %s", digits[-4:], e)
+        return out
+
+    move = [i for i, d in deals.items() if (d.get("Stage") or "") not in STOP_KEEP_STAGES]
+    stamp = {"ringcentralextensionabr__SMS_OPT_OUT": True, "Email_Opt_Out": True,
+             "Unsubscribed_Mode": "Manual", "Unsubscribed_Time": now_iso}
+    if contacts:
+        rows = []
+        for i in contacts:
+            row = dict(id=i, **stamp)
+            if i not in booked:
+                row["Do_Not_Contact"] = True
+            if move:
+                row["Deal_Stage"] = STOP_UNSUB          # the Contact's mirror of the stage
+            rows.append(row)
+        out["contacts"] = put("Contacts", rows)
+        out["do_not_contact"] = sum(1 for i in contacts if i not in booked)
+    if leads:
+        out["leads"] = put("Leads", [dict(id=i, ringcentralextensionabr__SMS_OPT_OUT=True, Unsubscribed_Mode="Manual",
+                                          Unsubscribed_Time=now_iso) for i in leads])
+    if deals:
+        rows = [dict({"id": i}, **STOP_SEND_OFF, **({"Stage": STOP_UNSUB} if i in move else {})) for i in deals]
+        out["deals"] = put("Deals", rows)
+        out["deals_moved"] = len(move)
+    if journeys:
+        out["journeys"] = put("Journeys", [{"id": i, "Send_SMS": False, "Hold_Send_SMS_Follow_Up": True} for i in journeys])
+    # open calls on the person or any of the deals: cancelled, and said why
+    try:
+        calls = []
+        if contacts:
+            calls += coql("select id, Outgoing_Call_Status, Description from Calls where (Who_Id in (%s) and Outgoing_Call_Status in ('Scheduled','Overdue')) limit 200"
+                          % ",".join(contacts))
+        if deals:
+            ids = list(deals)
+            for i in range(0, len(ids), 50):
+                calls += coql("select id, Outgoing_Call_Status, Description from Calls where (What_Id in (%s) and Outgoing_Call_Status in ('Scheduled','Overdue')) limit 200"
+                              % ",".join(ids[i:i + 50]))
+        seen, rows = set(), []
+        for c in calls:
+            if c["id"] in seen:
+                continue
+            seen.add(c["id"])
+            rows.append({"id": c["id"], "Outgoing_Call_Status": "Cancelled",
+                         "Description": ((c.get("Description") or "").rstrip() + "\n\nCancelled: patient texted STOP (%s)." % now_iso[:10]).strip()})
+        out["calls_cancelled"] = put("Calls", rows)
+        out["found"]["calls"] = len(rows)
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append({"module": "Calls", "detail": "%s: %s" % (type(e).__name__, str(e)[:160])})
+    if out["errors"] and log:
+        log.warning("opt-out zoho mark for ...%s had errors: %s", digits[-4:], out["errors"][:3])
     return out
 
 

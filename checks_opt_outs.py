@@ -88,7 +88,7 @@ ck("the armed flag survives a restart (a reload used to drop it: every deploy di
    so.Store(_ap).data.get("zoho_armed") is True, so.Store(_ap).data)
 ck("the plain list is sorted digits, nothing else", st2.digits() == sorted(st2.data["numbers"]), st2.digits())
 
-# ---- Zoho: the org's own opt-out fields, trigger: [], the Deal's stage untouched ----
+# ---- Zoho: a STOP is the whole unsubscribe, trigger: [] (Danny 2026-10-25) ----
 class _Resp:
     def __init__(self, status, body): self.status_code, self._b, self.ok, self.content, self.text = status, body, status < 300, b"x", ""
     def json(self): return self._b
@@ -101,29 +101,51 @@ class _Http:
                                                               {"id": "cX", "Phone": "3055550101 ext 9"}]})
         if "from Leads" in q: return _Resp(204, {})
         if "from Journeys" in q: return _Resp(200, {"data": [{"id": "j1", "Contact": {"id": "c2"}}]})
-        if "from Deals" in q: return _Resp(200, {"data": [{"id": "d1"}]})
+        if "from Deals where Contact_Name" in q: return _Resp(200, {"data": [{"id": "d1", "Stage": "Quote Sent"}, {"id": "d2", "Stage": "Closed Won - Surgery Scheduled"}]})
+        if "from Deals where" in q and "Contact_Name" not in q: return _Resp(200, {"data": [{"id": "d3", "Stage": "Call Scheduled", "Phone": "(305) 555-0101"}, {"id": "dX", "Stage": "New Deal", "Phone": "3055550101 ext 9"}]})
+        if "from Calls" in q and "Who_Id" in q: return _Resp(200, {"data": [{"id": "k1", "Outgoing_Call_Status": "Scheduled", "Description": "Quote follow up"}]})
+        if "from Calls" in q and "What_Id" in q: return _Resp(200, {"data": [{"id": "k1", "Outgoing_Call_Status": "Scheduled", "Description": "Quote follow up"}, {"id": "k2", "Outgoing_Call_Status": "Overdue", "Description": None}]})
         return _Resp(400, {})
     @staticmethod
     def put(url, headers=None, json=None, timeout=0):
         _calls.append(("put", url.rsplit("/", 1)[-1], json))
         return _Resp(200, {"data": [{"code": "SUCCESS"} for _ in json["data"]]})
 res = so.mark_in_zoho("https://z", lambda: {"Authorization": "x"}, "3055550101", "2026-10-15T21:30:00-04:00", _Http)
-puts = {c[1]: c[2] for c in _calls if c[0] == "put"}
-ck("contacts and deals found, leads none, nothing raised", res["found"] == {"contacts": 2, "leads": 0, "deals": 1} and res["errors"] == [], res)
-ck("the Contact gets the org's opt-out fields and Do_Not_Contact, with trigger: []",
-   puts["Contacts"]["trigger"] == [] and puts["Contacts"]["data"][0] == {"id": "c1", "ringcentralextensionabr__SMS_OPT_OUT": True, "Unsubscribed_Mode": "Manual", "Unsubscribed_Time": "2026-10-15T21:30:00-04:00", "Do_Not_Contact": True}, puts.get("Contacts"))
-ck("a Contact with an Active Journey keeps the SMS opt-out but NOT Do_Not_Contact (the coordinator must reach a booked patient)",
-   puts["Contacts"]["data"][1]["id"] == "c2" and "Do_Not_Contact" not in puts["Contacts"]["data"][1]
-   and puts["Contacts"]["data"][1]["ringcentralextensionabr__SMS_OPT_OUT"] is True and res.get("do_not_contact") == 1, puts["Contacts"]["data"])
-ck("the Active Journey lookup is on the matched Contacts only",
-   any(c[0] == "post" and "from Journeys" in c[1] and "Contact.id in (c1,c2)" in c[1] and "Case_Status = 'Active'" in c[1] for c in _calls), [c[1] for c in _calls if c[0] == "post"])
-ck("the Deal gets RC_SMS_Opt_Out and every Send_*_SMS switch off -- and NO stage change",
-   puts["Deals"]["trigger"] == [] and puts["Deals"]["data"][0]["RC_SMS_Opt_Out"] is True and puts["Deals"]["data"][0]["Send_Welcome_SMS"] is False
-   and puts["Deals"]["data"][0]["New_Deal_24H_SMS"] is False and "Stage" not in puts["Deals"]["data"][0] and "Email_Opt_Out" not in puts["Contacts"]["data"][0], puts.get("Deals"))
-ck("no Leads write when no lead matched", "Leads" not in puts, sorted(puts))
+puts = {}
+for c in _calls:
+    if c[0] == "put": puts.setdefault(c[1], []).append(c[2])
+P = {k: v[0] for k, v in puts.items()}
+ck("contacts, deals (through the Contact AND by phone), the Active Journey and the open calls are found; nothing raised",
+   res["found"] == {"contacts": 2, "leads": 0, "deals": 3, "journeys": 1, "calls": 2} and res["errors"] == [], res)
+ck("every write carries trigger: []", all(j["trigger"] == [] for v in puts.values() for j in v), {k: [j["trigger"] for j in v] for k, v in puts.items()})
+c1 = P["Contacts"]["data"][0]
+ck("the Contact gets Do_Not_Contact, the SMS and email opt-outs, the Unsubscribed stamp and the Deal_Stage mirror",
+   c1 == {"id": "c1", "ringcentralextensionabr__SMS_OPT_OUT": True, "Email_Opt_Out": True, "Unsubscribed_Mode": "Manual",
+          "Unsubscribed_Time": "2026-10-15T21:30:00-04:00", "Do_Not_Contact": True, "Deal_Stage": "Unsubscribe"}, c1)
+c2 = P["Contacts"]["data"][1]
+ck("a Contact with an Active Journey keeps the opt-outs but NOT Do_Not_Contact (the coordinator must reach a booked patient)",
+   c2["id"] == "c2" and "Do_Not_Contact" not in c2 and c2["ringcentralextensionabr__SMS_OPT_OUT"] is True and res.get("do_not_contact") == 1, c2)
+ck("...and her Active Journey's texts are switched off instead",
+   P["Journeys"]["data"] == [{"id": "j1", "Send_SMS": False, "Hold_Send_SMS_Follow_Up": True}] and res["journeys"] == 1, P.get("Journeys"))
+D = {d["id"]: d for d in P["Deals"]["data"]}
+ck("open sales deals move to Unsubscribe with every SMS switch off",
+   D["d1"].get("Stage") == "Unsubscribe" and D["d3"].get("Stage") == "Unsubscribe" and D["d1"]["RC_SMS_Opt_Out"] is True
+   and D["d1"]["Send_Welcome_SMS"] is False and D["d1"]["New_Deal_24H_SMS"] is False, D)
+ck("a paid patient's deal keeps its stage but loses its SMS switches too",
+   "Stage" not in D["d2"] and D["d2"]["RC_SMS_Opt_Out"] is True and D["d2"]["Send_Welcome_SMS"] is False and res["deals_moved"] == 2, D["d2"])
+ck("a deal whose phone only shares the last digits is not touched", "dX" not in D, sorted(D))
+K = {c["id"]: c for c in P["Calls"]["data"]}
+ck("every Scheduled / Overdue call on the person or her deals is Cancelled, once, with the reason kept under the old notes",
+   sorted(K) == ["k1", "k2"] and all(c["Outgoing_Call_Status"] == "Cancelled" for c in K.values())
+   and K["k1"]["Description"] == "Quote follow up\n\nCancelled: patient texted STOP (2026-10-15)."
+   and K["k2"]["Description"] == "Cancelled: patient texted STOP (2026-10-15)." and res["calls_cancelled"] == 2, K)
+ck("no Leads write when no lead matched", "Leads" not in P, sorted(P))
 ck("the number is looked up by its full ten digits, never the last seven alone",
    "like '%3055550101'" in _calls[0][1] and "like '%5550101'" not in _calls[0][1], _calls[0][1])
-ck("...and a field whose digits do not END in them is dropped", [d["id"] for d in puts["Contacts"]["data"]] == ["c1", "c2"], puts["Contacts"]["data"])
+ck("...and in the formats Zoho stores it in, so '(305) 555-0101' is found too (678-472-3509 was not, 10-23..10-25)",
+   "'(305) 555-0101'" in _calls[0][1] and "'305-555-0101'" in _calls[0][1] and "'+13055550101'" in _calls[0][1]
+   and "Mobile in (" in _calls[0][1], _calls[0][1][:300])
+ck("...and a field whose digits do not END in them is dropped", [d["id"] for d in P["Contacts"]["data"]] == ["c1", "c2"], P["Contacts"]["data"])
 _calls.clear()
 class _Down(_Http):
     @staticmethod

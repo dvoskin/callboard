@@ -3202,12 +3202,22 @@ def _optouts_run(days=2):
         marked = 0
         if write and _zoho.refresh_token and _zoho.client_id:
             now_iso = _optouts_mod.now_iso_local(tz_off)
-            for d, rec in list(_optouts.data["numbers"].items()):
+            # Numbers marked before 2026-10-25 got the SMS flags only; their
+            # deals stayed open and their calls booked. They go through the
+            # whole unsubscribe again, forty a pass, oldest first, until none
+            # is left without "full" (Danny: "moves all active records").
+            redo = 0
+            for d, rec in sorted(_optouts.data["numbers"].items(), key=lambda kv: kv[1].get("first_seen") or ""):
                 z = rec.get("zoho")
-                if z and not z.get("errors"):
+                if z and not z.get("errors") and z.get("full"):
                     continue
+                if z and not z.get("errors"):
+                    if redo >= 40:
+                        continue
+                    redo += 1
                 rec["zoho"] = _optouts_mod.mark_in_zoho(_zoho.base_url, _zoho._headers, d, now_iso, requests, log)
                 marked += 1
+            info["zoho_remarked_full"] = redo
         info["zoho_marked"] = marked
         info["zoho_write"] = write
         _optouts.note_run(info)
@@ -3275,12 +3285,12 @@ def _zoho_dnc(digits):
             return []
     def same(rec):
         return any("".join(ch for ch in str(rec.get(f) or "") if ch.isdigit())[-10:] == digits for f in ("Phone", "Mobile"))
-    where = f"(Phone like '%{digits}' or Mobile like '%{digits}')"
+    where = _optouts_mod.phone_where(digits)
     dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Contacts where {where} limit 50"))
     if not dnc:
         dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Leads where {where} limit 50"))
     if not dnc:
-        deals = [r for r in coql(f"select id, Phone, Stage from Deals where Phone like '%{digits}' limit 50")
+        deals = [r for r in coql(f"select id, Phone, Stage from Deals where {_optouts_mod.phone_where(digits, ('Phone',))} limit 50")
                  if "".join(ch for ch in str(r.get("Phone") or "") if ch.isdigit())[-10:] == digits]
         dnc = bool(deals) and all(r.get("Stage") == "Unsubscribe" for r in deals)
     _LEAKS["zoho_dnc"][digits] = (dnc, now)
