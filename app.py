@@ -3166,6 +3166,17 @@ def _optouts_run(days=2):
             s, u = _sms_seats(team)
             seats += s
             unresolved += u
+        # The shared office lines (Ariel, Salome, Artem, Umed, Anna) are on no
+        # roster, so this scan never read them -- and they text more than any
+        # seat: the inbox team pastes promo texts by hand on them all day. A
+        # STOP on Salome's line sat unmarked from Fri 10-23 to Sun 10-25
+        # (Danny, 2026-10-25: "fix these").
+        try:
+            ps, pu = _sms_panel_seats()
+            seats += [{"name": p.get("name") or p["label"], "ext": str(p.get("ext") or ""), "ext_id": p["ext_id"]} for p in ps]
+            unresolved += ["shared line %s" % x for x in pu]
+        except Exception as e:  # noqa: BLE001
+            unresolved.append("shared lines: %s" % type(e).__name__)
         seen = set()
         seats = [s for s in seats if not (s["ext_id"] in seen or seen.add(s["ext_id"]))]
         # 20 pages (5,000 texts) per seat: a blast line sends ~1,000 a day and
