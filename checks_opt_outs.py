@@ -172,6 +172,30 @@ finally:
     A._v6_allowed = _real_allowed
 ck("?mark= on a number that is not on the list is refused", r404.status_code == 404, r404.status_code)
 
+# ---- 2026-10-25: "STP" is a STOP; the shared office lines are scanned too ----
+ck('"STP" alone is an opt-out', so.is_opt_out("STP") is True, so.is_opt_out("STP"))
+ck('"stp" is not read into a longer sentence', so.is_opt_out("can you stp by the office") is False, so.is_opt_out("can you stp by the office"))
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")
+os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
+import app as A  # noqa: E402
+OPT = A._optouts_mod
+_asked = []
+_saved_scan, _saved_panel, _saved_seats = OPT.scan, A._sms_panel_seats, A._sms_seats
+A._sms_seats = lambda team, names=(): ([{"name": "Seat " + team, "ext": "1", "ext_id": "ex-" + team}], [])
+A._sms_panel_seats = lambda: ([{"label": "Salome", "name": "Salome", "ext": "151", "ext_id": "220135049"},
+                               {"label": "Ariel", "name": "Ariel Voskin", "ext": "689", "ext_id": "680145035"}], ["Umed"])
+def _fake_scan(fetch, seats, start_dt, end_dt, max_pages=4, timeout=15.0, pause=0.3):
+    _asked.extend(x["ext_id"] for x in seats); return [], [], []
+OPT.scan = _fake_scan
+try:
+    A._optouts_run(days=1)
+finally:
+    OPT.scan, A._sms_panel_seats, A._sms_seats = _saved_scan, _saved_panel, _saved_seats
+ck("the hourly STOP scan reads the shared office lines after the rosters",
+   _asked[-2:] == ["220135049", "680145035"] and "ex-billing" in _asked, _asked)
+ck("a shared line the directory lacks is reported, not dropped silently",
+   any("Umed" in str(u) for u in (A._optouts_state.get("last") or {}).get("unresolved", [])), (A._optouts_state.get("last") or {}).get("unresolved"))
+
 for e in errors:
     print("  FAIL", e)
 print("%d passed" % passed)

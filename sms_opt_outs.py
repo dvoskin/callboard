@@ -31,7 +31,9 @@ import threading
 import time
 from datetime import datetime, timezone
 
-KEYWORDS = ("stop", "stopall", "unsubscribe", "cancel", "end", "quit")
+# "stp" is a thumbed STOP: seen 2026-10-24 on Salome's line ("STP"), unmarked
+# until a person read the thread (Danny, 2026-10-25: "fix these").
+KEYWORDS = ("stop", "stopall", "stp", "unsubscribe", "cancel", "end", "quit")
 _NEGATION = {"dont", "don", "not", "never", "cant", "can", "wont", "won", "didnt", "didn", "no"}
 _STOP_SIGN = "\U0001F6D1"
 
@@ -60,7 +62,7 @@ def is_opt_out(text) -> bool:
     if not t:
         return False
     words = t.split()
-    if words[0] in KEYWORDS and (len(words) == 1 or words[0] in ("stop", "stopall", "unsubscribe")):
+    if words[0] in KEYWORDS and (len(words) == 1 or words[0] in ("stop", "stopall", "stp", "unsubscribe")):
         return True
     if len(words) <= 4 and ("stop" in words or "unsubscribe" in words) and not (set(words) & _NEGATION):
         return True
