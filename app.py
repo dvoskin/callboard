@@ -3202,12 +3202,22 @@ def _optouts_run(days=2):
         marked = 0
         if write and _zoho.refresh_token and _zoho.client_id:
             now_iso = _optouts_mod.now_iso_local(tz_off)
-            for d, rec in list(_optouts.data["numbers"].items()):
+            # Numbers marked before 2026-10-25 got the SMS flags only; their
+            # deals stayed open and their calls booked. They go through the
+            # whole unsubscribe again, forty a pass, oldest first, until none
+            # is left without "full" (Danny: "moves all active records").
+            redo = 0
+            for d, rec in sorted(_optouts.data["numbers"].items(), key=lambda kv: kv[1].get("first_seen") or ""):
                 z = rec.get("zoho")
-                if z and not z.get("errors"):
+                if z and not z.get("errors") and z.get("full"):
                     continue
+                if z and not z.get("errors"):
+                    if redo >= 40:
+                        continue
+                    redo += 1
                 rec["zoho"] = _optouts_mod.mark_in_zoho(_zoho.base_url, _zoho._headers, d, now_iso, requests, log)
                 marked += 1
+            info["zoho_remarked_full"] = redo
         info["zoho_marked"] = marked
         info["zoho_write"] = write
         _optouts.note_run(info)
