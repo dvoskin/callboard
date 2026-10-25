@@ -3239,6 +3239,125 @@ def _optouts_loop():
         time.sleep(3600)
 
 
+# ---- The shared office lines, watched every ten minutes -------------------
+# Ariel x689, Salome x151, Artem, Umed and Anna are where the inbox team
+# pastes promo texts by hand in the RingCentral app all day (4,925 since
+# 10-15), with nothing in front of them that knows who has opted out. On
+# 2026-10-24 Adina was unsubscribed at 10:13 AM and texted twice at 11:15 from
+# Ariel's line. Danny, 2026-10-25: "We have to close this leak."
+#
+# A hand paste cannot be blocked, so this makes it VISIBLE within ten minutes
+# instead of never: every ten minutes the five lines are read for the last
+# three hours; a STOP is marked at once (not at the next hourly run), and
+# every text SENT to a number that has opted out -- on our own list, or
+# Do_Not_Contact / Unsubscribe in Zoho -- is recorded, pushed to Telegram and
+# shown as a hot count on /teams' Shared Inbox. Five lines, one or two pages
+# each: about one message-store read a minute.
+_LEAKS = {"hits": [], "zoho_dnc": {}, "last": None, "lock": threading.Lock()}
+_LEAK_KEEP_H = 48
+
+
+def _zoho_dnc(digits):
+    """True when Zoho says this number has opted out: a Contact or Lead with
+    Do_Not_Contact, or every deal on the number in Unsubscribe. Cached an hour
+    per number so the watch costs Zoho a few reads, not hundreds."""
+    now = time.time()
+    c = _LEAKS["zoho_dnc"].get(digits)
+    if c and now - c[1] < 3600:
+        return c[0]
+    if not (_zoho.refresh_token and _zoho.client_id):
+        return False
+    def coql(q):
+        try:
+            r = requests.post(f"{_zoho.base_url}/crm/v6/coql", headers=_zoho._headers(), json={"select_query": q}, timeout=25)
+            return r.json().get("data", []) if r.status_code == 200 else []
+        except Exception:  # noqa: BLE001
+            return []
+    def same(rec):
+        return any("".join(ch for ch in str(rec.get(f) or "") if ch.isdigit())[-10:] == digits for f in ("Phone", "Mobile"))
+    where = f"(Phone like '%{digits}' or Mobile like '%{digits}')"
+    dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Contacts where {where} limit 50"))
+    if not dnc:
+        dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Leads where {where} limit 50"))
+    if not dnc:
+        deals = [r for r in coql(f"select id, Phone, Stage from Deals where Phone like '%{digits}' limit 50")
+                 if "".join(ch for ch in str(r.get("Phone") or "") if ch.isdigit())[-10:] == digits]
+        dnc = bool(deals) and all(r.get("Stage") == "Unsubscribe" for r in deals)
+    _LEAKS["zoho_dnc"][digits] = (dnc, now)
+    return dnc
+
+
+def _shared_lines_watch(hours=3, alert=True):
+    """One pass over the shared lines. Returns what it found; never raises."""
+    info = {"started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "hours": hours}
+    try:
+        seats, unresolved = _sms_panel_seats()
+        seats = [{"name": p.get("label") or p.get("name"), "ext": str(p.get("ext") or ""), "ext_id": p["ext_id"]} for p in seats]
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(hours=hours)
+        hits, problems, outbound = _optouts_mod.scan(_ringcx.fetch_extension_messages, seats, start_dt, end_dt, max_pages=2)
+        new = _optouts.add(hits)
+        # a STOP on a shared line is marked now, not at the next hourly run
+        marked = 0
+        write = os.environ.get("OPT_OUT_ZOHO_WRITE", "1") != "0" and bool(_optouts.data.get("zoho_armed"))
+        if write and new and _zoho.refresh_token and _zoho.client_id:
+            now_iso = _optouts_mod.now_iso_local(-int(os.environ.get("TZ_OFFSET_HOURS", "-4")) * 60)
+            for d in new:
+                rec = _optouts.data["numbers"].get(d)
+                if rec is not None:
+                    rec["zoho"] = _optouts_mod.mark_in_zoho(_zoho.base_url, _zoho._headers, d, now_iso, requests, log)
+                    marked += 1
+        # texts sent to a number that had opted out: our list first, then Zoho
+        leaks = _optouts_mod.texted_after_stop(_optouts.data["numbers"], outbound)
+        known = {(o["digits"], o["at"]) for o in leaks}
+        for o in outbound:
+            if (o["digits"], o["at"]) in known or o["digits"] in _optouts.data["numbers"]:
+                continue
+            if _zoho_dnc(o["digits"]):
+                leaks.append(dict(o, why="zoho_dnc"))
+        for o in leaks:
+            o.setdefault("why", "stop_list")
+        with _LEAKS["lock"]:
+            seen = {(h["digits"], h["at"]) for h in _LEAKS["hits"]}
+            fresh = [o for o in leaks if (o["digits"], o["at"]) not in seen]
+            _LEAKS["hits"] = sorted(_LEAKS["hits"] + fresh, key=lambda o: o["at"], reverse=True)
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=_LEAK_KEEP_H)).isoformat()
+            _LEAKS["hits"] = [h for h in _LEAKS["hits"] if h["at"] >= cutoff][:500]
+        if fresh:
+            log.warning("shared lines: %d text(s) sent to opted-out numbers: %s", len(fresh),
+                        ", ".join("%s from %s" % (o["digits"][-4:], o["seat"]) for o in fresh[:10]))
+            if alert:
+                try:
+                    _telegram.send_message(
+                        "DNC leak on the shared lines: %d text%s sent to a number that opted out.\n" % (len(fresh), "" if len(fresh) == 1 else "s") +
+                        "\n".join("• %s from %s's line at %s (%s)" % ("(***) ***-" + o["digits"][-4:], o["seat"], o["at"][11:16], "on the STOP list" if o["why"] == "stop_list" else "DNC in Zoho") for o in fresh[:10]) +
+                        "\nNobody may text these numbers. Check who pasted it.", sender_name="DNC watch")
+                except Exception as e:  # noqa: BLE001
+                    log.warning("leak alert not sent: %s", e)
+        if new:
+            _optouts.save()
+        info.update({"seats": len(seats), "unresolved": unresolved, "stops": len(hits), "new_stops": len(new), "marked": marked,
+                     "outbound": len(outbound), "leaks": len(leaks), "new_leaks": len(fresh), "problems": problems[:10]})
+    except Exception as e:  # noqa: BLE001
+        info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+        log.exception("shared lines watch failed")
+    _LEAKS["last"] = info
+    return info
+
+
+def _leaks_recent(hours=24):
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    with _LEAKS["lock"]:
+        return [h for h in _LEAKS["hits"] if h["at"] >= cutoff]
+
+
+def _shared_lines_loop():
+    time.sleep(900)              # after the boards and the hourly scan have had the budget
+    while True:
+        _shared_lines_watch()
+        time.sleep(600)
+
+
 # ---- Do-not-call dispositions, honored (dnc_dispositions.py) ---------------
 # A RingCX "DNC (Do Not Call)" disposition -> the Contact's Do_Not_Contact and
 # opt-outs, every open sales deal to Unsubscribe, the open calls cancelled --
@@ -4338,9 +4457,14 @@ def api_teams_inbox():
     tot["lines"] = len(lines)
     tot["unknown_lines"] = len(lines) - len(known)
     tot["incomplete_lines"] = sum(1 for p in known if not p.get("complete"))
+    leaks = _leaks_recent(24)
     return jsonify({"lines": lines, "unresolved": d.get("panel_unresolved") or [], "totals": tot,
                     "window": d.get("window"), "age_seconds": round(time.time() - at),
-                    "refreshing": not fresh, "partial": partial})
+                    "refreshing": not fresh, "partial": partial,
+                    # texts SENT from these lines to numbers that had opted out, last 24 h
+                    "leaks_24h": len(leaks),
+                    "leaks": [{"seat": o["seat"], "at": o["at"], "last4": o["digits"][-4:], "why": o.get("why", "stop_list")} for o in leaks[:20]],
+                    "watch": _LEAKS.get("last")})
 
 
 def _ago(t):
@@ -11855,6 +11979,7 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:v6-warm", lambda: _v6_warm_loop()),
                  ("loop:collections", lambda: _collections_loop()),
                  ("loop:optouts", lambda: _optouts_loop()),
+                 ("loop:sharedlines", lambda: _shared_lines_loop()),
                  ("loop:dnc", lambda: _dnc_loop()),
                  ("loop:paid-guard", lambda: _paid_loop()),
                  ("loop:company", lambda: _company_loop()),
