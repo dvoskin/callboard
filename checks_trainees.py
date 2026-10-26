@@ -1,0 +1,46 @@
+"""The Surgical Coordinator Trainees (Danny, 2026-10-26: "Laura, Victor, Keily and
+Celine will be starting on RingCX today doing inbound calls for now"): their own
+roster, board, /teams section, STOP scan, and an accent-proof RingCX name match.
+Run: .venv/bin/python checks_trainees.py"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")
+os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
+import app as A  # noqa: E402
+passed, errors = 0, []
+def ck(label, cond, got=None):
+    global passed
+    if cond: passed += 1
+    else: errors.append("%s -- got %r" % (label, got))
+
+r, meta = A._billing_roster("trainees")
+names = [s["name"] for s in r]
+ck("the four trainees, in the order Danny named them", names == ["Laura Martinez", "Victor Silvestre", "Keily Fermín", "Celine Vasquez"], names)
+ck("every seat is a RingCX seat with its RingEX extension (SMS, presence) and always_rank",
+   all(s.get("source") == "ringcx" and s.get("ext_id") and s.get("ext") and s.get("always_rank") for s in r), r)
+ck("RingEX ids are the ones the RingCX admin API gave (rcUserId)",
+   {s["ext_id"] for s in r} == {1253951035, 1253948035, 1253942035, 1253947035}, {s["ext_id"] for s in r})
+ck("the team reads RingCX", A._TEAM_SOURCES.get("trainees") == "ringcx", A._TEAM_SOURCES.get("trainees"))
+ck("it has Danny's name", A.TEAM_LABELS.get("trainees") == "Surgical Coordinator Trainees", A.TEAM_LABELS.get("trainees"))
+ck("judged against customer service's bar (inbound calls), with no pace column",
+   A.TEAM_TARGETS["trainees"] is A.TEAM_TARGETS["inbound"] and A.TEAM_PACE_CURVES["trainees"] is A.TEAM_PACE_CURVES["inbound"]
+   and A._TEAM_PACE_COLUMN.get("trainees") is False, (A._TEAM_PACE_COLUMN,))
+ck("not folded into the Surgical Coordinator table", "trainees" not in A._COMBINED_TEAMS["surgical"]["parts"], A._COMBINED_TEAMS["surgical"]["parts"])
+ck("its own page and hub tile", A._TEAM_PATHS.get("trainees") == "coordinator-trainees"
+   and any(rule.rule == "/coordinator-trainees" for rule in A.app.url_map.iter_rules())
+   and any(t["key"] == "trainees" for t in A._hub_team_tiles()), A._TEAM_PATHS)
+ck("the STOP scan reads their lines", "trainees" in A._OPTOUT_TEAMS, A._OPTOUT_TEAMS)
+ck("the RingCX name match folds accents and spacing: a report's 'Keily  Fermin' is the directory's 'Keily Fermín'",
+   A._cx_fold("Keily  Fermin") == A._cx_fold("Keily Fermín") == "keily fermin" and A._cx_fold(None) == "", A._cx_fold("Keily Fermín"))
+A.app.config["TESTING"] = True
+c = A.app.test_client()
+_real = A._v6_allowed; A._v6_allowed = lambda: True
+try:
+    html = c.get("/teams").get_data(as_text=True)
+finally:
+    A._v6_allowed = _real
+ck("/teams carries the section, after the coordinators and before billing",
+   html.find('id="t-surgical"') < html.find('id="t-trainees"') < html.find('id="t-billing"') and "team=trainees" in html, html.find('id="t-trainees"'))
+for e in errors: print("  FAIL " + e)
+print("%d passed, %d failed" % (passed, len(errors)))
+sys.exit(1 if errors else 0)

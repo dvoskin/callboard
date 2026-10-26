@@ -74,8 +74,8 @@ try:
     html = c.get("/teams").get_data(as_text=True)
 finally:
     A._v6_allowed = real6
-ck("/teams: sales first, then coordinators, billing (no training class), the Shared Inbox last (2026-10-24)",
-   [m for m in re.findall(r'id="t-([a-z]+)"', html)] == ["sales", "surgical", "billing", "inbox"], re.findall(r'id="t-([a-z]+)"', html))
+ck("/teams: sales, coordinators, the coordinator trainees (2026-10-26), billing, the Shared Inbox last",
+   [m for m in re.findall(r'id="t-([a-z]+)"', html)] == ["sales", "surgical", "trainees", "billing", "inbox"], re.findall(r'id="t-([a-z]+)"', html))
 ck("...titled like the dashboard's boards, in Title Case", all(t in html for t in ('<h2 class="bt">Sales Floor</h2>',
    '<h2 class="bt">Surgical Coordinators</h2>', '<h2 class="bt">Billing</h2>')), "titles")
 ck("...each team carries its own notes on delays and meanings", html.count("'<b>Delay.</b>") >= 2

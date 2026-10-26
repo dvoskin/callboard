@@ -1217,6 +1217,22 @@ _TEAM_ROSTERS = {
         # RingEX; taking her off inbound also takes her off the Surgical
         # Coordinator table, which is built from this roster.
     ],
+    # Surgical Coordinator Trainees: the class that started 2026-10-26 (Danny:
+    # "We started a new training class with coordinators because they have
+    # too many tasks ... Laura, Victor, Keily and Celine will be starting on
+    # RingCX today doing inbound calls for now"). Their own roster and board,
+    # NOT part of the Surgical Coordinator table: a trainee's day is not a
+    # coordinator's day, and a zero here must not pull that floor down.
+    # Resolved 2026-10-26 in the RingCX admin API (Customer Service group,
+    # agents 35560 / 35559 / 35558 / 35557; rcUserId IS the RingEX id) and the
+    # RingEX directory. RingCX is the source (inbound calls); the extension is
+    # there so SMS and presence can be read.
+    "trainees": [
+        {"name": "Laura Martinez",   "source": "ringcx", "ext": "153", "ext_id": 1253951035, "always_rank": True},
+        {"name": "Victor Silvestre", "source": "ringcx", "ext": "142", "ext_id": 1253948035, "always_rank": True},
+        {"name": "Keily Fermín",     "source": "ringcx", "ext": "117", "ext_id": 1253942035, "always_rank": True},
+        {"name": "Celine Vasquez",   "source": "ringcx", "ext": "134", "ext_id": 1253947035, "always_rank": True},
+    ],
 }
 # Surgical Coordinator is Scheduling and Customer Service read as ONE table,
 # asked for by Danny on 2026-10-06. It is a VIEW over the two rosters, not a
@@ -1356,6 +1372,7 @@ _TEAM_ROSTERS["sales"] = [
 TEAM_LABELS = {"billing": "Billing", "scheduling": "Scheduling",
                "inbound": "Customer Service",
                "surgical": "Surgical Coordinator KPI",
+               "trainees": "Surgical Coordinator Trainees",
                "sales": "Sales"}
 # Which teams the one link shows, in order. "The same link as the biller one"
 # means one page, two tables -- not a switcher.
@@ -1391,9 +1408,11 @@ DISTRIBUTION_BOARD_TITLE = (os.environ.get("DISTRIBUTION_BOARD_TITLE", "Lead Dis
 # 2026-10-07 evening: "remove % vs expected column for surgical coordinators".
 # The pace is still computed (the colour of the talk cell comes from it);
 # only the column goes.
-_TEAM_PACE_COLUMN = {"surgical": False}
+# Trainees are not judged against a pace either: their first weeks are
+# inbound only, and the "% vs expected" column would read as failure.
+_TEAM_PACE_COLUMN = {"surgical": False, "trainees": False}
 _TEAM_SOURCES = {"billing": "ringex", "scheduling": "ringcx", "inbound": "ringcx",
-                 "sales": "ringcx"}
+                 "sales": "ringcx", "trainees": "ringcx"}
 # Which boards read and show SMS at all. Off means not read AND not shown --
 # the chip, the panel line and the notes all go -- not read-and-hidden, so no
 # message-store budget is spent on a board that will not display it.
@@ -1477,6 +1496,7 @@ TEAM_TARGETS = {
 # below customer service's FLOOR; inheriting it would grade queue agents on a
 # dialler's day. Parts and borrowed seats carry their own bar regardless.
 TEAM_TARGETS["surgical"] = TEAM_TARGETS["inbound"]
+TEAM_TARGETS["trainees"] = TEAM_TARGETS["inbound"]      # inbound calls for now (2026-10-26)
 
 # The billing roster, so a sheet tab named after one of them matches whatever it
 # is called this month. Set here rather than at construction because the client
@@ -1507,6 +1527,7 @@ TEAM_PACE_CURVES = {
 }
 
 TEAM_PACE_CURVES["surgical"] = TEAM_PACE_CURVES["inbound"]
+TEAM_PACE_CURVES["trainees"] = TEAM_PACE_CURVES["inbound"]
 
 # Built HERE, not beside the roster: _combined_roster reads TEAM_TARGETS and
 # TEAM_PACE_CURVES, which are defined above this line and below the roster.
@@ -2076,6 +2097,15 @@ def _parse_inbox_cached(path):
     return None if got is None else got[0]
 
 
+def _cx_fold(name):
+    """A RingCX agent name as a match key: lower, single spaces, accents
+    stripped. The RingEX directory spells her "Keily Fermín"; an Interaction
+    Report may print "Keily Fermin" (2026-10-26); both are the same seat."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(name or ""))
+    return " ".join("".join(ch for ch in s if not unicodedata.combining(ch)).split()).lower()
+
+
 def _v6_cx_rows_for_team(team, days, roster):
     """RingCX interaction rows for this team, from the delivered Interaction
     Reports, as {agent_name: [row, ...]}.
@@ -2090,7 +2120,7 @@ def _v6_cx_rows_for_team(team, days, roster):
     verified on the 2026-05-28..07-29 extract where SUM(interaction)/SUM(talk)
     came out at 1.34 rather than 60.
     """
-    want = {r["name"].strip().lower(): r["name"] for r in roster}
+    want = {_cx_fold(r["name"]): r["name"] for r in roster}
     by_agent, found_days, covers_to = {}, 0, {}
     for day in days:
         # Every scope for the day, not just the default slot: the team's agents
@@ -2113,7 +2143,7 @@ def _v6_cx_rows_for_team(team, days, roster):
             if parsed is None:
                 continue
             for r in parsed:
-                key = ((r.get("agent_name") or "").strip().lower(),
+                key = (_cx_fold(r.get("agent_name")),
                        (r.get("start_time") or "").strip(),
                        (r.get("ani") or "").strip(),
                        (r.get("dnis") or "").strip())
@@ -3148,7 +3178,7 @@ def _sms_seats(team, extra_names=()):
 # Deal switches), with trigger: []. Danny, 2026-10-15: "make sure all stop
 # replies are getting honored".
 import sms_opt_outs as _optouts_mod
-_OPTOUT_TEAMS = ("billing", "surgical", "sales")
+_OPTOUT_TEAMS = ("billing", "surgical", "sales", "trainees")
 _OPTOUT_FILE = _data_dir / "sms_opt_outs.json"
 _optouts = _optouts_mod.Store(_OPTOUT_FILE)
 _optouts_state = {"runs": 0, "running": False}
@@ -5857,6 +5887,7 @@ _HUB_TEAM_BLURB = {
     "billing": "Talk time, calls and collections.",
     "scheduling": "Talk time and calls per scheduler.",
     "inbound": "Talk time and answered calls.",
+    "trainees": "The coordinator training class: talk time and answered calls.",
 }
 
 
@@ -5865,7 +5896,7 @@ def _hub_team_tiles():
              "path": "/" + _TEAM_PATHS[team],
              "label": TEAM_LABELS.get(team, team.title()),
              "blurb": _HUB_TEAM_BLURB.get(team, "")}
-            for team in ("billing", "scheduling", "inbound")]
+            for team in ("billing", "scheduling", "inbound", "trainees")]
 
 
 @app.route("/v7", methods=["GET", "POST"])
@@ -5933,7 +5964,7 @@ def hub_v7_logout():
 # those. /v6?team= still works so existing links do not break.
 _TEAM_PATHS = {"billing": "billing", "scheduling": "scheduling",
                "inbound": "customer-service", "surgical": "surgical-coordinator",
-               "sales": "sales"}
+               "sales": "sales", "trainees": "coordinator-trainees"}
 
 
 def _page_title(team):
@@ -5979,6 +6010,11 @@ def board_customer_service():
 @app.route("/surgical-coordinator")
 def board_surgical_coordinator():
     return _render_team_board("surgical")
+
+
+@app.route("/coordinator-trainees")
+def board_coordinator_trainees():
+    return _render_team_board("trainees")
 
 
 # The dashboard's own link. Danny, 2026-10-07: "can you make a custom new link

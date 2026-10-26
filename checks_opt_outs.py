@@ -160,7 +160,7 @@ ck("the hourly loop is one of the worker loops", any(n == "loop:optouts" for n, 
 ck("the list file sits on the data disk next to the roster override", A._OPTOUT_FILE.name == "sms_opt_outs.json" and A._OPTOUT_FILE.parent == A.BILLING_ROSTER_FILE.parent, str(A._OPTOUT_FILE))
 ck("the first scan waits ten minutes after a boot, so the boards' texts load first",
    "def _optouts_loop():" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8").read().split("time.sleep(600)")[0][-900:], "boot delay")
-ck("all three texting teams are scanned", A._OPTOUT_TEAMS == ("billing", "surgical", "sales"), A._OPTOUT_TEAMS)
+ck("every texting team is scanned, the coordinator trainees too (2026-10-26)", A._OPTOUT_TEAMS == ("billing", "surgical", "sales", "trainees"), A._OPTOUT_TEAMS)
 _c = A.app.test_client()
 _real_allowed = A._v6_allowed
 A._v6_allowed = lambda: False
