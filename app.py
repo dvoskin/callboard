@@ -3270,38 +3270,118 @@ def _optouts_loop():
 # Do_Not_Contact / Unsubscribe in Zoho -- is recorded, pushed to Telegram and
 # shown as a hot count on /teams' Shared Inbox. Five lines, one or two pages
 # each: about one message-store read a minute.
-_LEAKS = {"hits": [], "zoho_dnc": {}, "last": None, "lock": threading.Lock()}
+_LEAKS = {"hits": [], "unconfirmed": [], "zoho_dnc": {}, "last": None, "lock": threading.Lock()}
 _LEAK_KEEP_H = 48
 
 
-def _zoho_dnc(digits):
-    """True when Zoho says this number has opted out: a Contact or Lead with
-    Do_Not_Contact, or every deal on the number in Unsubscribe. Cached an hour
-    per number so the watch costs Zoho a few reads, not hundreds."""
+def _ts(v):
+    """An aware datetime from a RingCentral ('...Z') or Zoho ('...-04:00') timestamp; None if unreadable."""
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def _zoho_turned_on(module, rid, field, value):
+    """When `field` last became `value` on this record, from Zoho's record timeline (newest first).
+    Returns (when, bound): `when` is the moment it was set, or None. When the timeline
+    runs out without the change, it was set when the record was created (bound = the
+    oldest entry read = creation); when we stop paging first, it was set before the
+    oldest entry read (bound = that entry). Both None if the timeline can't be read."""
+    oldest = None
+    for page in (1, 2, 3):
+        try:
+            r = requests.get(f"{_zoho.base_url}/crm/v8/{module}/{rid}/__timeline", headers=_zoho._headers(),
+                             params={"per_page": 100, "page": page}, timeout=25)
+            if r.status_code == 204:
+                return None, oldest
+            if r.status_code != 200:
+                return None, None
+            d = r.json()
+        except Exception:  # noqa: BLE001
+            return None, None
+        tl = d.get("__timeline") or []
+        for e in tl:
+            for f in e.get("field_history") or []:
+                if f.get("api_name") == field and str((f.get("_value") or {}).get("new")).lower() == str(value).lower():
+                    return _ts(e.get("audited_time")), None
+            oldest = _ts(e.get("audited_time")) or oldest
+        if not (d.get("info") or {}).get("more_records"):
+            return None, oldest          # set at creation: certainly by the oldest entry
+    return None, oldest
+
+
+def _zoho_optout(digits):
+    """None when Zoho says this number has NOT opted out. Otherwise when it did:
+    {"by": datetime or None, "exact": bool} -- `by` is the earliest moment it is known
+    to have been opted out (Do_Not_Contact switched on, or the last deal moved to
+    Unsubscribe, from Zoho's record timeline; or a time by which it was certainly set
+    when the exact moment is out of reach); `exact` is True when every reason's moment
+    came from the timeline. Opted out = a Contact or Lead with
+    Do_Not_Contact, or every deal on the number in Unsubscribe. Cached an hour per
+    number so the watch costs Zoho a few reads, not hundreds.
+
+    Why the moment matters (2026-10-26): Salome's line texted ***-6103 at 14:06 ET,
+    she answered STOP at 14:16, our marker set Do_Not_Contact at 14:20, and the next
+    pass called the 14:06 text a leak. A text is a leak only if it went out AFTER."""
     now = time.time()
     c = _LEAKS["zoho_dnc"].get(digits)
     if c and now - c[1] < 3600:
         return c[0]
     if not (_zoho.refresh_token and _zoho.client_id):
-        return False
+        return None
     def coql(q):
         try:
             r = requests.post(f"{_zoho.base_url}/crm/v6/coql", headers=_zoho._headers(), json={"select_query": q}, timeout=25)
             return r.json().get("data", []) if r.status_code == 200 else []
         except Exception:  # noqa: BLE001
             return []
-    def same(rec):
-        return any("".join(ch for ch in str(rec.get(f) or "") if ch.isdigit())[-10:] == digits for f in ("Phone", "Mobile"))
+    def same(rec, fields=("Phone", "Mobile")):
+        return any("".join(ch for ch in str(rec.get(f) or "") if ch.isdigit())[-10:] == digits for f in fields)
     where = _optouts_mod.phone_where(digits)
-    dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Contacts where {where} limit 50"))
-    if not dnc:
-        dnc = any(same(r) and r.get("Do_Not_Contact") for r in coql(f"select id, Phone, Mobile, Do_Not_Contact from Leads where {where} limit 50"))
-    if not dnc:
-        deals = [r for r in coql(f"select id, Phone, Stage from Deals where {_optouts_mod.phone_where(digits, ('Phone',))} limit 50")
-                 if "".join(ch for ch in str(r.get("Phone") or "") if ch.isdigit())[-10:] == digits]
-        dnc = bool(deals) and all(r.get("Stage") == "Unsubscribe" for r in deals)
-    _LEAKS["zoho_dnc"][digits] = (dnc, now)
-    return dnc
+    found = []          # (since, bound) per reason the number counts as opted out
+    for module in ("Contacts", "Leads"):
+        for r in coql(f"select id, Phone, Mobile, Do_Not_Contact, Modified_Time from {module} where {where} limit 50"):
+            if same(r) and r.get("Do_Not_Contact"):
+                when, bound = _zoho_turned_on(module, r["id"], "Do_Not_Contact", "true")
+                found.append((when, bound or (None if when else _ts(r.get("Modified_Time")))))
+    deals = [r for r in coql(f"select id, Phone, Stage, Modified_Time from Deals where {_optouts_mod.phone_where(digits, ('Phone',))} limit 50")
+             if same(r, ("Phone",))]
+    if deals and all(r.get("Stage") == "Unsubscribe" for r in deals):
+        # opted out once the LAST of its deals reached Unsubscribe
+        moments = [_zoho_turned_on("Deals", r["id"], "Stage", "Unsubscribe") for r in deals]
+        if all(w for w, _ in moments):
+            found.append((max(w for w, _ in moments), None))
+        else:
+            bounds = [w or b or _ts(r.get("Modified_Time")) for (w, b), r in zip(moments, deals)]
+            found.append((None, max(bounds) if all(bounds) else None))
+    res = None
+    if found:
+        # opted out since the EARLIEST of its reasons: `by` is the earliest moment any
+        # reason is known to have been in force; `exact` says every reason's moment is known
+        known = [w or b for w, b in found if (w or b)]
+        res = {"by": min(known) if known else None, "exact": all(w for w, _ in found)}
+    _LEAKS["zoho_dnc"][digits] = (res, now)
+    return res
+
+
+def _zoho_dnc(digits):
+    """True when Zoho says this number has opted out (whenever it did)."""
+    return _zoho_optout(digits) is not None
+
+
+def _after_optout(sent_at, optout):
+    """'leak' when the text certainly went out after the opt-out, 'unconfirmed' when
+    Zoho can't tell us which came first, None when the opt-out came after the text."""
+    t = _ts(sent_at)
+    if t is None:
+        return "unconfirmed"
+    if optout.get("by") and t > optout["by"]:
+        return "leak"
+    if optout.get("by") and optout.get("exact"):
+        return None
+    return "unconfirmed"
 
 
 def _shared_lines_watch(hours=3, alert=True):
@@ -3327,11 +3407,18 @@ def _shared_lines_watch(hours=3, alert=True):
         # texts sent to a number that had opted out: our list first, then Zoho
         leaks = _optouts_mod.texted_after_stop(_optouts.data["numbers"], outbound)
         known = {(o["digits"], o["at"]) for o in leaks}
+        unconfirmed = []
         for o in outbound:
             if (o["digits"], o["at"]) in known or o["digits"] in _optouts.data["numbers"]:
                 continue
-            if _zoho_dnc(o["digits"]):
+            optout = _zoho_optout(o["digits"])
+            if not optout:
+                continue
+            verdict = _after_optout(o["at"], optout)
+            if verdict == "leak":
                 leaks.append(dict(o, why="zoho_dnc"))
+            elif verdict == "unconfirmed":
+                unconfirmed.append(dict(o, why="zoho_dnc_unconfirmed"))
         for o in leaks:
             o.setdefault("why", "stop_list")
         with _LEAKS["lock"]:
@@ -3340,6 +3427,11 @@ def _shared_lines_watch(hours=3, alert=True):
             _LEAKS["hits"] = sorted(_LEAKS["hits"] + fresh, key=lambda o: o["at"], reverse=True)
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=_LEAK_KEEP_H)).isoformat()
             _LEAKS["hits"] = [h for h in _LEAKS["hits"] if h["at"] >= cutoff][:500]
+            # Zoho can't say whether the opt-out came first: shown on /teams, never alerted
+            useen = {(h["digits"], h["at"]) for h in _LEAKS["unconfirmed"]}
+            _LEAKS["unconfirmed"] = sorted(_LEAKS["unconfirmed"] + [o for o in unconfirmed if (o["digits"], o["at"]) not in useen],
+                                           key=lambda o: o["at"], reverse=True)
+            _LEAKS["unconfirmed"] = [h for h in _LEAKS["unconfirmed"] if h["at"] >= cutoff][:500]
         if fresh:
             log.warning("shared lines: %d text(s) sent to opted-out numbers: %s", len(fresh),
                         ", ".join("%s from %s" % (o["digits"][-4:], o["seat"]) for o in fresh[:10]))
@@ -3354,12 +3446,19 @@ def _shared_lines_watch(hours=3, alert=True):
         if new:
             _optouts.save()
         info.update({"seats": len(seats), "unresolved": unresolved, "stops": len(hits), "new_stops": len(new), "marked": marked,
-                     "outbound": len(outbound), "leaks": len(leaks), "new_leaks": len(fresh), "problems": problems[:10]})
+                     "outbound": len(outbound), "leaks": len(leaks), "new_leaks": len(fresh), "unconfirmed": len(unconfirmed),
+                     "problems": problems[:10]})
     except Exception as e:  # noqa: BLE001
         info["error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
         log.exception("shared lines watch failed")
     _LEAKS["last"] = info
     return info
+
+
+def _leaks_unconfirmed(hours=24):
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    with _LEAKS["lock"]:
+        return [h for h in _LEAKS["unconfirmed"] if h["at"] >= cutoff]
 
 
 def _leaks_recent(hours=24):
@@ -4481,6 +4580,8 @@ def api_teams_inbox():
                     # texts SENT from these lines to numbers that had opted out, last 24 h
                     "leaks_24h": len(leaks),
                     "leaks": [{"seat": o["seat"], "at": o["at"], "last4": o["digits"][-4:], "why": o.get("why", "stop_list")} for o in leaks[:20]],
+                    # Zoho DNC numbers where the order (text vs opt-out) can't be proved: listed, never alerted
+                    "leaks_unconfirmed_24h": len(_leaks_unconfirmed(24)),
                     "watch": _LEAKS.get("last")})
 
 
