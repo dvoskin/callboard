@@ -7534,7 +7534,9 @@ _v5_crm_lock = threading.Lock()
 # user is just "Judith" (judithm@, id 5212466000454324769; the only active
 # Judith) -- matching by full name read her as "not a CRM user by this
 # name" (Danny, 2026-10-07 evening). Roster name -> Zoho full_name.
-_CRM_NAME_ALIASES = {"Judith Merlo": "Judith"    # Zoho spells her with her second surname (2026-10-26). Laura Martinez,
+_CRM_NAME_ALIASES = {
+    "Judith Merlo": "Judith",
+    # Zoho spells her with her second surname (2026-10-26). Laura Martinez,
     # Victor Silvestre and Keily Fermín had no Zoho user on 2026-10-26 (not
     # active, not unconfirmed); add theirs here once the accounts exist.
     "Celine Vasquez": "Celine Dios Vasquez",
