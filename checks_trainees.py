@@ -41,6 +41,21 @@ finally:
     A._v6_allowed = _real
 ck("/teams carries the section, after the coordinators and before billing",
    html.find('id="t-surgical"') < html.find('id="t-trainees"') < html.find('id="t-billing"') and "team=trainees" in html, html.find('id="t-trainees"'))
+import re
+v6_sections = re.findall(r"/api/v6/report\?team=([a-z]+)&", html)
+ck("every v6 board the teams page shows is one the page's own key opens (trainees read 'unauthorized' on 2026-10-26)",
+   v6_sections and all(t in A._TEAMS_KEY_BOARDS for t in v6_sections), (v6_sections, A._TEAMS_KEY_BOARDS))
+_real6, _realword = A._v6_allowed, A._word_authed
+A._v6_allowed = lambda: False; A._word_authed = lambda: False
+_saved_impl = A._api_v6_report_impl
+A._api_v6_report_impl = lambda: A.jsonify({"ranked": [], "meta": {}})
+try:
+    r = c.get("/api/v6/report?team=trainees&k=" + A._teams_token())
+    ck("the teams key opens the trainee board", r.status_code == 200, (r.status_code, r.get_data(as_text=True)[:80]))
+    r = c.get("/api/v6/report?team=inbound&k=" + A._teams_token())
+    ck("...and still not a board the page does not show", r.status_code == 401, r.status_code)
+finally:
+    A._v6_allowed, A._word_authed, A._api_v6_report_impl = _real6, _realword, _saved_impl
 for e in errors: print("  FAIL " + e)
 print("%d passed, %d failed" % (passed, len(errors)))
 sys.exit(1 if errors else 0)
