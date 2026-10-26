@@ -5756,8 +5756,11 @@ def api_v6_report():
         if _team_key(request.args.get("team")) != _COORD_TEAM:
             return jsonify({"error": "unauthorized"}), 401
     if _teams_token_ok() and not (_v6_allowed() or _coord_token_ok()):
-        # the /teams key: coordinators and billing only, numbers cut to counts
-        if _team_key(request.args.get("team")) not in ("surgical", "billing"):
+        # the /teams key: the boards the teams page shows -- coordinators,
+        # their trainees (2026-10-26; the section read "unauthorized" on the
+        # page's own key until it was listed here), billing -- numbers cut
+        # to counts.
+        if _team_key(request.args.get("team")) not in _TEAMS_KEY_BOARDS:
             return jsonify({"error": "unauthorized"}), 401
         resp = _api_v6_report_impl()
         body = resp.get_json() if hasattr(resp, "get_json") else None
@@ -6483,6 +6486,12 @@ def _teams_token() -> str:
     if not COORD_LINK_SECRET:
         return ""
     return hmac.new(COORD_LINK_SECRET.encode(), b"all-teams-page", hashlib.sha256).hexdigest()[:24]
+
+
+# Which /api/v6/report boards the /teams page's key opens. Every v6 section
+# the page shows must be here, or that section reads "unauthorized" on the
+# shared link while the rest of the page loads.
+_TEAMS_KEY_BOARDS = ("surgical", "trainees", "billing")
 
 
 def _teams_token_ok() -> bool:
