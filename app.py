@@ -12085,6 +12085,9 @@ if not globals().get("_collections_started"):
         _collections_state["thread_start_error"] = "%s: %s" % (type(_e).__name__, _e)
         log.exception("collections thread failed to start")
 
+from staff_pages import init_staff_pages  # noqa: E402  /team/<slug>/ staff pages, content on /data only
+init_staff_pages(app, _data_dir, _valid_api_key)
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, port=port, use_reloader=False, threaded=True)
