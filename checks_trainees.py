@@ -6,6 +6,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")
 os.environ.setdefault("FLASK_SECRET_KEY", "test-secret")
+os.environ.setdefault("COORD_LINK_SECRET", "teams-key-for-checks")   # the /teams key exists only with a secret
 import app as A  # noqa: E402
 passed, errors = 0, []
 def ck(label, cond, got=None):
@@ -30,6 +31,8 @@ ck("its own page and hub tile", A._TEAM_PATHS.get("trainees") == "coordinator-tr
    and any(rule.rule == "/coordinator-trainees" for rule in A.app.url_map.iter_rules())
    and any(t["key"] == "trainees" for t in A._hub_team_tiles()), A._TEAM_PATHS)
 ck("the STOP scan reads their lines", "trainees" in A._OPTOUT_TEAMS, A._OPTOUT_TEAMS)
+ck("the CRM block is on for the trainees (Danny: 'They are all CRM users too')", A._TEAM_CRM.get("trainees") is True, A._TEAM_CRM)
+ck("Celine is matched to Zoho's spelling of her name", A._CRM_NAME_ALIASES.get("Celine Vasquez") == "Celine Dios Vasquez", A._CRM_NAME_ALIASES.get("Celine Vasquez"))
 ck("the RingCX name match folds accents and spacing: a report's 'Keily  Fermin' is the directory's 'Keily Fermín'",
    A._cx_fold("Keily  Fermin") == A._cx_fold("Keily Fermín") == "keily fermin" and A._cx_fold(None) == "", A._cx_fold("Keily Fermín"))
 A.app.config["TESTING"] = True

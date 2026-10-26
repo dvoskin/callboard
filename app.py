@@ -1441,7 +1441,9 @@ _SMS_EXTRA_SEATS = {
 # Billing joined on 2026-10-08 ("apply the same expanded view redesign to
 # the billing board"): billers own Zoho Calls too (the planner's "Billing
 # follow-up" cadence), so the CRM block has something to say for them.
-_TEAM_CRM = {"surgical": True, "billing": True}
+# Trainees too (Danny, 2026-10-26: "They are all CRM users too"); a seat whose
+# name is not a CRM user reads "not a CRM user", never 0.
+_TEAM_CRM = {"surgical": True, "billing": True, "trainees": True}
 
 
 def _team_sms_enabled(team) -> bool:
@@ -7532,7 +7534,11 @@ _v5_crm_lock = threading.Lock()
 # user is just "Judith" (judithm@, id 5212466000454324769; the only active
 # Judith) -- matching by full name read her as "not a CRM user by this
 # name" (Danny, 2026-10-07 evening). Roster name -> Zoho full_name.
-_CRM_NAME_ALIASES = {"Judith Merlo": "Judith"}
+_CRM_NAME_ALIASES = {"Judith Merlo": "Judith"    # Zoho spells her with her second surname (2026-10-26). Laura Martinez,
+    # Victor Silvestre and Keily Fermín had no Zoho user on 2026-10-26 (not
+    # active, not unconfirmed); add theirs here once the accounts exist.
+    "Celine Vasquez": "Celine Dios Vasquez",
+}
 _CRM_BD_TTL = 300.0
 _crm_bd_cache: dict = {}
 _crm_bd_lock = threading.Lock()
