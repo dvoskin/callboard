@@ -7773,6 +7773,33 @@ def _sales_roster():
     return names, meta
 
 
+_ZERO_BOOKS = {"quotes_sent": 0, "quotes_invoiced": 0, "retainers_sent": 0, "retainers_paid": 0, "paid_amount": 0.0}
+
+
+def _v5_declared_rows(report, books):
+    """Every declared sales rep with no row yet gets one at zero, in unranked.
+
+    The board is built from RingCX, so a rep with no call in the window and
+    no quote in Books was simply absent -- Danny, 2026-10-26: "I don't see
+    Maria Carvajal on the call tracker" (a Monday morning, before her first
+    dial). The roster's always_rank was written for this and never reached
+    this builder. Unranked, so a zero cannot drag the floor; /teams shows the
+    row as "no calls yet today". Returns the names added."""
+    have = {_norm_name(a.get("name") or "") for a in report.get("ranked", []) + report.get("unranked", [])}
+    added = []
+    for seat in _TEAM_ROSTERS.get("sales") or []:
+        if not seat.get("always_rank"):
+            continue
+        k = _norm_name(seat.get("name") or "")
+        if not k or k in have or k in _NOT_SALES_NAMES or k in _DEPARTED_SALES_NAMES:
+            continue
+        b = (books or {}).get(k) or {}
+        report.setdefault("unranked", []).append(_zero_call_row(seat["name"], {kk: b.get(kk, v) for kk, v in _ZERO_BOOKS.items()}))
+        have.add(k)
+        added.append(seat["name"])
+    return added
+
+
 def _zero_call_row(display, b):
     """A roster member who quoted in this window but has no calls in it.
 
@@ -8745,6 +8772,7 @@ def api_v5_report():
                 added.append(v["display"])
                 seen.add(k)
             books_meta["added_without_calls"] = sorted(added)
+            books_meta["declared_at_zero"] = sorted(_v5_declared_rows(report, books))
 
             # Anyone left with Books activity and still no row is worth naming
             # rather than dropping -- it usually means a name mismatch.
