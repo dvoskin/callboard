@@ -10,7 +10,8 @@ repository, so the questions would be published the moment they were committed. 
 is uploaded to the Render disk with the machine key:
 
     PUT /api/staff-pages/<slug>   X-API-Key: <OVERDUE_API_KEY>
-    {"page_html": "...", "thanks_html": "...", "managers": ["someone@goalsplasticsurgery.com"]}
+    {"page_html": "...", "thanks_html": "...", "managers": ["someone@goalsplasticsurgery.com"],
+     "title": "...", "login_text": "..."}
 
 and sits under /data/staff_pages/<slug>/ as page.html, thanks.html and config.json. A slug
 with no folder is a plain 404, the same as any unknown URL, so the code alone gives nothing
@@ -22,6 +23,10 @@ away.
     GET  /team/<slug>/results   every submission; the page's managers only, since the
                                 trainees are signed in too
     GET  /api/staff-pages/<slug>/submissions   the same as JSON, machine key only
+
+/login?next=/team/<slug>/... shows the page's title instead of "Call Tracker", hides the
+shared admin password box (these pages refuse it anyway) and is noindex too; see
+login_purpose().
 
 Every response under /team/ carries noindex/nofollow/noarchive, no-store, no-referrer and
 DENY framing.
@@ -63,6 +68,24 @@ def _dir(slug: str) -> Path | None:
 
 def _config(d: Path) -> dict:
     return json.loads((d / "config.json").read_text())
+
+
+LOGIN_NEXT_RE = re.compile(r"^/team/([a-z0-9][a-z0-9-]{5,63})/")
+
+
+def login_purpose(next_path: str) -> dict | None:
+    """What the sign-in page says when it was reached from a staff page, or None.
+    The title comes from the page's /data config, never from the URL."""
+    m = LOGIN_NEXT_RE.match(next_path or "")
+    d = _dir(m.group(1)) if m else None
+    if not d:
+        return None
+    cfg = _config(d)
+    if (next_path or "").split("?")[0].rstrip("/").endswith("/results"):
+        text = "Sign in with your Goals Google account to see the results."
+    else:
+        text = cfg.get("login_text") or "Sign in with your Goals Google account to continue."
+    return {"title": cfg.get("title") or "Goals staff page", "text": text}
 
 
 def _email() -> str:
@@ -240,9 +263,12 @@ def upload(slug):
     (d / "page.html").write_text(page_html)
     if thanks_html:
         (d / "thanks.html").write_text(thanks_html)
-    (d / "config.json").write_text(json.dumps({"managers": managers,
+    title = (body.get("title") or "").strip()[:120]
+    login_text = (body.get("login_text") or "").strip()[:300]
+    (d / "config.json").write_text(json.dumps({"managers": managers, "title": title, "login_text": login_text,
                                                "updated_at": datetime.now(timezone.utc).isoformat()}))
-    return jsonify({"ok": True, "slug": slug, "managers": managers, "submissions": len(_submissions(d))})
+    return jsonify({"ok": True, "slug": slug, "managers": managers, "title": title,
+                    "submissions": len(_submissions(d))})
 
 
 @bp.route("/api/staff-pages/<slug>/submissions")
