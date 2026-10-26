@@ -867,6 +867,13 @@ def login():
         session["login_next"] = nxt
     else:
         session.pop("login_next", None)
+    # Reached from a staff page (/team/<slug>/): say what it is, not "Call Tracker".
+    from staff_pages import login_purpose
+    purpose = login_purpose(nxt)
+    if purpose:
+        return (render_template("login.html", next=nxt, purpose=purpose), 200,
+                {"X-Robots-Tag": "noindex, nofollow, noarchive", "Cache-Control": "no-store",
+                 "Referrer-Policy": "no-referrer"})
     return render_template("login.html", next=nxt)
 
 

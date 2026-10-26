@@ -52,7 +52,8 @@ try:
     ck("unknown slug is a 404", c.get("/team/%s/" % SLUG).status_code == 404)
     page = ('<form method="POST" action="/team/%s/submit"><p>%s</p>'
             '<input name="name"><input name="q1"><textarea name="story1"></textarea></form>' % (SLUG, SECRET_TEXT))
-    body = {"page_html": page, "thanks_html": "<p>Thanks</p>", "managers": [MANAGER]}
+    body = {"page_html": page, "thanks_html": "<p>Thanks</p>", "managers": [MANAGER],
+            "title": "Onboarding Quiz", "login_text": "Sign in to start your quiz."}
     ck("upload without the key is refused", c.put("/api/staff-pages/%s" % SLUG, json=body).status_code == 401)
     r = c.put("/api/staff-pages/%s" % SLUG, json=body, headers={"X-API-Key": "nope"})
     ck("upload with a wrong key is refused", r.status_code == 401, r.status_code)
@@ -122,6 +123,29 @@ try:
     ck("JSON results need the key", c.get("/api/staff-pages/%s/submissions" % SLUG).status_code == 401)
     r = c.get("/api/staff-pages/%s/submissions" % SLUG, headers={"X-API-Key": "k-test"})
     ck("JSON results with the key", r.status_code == 200 and len(r.get_json()["submissions"]) == 1, r.status_code)
+
+    # the sign-in page names the staff page it came from; everything else is unchanged
+    saved_gid = A.GOOGLE_CLIENT_ID
+    A.GOOGLE_CLIENT_ID = "x"
+    try:
+        lc = A.app.test_client()
+        r = lc.get("/login?next=%2Fteam%2F" + SLUG + "%2F")
+        t = r.get_data(as_text=True)
+        ck("staff login shows the page title", "<title>Sign In — Onboarding Quiz</title>" in t and "<h1>Onboarding Quiz</h1>" in t, t[:400])
+        ck("staff login shows its own line", "Sign in to start your quiz." in t)
+        ck("staff login hides the admin password box", 'id="admin-pw"' not in t and "<h1>Call Tracker</h1>" not in t)
+        ck("staff login keeps next on the Google button", "/auth/google?next=/team/%s/" % SLUG in t)
+        ck("staff login is noindex", "noindex" in r.headers.get("X-Robots-Tag", ""), dict(r.headers))
+        ck("staff login has none of the page text", SECRET_TEXT not in t)
+        t = lc.get("/login?next=%2Fteam%2F" + SLUG + "%2Fresults").get_data(as_text=True)
+        ck("results login says results", "to see the results" in t)
+        for nxt in ("", "?next=%2Fmy-day", "?next=%2Fteam%2Fnope-404x%2F"):
+            r = lc.get("/login" + nxt)
+            t = r.get_data(as_text=True)
+            ck("plain login unchanged (%s)" % (nxt or "no next"), "<h1>Call Tracker</h1>" in t and 'id="admin-pw"' in t
+               and "<title>Sign In — Call Tracker</title>" in t, t[:300])
+    finally:
+        A.GOOGLE_CLIENT_ID = saved_gid
 finally:
     S._cfg.clear()
     S._cfg.update(saved[0])
