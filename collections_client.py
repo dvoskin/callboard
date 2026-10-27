@@ -42,7 +42,7 @@ import threading
 import time
 import urllib.request
 from collections import defaultdict, deque
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 log = logging.getLogger(__name__)
 
@@ -259,6 +259,46 @@ def parse_date(raw, default_year=None):
     return None
 
 
+NEAR_TODAY_DAYS = 45
+
+
+def parse_date_near_today(raw, today=None):
+    """A year-less date with no year to carry, read against the calendar.
+
+    Naomi Dubon's tab (2026-10-27): the day's block is stamped "27/10" in a
+    column that never states a year -- her older rows keep their dates in
+    another column -- so parse_date had nothing to carry and refused all 45 of
+    today's rows. Those are the only rows in the tab that matter today.
+
+    The rule is narrow on purpose (parse_date's refusal to guess the CURRENT
+    year is what keeps an old undated section from landing on today). A date
+    is placed only when, over the year before, this year and the year after,
+    exactly ONE reading of it (month/day, and day/month when both are valid)
+    falls within NEAR_TODAY_DAYS of today. "27/10" is one reading; "5/11" is
+    two, one of them 5 Nov and one 11 May, and only 5 Nov is near, so it is
+    placed; "10/11" in late October is both Oct 11 and Nov 10 -- ambiguous, so
+    it stays untrusted, exactly as before.
+    """
+    txt = (raw or "").strip().rstrip(".")
+    m = re.match(r"^(\d{1,2})/(\d{1,2})$", txt)
+    if not m:
+        return None
+    today = today or datetime.now(timezone.utc).date()
+    a, b = int(m.group(1)), int(m.group(2))
+    near = set()
+    for month, day in {(a, b), (b, a)}:
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            continue
+        for y in (today.year - 1, today.year, today.year + 1):
+            try:
+                cand = date(y, month, day)
+            except ValueError:
+                continue
+            if abs((cand - today).days) <= NEAR_TODAY_DAYS:
+                near.add(cand)
+    return next(iter(near)) if len(near) == 1 else None
+
+
 def parse_amount(raw):
     """'$6,350' / '1000' / '' -> float or None."""
     v = re.sub(r"[^0-9.\-]", "", raw or "")
@@ -268,6 +308,20 @@ def parse_amount(raw):
         return float(v)
     except ValueError:
         return None
+
+
+_MONEY_SHAPE = re.compile(r"^\(?-?\s*\$?\s*-?[\d,]+(?:\.\d{1,2})?\s*\$?\)?$")
+
+
+def looks_like_money(raw):
+    """True for "$325.00", "500$", "1,500$", "-$50", "(250)", "800" -- a cell that
+    IS an amount. False for "friday CB 500$", "tomorrow/CB", "9/21", "payment
+    link 250$": parse_amount strips every letter, so it reads a callback note as
+    $500, and that is how Naomi Dubon's notes column (2026-10-27) would have
+    outscored her real "Amount Collected" column as the live one. Used only to
+    decide WHICH column is live; the figures still come from parse_amount."""
+    txt = (raw or "").strip()
+    return bool(txt) and bool(re.search(r"\d", txt)) and bool(_MONEY_SHAPE.match(txt))
 
 
 RECENT_ROWS = 400         # the window that decides which column is live
@@ -389,6 +443,8 @@ def read_tab(sheet_id, gid):
             # The year carries forward from the last row that stated one; the
             # sheet writes "August 26" and "8/26" with no year at all.
             d = parse_date(r[di], last_year)
+            if d is None and last_year is None:
+                d = parse_date_near_today(r[di])
             if d:
                 cur, last_year = d, d.year
                 stats["dated"] += 1
@@ -415,7 +471,7 @@ def read_tab(sheet_id, gid):
             if amt is None:
                 continue
             counts[c] += 1
-            if amt:
+            if amt and looks_like_money(r[c]):
                 last_money[c] = seen_rows
             if is_total:
                 continue
