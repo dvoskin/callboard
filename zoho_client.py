@@ -3245,6 +3245,10 @@ class ZohoClient:
         for r in _rows(f"select id, Owner, Status from Tasks where Owner.id in ({ids}) "
                        f"and Due_Date between '{sd}' and '{ed}'"):
             if not _uid(r): continue
+            # A Deferred task is parked: the Journeys planner pre-creates the later steps of every case as Deferred
+            # tasks dated weeks ahead (Judith 10-27: 297 of her 321 open tasks). They are not work due in this window, and
+            # counting them showed her as "0 of 100 tasks" on the teams board.
+            if (r.get("Status") or "").strip().lower() == "deferred": continue
             t = _slot(_uid(r))["tasks"]; t["due"] += 1
             if (r.get("Status") or "").strip().lower() != "completed": t["open"] += 1
         for r in _rows(f"select id, Owner from Tasks where Owner.id in ({ids}) "
