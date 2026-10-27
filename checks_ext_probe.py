@@ -45,6 +45,7 @@ def ck(label, cond, got=None):
 
 DIRECTORY = {
     "137": {"id": "405657034", "name": "Vivian Martinez", "type": "User", "status": "Enabled"},
+    "126": {"id": "1254236035", "name": "naomi dubon", "type": "User", "status": "Enabled"},
     "148": {"id": "388372049", "name": "Andrea Pleasant", "type": "User", "status": "Enabled"},
     # A synthetic seat whose roster id AGREES with the directory (see the roster
     # patch below): the agreeing-seat exemplar after the real agreeing seats left.
@@ -99,7 +100,7 @@ if body is None:
     sys.exit(1)
 
 seats = {x["extension"]: x for x in body.get("checked", [])}
-ck("every billing seat is checked", sorted(seats) == ["137", "148", "271", "299"], sorted(seats))
+ck("every billing seat is checked", sorted(seats) == ["126", "137", "148", "271", "299"], sorted(seats))
 
 ana = seats.get("271", {})
 ck("the mismatch is detected", ana.get("ext_id_matches_directory") is False, ana)

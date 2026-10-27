@@ -1168,6 +1168,12 @@ BILLING_ROSTER_FILE = _data_dir / "billing_roster.json"
 _TEAM_ROSTERS = {
     "billing": [
         {"name": "Vivian Martinez",    "ext_id": 405657034,  "ext": "137"},
+        # Naomi Dubon joined billing on 2026-10-27 (Danny: "Add Naomi Dubon to
+        # the billing team rosters everywhere"). In August she could not be
+        # resolved to an extension; on 10-27 the RingEX directory has her as
+        # ext 126 / 1254236035, enabled. Ext 126 was Luisa Perez's number
+        # (1106915035) before -- the id is new, so nothing of Luisa's is read.
+        {"name": "Naomi Dubon",        "ext_id": 1254236035, "ext": "126"},
         # Yareth Pavon and Gabriela Maldonado left on 2026-10-23 and were taken
         # off this board at Danny's request; both extensions are Disabled.
         # Seats kept, commented, for the same reason as Andrea's below.
