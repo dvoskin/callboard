@@ -1438,6 +1438,12 @@ _SMS_EXTRA_SEATS = {
         {"name": "Javier Perez",     "ext": "153", "ext_id": 1251377035},
         {"name": "Ambar Luciano",    "ext": "140", "ext_id": 1251372035},
         {"name": "Seydi Medrano",    "ext": "160", "ext_id": 1251381035},   # left 2026-10-23
+        # Off the sales rosters 2026-10-27 (Danny: "Remove Claudia, Duany, and
+        # Cristina Cots from sales rosters"). Their lines stay in the STOP scan:
+        # a patient who texts STOP to a line nobody reads is still opted out.
+        {"name": "Claudia Villalobo", "ext": "210", "ext_id": 998738035},
+        {"name": "Duany Fermin",      "ext": "121", "ext_id": 1231015035},
+        {"name": "Cristina Cots",     "ext": "133", "ext_id": 1248449035},
     ],
 }
 # Which boards carry a Zoho CRM count on each row: activities the person
