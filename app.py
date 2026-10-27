@@ -1356,9 +1356,9 @@ _TEAM_ROSTERS["sales"] = [
     {"name": n, "source": "ringcx", "ext": "", "ext_id": None, "always_rank": True}
     for n in ("Maia Pasifae Palma", "Maisah Brandon", "Gabriel Johnson",
               "Alicia Mckenzie", "Adelita Flowers", "Magen Fermin", "Mabel Alvarez",
-              "Wellington Santiago", "Cristina Cots", "Charlotte McKay",
+              "Wellington Santiago", "Charlotte McKay",
               "Adriana Gentry", "Sandra Rivas", "Maria Carvajal",
-              "Claudia Villalobo", "Gregory Beltran")
+              "Gregory Beltran")   # Danny 2026-10-27: Claudia Villalobo and Cristina Cots off the sales roster
 ] + [
     # Former training class — joined the sales team 2026-10-22. These five
     # dial from RingEX, not RingCX, so each carries its own extension and
@@ -7492,7 +7492,8 @@ _NOT_SALES_NAMES = {"zoho admin", "unassigned", "n/a", ""}
 # any campaign dialler on no other board, which is exactly what a departed
 # sales rep is. Normalised, like _NOT_SALES_NAMES. Removals are reported in
 # meta so the board never drops a person silently.
-_DEPARTED_SALES_NAMES = {"seydi medrano"}      # left 2026-10-23
+_DEPARTED_SALES_NAMES = {"seydi medrano",      # left 2026-10-23
+                          "claudia villalobo", "cristina cots", "duany fermin"}   # off the sales rosters 2026-10-27
 
 
 def _other_team_names() -> set:
