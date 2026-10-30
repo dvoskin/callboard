@@ -10937,11 +10937,35 @@ def call_history_search():
         except Exception as e:
             return [], f"error: {e}"
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    def _search_rc_sms():
+        """The patient's texts on our RingCentral lines: the lines come from the
+        index (sms_index.py), the texts are read live, phone-filtered, with bodies."""
+        p10 = re.sub(r"\D", "", primary_phone)[-10:]
+        if len(p10) != 10:
+            return [], {"note": "texts need a full ten-digit number"}
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(days=days)
+        hits = _smsidx.lines_for(p10, since)[:8]
+        out, notes = [], []
+        for h in hits:
+            rows, meta = _ringcx.fetch_extension_messages(
+                h["ext"], since, now, max_pages=4, timeout=15.0, keep_text=True, phone_number="+1" + p10)
+            if meta.get("note"):
+                notes.append(meta["note"][:160])
+            for m in rows:
+                out.append({"time": m.get("start_time"), "direction": (m.get("direction") or "").lower(),
+                            "from_number": m.get("from_number"), "to_number": m.get("to_number"),
+                            "message": m.get("text") or ("[picture]" if m.get("has_attachment") else ""),
+                            "line": h.get("name") or ("x" + str(h.get("ext_no") or "")),
+                            "ext_no": h.get("ext_no"), "sent_by": m.get("sent_by"), "source": "ringcentral"})
+        return out, {"lines": len(hits), "index": _smsidx.status(), "notes": notes[:3]}
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
         f_rex = pool.submit(_search_ringex)
         f_rcx = pool.submit(_search_ringcx)
         f_zoho = pool.submit(_search_zoho_calls)
         f_sms = pool.submit(_search_sms)
+        f_rcsms = pool.submit(_search_rc_sms)
 
         ringex_calls, debug["ringex"] = f_rex.result(timeout=30)
         ringcx_calls, debug["ringcx"] = f_rcx.result(timeout=30)
@@ -10949,6 +10973,11 @@ def call_history_search():
         if zoho_err:
             log.error("Zoho call fetch for history failed: %s", zoho_err)
         sms_messages, debug["sms"] = f_sms.result(timeout=30)
+        try:
+            rc_sms, rc_sms_meta = f_rcsms.result(timeout=40)
+        except Exception as e:  # noqa: BLE001
+            rc_sms, rc_sms_meta = [], {"note": "RingCentral texts could not be read: %s" % type(e).__name__}
+        debug["rc_sms"] = "ok: %d messages from %s lines" % (len(rc_sms), rc_sms_meta.get("lines", 0))
 
     # Merge and deduplicate by session_id / start_time
     seen = set()
@@ -10969,6 +10998,9 @@ def call_history_search():
         "calls": merged,
         "zoho_calls": zoho_calls,
         "sms": sms_messages,
+        "rc_sms": rc_sms,
+        "rc_sms_meta": rc_sms_meta,
+        "rc_sms_count": len(rc_sms),
         "contact": contact,
         "phone": primary_phone,
         "query": q,
@@ -11025,6 +11057,153 @@ def recording_audio(rec_id):
     out["Cache-Control"] = "private, max-age=3600"
     return Response(up.iter_content(64 * 1024), status=up.status_code, headers=out,
                     direct_passthrough=True)
+
+
+# ---- RingCentral texts for the search (Danny, 2026-10-30: "add the texts sent
+# from ringcentral lines too"). sms_index.py has the why: a background loop
+# records which line texted which number (never the text), and the search reads
+# the texts live from just those lines. Budget: the light message-store group
+# (50/min, shared with the boards): one line every SMS_INDEX_GAP seconds, ~7 a
+# minute, and the existing SMS cooldown is honoured. SMS_INDEX=0 stops it.
+import sms_index as _smsidx_mod  # noqa: E402
+_smsidx = _smsidx_mod.SmsIndex(_data_dir / "sms_index.sqlite")
+SMS_INDEX_ON = os.environ.get("SMS_INDEX", "1") != "0"
+SMS_INDEX_DAYS = int(os.environ.get("SMS_INDEX_DAYS", "180"))
+SMS_INDEX_GAP = float(os.environ.get("SMS_INDEX_GAP_SECONDS", "6"))
+SMS_INDEX_FILL_PER_PASS = int(os.environ.get("SMS_INDEX_FILL_PER_PASS", "40"))   # pages per pass
+_smsidx_state = {"passes": 0, "last_pass_at": None, "last_pass_seconds": None, "directory_at": 0.0,
+                 "reads": 0, "errors": 0, "last_error": None, "running": False}
+
+
+def _sms_index_directory():
+    """{ext_id: {name, ext_no, numbers}} for every enabled User extension that owns a
+    direct number: the lines a person texts from. Two reads, once a day."""
+    base = f"{_ringcx.server_url}/restapi/v1.0/account/{_ringcx.account_id}"
+    ex = requests.get(base + "/extension", headers=_ringcx._rc_headers(), params={"perPage": 1000}, timeout=30)
+    pn = requests.get(base + "/phone-number", headers=_ringcx._rc_headers(), params={"perPage": 1000}, timeout=30)
+    if not (ex.ok and pn.ok):
+        raise RuntimeError("directory HTTP %s / %s" % (ex.status_code, pn.status_code))
+    nums = {}
+    for x in pn.json().get("records") or []:
+        e = (x.get("extension") or {}).get("id")
+        if e and x.get("usageType") == "DirectNumber":
+            nums.setdefault(str(e), []).append(x.get("phoneNumber"))
+    out = {}
+    for e in ex.json().get("records") or []:
+        eid = str(e.get("id") or "")
+        if e.get("type") == "User" and e.get("status") == "Enabled" and eid in nums:
+            out[eid] = {"name": (e.get("name") or "").strip(), "ext_no": e.get("extensionNumber") or "",
+                        "numbers": nums[eid]}
+    return out
+
+
+def _sms_index_read(ext, start, end, max_pages):
+    """One line's texts in [start, end] (no bodies). Returns rows, meta, ok."""
+    if _ringcx.rate_limited(_ringcx.SMS_RATE_GROUP):
+        time.sleep(min(120.0, _ringcx.cooldown_remaining(_ringcx.SMS_RATE_GROUP) + 1))
+    rows, meta = _ringcx.fetch_extension_messages(ext, start, end, max_pages=max_pages, timeout=20.0)
+    _smsidx_state["reads"] += max(1, meta.get("pages") or 1)
+    ok = not meta.get("http_error") and not (meta.get("note") and not meta.get("truncated"))
+    return rows, meta, ok
+
+
+def _sms_oldest(rows):
+    ts = [_smsidx_mod.parse_iso(r.get("start_time")) for r in rows or []]
+    ts = [t for t in ts if t]
+    return min(ts) if ts else None
+
+
+def _sms_index_pass():
+    t0 = time.time()
+    now = datetime.now(timezone.utc)
+    if not _smsidx.lines() or time.time() - _smsidx_state["directory_at"] > 86400:
+        try:
+            _smsidx.set_lines(_sms_index_directory())
+            _smsidx_state["directory_at"] = time.time()
+        except Exception as e:  # noqa: BLE001
+            _smsidx_state["last_error"] = "directory: %s" % e
+            log.warning("sms index directory read failed: %s", e)
+    lines = _smsidx.lines()
+    # 1) every line, from where it was last read to now
+    for ln in lines:
+        own = (ln.get("numbers") or "").split(",")
+        st = _smsidx_mod.parse_iso(ln.get("synced_to"))
+        start = (st - timedelta(minutes=10)) if st else (now - timedelta(days=2))
+        rows, meta, ok = _sms_index_read(ln["ext"], start, now, max_pages=20)
+        _smsidx.record(ln["ext"], rows, own)
+        if ok:
+            ff, err = None, None
+            if meta.get("truncated"):
+                # more texts in the window than were read; newest first, so what is
+                # in runs from the oldest row read to now
+                oldest = _sms_oldest(rows)
+                if not ln.get("filled_from"):
+                    ff = oldest or now
+                else:
+                    err = "more texts since the last read than one pass reads; a gap before %s" % oldest
+            elif not ln.get("filled_from"):
+                ff = start
+            _smsidx.mark(ln["ext"], synced_to=now, filled_from=ff, error=err)
+        else:
+            _smsidx_state["errors"] += 1
+            _smsidx.mark(ln["ext"], error=(meta.get("note") or "read failed")[:200])
+        time.sleep(SMS_INDEX_GAP * max(1, meta.get("pages") or 1))
+    # 2) the fill, most recent first, a fixed number of reads per pass
+    target = now - timedelta(days=SMS_INDEX_DAYS)
+    budget = SMS_INDEX_FILL_PER_PASS
+    while budget > 0:
+        todo = [l for l in _smsidx.lines()
+                if (_smsidx_mod.parse_iso(l.get("filled_from")) or now) > target + timedelta(minutes=1)]
+        if not todo:
+            break
+        todo.sort(key=lambda l: l.get("filled_from") or "", reverse=True)   # the least-filled line first
+        for ln in todo:
+            if budget <= 0:
+                break
+            end = _smsidx_mod.parse_iso(ln.get("filled_from")) or (now - timedelta(days=2))
+            start = max(target, end - timedelta(days=15))
+            rows, meta, ok = _sms_index_read(ln["ext"], start, end, max_pages=8)
+            pages = max(1, meta.get("pages") or 1)
+            budget -= pages
+            _smsidx.record(ln["ext"], rows, (ln.get("numbers") or "").split(","))
+            if ok and meta.get("truncated") and rows:
+                # newest first: everything from the oldest row read to `end` is in
+                oldest = _sms_oldest(rows)
+                if oldest and oldest < end:
+                    _smsidx.mark(ln["ext"], filled_from=oldest)
+            elif ok:
+                _smsidx.mark(ln["ext"], filled_from=start)
+            else:
+                _smsidx_state["errors"] += 1
+                _smsidx.mark(ln["ext"], error=(meta.get("note") or "fill read failed")[:200])
+            time.sleep(SMS_INDEX_GAP * pages)
+    _smsidx_state.update(passes=_smsidx_state["passes"] + 1, last_pass_at=time.time(),
+                         last_pass_seconds=round(time.time() - t0, 1))
+
+
+def _sms_index_loop():
+    time.sleep(240)              # the boards read first after a deploy
+    while True:
+        if SMS_INDEX_ON and _ringcx.configured:
+            _smsidx_state["running"] = True
+            t0 = time.time()
+            try:
+                _sms_index_pass()
+            except Exception as e:  # noqa: BLE001
+                _smsidx_state["last_error"] = "%s: %s" % (type(e).__name__, e)
+                log.exception("sms index pass failed")
+            finally:
+                _smsidx_state["running"] = False
+            time.sleep(max(60.0, 900.0 - (time.time() - t0)))   # a pass starts every 15 minutes at most
+        else:
+            time.sleep(600)
+
+
+@app.route("/api/v6/sms-index")
+@login_required
+def api_sms_index():
+    st = dict(_smsidx_state)
+    return jsonify({"index": _smsidx.status(), "loop": st, "on": SMS_INDEX_ON, "days": SMS_INDEX_DAYS})
 
 
 # ------------------------------------------------------------------ Quotes panel
@@ -12243,7 +12422,8 @@ _WORKER_LOOPS = (("loop:refresh", lambda: _background_loop()),
                  ("loop:paid-guard", lambda: _paid_loop()),
                  ("loop:company", lambda: _company_loop()),
                  ("loop:catalog", lambda: _catalog_loop()),
-                 ("loop:task-sweep", lambda: _sweep_loop()))
+                 ("loop:task-sweep", lambda: _sweep_loop()),
+                 ("loop:sms-index", lambda: _sms_index_loop()))
 _thread_pid = None
 _thread_pid_lock = threading.Lock()
 

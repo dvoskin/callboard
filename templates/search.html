@@ -44,7 +44,7 @@
 <body>
 <div class="wrap">
   <h1>Call &amp; Text Search</h1>
-  <p class="sub">Every call and text with one patient: RingEX, RingCX, Zoho calls and texts.</p>
+  <p class="sub">Every call and text with one patient: RingEX and RingCX calls, Zoho, and texts from our RingCentral lines.</p>
   <form class="ctl" id="f" autocomplete="off">
     <input type="search" id="q" placeholder="Name or phone number" value="{{ q }}" autofocus>
     <button type="submit" id="go">Search</button><span class="spin" id="spin"></span>
@@ -118,7 +118,27 @@
         l2: (c.disposition ? esc(c.disposition) + ' · ' : '') + '<span class="tag">Zoho</span>',
         note: c.description || '' });
     });
+    // RingCentral texts (the lines the index names, read live). A Zoho text that is
+    // the same message (HelloSend sends through these lines) is shown once.
+    var rcKey = {};
+    (data.rc_sms || []).forEach(function (m) {
+      var outb = /^out/i.test(m.direction || '');
+      var t = new Date(m.time).getTime() || 0;
+      var k = (outb ? 'o' : 'i') + '|' + String(m.message || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      (rcKey[k] = rcKey[k] || []).push(t);
+      out.push({ kind: 'sms', t: m.time, out: outb,
+        l1: '<b>' + esc(m.line || 'RingCentral line') + '</b> <span class="tag">Text' + (outb ? ' sent' : ' received') +
+            (m.sent_by === 'auto' ? ' · automated' : '') + '</span>',
+        txt: m.message || '' });
+    });
+    function dupOfRc(m) {
+      var outb = /^out/i.test(m.direction || '');
+      var k = (outb ? 'o' : 'i') + '|' + String(m.message || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      var t = new Date(m.time).getTime() || 0;
+      return (rcKey[k] || []).some(function (x) { return Math.abs(x - t) < 10 * 60 * 1000; });
+    }
     (data.sms || []).forEach(function (m) {
+      if (dupOfRc(m)) return;
       var outb = /^out/i.test(m.direction || '');
       var who = m.owner && m.owner !== 'None' ? m.owner : phone(outb ? m.from_number : m.to_number) + ' line';
       out.push({ kind: 'sms', t: m.time, out: outb,
@@ -162,8 +182,21 @@
       }).join('');
     }
     var pl = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
+    var ix = ((data.rc_sms_meta || {}).index) || {}, cover = '';
+    if (ix.lines) {
+      cover = 'Texts: Zoho and ' + ix.lines + ' RingCentral lines';
+      if (ix.filled_back_to) {
+        var fb = new Date(ix.filled_back_to), want = Date.now() - days * 864e5;
+        if (fb.getTime() > want + 864e5)
+          cover += ', indexed back to ' + fb.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ }) + ' so far';
+      } else if (ix.lines_not_started) {
+        cover += ' (index still starting: ' + ix.lines_not_started + ' lines not read yet)';
+      }
+      cover += '. ';
+    }
+    var notes = ((data.rc_sms_meta || {}).notes || []).length ? 'Some RingCentral texts could not be read. ' : '';
     h += '<div class="foot">' + pl(nCalls, 'call') + ', ' + nRec + ' with a recording · ' + pl(nSms, 'text') + '. ' +
-         'Times are Eastern. Texts are the ones Zoho holds, as on the original tracker.</div>';
+         'Times are Eastern. ' + cover + notes + '</div>';
     $('out').innerHTML = h;
   }
 
@@ -189,7 +222,7 @@
       .then(function (j) {
         if (my !== gen) return;
         if (j.error) { data = null; $('out').innerHTML = '<div class="empty">' + esc(j.error) + '</div>'; return; }
-        if (!(j.calls || []).length && !(j.zoho_calls || []).length && !(j.sms || []).length && j.message) {
+        if (!(j.calls || []).length && !(j.zoho_calls || []).length && !(j.sms || []).length && !(j.rc_sms || []).length && j.message) {
           data = null; $('out').innerHTML = '<div class="empty">' + esc(j.message) + '</div>'; return;
         }
         data = j; filt = 'all'; render();
