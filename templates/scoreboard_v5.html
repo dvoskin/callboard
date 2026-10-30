@@ -274,8 +274,12 @@
       return !!bm && !bm.loading && bErr.indexOf(metric) === -1;
     };
     var everyone = ranked.concat(thin);
+    // Reps who moved to another team keep their Books work in the floor's totals,
+    // with no row of their own (Danny, 2026-10-30).
+    var moved = (bm && bm.moved) || null;
     var sumB = function (k) {
-      return everyone.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0);
+      return everyone.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0) +
+             ((moved && moved[k]) || 0);
     };
     var bcell = function (v, metric, cls, one, many) {
       var ok = booksHas(metric), n = w(v);
@@ -295,6 +299,8 @@
          (booksHas('retainers_sent') ? w(sumB('retainers_sent')) : '\u2014') + '</b> retainers' +
          (booksHas('retainers_paid')
             ? '<span class="sep">·</span><b>' + w(sumB('retainers_paid')) + '</b> paid' : '') +
+         (moved && moved.names && booksHas('retainers_paid')
+            ? '<span class="sep">·</span><span class="alt">incl. ' + moved.names.join(' and ') + ', now coordinator trainees</span>' : '') +
          (bm && bm.loading ? '<span class="sep">·</span>loading from Books…' : '') +
          (booksHas('quotes_sent') && bm.quotes_by_books_date != null
             ? '<br><span class="alt">Books date filter: ' + w(bm.quotes_by_books_date) + ' quotes' +

@@ -23,24 +23,26 @@ for who in ("Gregory Beltran", "Wellington Santiago"):
     ck("...and kept off the sales floor by being on another board, not as departed (%s)" % who,
        A._norm_name(who) in A._other_team_names() and A._norm_name(who) not in A._DEPARTED_SALES_NAMES)
 
-# Their closings stay on the SALES total (Danny: "total closing should be 7 not 6").
-books = {"gregory beltran": {"display": "Gregory Beltran", "quotes_sent": 2, "quotes_invoiced": 1, "retainers_sent": 1,
+# Their closings stay on the SALES total (Danny: "total closing should be 7 not 6"),
+# with no row of their own ("They can come off the board here").
+books = {"gregory beltran": {"display": "Gregory Beltran", "quotes_sent": 0, "quotes_invoiced": 0, "retainers_sent": 0,
                              "retainers_paid": 1, "paid_amount": 500.0},
-         "wellington santiago": {"display": "Wellington Santiago", "quotes_sent": 0, "quotes_invoiced": 0,
-                                 "retainers_sent": 0, "retainers_paid": 0, "paid_amount": 0.0},
+         "wellington santiago": {"display": "Wellington Santiago", "quotes_sent": 1, "quotes_invoiced": 0,
+                                 "retainers_sent": 0, "retainers_paid": 1, "paid_amount": 250.0},
+         "alicia mckenzie": {"display": "Alicia Mckenzie", "quotes_sent": 0, "quotes_invoiced": 0,
+                             "retainers_sent": 0, "retainers_paid": 0, "paid_amount": 0.0},
          "maria carvajal": {"display": "Maria Carvajal", "quotes_sent": 3, "quotes_invoiced": 0, "retainers_sent": 1,
-                            "retainers_paid": 6, "paid_amount": 3000.0}}
-rep = {"ranked": [{"name": "Maria Carvajal", "books": {"retainers_paid": 6}}], "unranked": []}
+                            "retainers_paid": 5, "paid_amount": 3000.0}}
 seen = {"maria carvajal"}
-added = A._v5_moved_rows(rep, books, seen)
-rows = rep["ranked"] + rep["unranked"]
-ck("a moved rep with a closing keeps a sales row", added == ["Gregory Beltran"], added)
-ck("...labelled with where he went", any(r["name"] == "Gregory Beltran (now a coordinator trainee)" for r in rep["unranked"]),
-   [r["name"] for r in rep["unranked"]])
-ck("...Books only: no calls", all(r.get("attempts") == 0 and r.get("talk") == 0 for r in rep["unranked"]))
-ck("the sales total counts his closing (6 + 1 = 7)", sum((r.get("books") or {}).get("retainers_paid", 0) for r in rows) == 7)
-ck("a moved rep with no Books activity gets no row", not any("Wellington" in r["name"] for r in rows))
-ck("never twice", A._v5_moved_rows(rep, books, seen) == [])
+mv = A._v5_moved_books(books, seen)
+ck("moved reps' Books figures are summed for the totals", mv and mv["retainers_paid"] == 2 and mv["quotes_sent"] == 1
+   and mv["paid_amount"] == 750.0, mv)
+ck("...naming who they are", mv and mv["names"] == ["Gregory Beltran", "Wellington Santiago"], mv)
+ck("the floor total counts them (5 + 2 = 7)", 5 + (mv or {}).get("retainers_paid", 0) == 7)
+ck("...and they are not orphans", {"gregory beltran", "wellington santiago"} <= seen, seen)
+ck("a non-moved rep is never folded in", "Alicia Mckenzie" not in (mv or {}).get("names", []))
+ck("never twice", A._v5_moved_books(books, seen) is None)
+ck("no rows helper left behind", not hasattr(A, "_v5_moved_rows"))
 ck("every seat is a RingCX seat with its RingEX extension (SMS, presence) and always_rank",
    all(s.get("source") == "ringcx" and s.get("ext_id") and s.get("ext") and s.get("always_rank") for s in r), r)
 ck("RingEX ids are the ones the RingCX admin API gave (rcUserId)",
