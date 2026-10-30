@@ -16,11 +16,16 @@ def ck(label, cond, got=None):
 
 r, meta = A._billing_roster("trainees")
 names = [s["name"] for s in r]
-ck("the four trainees, in the order Danny named them", names == ["Laura Martinez", "Victor Silvestre", "Keily Fermín", "Celine Vasquez"], names)
+ck("the trainees, in the order Danny named them (Gregory joined 2026-10-30)",
+   names == ["Laura Martinez", "Victor Silvestre", "Keily Fermín", "Celine Vasquez", "Gregory Beltran"], names)
+ck("Gregory is off the sales roster", "Gregory Beltran" not in [s["name"] for s in A._billing_roster("sales")[0]])
+ck("...and kept off the sales floor by being on another board, not as departed",
+   A._norm_name("Gregory Beltran") in A._other_team_names()
+   and A._norm_name("Gregory Beltran") not in A._DEPARTED_SALES_NAMES)
 ck("every seat is a RingCX seat with its RingEX extension (SMS, presence) and always_rank",
    all(s.get("source") == "ringcx" and s.get("ext_id") and s.get("ext") and s.get("always_rank") for s in r), r)
 ck("RingEX ids are the ones the RingCX admin API gave (rcUserId)",
-   {s["ext_id"] for s in r} == {1253951035, 1253948035, 1253942035, 1253947035}, {s["ext_id"] for s in r})
+   {s["ext_id"] for s in r} == {1253951035, 1253948035, 1253942035, 1253947035, 1180435035}, {s["ext_id"] for s in r})
 ck("the team reads RingCX", A._TEAM_SOURCES.get("trainees") == "ringcx", A._TEAM_SOURCES.get("trainees"))
 ck("it has Danny's name", A.TEAM_LABELS.get("trainees") == "Surgical Coordinator Trainees", A.TEAM_LABELS.get("trainees"))
 ck("judged against customer service's bar (inbound calls), with no pace column",
