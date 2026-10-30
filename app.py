@@ -1242,6 +1242,9 @@ _TEAM_ROSTERS = {
         # now" (from the sales floor). RingEX x182 / 1180435035 from the extension
         # directory; Zoho user "Gregory Beltran", so no CRM alias.
         {"name": "Gregory Beltran",  "source": "ringcx", "ext": "182", "ext_id": 1180435035, "always_rank": True},
+        # Danny 2026-10-30: "Wellington is doing the same thing". RingEX x275 /
+        # 492651034 (RingCX rcUserId); Zoho user "Wellington Santiago".
+        {"name": "Wellington Santiago", "source": "ringcx", "ext": "275", "ext_id": 492651034, "always_rank": True},
     ],
 }
 # Surgical Coordinator is Scheduling and Customer Service read as ONE table,
@@ -1360,11 +1363,12 @@ _TEAM_ROSTERS["sales"] = [
     {"name": n, "source": "ringcx", "ext": "", "ext_id": None, "always_rank": True}
     for n in ("Maia Pasifae Palma", "Maisah Brandon", "Gabriel Johnson",
               "Alicia Mckenzie", "Adelita Flowers", "Magen Fermin", "Mabel Alvarez",
-              "Wellington Santiago", "Charlotte McKay",
+              "Charlotte McKay",
               "Adriana Gentry", "Sandra Rivas", "Maria Carvajal")
     # Danny 2026-10-27: Claudia Villalobo and Cristina Cots off the sales roster.
     # Danny 2026-10-30: "Gregory is moving to surgical coordinator trainees for
-    # now" -- his seat is on the trainees roster; being on another board keeps
+    # now", then "Wellington is doing the same thing" -- their seats are on the
+    # trainees roster; being on another board keeps
     # his campaign dials off /v5 (_other_team_names), so he is not "departed".
 ] + [
     # Former training class — joined the sales team 2026-10-22. These five
@@ -7981,6 +7985,36 @@ def _v5_declared_rows(report, books):
     return added
 
 
+# Reps who moved off the sales floor to another team (Danny, 2026-10-30:
+# "Wellington and Gregory may have closed but now the total is wrong for total
+# closing should be 7 not 6"). Their quotes and closings in Books are sales
+# work -- Books credits the salesperson on the deal -- so a moved rep with Books
+# activity in the window keeps a row on the sales board, Books figures only (no
+# calls: those now belong to their new team), labelled with where they went.
+# Without it their closing became a "not on board" orphan and the floor's total
+# dropped by one. Normalised name -> team key.
+_MOVED_FROM_SALES = {"gregory beltran": "trainees", "wellington santiago": "trainees"}
+
+
+def _v5_moved_rows(report, books, seen):
+    """Rows for moved reps with Books activity; adds their keys to `seen`.
+    Returns the display names added."""
+    added = []
+    for k, v in (books or {}).items():
+        team = _MOVED_FROM_SALES.get(k)
+        if not team or k in seen:
+            continue
+        if not any(v.get(x) for x in ("quotes_sent", "quotes_invoiced", "retainers_sent", "retainers_paid")):
+            continue
+        label = {"trainees": "a coordinator trainee"}.get(team) or TEAM_LABELS.get(team, team)
+        row = _zero_call_row("%s (now %s)" % (v.get("display") or k.title(), label), v)
+        row["moved_to"] = team
+        report.setdefault("unranked", []).append(row)
+        seen.add(k)
+        added.append(v.get("display") or k)
+    return added
+
+
 def _zero_call_row(display, b):
     """A roster member who quoted in this window but has no calls in it.
 
@@ -8953,6 +8987,7 @@ def api_v5_report():
                 added.append(v["display"])
                 seen.add(k)
             books_meta["added_without_calls"] = sorted(added)
+            books_meta["moved_off_sales"] = sorted(_v5_moved_rows(report, books, seen))
             books_meta["declared_at_zero"] = sorted(_v5_declared_rows(report, books))
 
             # Anyone left with Books activity and still no row is worth naming
