@@ -1922,7 +1922,8 @@ class RingCXClient:
 
     def fetch_extension_messages(self, ext_id, start_dt: datetime, end_dt: datetime,
                                  max_pages: int = 6, max_wait: float = 0.0,
-                                 timeout: float = 15.0, keep_text: bool = False) -> tuple[list[dict], dict]:
+                                 timeout: float = 15.0, keep_text: bool = False,
+                                 phone_number: str = "") -> tuple[list[dict], dict]:
         """Every SMS on ONE extension in [start_dt, end_dt].
 
         Mirrors fetch_extension_calls deliberately, including its honesty
@@ -1952,6 +1953,11 @@ class RingCXClient:
                     "dateTo": end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                     "messageType": "SMS", "perPage": 250, "page": page,
                 }
+                # Only this patient's texts on the line (the call & text search,
+                # 2026-10-30). RingCentral matches "+1XXXXXXXXXX" or
+                # "1XXXXXXXXXX"; ten bare digits match nothing.
+                if phone_number:
+                    params["phoneNumber"] = phone_number
                 url = (f"{self.server_url}/restapi/v1.0/account/{self.account_id}"
                        f"/extension/{ext_id}/message-store")
                 if self.rate_limited(grp):
