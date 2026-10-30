@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Call &amp; Text Search</title>
+{% include "_board_style.html" %}
+<style>
+  /* Call and text search (Danny, 2026-10-30): the original tracker's history
+     search, in the boards' design. One list, newest first. */
+  .ctl input[type=search]{flex:1 1 220px;min-width:0;font-size:13px;padding:5px 9px}
+  .who{font-size:12.5px;color:var(--muted);padding:2px 0 10px}
+  .who b{color:var(--ink);font-weight:650}
+  .filt{display:flex;gap:5px;margin:0 0 6px}
+  .hl{display:grid;align-items:baseline;gap:0 10px;
+      grid-template-columns:92px 22px minmax(0,1fr) auto;
+      padding:8px 0;border-bottom:1px solid var(--hair)}
+  .hl:last-child{border-bottom:0}
+  .hl .t{font-size:12px;color:var(--muted);white-space:nowrap}
+  .hl .dir{font-size:13px;color:var(--muted);text-align:center}
+  .hl .dir.in{color:var(--up)}
+  .hl .m{min-width:0}
+  .hl .m .l1{font-size:13.5px}
+  .hl .m .l1 b{font-weight:650}
+  .hl .m .l2{font-size:12px;color:var(--muted)}
+  .hl .m .txt{font-size:13.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+  .hl .m .note{font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}
+  .hl .x{text-align:right;white-space:nowrap}
+  .tag{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  .res-ok{color:var(--up)} .res-miss{color:var(--dn)}
+  .play{cursor:pointer;font:inherit;font-size:12px;font-weight:650;padding:3px 9px;border-radius:5px;
+        border:1px solid var(--rule);background:var(--bg);color:var(--ink)}
+  .play:hover{border-color:var(--up);color:var(--up)}
+  a.play{text-decoration:none;display:inline-block}
+  audio{display:block;width:100%;height:34px;margin:8px 0 0}
+  .empty{font-size:13px;color:var(--muted);padding:18px 0}
+  .foot{font-size:11.5px;color:var(--muted);padding:12px 0 0;border-top:1px solid var(--rule);margin-top:6px}
+  @media(max-width:560px){
+    .hl{grid-template-columns:64px 16px minmax(0,1fr) auto;gap:0 7px}
+    h1{font-size:18px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Call &amp; Text Search</h1>
+  <p class="sub">Every call and text with one patient: RingEX, RingCX, Zoho calls and texts.</p>
+  <form class="ctl" id="f" autocomplete="off">
+    <input type="search" id="q" placeholder="Name or phone number" value="{{ q }}" autofocus>
+    <button type="submit" id="go">Search</button><span class="spin" id="spin"></span>
+  </form>
+  <div class="ctl" id="days"></div>
+  <div id="out"></div>
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var DAYS = [7, 30, 90, 180], days = 30, data = null, filt = 'all';
+  var TZ = 'America/New_York';
+  try { var dq = +new URLSearchParams(location.search).get('days'); if (DAYS.indexOf(dq) !== -1) days = dq; } catch (e) {}
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function phone(n) {
+    var d = String(n || '').replace(/\D/g, '');
+    if (d.length === 11 && d[0] === '1') d = d.slice(1);
+    return d.length === 10 ? '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6) : (n || '');
+  }
+  function when(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d)) return esc(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ }) + '<br>' +
+           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ });
+  }
+  function dur(s) {
+    s = Math.round(+s || 0);
+    if (!s) return '';
+    return s >= 60 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : s + 's';
+  }
+  function resCls(r) {
+    r = String(r || '').toLowerCase();
+    if (/connect|accept|answer|complete/.test(r)) return 'res-ok';
+    if (/miss|no answer|busy|reject|abandon|hang/.test(r)) return 'res-miss';
+    return '';
+  }
+  // A RingEX recording plays through /api/recording/<id> (the app's token);
+  // any other recording link opens in a new tab, as before.
+  function recOf(c) {
+    if (c.recording_id) return { play: '/api/recording/' + encodeURIComponent(c.recording_id) };
+    var u = c.recording_url || '';
+    var m = /\/recording\/(\d{4,20})\/content/.exec(u);
+    if (m) return { play: '/api/recording/' + m[1] };
+    if (/^https?:\/\//i.test(u)) return { link: u };
+    return null;
+  }
+
+  function rows() {
+    var out = [];
+    (data.calls || []).forEach(function (c) {
+      var outb = /^out/i.test(c.direction || '');
+      // Our side of the call: the person, else the Goals line it rang.
+      var agent = c.agent_name || (outb ? c.from_name : c.to_name) || '';
+      var line = outb ? c.from_number : c.to_number;
+      out.push({ kind: 'call', t: c.start_time, out: outb, rec: recOf(c),
+        l1: '<b>' + esc(agent || (line ? phone(line) + ' line' : 'Unknown')) + '</b>' +
+            (c.queue_name ? ' <span class="tag">' + esc(c.queue_name) + '</span>' : ''),
+        l2: '<span class="' + resCls(c.result) + '">' + esc(c.result || '') + '</span>' +
+            (dur(c.duration) ? ' · ' + dur(c.duration) : '') +
+            ' · <span class="tag">' + esc(c.source === 'ringcx' ? 'RingCX' : 'RingEX') + '</span>' });
+    });
+    (data.zoho_calls || []).forEach(function (c) {
+      out.push({ kind: 'call', t: c.start_time, out: true, rec: recOf(c),
+        l1: '<b>' + esc(c.caller || 'Zoho') + '</b> ' + esc(c.subject || ''),
+        l2: (c.disposition ? esc(c.disposition) + ' · ' : '') + '<span class="tag">Zoho</span>',
+        note: c.description || '' });
+    });
+    (data.sms || []).forEach(function (m) {
+      var outb = /^out/i.test(m.direction || '');
+      var who = m.owner && m.owner !== 'None' ? m.owner : phone(outb ? m.from_number : m.to_number) + ' line';
+      out.push({ kind: 'sms', t: m.time, out: outb,
+        l1: '<b>' + esc(who || 'Text') + '</b> <span class="tag">Text' + (outb ? ' sent' : ' received') + '</span>',
+        txt: m.message || '' });
+    });
+    out.sort(function (a, b) { return (new Date(b.t).getTime() || 0) - (new Date(a.t).getTime() || 0); });
+    return out;
+  }
+
+  function render() {
+    if (!data) return;
+    var all = rows();
+    var nCalls = all.filter(function (r) { return r.kind === 'call'; }).length;
+    var nSms = all.length - nCalls;
+    var nRec = all.filter(function (r) { return r.rec; }).length;
+    var list = all.filter(function (r) { return filt === 'all' || r.kind === filt; });
+    var c = data.contact || {};
+    var h = '<p class="who">' + (c.name ? '<b>' + esc(c.name) + '</b> · ' : '') +
+            esc(phone(data.phone || c.phone || '')) + ' · last ' + days + ' days</p>';
+    h += '<div class="filt">' +
+         [['all', 'All ' + all.length], ['call', 'Calls ' + nCalls], ['sms', 'Texts ' + nSms]].map(function (f) {
+           return '<span class="day' + (filt === f[0] ? ' on' : '') + '" data-f="' + f[0] + '">' + f[1] + '</span>';
+         }).join('') + '</div>';
+    if (!list.length) {
+      h += '<div class="empty">' + (all.length ? 'Nothing of this kind.' : 'No calls or texts found in this window.') + '</div>';
+    } else {
+      h += list.map(function (r, i) {
+        var x = '';
+        if (r.rec && r.rec.play) x = '<button class="play" data-play="' + esc(r.rec.play) + '" data-i="' + i + '">▶ Play</button>';
+        else if (r.rec && r.rec.link) x = '<a class="play" target="_blank" rel="noopener" href="' + esc(r.rec.link) + '">▶ Open</a>';
+        return '<div class="hl" id="hl' + i + '">' +
+          '<span class="t n">' + when(r.t) + '</span>' +
+          '<span class="dir ' + (r.out ? 'out' : 'in') + '" title="' + (r.out ? 'Outgoing' : 'Incoming') + '">' +
+            (r.kind === 'sms' ? '✉︎' : (r.out ? '↗' : '↙')) + '</span>' +
+          '<span class="m"><div class="l1">' + r.l1 + '</div>' +
+            (r.l2 ? '<div class="l2">' + r.l2 + '</div>' : '') +
+            (r.txt ? '<div class="txt">' + esc(r.txt) + '</div>' : '') +
+            (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
+          '</span><span class="x">' + x + '</span></div>';
+      }).join('');
+    }
+    var pl = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
+    h += '<div class="foot">' + pl(nCalls, 'call') + ', ' + nRec + ' with a recording · ' + pl(nSms, 'text') + '. ' +
+         'Times are Eastern. Texts are the ones Zoho holds, as on the original tracker.</div>';
+    $('out').innerHTML = h;
+  }
+
+  function drawDays() {
+    $('days').innerHTML = DAYS.map(function (d) {
+      return '<span class="day' + (d === days ? ' on' : '') + '" data-d="' + d + '">' + d + ' days</span>';
+    }).join('');
+  }
+
+  var gen = 0;
+  function search() {
+    var q = $('q').value.trim();
+    if (q.length < 2) { $('out').innerHTML = '<div class="empty">Type a name or a phone number.</div>'; return; }
+    var my = ++gen;
+    try { history.replaceState(null, '', '/search?q=' + encodeURIComponent(q) + '&days=' + days); } catch (e) {}
+    $('spin').textContent = 'Searching…';
+    $('go').disabled = true;
+    fetch('/api/call-history/search?q=' + encodeURIComponent(q) + '&days=' + days, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('sign in'); }
+        return r.json();
+      })
+      .then(function (j) {
+        if (my !== gen) return;
+        if (j.error) { data = null; $('out').innerHTML = '<div class="empty">' + esc(j.error) + '</div>'; return; }
+        if (!(j.calls || []).length && !(j.zoho_calls || []).length && !(j.sms || []).length && j.message) {
+          data = null; $('out').innerHTML = '<div class="empty">' + esc(j.message) + '</div>'; return;
+        }
+        data = j; filt = 'all'; render();
+      })
+      .catch(function (e) { if (my === gen && e.message !== 'sign in') $('out').innerHTML = '<div class="empty">Search failed: ' + esc(e.message) + '</div>'; })
+      .then(function () { if (my === gen) { $('spin').textContent = ''; $('go').disabled = false; } });
+  }
+
+  $('f').addEventListener('submit', function (e) { e.preventDefault(); search(); });
+  $('days').addEventListener('click', function (e) {
+    var d = +(e.target.getAttribute && e.target.getAttribute('data-d'));
+    if (!d) return;
+    days = d; drawDays();
+    if ($('q').value.trim().length >= 2) search();
+  });
+  $('out').addEventListener('click', function (e) {
+    var f = e.target.getAttribute && e.target.getAttribute('data-f');
+    if (f) { filt = f; render(); return; }
+    var src = e.target.getAttribute && e.target.getAttribute('data-play');
+    if (!src) return;
+    var row = e.target.closest('.hl'), m = row.querySelector('.m'), a = m.querySelector('audio');
+    if (a) { a.paused ? a.play() : a.pause(); return; }
+    a = document.createElement('audio');
+    a.controls = true; a.preload = 'auto'; a.src = src;
+    a.addEventListener('error', function () {
+      var n = document.createElement('div'); n.className = 'l2 res-miss'; n.textContent = 'Recording could not be loaded.';
+      a.replaceWith(n);
+    });
+    m.appendChild(a);
+    a.play().catch(function () {});
+  });
+  drawDays();
+  if ($('q').value.trim().length >= 2) search();
+})();
+</script>
+</body>
+</html>

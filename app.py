@@ -31,7 +31,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import functools
 import hmac
-from flask import Flask, jsonify, render_template, request, redirect, session, url_for
+from flask import Flask, Response, jsonify, render_template, request, redirect, session, url_for
 from authlib.integrations.flask_client import OAuth
 from zoho_client import ZohoClient, LOCAL_TZ
 from ringcx_client import RingCXClient
@@ -10978,6 +10978,53 @@ def call_history_search():
         "sms_count": len(sms_messages),
         "_debug": debug,
     })
+
+
+# ---- Call and text search (Danny, 2026-10-30: "we have an option to view call
+# history and call recordings via search on the original version of the call
+# tracker, can we add a super minimal same functionality matching UI of the
+# surgical coordinator, billing, sales and teams kpi pages that will also link
+# recordings where available and sms as before"). The page reads the original
+# /api/call-history/search; nothing new is searched. Same door as that API.
+@app.route("/search")
+@login_required
+def call_text_search():
+    return render_template("search.html", q=(request.args.get("q") or "")[:80])
+
+
+# A RingEX recording's contentUri needs RingCentral's bearer token, so the old
+# search's "Play" link opened a 401 in the browser. This streams the audio
+# through the app with the app's own token, Range included so the player can
+# seek. Only a numeric recording id is accepted and the host is fixed: the
+# browser never names a URL for the server to fetch.
+_REC_ID = re.compile(r"^\d{4,20}$")
+
+
+@app.route("/api/recording/<rec_id>")
+@login_required
+def recording_audio(rec_id):
+    if not _REC_ID.match(rec_id or ""):
+        return jsonify({"error": "bad recording id"}), 400
+    if not _ringcx.configured:
+        return jsonify({"error": "RingEX not configured"}), 503
+    headers = dict(_ringcx._rc_headers())
+    rng = request.headers.get("Range")
+    if rng and re.match(r"^bytes=\d*-\d*$", rng):
+        headers["Range"] = rng
+    try:
+        up = requests.get("https://media.ringcentral.com/restapi/v1.0/account/~/recording/%s/content" % rec_id,
+                          headers=headers, stream=True, timeout=30)
+    except requests.RequestException as e:
+        return jsonify({"error": "recording fetch failed: %s" % type(e).__name__}), 502
+    if up.status_code not in (200, 206):
+        up.close()
+        return jsonify({"error": "recording not available", "status": up.status_code}), \
+            (404 if up.status_code in (403, 404) else 502)
+    out = {k: up.headers[k] for k in ("Content-Type", "Content-Length", "Content-Range") if k in up.headers}
+    out["Accept-Ranges"] = "bytes"
+    out["Cache-Control"] = "private, max-age=3600"
+    return Response(up.iter_content(64 * 1024), status=up.status_code, headers=out,
+                    direct_passthrough=True)
 
 
 # ------------------------------------------------------------------ Quotes panel
