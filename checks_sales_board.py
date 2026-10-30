@@ -56,8 +56,8 @@ ck("sales seats get RingCX call status", by.get("Maia Pasifae Palma", {}).get("o
 # No rows today and not on a call: not known to be online, so Offline -- not
 # Available, which is what every absent seat used to read as.
 ck("the rest, with no activity today and no shift on file, read No Activity",
-   by.get("Gregory Beltran", {}).get("state") == "no_activity" and by.get("Gregory Beltran", {}).get("label") == "No Activity",
-   by.get("Gregory Beltran"))
+   by.get("Maria Carvajal", {}).get("state") == "no_activity" and by.get("Maria Carvajal", {}).get("label") == "No Activity",
+   by.get("Maria Carvajal"))
 
 print("%d passed" % passed)
 for e in errors:

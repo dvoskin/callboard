@@ -1238,6 +1238,10 @@ _TEAM_ROSTERS = {
         {"name": "Victor Silvestre", "source": "ringcx", "ext": "142", "ext_id": 1253948035, "always_rank": True},
         {"name": "Keily Fermín",     "source": "ringcx", "ext": "117", "ext_id": 1253942035, "always_rank": True},
         {"name": "Celine Vasquez",   "source": "ringcx", "ext": "134", "ext_id": 1253947035, "always_rank": True},
+        # Danny 2026-10-30: "Gregory is moving to surgical coordinator trainees for
+        # now" (from the sales floor). RingEX x182 / 1180435035 from the extension
+        # directory; Zoho user "Gregory Beltran", so no CRM alias.
+        {"name": "Gregory Beltran",  "source": "ringcx", "ext": "182", "ext_id": 1180435035, "always_rank": True},
     ],
 }
 # Surgical Coordinator is Scheduling and Customer Service read as ONE table,
@@ -1357,8 +1361,11 @@ _TEAM_ROSTERS["sales"] = [
     for n in ("Maia Pasifae Palma", "Maisah Brandon", "Gabriel Johnson",
               "Alicia Mckenzie", "Adelita Flowers", "Magen Fermin", "Mabel Alvarez",
               "Wellington Santiago", "Charlotte McKay",
-              "Adriana Gentry", "Sandra Rivas", "Maria Carvajal",
-              "Gregory Beltran")   # Danny 2026-10-27: Claudia Villalobo and Cristina Cots off the sales roster
+              "Adriana Gentry", "Sandra Rivas", "Maria Carvajal")
+    # Danny 2026-10-27: Claudia Villalobo and Cristina Cots off the sales roster.
+    # Danny 2026-10-30: "Gregory is moving to surgical coordinator trainees for
+    # now" -- his seat is on the trainees roster; being on another board keeps
+    # his campaign dials off /v5 (_other_team_names), so he is not "departed".
 ] + [
     # Former training class — joined the sales team 2026-10-22. These five
     # dial from RingEX, not RingCX, so each carries its own extension and
