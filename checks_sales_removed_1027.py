@@ -18,8 +18,8 @@ def ck(label, cond, got=None):
 OFF = ["Claudia Villalobo", "Duany Fermin", "Cristina Cots"]
 declared = [s["name"] for s in A._TEAM_ROSTERS["sales"]]
 ck("none of the three is on the declared sales roster", not [n for n in OFF if n in declared], declared)
-# Gregory Beltran moved to the coordinator trainees on 2026-10-30 (checks_trainees.py).
-ck("the rest of the floor is untouched", {"Maria Carvajal", "Adelita Flowers", "Wellington Santiago", "Annyta Santiago"} <= set(declared), declared)
+# Gregory Beltran and Wellington Santiago moved to the coordinator trainees on 2026-10-30 (checks_trainees.py).
+ck("the rest of the floor is untouched", {"Maria Carvajal", "Adelita Flowers", "Annyta Santiago"} <= set(declared), declared)
 ck("all three are on the /v5 exclusion list, so a campaign dial cannot put them back",
    {"claudia villalobo", "duany fermin", "cristina cots"} <= A._DEPARTED_SALES_NAMES, A._DEPARTED_SALES_NAMES)
 report = {"ranked": [], "unranked": []}

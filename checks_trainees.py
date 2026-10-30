@@ -16,16 +16,35 @@ def ck(label, cond, got=None):
 
 r, meta = A._billing_roster("trainees")
 names = [s["name"] for s in r]
-ck("the trainees, in the order Danny named them (Gregory joined 2026-10-30)",
-   names == ["Laura Martinez", "Victor Silvestre", "Keily Fermín", "Celine Vasquez", "Gregory Beltran"], names)
-ck("Gregory is off the sales roster", "Gregory Beltran" not in [s["name"] for s in A._billing_roster("sales")[0]])
-ck("...and kept off the sales floor by being on another board, not as departed",
-   A._norm_name("Gregory Beltran") in A._other_team_names()
-   and A._norm_name("Gregory Beltran") not in A._DEPARTED_SALES_NAMES)
+ck("the trainees, in the order Danny named them (Gregory and Wellington joined 2026-10-30)",
+   names == ["Laura Martinez", "Victor Silvestre", "Keily Fermín", "Celine Vasquez", "Gregory Beltran", "Wellington Santiago"], names)
+for who in ("Gregory Beltran", "Wellington Santiago"):
+    ck("%s is off the sales roster" % who, who not in [s["name"] for s in A._billing_roster("sales")[0]])
+    ck("...and kept off the sales floor by being on another board, not as departed (%s)" % who,
+       A._norm_name(who) in A._other_team_names() and A._norm_name(who) not in A._DEPARTED_SALES_NAMES)
+
+# Their closings stay on the SALES total (Danny: "total closing should be 7 not 6").
+books = {"gregory beltran": {"display": "Gregory Beltran", "quotes_sent": 2, "quotes_invoiced": 1, "retainers_sent": 1,
+                             "retainers_paid": 1, "paid_amount": 500.0},
+         "wellington santiago": {"display": "Wellington Santiago", "quotes_sent": 0, "quotes_invoiced": 0,
+                                 "retainers_sent": 0, "retainers_paid": 0, "paid_amount": 0.0},
+         "maria carvajal": {"display": "Maria Carvajal", "quotes_sent": 3, "quotes_invoiced": 0, "retainers_sent": 1,
+                            "retainers_paid": 6, "paid_amount": 3000.0}}
+rep = {"ranked": [{"name": "Maria Carvajal", "books": {"retainers_paid": 6}}], "unranked": []}
+seen = {"maria carvajal"}
+added = A._v5_moved_rows(rep, books, seen)
+rows = rep["ranked"] + rep["unranked"]
+ck("a moved rep with a closing keeps a sales row", added == ["Gregory Beltran"], added)
+ck("...labelled with where he went", any(r["name"] == "Gregory Beltran (now a coordinator trainee)" for r in rep["unranked"]),
+   [r["name"] for r in rep["unranked"]])
+ck("...Books only: no calls", all(r.get("attempts") == 0 and r.get("talk") == 0 for r in rep["unranked"]))
+ck("the sales total counts his closing (6 + 1 = 7)", sum((r.get("books") or {}).get("retainers_paid", 0) for r in rows) == 7)
+ck("a moved rep with no Books activity gets no row", not any("Wellington" in r["name"] for r in rows))
+ck("never twice", A._v5_moved_rows(rep, books, seen) == [])
 ck("every seat is a RingCX seat with its RingEX extension (SMS, presence) and always_rank",
    all(s.get("source") == "ringcx" and s.get("ext_id") and s.get("ext") and s.get("always_rank") for s in r), r)
 ck("RingEX ids are the ones the RingCX admin API gave (rcUserId)",
-   {s["ext_id"] for s in r} == {1253951035, 1253948035, 1253942035, 1253947035, 1180435035}, {s["ext_id"] for s in r})
+   {s["ext_id"] for s in r} == {1253951035, 1253948035, 1253942035, 1253947035, 1180435035, 492651034}, {s["ext_id"] for s in r})
 ck("the team reads RingCX", A._TEAM_SOURCES.get("trainees") == "ringcx", A._TEAM_SOURCES.get("trainees"))
 ck("it has Danny's name", A.TEAM_LABELS.get("trainees") == "Surgical Coordinator Trainees", A.TEAM_LABELS.get("trainees"))
 ck("judged against customer service's bar (inbound calls), with no pace column",
