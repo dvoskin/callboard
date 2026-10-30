@@ -396,6 +396,11 @@ def _find_columns(header, rows):
 SNIFF_ROWS = 400          # enough to verify a column holds money; see _find_columns
 
 
+def _has_letter(cell):
+    """True when a name cell holds at least one letter (any script)."""
+    return any(ch.isalpha() for ch in (cell or ""))
+
+
 def read_tab(sheet_id, gid):
     """{date: total} for one tab, plus a small diagnostic.
 
@@ -455,7 +460,13 @@ def read_tab(sheet_id, gid):
         # subtotal, and counting it doubles the day. Only skipped when the tab
         # actually HAS a name column -- guessing one is not worth dropping every
         # row of a tab shaped differently.
-        is_total = (ni is not None and not (ni < len(r) and (r[ni] or "").strip()))
+        #
+        # A name cell with no letter in it is not a name either. Naomi's tab
+        # (2026-10-29) closes the day with a total row that carries the day's
+        # row count, "46", in the name column and the day's sum, "10,551$", in
+        # the amount column -- read as a payment, it put the board at $60,216
+        # for a $49,665 day (Danny: "billing total should be 49665").
+        is_total = (ni is not None and not (ni < len(r) and _has_letter(r[ni])))
         if is_total:
             # Counted ONCE for the row. Doing it inside the per-column loop
             # counted a one-column subtotal once and then divided it by the
