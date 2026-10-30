@@ -7988,31 +7988,35 @@ def _v5_declared_rows(report, books):
 # Reps who moved off the sales floor to another team (Danny, 2026-10-30:
 # "Wellington and Gregory may have closed but now the total is wrong for total
 # closing should be 7 not 6"). Their quotes and closings in Books are sales
-# work -- Books credits the salesperson on the deal -- so a moved rep with Books
-# activity in the window keeps a row on the sales board, Books figures only (no
-# calls: those now belong to their new team), labelled with where they went.
-# Without it their closing became a "not on board" orphan and the floor's total
-# dropped by one. Normalised name -> team key.
+# work -- Books credits the salesperson on the deal -- so they stay in the sales
+# floor's TOTALS. They do not get a row: Danny, the same afternoon, of the
+# "(now a coordinator trainee)" rows: "They can come off the board here."
+# Without this their closing became a "not on board" orphan and the floor's
+# total dropped by one. Normalised name -> team key.
 _MOVED_FROM_SALES = {"gregory beltran": "trainees", "wellington santiago": "trainees"}
+_MOVED_KEYS = ("quotes_sent", "quotes_invoiced", "retainers_sent", "retainers_paid", "paid_amount")
 
 
-def _v5_moved_rows(report, books, seen):
-    """Rows for moved reps with Books activity; adds their keys to `seen`.
-    Returns the display names added."""
-    added = []
+def _v5_moved_books(books, seen):
+    """Books figures of moved reps, summed, for the board's totals line (no rows).
+    Adds their keys to `seen` so they are not reported as not-on-board orphans.
+    Returns {quotes_sent, ..., paid_amount, names: [...]} or None."""
+    tot = {k: 0 for k in _MOVED_KEYS}
+    names = []
     for k, v in (books or {}).items():
-        team = _MOVED_FROM_SALES.get(k)
-        if not team or k in seen:
+        if k not in _MOVED_FROM_SALES or k in seen:
             continue
-        if not any(v.get(x) for x in ("quotes_sent", "quotes_invoiced", "retainers_sent", "retainers_paid")):
+        if not any(v.get(x) for x in _MOVED_KEYS):
             continue
-        label = {"trainees": "a coordinator trainee"}.get(team) or TEAM_LABELS.get(team, team)
-        row = _zero_call_row("%s (now %s)" % (v.get("display") or k.title(), label), v)
-        row["moved_to"] = team
-        report.setdefault("unranked", []).append(row)
+        for x in _MOVED_KEYS:
+            tot[x] += v.get(x) or 0
+        names.append(v.get("display") or k.title())
         seen.add(k)
-        added.append(v.get("display") or k)
-    return added
+    if not names:
+        return None
+    tot["paid_amount"] = round(tot["paid_amount"], 2)
+    tot["names"] = sorted(names)
+    return tot
 
 
 def _zero_call_row(display, b):
@@ -8987,7 +8991,7 @@ def api_v5_report():
                 added.append(v["display"])
                 seen.add(k)
             books_meta["added_without_calls"] = sorted(added)
-            books_meta["moved_off_sales"] = sorted(_v5_moved_rows(report, books, seen))
+            books_meta["moved"] = _v5_moved_books(books, seen)
             books_meta["declared_at_zero"] = sorted(_v5_declared_rows(report, books))
 
             # Anyone left with Books activity and still no row is worth naming

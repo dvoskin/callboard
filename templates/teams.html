@@ -411,7 +411,9 @@
         ]
       };
     });
-    var T = j.totals || {}, S = function (k) { return all.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0); };
+    // Reps who moved off sales keep their Books work in the floor's totals, no row (2026-10-30).
+    var MV = (((j.meta || {}).books) || {}).moved || {};
+    var T = j.totals || {}, S = function (k) { return all.reduce(function (s, a) { return s + ((a.books || {})[k] || 0); }, 0) + (MV[k] || 0); };
     var talk = all.reduce(function (s, a) { return s + (a.talk || 0); }, 0);
     return {
       key: 'sales', label: 'Sales Floor', href: '/v5', nameHead: 'Rep',
