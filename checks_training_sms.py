@@ -27,7 +27,7 @@ def ck(label, cond, got=None):
 
 
 # Seydi Medrano was the fifth until 2026-10-23, when she left the sales team.
-FIVE = ["Annyta Santiago", "Ramon Gallardo", "Roman Gomez", "Jabes Perdomo"]
+FIVE = ["Annyta Santiago", "Roman Gomez", "Jabes Perdomo"]   # Ramon Gallardo quit 2026-10-30
 
 ck("no ringex team roster exists", "ringex" not in A._TEAM_ROSTERS, list(A._TEAM_ROSTERS.keys()))
 ck("the five RingEX reps are on the sales roster",

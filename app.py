@@ -1375,7 +1375,11 @@ _TEAM_ROSTERS["sales"] = [
     # dial from RingEX, not RingCX, so each carries its own extension and
     # source tag. Ambar Luciano was disabled before the move and is not here.
     {"name": "Annyta Santiago",  "source": "ringex", "ext": "149", "ext_id": 1251376035, "always_rank": True},
-    {"name": "Ramon Gallardo",   "source": "ringex", "ext": "135", "ext_id": 1251371035, "always_rank": True},
+    # Ramon Gallardo quit 2026-10-30 (Danny: "Ramon quit so remove across the board
+    # everywhere and redistribute his deals"). His 415 open deals went to 14 reps;
+    # his line (ext 135) is in _SMS_EXTRA_SEATS for the STOP scan and his name in
+    # _DEPARTED_SALES_NAMES so a RingCX dial cannot put him back on /v5.
+    # {"name": "Ramon Gallardo", "source": "ringex", "ext": "135", "ext_id": 1251371035, "always_rank": True},
     {"name": "Roman Gomez",      "source": "ringex", "ext": "146", "ext_id": 1251375035, "always_rank": True},
     {"name": "Jabes Perdomo",    "source": "ringex", "ext": "141", "ext_id": 1251373035, "always_rank": True},
     # Seydi Medrano left the sales team on 2026-10-23 (Danny: "Seydi also has
@@ -1455,6 +1459,7 @@ _SMS_EXTRA_SEATS = {
         {"name": "Claudia Villalobo", "ext": "210", "ext_id": 998738035},
         {"name": "Duany Fermin",      "ext": "121", "ext_id": 1231015035},
         {"name": "Cristina Cots",     "ext": "133", "ext_id": 1248449035},
+        {"name": "Ramon Gallardo",    "ext": "135", "ext_id": 1251371035},   # quit 2026-10-30
     ],
 }
 # Which boards carry a Zoho CRM count on each row: activities the person
@@ -7510,7 +7515,8 @@ _NOT_SALES_NAMES = {"zoho admin", "unassigned", "n/a", ""}
 # sales rep is. Normalised, like _NOT_SALES_NAMES. Removals are reported in
 # meta so the board never drops a person silently.
 _DEPARTED_SALES_NAMES = {"seydi medrano",      # left 2026-10-23
-                          "claudia villalobo", "cristina cots", "duany fermin"}   # off the sales rosters 2026-10-27
+                          "claudia villalobo", "cristina cots", "duany fermin",   # off the sales rosters 2026-10-27
+                          "ramon gallardo"}                                        # quit 2026-10-30
 
 
 def _other_team_names() -> set:
@@ -7993,7 +7999,9 @@ def _v5_declared_rows(report, books):
 # "(now a coordinator trainee)" rows: "They can come off the board here."
 # Without this their closing became a "not on board" orphan and the floor's
 # total dropped by one. Normalised name -> team key.
-_MOVED_FROM_SALES = {"gregory beltran": "trainees", "wellington santiago": "trainees"}
+_MOVED_FROM_SALES = {"gregory beltran": "trainees", "wellington santiago": "trainees",
+                     # left the company 2026-10-30; his Books work in a window still counts on the floor's totals
+                     "ramon gallardo": "departed"}
 _MOVED_KEYS = ("quotes_sent", "quotes_invoiced", "retainers_sent", "retainers_paid", "paid_amount")
 
 

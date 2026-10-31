@@ -43,6 +43,11 @@ ck("...and they are not orphans", {"gregory beltran", "wellington santiago"} <= 
 ck("a non-moved rep is never folded in", "Alicia Mckenzie" not in (mv or {}).get("names", []))
 ck("never twice", A._v5_moved_books(books, seen) is None)
 ck("no rows helper left behind", not hasattr(A, "_v5_moved_rows"))
+# Ramon Gallardo quit 2026-10-30: off the roster, departed, his line still in the STOP scan, his Books work kept on the totals.
+ck("Ramon is off the sales roster", "Ramon Gallardo" not in [x["name"] for x in A._TEAM_ROSTERS["sales"]])
+ck("...on the departed list (a RingCX dial cannot bring him back)", "ramon gallardo" in A._DEPARTED_SALES_NAMES)
+ck("...his line stays in the STOP scan", any(x["name"] == "Ramon Gallardo" and x["ext_id"] == 1251371035 for x in A._SMS_EXTRA_SEATS["sales"]))
+ck("...his Books work still counts on the totals", A._MOVED_FROM_SALES.get("ramon gallardo") == "departed")
 ck("every seat is a RingCX seat with its RingEX extension (SMS, presence) and always_rank",
    all(s.get("source") == "ringcx" and s.get("ext_id") and s.get("ext") and s.get("always_rank") for s in r), r)
 ck("RingEX ids are the ones the RingCX admin API gave (rcUserId)",
