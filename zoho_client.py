@@ -3935,10 +3935,10 @@ class ZohoClient:
 
     _CD_JOURNEY_FIELDS = ("id, Name, Surgery_Date, Journey_Stage, Case_Status, Journey_Balance_Due, "
                           "Fourth_Attempt_Date_15D, Lab_Result_Status, Clearance_Status, Next_Follow_Up_Date1, "
-                          "Owner, Created_Time, Contact, Contact.First_Name, Contact.Last_Name, "
+                          "Owner, Created_Time, Contact, Deal, Contact.First_Name, Contact.Last_Name, "
                           "Contact.Mobile, Contact.Phone")
     _CD_CALL_FIELDS = ("id, Subject, Call_Type, Outgoing_Call_Status, Call_Start_Time, Call_Duration_in_seconds, "
-                       "Call_Result, Call_Agenda, Description, What_Id, Owner, $se_module")
+                       "Call_Result, Call_Agenda, Description, What_Id, Who_Id, Owner, $se_module")
 
     def coord_schedules(self) -> list:
         """Zoho Team_Schedules rows for Team = 'Coordinator'. Raises on failure."""
@@ -3958,6 +3958,37 @@ class ZohoClient:
             f"select {self._CD_CALL_FIELDS} from Calls where ($se_module = 'CustomModule13' and "
             f"Call_Start_Time between '{iso(calls_from)}' and '{iso(calls_to)}')", page=2000, cap=30000)
         return {"journeys": journeys, "calls": calls}
+
+    def coord_wide_calls(self, journeys, calls_from, calls_to, batch: int = 50, workers: int = 4) -> dict:
+        """Calls on the Journeys' patients outside the Journey, for the
+        contact-limit measure only: {"contact_calls": Who_Id in the Journey
+        contacts, "deal_calls": What_Id in the Journey linked deals}, same
+        window, batches of `batch`. Raises when any batch fails: a half-read
+        would undercount talks without saying so."""
+        iso = self._md_iso
+        span = f"Call_Start_Time between '{iso(calls_from)}' and '{iso(calls_to)}'"
+
+        def ids_of(field):
+            out = set()
+            for j in journeys or []:
+                v = j.get(field)
+                v = v.get("id") if isinstance(v, dict) else v
+                if v and str(v).isdigit():
+                    out.add(str(v))
+            return sorted(out)
+
+        jobs = []
+        for key, field, lookup in (("contact_calls", "Who_Id", "Contact"), ("deal_calls", "What_Id", "Deal")):
+            ids = ids_of(lookup)
+            for i in range(0, len(ids), batch):
+                chunk = ",".join("'%s'" % x for x in ids[i:i + batch])
+                jobs.append((key, f"select {self._CD_CALL_FIELDS} from Calls where ({field} in ({chunk}) and {span})"))
+        out = {"contact_calls": [], "deal_calls": []}
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for key, rows in zip([k for k, _ in jobs], ex.map(lambda q: self._coql_all(q, page=2000, cap=10000),
+                                                               [q for _, q in jobs])):
+                out[key].extend(rows)
+        return out
 
     def coord_get_call(self, call_id: str) -> dict:
         """One call's owner, status, result and parent, for the write checks."""

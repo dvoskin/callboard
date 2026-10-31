@@ -293,7 +293,7 @@ var BOOT = {{ boot | tojson }};
       '<div><b>' + n.done + '</b>done today, ' + n.reached + ' reached</div>' +
       '<div><b' + (n.no_result ? ' class="dn"' : '') + '>' + n.no_result + '</b>with no result</div></div>';
     h += '<div class="ptiles">' +
-      tile('contact', 'Within contact limit', s.contact, s.live + ' live patients · 30/14/7 day rule') +
+      tile('contact', 'Within contact limit', s.contact, s.contact.of + ' before surgery · 30/14/7 day rule' + (s.contact.wide ? '' : ' · Journey calls only for now')) +
       tile('reach', 'Reach rate', s.reach, 'last ' + s.reach.days + ' days') +
       tile('deadlines', 'Payment deadlines covered', s.deadlines, 'due in the next ' + s.deadlines.days + ' days') +
       tile('welcomes', 'Welcomes in 1 working day', s.welcomes, 'booked in the last ' + s.welcomes.days + ' days') + '</div>';

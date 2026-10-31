@@ -154,7 +154,8 @@ ck("every row carries both drafts and the 'Danny to approve' note", all(r["draft
 # ── scorecard ─────────────────────────────────────────────────────────────
 S = P["score"]
 # live mine: j1 (no talk, limit 7) j2 (12 d, limit 7) j3 (none) j4 (20 d, limit 30) j6 (1 d, 7) j7 (3 d, 14) j8 (40 d, 14)
-ck("contact limit: j4, j6, j7 inside; j1, j2, j3, j8, j10 outside", (S["contact"]["n"], S["contact"]["of"]) == (3, 8), S["contact"])
+ck("contact limit counts Prep/Ready with surgery ahead only (j6 is Post-Op): j4, j7 inside; j1, j2, j3, j8, j10 outside",
+   (S["contact"]["n"], S["contact"]["of"]) == (2, 7), S["contact"])
 qb = [q["booked"] for q in S["contact"]["quiet"]]
 ck("the quiet list puts the ones with nothing booked first", qb == sorted(qb) and False in qb, qb)
 ck("reach rate: 1 reached of 3 with a result in 7 days (the dial with no result is left out)", (S["reach"]["n"], S["reach"]["of"]) == (1, 3), S["reach"])
@@ -173,6 +174,71 @@ ck("...a talk the next day counts", C.build(W3, NOW, TZ, {"id": ME, "name": "x"}
 fri = J("j9", 30, created_days=-2.9, name="Fri Day")
 S4 = C.build({"journeys": JOURNEYS + [fri], "calls": CALLS}, NOW, TZ, {"id": ME, "name": "x"}, SCHED)["score"]["welcomes"]
 ck("a Friday booking's window is still open on Monday afternoon (working days, not calendar days)", S4["open"] == 1, S4)
+
+# ── hub decision 10-31: the scorecard matches the evidence numbers ────────
+ck("CALLS_DAYS reaches the 31st day back", C.CALLS_DAYS >= 31, C.CALLS_DAYS)
+
+
+def T(**k):
+    base = {"Outgoing_Call_Status": "Completed", "Call_Type": "Outbound", "Call_Result": None, "Call_Duration_in_seconds": 0}
+    base.update(k)
+    return C.is_talk(base)
+
+
+ck("talk: Reached on a completed call", T(Call_Result="Reached"), "")
+ck("talk: Callback Requested / Rescheduled Call / Transferred", all(T(Call_Result=r) for r in ("Callback Requested", "Rescheduled Call", "Transferred")), "")
+ck("talk: no result (blank, Pending, Other) and 120 s+", all(T(Call_Result=r, Call_Duration_in_seconds=130) for r in (None, "", "Pending", "Other")), "")
+ck("not a talk: no result under 120 s", not T(Call_Duration_in_seconds=119), "")
+ck("not a talk: No Answer / Left Voicemail, however long", not T(Call_Result="No Answer / Not Reached", Call_Duration_in_seconds=900)
+   and not T(Call_Result="Left Voicemail", Call_Duration_in_seconds=900), "")
+ck("not a talk: an inbound call just for being inbound", not T(Call_Type="Inbound", Outgoing_Call_Status=None, Call_Duration_in_seconds=30), "")
+ck("talk: an inbound call with Reached, or 120 s+ with no result", T(Call_Type="Inbound", Outgoing_Call_Status=None, Call_Result="Reached")
+   and T(Call_Type="Inbound", Outgoing_Call_Status=None, Call_Duration_in_seconds=200), "")
+ck("not a talk: Reached on a call still Scheduled", not T(Outgoing_Call_Status="Scheduled", Call_Result="Reached"), "")
+ck("not a talk: inbound No Answer", not T(Call_Type="Inbound", Outgoing_Call_Status=None, Call_Result="No Answer / Not Reached"), "")
+ck("a Journey call needs its $se_module (no fallback)", not C.is_journey_call({"id": "1"}) and C.is_journey_call({"$se_module": "CustomModule13"})
+   and C.is_journey_call({"$se_module": "Journeys"}) and not C.is_journey_call({"$se_module": "Deals"}), "")
+
+WJ = [dict(j) for j in JOURNEYS]
+for j in WJ:
+    j["Deal"] = {"id": "deal-" + j["id"]}
+past = J("j11", -3, lrc_days=-1, name="Past Due")                       # Prep, but surgery 3 days ago
+WJ.append(past)
+CC = [K("c1", "j10", "Outgoing call to Jade Turner", -3 * 1440, "Completed", "Reached", secs=200),
+      K("c2", "j10", "Scheduled call", 2 * 1440)]                       # open, on the contact only
+for c in CC:
+    c.update({"$se_module": "Deals", "What_Id": {"id": "other-deal"}, "Who_Id": {"id": "cj10"}})
+DC = [dict(K("d1", "j8", "Outgoing call to Erica Lane", -2 * 1440, "Completed", "Rescheduled Call", secs=90),
+           **{"$se_module": "Deals", "What_Id": {"id": "deal-j8"}})]
+# the same Journey call also returned by the contact query: one copy only
+dup = dict(next(c for c in CALLS if c["id"] == "91010"), Who_Id={"id": "cj4"})
+WW = {"journeys": WJ, "calls": CALLS + [{"id": "nomod", "Subject": "x", "Outgoing_Call_Status": "Completed",
+                                          "Call_Result": "Reached", "Call_Start_Time": at(-60), "What_Id": {"id": "j10"}, "Owner": {"id": ME}}],
+      "contact_calls": CC + [dup], "deal_calls": DC}
+IXW = C.Index(WW, NOW, TZ)
+SW = C.scorecard(IXW, ME, SCHED[0])
+ck("a talk on the patient's Contact and on the Journey's Linked Deal counts for the contact limit (j10, j8 now inside)",
+   (SW["contact"]["n"], SW["contact"]["of"]) == (4, 7) and SW["contact"]["wide"] is True, SW["contact"])
+ck("a Prep Journey whose surgery date has passed is not in the contact limit", all(q["journey_id"] != "j11" for q in SW["contact"]["quiet"])
+   and SW["contact"]["of"] == 7, SW["contact"]["of"])
+ck("...but the payment-deadline measure keeps its population (live, Post-Op too)", SW["deadlines"]["of"] == S["deadlines"]["of"], SW["deadlines"])
+ck("a call with no $se_module is not read as a Journey call", all(c.get("id") != "nomod" for c in IXW.calls), "")
+ck("one copy per call id when the contact query returns a Journey call too",
+   [c["id"] for c in IXW.wide_by_j["j4"]].count("91010") == 1, [c["id"] for c in IXW.wide_by_j["j4"]])
+ck("booked-call checks stay on the Journey: an open call on the contact books nothing",
+   not IXW.booked_between("j10", NOW - timedelta(days=7), NOW + timedelta(days=8)), "")
+PW = C.build(WW, NOW, TZ, {"id": ME, "name": "Jorge Mier"}, SCHED)
+r10 = [r for r in PW["right_now"] + PW["later"] if r["journey_id"] == "j10"]
+ck("the rows' last contact stays the Journey's own (contact calls feed only the contact limit)",
+   IXW.last_talk("j10")[0] < IXW.last_talk("j10", wide=True)[0], (IXW.last_talk("j10"), IXW.last_talk("j10", wide=True)))
+# calendar days in Eastern, not 24-hour blocks: 7 days 23 hours ago is 8 calendar days
+eight = (datetime.combine(TODAY - timedelta(days=8), datetime.min.time(), TZ).replace(hour=16)).isoformat()   # DST ends Nov 1: 7 d 23 h
+jc = dict(J("j12", 10, name="Cal Day"), Deal=None)
+call8 = K("e8", "j12", "Cal Day · Check-in · Surg x · P3", 0, "Completed", "Reached", secs=300)
+call8["Call_Start_Time"] = eight
+S8 = C.scorecard(C.Index({"journeys": [jc], "calls": [call8], "contact_calls": [], "deal_calls": []}, NOW, TZ), ME, SCHED[0])
+ck("gap in calendar days (ET): a talk 8 calendar days ago is outside a 7-day limit even under 8 x 24 hours",
+   (NOW - datetime.fromisoformat(eight)).days == 7 and S8["contact"]["n"] == 0 and S8["contact"]["quiet"][0]["gap"] == 8, S8["contact"])
 
 # ── schedules ─────────────────────────────────────────────────────────────
 ck("inactive Team_Schedules rows are not coordinators", {s["id"] for s in SCHED} == {ME, OTHER}, SCHED)
@@ -204,8 +270,9 @@ CALL_INFO = {
 }
 saved = (A.GOOGLE_CLIENT_ID, A.MY_DAY_FAKE, A._zoho.list_users_detail, A._zoho.coord_schedules, A._zoho.coord_world,
          A._zoho.coord_get_call, A._zoho.coord_write_result, A._zoho.coord_create_call, A._zoho.my_day_world,
-         A._zoho.coord_set_last_contact)
+         A._zoho.coord_set_last_contact, A._zoho.coord_wide_calls)
 lrcs, LRC_MODE = [], {"fail": False}
+wide_reads = []
 try:
     import copy
     A.GOOGLE_CLIENT_ID = "x"
@@ -245,6 +312,10 @@ try:
         return {"written": True, "kept": when.isoformat()}
 
     A._zoho.coord_set_last_contact = fake_lrc
+    A._cd_wide.update(at=0.0, data=None, busy=False)
+    A._zoho.coord_wide_calls = lambda js, a, b: wide_reads.append(len(js)) or {
+        "contact_calls": [dict(K("cw1", "j10", "Outgoing call to Jade Turner", -60, "Completed", "Reached", secs=200),
+                               **{"$se_module": "Deals", "What_Id": {"id": "x"}, "Who_Id": {"id": "cj10"}})], "deal_calls": []}
 
     ck("closed without the door", c.get("/my-day/api/coord/data").status_code == 401, "")
     ck("the floor page is managers only", c.get("/my-day/coordinators").status_code in (200, 302) and b"BOOT" not in c.get("/my-day/coordinators").data, "")
@@ -257,6 +328,15 @@ try:
     dd = c.get("/my-day/api/coord/data").get_json()
     ck("...built from the floor read of the Team_Schedules coordinators", dd.get("coord", {}).get("id") == ME and reads and set(reads[0]) == {ME, OTHER}, (dd.get("error"), reads))
     ck("...with her calls", [x["call_id"] for x in dd.get("right_now", [])][:1] == ["91001"], dd.get("right_now"))
+    import time as _t
+    for _ in range(50):
+        if A._cd_wide["data"] is not None:
+            break
+        _t.sleep(0.05)
+    ck("the contact and deal calls are read in the background, once, for the floor's Journeys, and attached",
+       wide_reads == [len(LIVE["journeys"])] and "contact_calls" in (A._cd_state["world"] or {}), wide_reads)
+    dd2 = c.get("/my-day/api/coord/data").get_json()
+    ck("...so the contact limit counts them", dd2["score"]["contact"]["wide"] is True, dd2["score"]["contact"].get("wide"))
     ck("she cannot open another coordinator's day", c.get("/my-day/api/coord/data?rep=" + OTHER).status_code == 403, "")
 
     def post(body, ctype="application/json"):
@@ -359,7 +439,7 @@ try:
 finally:
     (A.GOOGLE_CLIENT_ID, A.MY_DAY_FAKE, A._zoho.list_users_detail, A._zoho.coord_schedules, A._zoho.coord_world,
      A._zoho.coord_get_call, A._zoho.coord_write_result, A._zoho.coord_create_call, A._zoho.my_day_world,
-     A._zoho.coord_set_last_contact) = saved
+     A._zoho.coord_set_last_contact, A._zoho.coord_wide_calls) = saved
 
 # ── zoho_client.coord_set_last_contact: never backwards, trigger [], read back ──
 import zoho_client as ZC  # noqa: E402
