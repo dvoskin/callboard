@@ -7263,6 +7263,7 @@ _cd_sched = {"at": 0.0, "rows": None}
 # Writes made here in the last 10 minutes, re-applied to every fresh read: a
 # refresh that started before a result was saved must not bring the call back.
 _cd_recent = {}                      # call id -> {"at", "fields", "row" (a call this app created)}
+_cd_recent_lrc = {}                  # journey id -> {"at", "value"}: Last Real Contact written here
 
 
 def _cd_remember(call_id, fields=None, row=None):
@@ -7277,6 +7278,11 @@ def _cd_reapply(world):
     now = time.time()
     with _cd_lock:
         recent = {k: v for k, v in _cd_recent.items() if now - v["at"] <= 600}
+        lrc = {k: v for k, v in _cd_recent_lrc.items() if now - v["at"] <= 600}
+    for j in world.get("journeys") or []:
+        v = lrc.get(str(j.get("id")))
+        if v and (_cd.ts(j.get("Next_Follow_Up_Date1")) or datetime.min.replace(tzinfo=timezone.utc)) < _cd.ts(v["value"]):
+            j["Next_Follow_Up_Date1"] = v["value"]
     have = {str(c.get("id")) for c in world.get("calls") or []}
     for cid, v in recent.items():
         if v.get("row") and cid not in have:
@@ -7416,6 +7422,51 @@ def my_day_coord_slots():
     return jsonify({"slots": _cd.free_slots(sched, busy, now_utc, MY_DAY_TZ)})
 
 
+# A tap that says she was reached also stamps the Journey's Last Real Contact
+# (Next_Follow_Up_Date1), which the back office's planner, coverage and retry
+# read: one tap counts everywhere at once. Never backwards.
+_CD_REACHED_KEYS = ("reached", "call_back", "rescheduling")
+
+
+def _cd_completed_at(info, complete, now_utc):
+    """When the call was completed: now when this tap completes it; for a
+    call already completed, its start plus its duration."""
+    if complete:
+        return now_utc
+    t = _cd.ts(info.get("Call_Start_Time"))
+    if not t:
+        return now_utc
+    m = re.match(r"^\s*(\d+):(\d{2})\s*$", str(info.get("Call_Duration") or ""))
+    return t + (timedelta(minutes=int(m.group(1)), seconds=int(m.group(2))) if m else timedelta(0))
+
+
+def _cd_last_contact(world, info, complete, now_utc):
+    """Write Last Real Contact for the call's Journey. {"written", "kept"} or {"error"}."""
+    jid = _cd.ref_id(info.get("What_Id"))
+    if not jid:
+        return {"error": "the call has no Journey"}
+    when = min(_cd_completed_at(info, complete, now_utc), now_utc).replace(microsecond=0)
+    try:
+        if MY_DAY_FAKE:
+            j = next((x for x in world.get("journeys") or [] if str(x.get("id")) == jid), {})
+            cur = _cd.ts(j.get("Next_Follow_Up_Date1"))
+            res = {"written": not (cur and cur >= when), "kept": (cur if cur and cur >= when else when).isoformat()}
+        else:
+            res = _zoho.coord_set_last_contact(jid, when)
+    except Exception as e:  # noqa: BLE001
+        log.warning("coord-day: last real contact on journey %s failed: %s", jid, _redact(e)[:200])
+        return {"error": str(_redact(e))[:160]}
+    if res.get("written"):
+        value = when.isoformat()
+        with _cd_lock:
+            for j in world.get("journeys") or []:
+                if str(j.get("id")) == jid:
+                    j["Next_Follow_Up_Date1"] = value
+            _cd_recent_lrc[jid] = {"at": time.time(), "value": value}
+        log.info("coord-day: last real contact on journey %s set to %s", jid, value)
+    return res
+
+
 @app.route("/my-day/api/coord/result", methods=["POST"])
 def my_day_coord_result():
     """One tap: write Call_Result on the coordinator's Journey call and
@@ -7483,6 +7534,11 @@ def my_day_coord_result():
     _cd_remember(call_id, fields=fields)
     log.info("coord-day: %s wrote %s on call %s for %s", viewer["email"] or "?", key, call_id, rep["id"])
     out = {"ok": True, "saved": value, "completed": complete}
+    if key in _CD_REACHED_KEYS:
+        lrc = _cd_last_contact(world, info, complete, now_utc)
+        out["last_contact"] = lrc
+        if lrc.get("error"):
+            out["warning"] = "The result is saved, but Last Real Contact could not be written: %s" % lrc["error"]
     if key == "call_back":
         jid = _cd.ref_id(info.get("What_Id"))
         j = next((x for x in world.get("journeys") or [] if str(x.get("id")) == jid), {})

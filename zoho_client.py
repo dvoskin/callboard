@@ -3990,6 +3990,42 @@ class ZohoClient:
             raise RuntimeError("Zoho answered success but did not keep the result.")
         return kept
 
+    def coord_set_last_contact(self, journey_id: str, when) -> dict:
+        """Last Real Contact (Journeys.Next_Follow_Up_Date1) = when, never
+        backwards: when the field already holds `when` or later, nothing is
+        written. trigger [] (no workflow), then read back. `when` is an aware
+        datetime. Returns {"written": bool, "kept": the field's value after}."""
+        def get_lrc():
+            r = requests.get(f"{self.base_url}/crm/v8/Journeys/{journey_id}", headers=self._headers(),
+                             params={"fields": "Next_Follow_Up_Date1"}, timeout=15)
+            r.raise_for_status()
+            rows = r.json().get("data") or [] if r.content else []
+            return (rows[0] if rows else {}).get("Next_Follow_Up_Date1")
+
+        def parse(v):
+            try:
+                t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                return None
+
+        when = when.replace(microsecond=0)
+        cur = parse(get_lrc())
+        if cur is not None and cur >= when:
+            return {"written": False, "kept": cur.isoformat()}
+        value = self._md_iso(when)
+        resp = requests.put(f"{self.base_url}/crm/v8/Journeys", headers={**self._headers(), "Content-Type": "application/json"},
+                            json={"data": [{"id": journey_id, "Next_Follow_Up_Date1": value}], "trigger": []}, timeout=20)
+        body = resp.json() if resp.content else {}
+        row = (body.get("data") or [{}])[0]
+        if not resp.ok or row.get("status") != "success":
+            raise RuntimeError("Zoho refused Last Real Contact: %s" % (row.get("message") or row.get("code") or resp.status_code))
+        kept = parse(get_lrc())
+        # Zoho keeps datetimes to the second; a minute's slack covers any rounding.
+        if kept is None or abs((kept - when).total_seconds()) > 60:
+            raise RuntimeError("Zoho answered success but did not keep Last Real Contact.")
+        return {"written": True, "kept": kept.isoformat()}
+
     def coord_create_call(self, journey_id: str, owner_id: str, subject: str, at_iso: str, description: str) -> str:
         """A scheduled call on a Journey for the coordinator. Returns its id."""
         data = {"Subject": subject[:250], "Call_Type": "Outbound", "Outgoing_Call_Status": "Scheduled",
