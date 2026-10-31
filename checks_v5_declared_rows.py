@@ -13,7 +13,7 @@ def ck(label, cond, got=None):
     else: errors.append("%s -- got %r" % (label, got))
 
 declared = [s["name"] for s in A._TEAM_ROSTERS["sales"] if s.get("always_rank")]
-ck("the sales roster still declares its reps always_rank (the flag this feature reads)", "Maria Carvajal" in declared and len(declared) >= 15, declared)
+ck("the sales roster still declares its reps always_rank (the flag this feature reads)", "Maria Carvajal" in declared and len(declared) >= 12, declared)   # 14 after Gregory/Wellington moved and Ramon quit, 2026-10-30
 report = {"ranked": [{"name": "Maia Pasifae Palma", "talk": 300, "attempts": 4}], "unranked": [{"name": "charlotte mckay", "talk": 0}]}
 books = {"maria carvajal": {"quotes_sent": 2, "quotes_invoiced": 1, "retainers_sent": 0, "retainers_paid": 1, "paid_amount": 2725.0, "display": "Maria Carvajal"}}
 added = A._v5_declared_rows(report, books)
