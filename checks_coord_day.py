@@ -203,7 +203,9 @@ CALL_INFO = {
     "91009": {"Owner": {"id": ME}, "Outgoing_Call_Status": "Completed", "What_Id": {"id": "j3"}, "$se_module": "Journeys"},
 }
 saved = (A.GOOGLE_CLIENT_ID, A.MY_DAY_FAKE, A._zoho.list_users_detail, A._zoho.coord_schedules, A._zoho.coord_world,
-         A._zoho.coord_get_call, A._zoho.coord_write_result, A._zoho.coord_create_call, A._zoho.my_day_world)
+         A._zoho.coord_get_call, A._zoho.coord_write_result, A._zoho.coord_create_call, A._zoho.my_day_world,
+         A._zoho.coord_set_last_contact)
+lrcs, LRC_MODE = [], {"fail": False}
 try:
     import copy
     A.GOOGLE_CLIENT_ID = "x"
@@ -236,6 +238,14 @@ try:
     A._zoho.coord_write_result = fake_write
     A._zoho.coord_create_call = fake_create
 
+    def fake_lrc(jid, when):
+        lrcs.append((jid, when))
+        if LRC_MODE["fail"]:
+            raise RuntimeError("INVALID_DATA")
+        return {"written": True, "kept": when.isoformat()}
+
+    A._zoho.coord_set_last_contact = fake_lrc
+
     ck("closed without the door", c.get("/my-day/api/coord/data").status_code == 401, "")
     ck("the floor page is managers only", c.get("/my-day/coordinators").status_code in (200, 302) and b"BOOT" not in c.get("/my-day/coordinators").data, "")
 
@@ -265,6 +275,7 @@ try:
     rr = post({"rep": ME, "callId": "91001", "result": "no_answer"})
     ck("No answer completes the open call with 'No Answer / Not Reached'",
        rr.get_json().get("ok") and writes[-1] == ("result", "91001", "No Answer / Not Reached", True), (rr.get_json(), writes))
+    ck("...and does not touch Last Real Contact", not lrcs, lrcs)
     dd = c.get("/my-day/api/coord/data").get_json()
     ck("...and the page shows it done at once (no new Zoho read)", "91001" not in [x["call_id"] for x in dd["right_now"]]
        and any(x["call_id"] == "91001" and x["result"] == "No Answer / Not Reached" for x in dd["done"]) and len(reads) == 1, len(reads))
@@ -273,6 +284,7 @@ try:
     ck("...and a refresh that read Zoho before the write does not bring it back", "91001" not in [x["call_id"] for x in dd["right_now"]], "")
     rr = post({"rep": ME, "callId": "91009", "result": "left_voicemail"})
     ck("a completed call with no result: the result only, not completed again", writes[-1] == ("result", "91009", "Left Voicemail", False), writes[-1])
+    ck("...and Left Voicemail does not touch Last Real Contact", not lrcs, lrcs)
     for key, val in (("reached", "Reached"), ("rescheduling", "Rescheduled Call")):
         CALL_INFO["91001"]["Outgoing_Call_Status"] = "Scheduled"
         post({"rep": ME, "callId": "91001", "result": key})
@@ -289,6 +301,34 @@ try:
        and " · Call back · " in writes[-1][3] and writes[-1][3].endswith("· P1"), (j, writes[-2:]))
     rr = post({"rep": ME, "callId": "91001", "result": "call_back", "at": (datetime.now(timezone.utc) + timedelta(days=40)).isoformat()})
     ck("a call back more than 3 weeks out is refused", rr.status_code == 400, rr.status_code)
+
+    # Last Real Contact (Next_Follow_Up_Date1) on Reached, Wants a call back, Rescheduling
+    ck("Reached, Rescheduling and Wants a call back each stamp Last Real Contact on the call's Journey",
+       [x[0] for x in lrcs] == ["j1", "j1", "j1"], lrcs)
+    ck("...at the moment the tap completed the call", all(abs((datetime.now(timezone.utc) - x[1]).total_seconds()) < 120 for x in lrcs), lrcs)
+    del lrcs[:]
+    CALL_INFO["91001"]["Outgoing_Call_Status"] = "Scheduled"
+    A._cd_state.update(world=A._cd_reapply(copy.deepcopy(LIVE)), at=__import__("time").time())
+    rr = post({"rep": ME, "callId": "91001", "result": "reached"})
+    dd = c.get("/my-day/api/coord/data").get_json()
+    j1 = next((x for x in dd["done"] if x["call_id"] == "91001"), {})
+    ck("...and the page shows the new last contact at once", j1.get("last_days") == 0, j1.get("last_label"))
+    A._cd_state.update(world=A._cd_reapply(copy.deepcopy(LIVE)))
+    dd = c.get("/my-day/api/coord/data").get_json()
+    j1 = next((x for x in dd["right_now"] + dd["done"] if x["journey_id"] == "j1"), {})
+    ck("...and a refresh read before the write keeps it", j1.get("last_days") == 0, j1.get("last_label"))
+    done_at = datetime(2026, 10, 30, 15, 0, tzinfo=timezone.utc)
+    CALL_INFO["91009"].update(Call_Start_Time=done_at.isoformat(), Call_Duration="04:30")
+    del lrcs[:]
+    post({"rep": ME, "callId": "91009", "result": "reached"})
+    ck("a call already completed: its own completion time (start + duration), not now",
+       lrcs and lrcs[-1] == ("j3", done_at + timedelta(minutes=4, seconds=30)), lrcs)
+    LRC_MODE["fail"] = True
+    CALL_INFO["91001"]["Outgoing_Call_Status"] = "Scheduled"
+    rr = post({"rep": ME, "callId": "91001", "result": "rescheduling"}).get_json()
+    ck("Last Real Contact refused: the result still stands, the coordinator is told",
+       rr.get("ok") and "Last Real Contact" in (rr.get("warning") or "") and writes[-1][2] == "Rescheduled Call", rr)
+    LRC_MODE["fail"] = False
     with c.session_transaction() as s:
         s.clear()
         s["v5_pw"] = True
@@ -318,7 +358,66 @@ try:
     ck("the floor page opens for a manager", c.get("/my-day/coordinators").status_code == 200, "")
 finally:
     (A.GOOGLE_CLIENT_ID, A.MY_DAY_FAKE, A._zoho.list_users_detail, A._zoho.coord_schedules, A._zoho.coord_world,
-     A._zoho.coord_get_call, A._zoho.coord_write_result, A._zoho.coord_create_call, A._zoho.my_day_world) = saved
+     A._zoho.coord_get_call, A._zoho.coord_write_result, A._zoho.coord_create_call, A._zoho.my_day_world,
+     A._zoho.coord_set_last_contact) = saved
+
+# ── zoho_client.coord_set_last_contact: never backwards, trigger [], read back ──
+import zoho_client as ZC  # noqa: E402
+
+
+class _Resp:
+    def __init__(self, body, status=200):
+        self._b, self.status_code, self.ok, self.content = body, status, status < 400, b"x"
+
+    def json(self):
+        return self._b
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise RuntimeError("HTTP %d" % self.status_code)
+
+
+class _Z(ZC.ZohoClient):
+    def _headers(self):
+        return {}
+
+
+def run_lrc(current, when, keep=None):
+    state = {"v": current, "puts": []}
+
+    def get(url, **k):
+        return _Resp({"data": [{"id": "j1", "Next_Follow_Up_Date1": state["v"]}]})
+
+    def put(url, json=None, **k):
+        state["puts"].append((url, json))
+        state["v"] = keep if keep is not None else json["data"][0]["Next_Follow_Up_Date1"]
+        return _Resp({"data": [{"status": "success"}]})
+
+    old = (ZC.requests.get, ZC.requests.put)
+    ZC.requests.get, ZC.requests.put = get, put
+    try:
+        try:
+            return _Z().coord_set_last_contact("j1", when), state
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}, state
+    finally:
+        ZC.requests.get, ZC.requests.put = old
+
+
+W = datetime(2026, 11, 2, 15, 4, 31, tzinfo=TZ)
+res, st = run_lrc("2026-11-02T16:00:00-05:00", W)
+ck("Last Real Contact already later: nothing written", res.get("written") is False and not st["puts"], (res, st["puts"]))
+res, st = run_lrc(W.isoformat(), W)
+ck("Last Real Contact already the same time: nothing written", res.get("written") is False and not st["puts"], (res, st["puts"]))
+res, st = run_lrc("2026-10-20T10:00:00-04:00", W)
+put = st["puts"][0][1] if st["puts"] else {}
+ck("an older Last Real Contact is moved forward with trigger [] on the Journey (v8)",
+   res.get("written") is True and st["puts"][0][0].endswith("/crm/v8/Journeys") and put.get("trigger") == []
+   and put["data"][0] == {"id": "j1", "Next_Follow_Up_Date1": "2026-11-02T15:04:31-05:00"}, (res, st["puts"]))
+res, st = run_lrc(None, W)
+ck("an empty Last Real Contact is written", res.get("written") is True and len(st["puts"]) == 1, res)
+res, st = run_lrc("2026-10-20T10:00:00-04:00", W, keep="2026-10-20T10:00:00-04:00")
+ck("Zoho says success but keeps the old value: that is an error, not a save", "did not keep" in (res.get("error") or ""), res)
 
 src = open(os.path.join(HERE, "app.py"), encoding="utf-8").read()
 block = src[src.index("# ── Coordinator My Day"):src.index('@app.route("/v6/board")')]
@@ -326,7 +425,7 @@ ck("the result write logs ids, never a phone", "phone" not in block.split("log.i
 ck("nothing in the coordinator block sends a text", not any(w in block.lower() for w in ("send_sms", "sendsms", "/sms", "telegram")), "")
 zc = open(os.path.join(HERE, "zoho_client.py"), encoding="utf-8").read()
 zb = zc[zc.index("Coordinator My Day"):zc.index("def my_day_busy")]
-ck("coordinator writes go with trigger []", zb.count('"trigger": []') == 2, zb.count('"trigger": []'))
+ck("coordinator writes go with trigger [] (result, Last Real Contact, call back)", zb.count('"trigger": []') == 3 and zb.count("requests.put(") + zb.count("requests.post(") == 3, zb.count('"trigger": []'))
 ck("coordinator writes never move or cancel a call", "Cancelled" not in zb and "Call_Start_Time\"] =" not in zb and "delete" not in zb.lower(), "")
 
 for e in errors:
