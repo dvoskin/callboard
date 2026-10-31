@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Coordinators</title>
+<style>
+  :root{--bg:#FFFFFF;--tint:#F6F8F8;--rule:#E3E9E8;--hair:#EFF3F2;--ink:#131C1B;--ink-2:#4A5957;--muted:#7C8B89;--up:#0B6E67;--dn:#B03A31;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--pad-x:clamp(14px,3.4vw,26px);--pad-y:clamp(14px,2.4vw,26px)}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101614;--tint:#161E1C;--rule:#26302E;--hair:#1C2523;--ink:#EDF2F1;--ink-2:#BCC9C7;--muted:#849492;--up:#4FCCBF;--dn:#EE8177}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .app{max-width:1180px;margin:0 auto;padding:var(--pad-y) var(--pad-x) 60px}
+  h1{margin:0;font-size:20px;letter-spacing:-.02em}
+  .sub{font-size:12.5px;color:var(--muted);margin:2px 0 14px}
+  .wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:860px}
+  th{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:right;padding:8px 8px 6px;border-bottom:1px solid var(--rule);vertical-align:bottom}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:10px 8px;border-bottom:1px solid var(--hair);text-align:right;font-size:13.5px}
+  td a{font-weight:650;text-decoration:none;color:var(--up)}
+  td a:hover{text-decoration:underline}
+  td small{display:block;font-size:11px;color:var(--muted)}
+  .ok{color:var(--up);font-weight:650}.bad{color:var(--dn);font-weight:650}
+  tr.tot td{font-weight:700;border-top:1px solid var(--rule)}
+  .banner{margin:10px 0;padding:7px 11px;border:1px solid var(--dn);border-radius:7px;font-size:12.5px;color:var(--dn)}
+  .note{font-size:12px;color:var(--muted);margin:16px 0 0;max-width:760px}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Coordinators</h1>
+  <p class="sub" id="sub">Loading…</p>
+  <div id="ban"></div>
+  <div class="wrap"><table id="t"></table></div>
+  <p class="note">Contact limit: last real contact within 30 days at 90+ days out, 14 at 31 to 90, 7 at 30 or less. Reach rate: Journey calls with a result in the last 7 days. Deadlines: payment due in the next 7 days with money owed, covered by a talk this week or a call booked before it. Welcomes: Journeys booked in the last 14 days, reached by the end of the coordinator's next working day. Tap a name to open that coordinator's My Day.</p>
+</div>
+<script>
+(function () {
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]; }); }
+  function pc(s, goal) {
+    if (!s || s.pct == null) return '<td>–<small>none</small></td>';
+    var cls = goal == null ? '' : (s.pct >= goal ? 'ok' : 'bad');
+    return '<td class="' + cls + '">' + s.pct + '%<small>' + s.n + ' of ' + s.of + '</small></td>';
+  }
+  function load() {
+    fetch('/my-day/api/coord/floor', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error && !d.rows) { document.getElementById('sub').textContent = 'Could not load: ' + (d.detail || d.error); return; }
+      document.getElementById('sub').textContent = d.date_label + ' · updated ' + d.now_label;
+      document.getElementById('ban').innerHTML = d.stale ? '<div class="banner">' + esc(d.error) + '</div>' : '';
+      var h = '<tr><th>Coordinator</th><th>Right now</th><th>Late</th><th>P1 due</th><th>Later today</th><th>Done today</th><th>Reached today</th><th>No result</th><th>Within contact limit</th><th>Reach rate 7 d</th><th>Deadlines covered</th><th>Welcomes in 1 day</th></tr>';
+      var T = {rn: 0, late: 0, p1: 0, later: 0, done: 0, reached: 0, nr: 0, c: [0, 0], r: [0, 0], d: [0, 0], w: [0, 0]};
+      d.rows.forEach(function (x) {
+        var n = x.nums, s = x.score;
+        T.rn += n.right_now; T.late += n.late; T.p1 += n.p1; T.later += n.later; T.done += n.done; T.reached += n.reached; T.nr += n.no_result;
+        [['c', 'contact'], ['r', 'reach'], ['d', 'deadlines'], ['w', 'welcomes']].forEach(function (k) { T[k[0]][0] += s[k[1]].n; T[k[0]][1] += s[k[1]].of; });
+        h += '<tr><td><a href="/my-day/' + encodeURIComponent(x.id) + '">' + esc(x.name) + '</a><small>' + esc(x.shift || '') + ' · ' + s.live + ' live patients</small></td>' +
+          '<td>' + n.right_now + '</td><td class="' + (n.late ? 'bad' : '') + '">' + n.late + '</td><td>' + n.p1 + '</td><td>' + n.later + '</td><td>' + n.done + '</td><td>' + n.reached + '</td><td class="' + (n.no_result ? 'bad' : '') + '">' + n.no_result + '</td>' +
+          pc(s.contact, 100) + pc(s.reach, null) + pc(s.deadlines, 100) + pc(s.welcomes, 100) + '</tr>';
+      });
+      function tp(a, goal) { return pc({n: a[0], of: a[1], pct: a[1] ? Math.round(100 * a[0] / a[1]) : null}, goal); }
+      h += '<tr class="tot"><td>Floor</td><td>' + T.rn + '</td><td>' + T.late + '</td><td>' + T.p1 + '</td><td>' + T.later + '</td><td>' + T.done + '</td><td>' + T.reached + '</td><td>' + T.nr + '</td>' + tp(T.c, 100) + tp(T.r, null) + tp(T.d, 100) + tp(T.w, 100) + '</tr>';
+      document.getElementById('t').innerHTML = h;
+    }).catch(function () { document.getElementById('sub').textContent = 'Could not reach the call tracker.'; });
+  }
+  load(); setInterval(load, 120000);
+})();
+</script>
+</body>
+</html>

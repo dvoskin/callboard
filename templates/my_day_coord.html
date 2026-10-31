@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>My Day</title>
+<style>
+  /* Same tokens as the reps' My Day (my_day.html): white and ink, hairlines,
+     --up for things you tap, --dn only for "behind". */
+  :root{
+    --bg:#FFFFFF; --tint:#F6F8F8; --rule:#E3E9E8; --hair:#EFF3F2;
+    --ink:#131C1B; --ink-2:#4A5957; --muted:#7C8B89;
+    --up:#0B6E67; --dn:#B03A31; --mid:#9C6712;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --pad-x:clamp(14px, 3.4vw, 26px); --pad-y:clamp(14px, 2.4vw, 26px);
+    --pq-fg:#854d0e; --pq-bg:#fef9c3; --pq-bd:#fde047;
+    --pc-fg:#166534; --pc-bg:#dcfce7; --pc-bd:#86efac;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#101614; --tint:#161E1C; --rule:#26302E; --hair:#1C2523;
+    --ink:#EDF2F1; --ink-2:#BCC9C7; --muted:#849492;
+    --up:#4FCCBF; --dn:#EE8177; --mid:#E0A542;
+    --pq-fg:#F3D57A; --pq-bg:rgba(234,179,8,.13); --pq-bd:rgba(253,224,71,.30);
+    --pc-fg:#86E0A6; --pc-bg:rgba(34,197,94,.13); --pc-bd:rgba(134,239,172,.30);
+  }}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .app{max-width:1180px;margin:0 auto;padding:var(--pad-y) var(--pad-x) 72px}
+  a{color:inherit}
+  .top{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+  .top h1{margin:0;font-size:20px;letter-spacing:-.02em;font-weight:700}
+  .top .who{font-size:12.5px;color:var(--muted)}
+  .top .who b{color:var(--ink);font-weight:600}
+  .top .sw{margin-left:auto;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);max-width:220px;text-decoration:none}
+  .banner{margin:10px 0 0;padding:7px 11px;border:1px dashed var(--rule);border-radius:7px;font-size:12.5px;color:var(--ink-2)}
+  .banner.err{border-style:solid;border-color:var(--dn);color:var(--dn)}
+  .nums{display:flex;flex-wrap:wrap;gap:8px 28px;margin:12px 0 0;padding:10px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+  .nums div{font-size:12px;color:var(--muted);line-height:1.3}
+  .nums b{display:block;font-size:22px;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .nums b.dn{color:var(--dn)}
+  .ptiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+  .pt2{padding:8px 10px;border-radius:9px;border:1px solid var(--rule);font-size:12px;color:var(--muted);line-height:1.3;cursor:pointer;text-align:left;font-family:inherit;background:var(--bg)}
+  .pt2 b{display:block;font-size:20px;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .pt2 b small{font-size:11.5px;font-weight:500;color:var(--muted);letter-spacing:0}
+  .pt2 span{display:block}
+  .pt2 em{display:block;font-style:normal;font-size:10.5px;margin-top:2px}
+  .pt2.ok{border-color:color-mix(in srgb,var(--up) 45%,var(--rule))} .pt2.ok b{color:var(--up)}
+  .pt2.bad{border-color:color-mix(in srgb,var(--dn) 55%,var(--rule))} .pt2.bad b{color:var(--dn)}
+  .pt2.on{background:var(--tint)}
+  .plist{margin:8px 0 0;padding:10px 12px;border-radius:9px;background:var(--tint);font-size:12.5px}
+  .plist h4{margin:0 0 6px;font-size:12px}
+  .plist div{display:flex;gap:10px;padding:3px 0;border-top:1px solid var(--rule)}
+  .plist div span{color:var(--muted)}
+  .plist .x{margin-left:auto}
+  @media(max-width:760px){.ptiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .sec{margin:22px 0 0;scroll-margin-top:10px}
+  .sh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:0 0 6px;border-bottom:1px solid var(--rule);cursor:pointer;user-select:none}
+  .sh h2{margin:0;font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+  .sh h2.dn{color:var(--dn)}
+  .sh .c{font-size:12px;font-weight:700;color:var(--muted)}
+  .sh .h{font-size:12px;color:var(--muted)}
+  .sh .chev{margin-left:auto;font-size:11px;color:var(--muted);transition:transform .15s}
+  .sec.closed .chev{transform:rotate(-90deg)}
+  .sec.closed > :not(.sh){display:none}
+  .empty{font-size:12.5px;color:var(--muted);padding:9px 0}
+  .r{display:grid;grid-template-columns:104px minmax(0,1.35fr) 118px 130px 150px minmax(0,1fr) 92px;gap:0 12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--hair);cursor:pointer}
+  .hd{display:grid;grid-template-columns:104px minmax(0,1.35fr) 118px 130px 150px minmax(0,1fr) 92px;gap:0 12px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 0 4px}
+  .r:hover{background:var(--tint)}
+  .r.open{background:var(--tint);border-bottom:0}
+  .r.saved{opacity:.55}
+  .when{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums;display:flex;gap:7px;align-items:center;min-width:0}
+  .when small{display:block;font-size:11.5px;font-weight:650;color:var(--dn)}
+  .when small.soon{color:var(--up)}
+  .prio{flex:none;min-width:24px;height:20px;border-radius:10px;padding:0 6px;background:var(--ink);color:var(--bg);font-size:11px;font-weight:750;display:inline-flex;align-items:center;justify-content:center}
+  .prio.p2{background:var(--ink-2)} .prio.p3,.prio.p4{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+  .pt{min-width:0}
+  .pt b{font-size:14.5px;font-weight:650;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pt .meta{display:block;font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cell{font-size:12.5px;color:var(--ink-2);min-width:0;line-height:1.3}
+  .cell b{display:block;color:var(--ink);font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cell .dn{color:var(--dn);font-weight:650}
+  .cell .ok{color:var(--up)}
+  .acts{display:flex;gap:6px;justify-content:flex-end}
+  .tag{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:0 5px;border-radius:4px;border:1px solid var(--rule);color:var(--muted);vertical-align:2px}
+  .tag.res{color:var(--pc-fg);background:var(--pc-bg);border-color:var(--pc-bd)}
+  .tag.miss{color:var(--muted);border-style:dashed}
+  .btn{font:inherit;font-size:13px;font-weight:650;padding:6px 13px;border-radius:7px;min-height:34px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .btn.go{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  .btn:hover{border-color:var(--up)}
+  .btn[disabled]{opacity:.45;cursor:default}
+  .btn.sm{font-size:12px;padding:4px 10px;min-height:28px}
+  .det{background:var(--tint);padding:6px 14px 16px;border-bottom:1px solid var(--hair);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 26px}
+  .lbl{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
+  .lbl:first-child{margin-top:4px}
+  .full{font-size:16px;font-weight:700;margin:4px 0 2px}
+  .dg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px 14px}
+  .dg div{display:flex;flex-direction:column;min-width:0}
+  .dg em{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .dg b{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis}
+  .note{margin:0;padding:8px 11px;border-left:3px solid var(--up);background:var(--bg);font-size:12.5px;color:var(--ink-2);border-radius:0 6px 6px 0;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}
+  .res-g{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+  .res-g .gl{flex-basis:100%;font-size:11px;color:var(--muted)}
+  .res-b{flex-direction:column;align-items:flex-start;gap:0;min-height:44px;padding:6px 12px}
+  .res-b small{font-size:10.5px;font-weight:500;color:var(--muted)}
+  .res-b.on{border-color:var(--up);box-shadow:inset 0 0 0 1px var(--up)}
+  .flow{margin:8px 0 0;padding:10px 12px;border:1px solid var(--rule);border-radius:9px;background:var(--bg)}
+  .slots{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}
+  .slots button{font:inherit;font-size:12px;padding:4px 9px;border-radius:6px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);cursor:pointer}
+  .slots button.on{border-color:var(--up);background:color-mix(in srgb,var(--up) 14%,var(--bg))}
+  .dayl{font-size:11px;font-weight:700;color:var(--muted);margin:8px 0 2px;display:block}
+  .frow{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  input[type=datetime-local]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink)}
+  .draft{margin:4px 0 8px;padding:9px 11px;border-radius:8px;border:1px dashed var(--rule);background:var(--bg);font-size:13px;white-space:pre-wrap}
+  .draft-h{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+  .draft-h .btn{margin-left:auto}
+  .dnote{font-size:11px;color:var(--mid);font-weight:600}
+  .donesum{display:flex;flex-wrap:wrap;gap:4px 16px;padding:9px 0;font-size:12.5px;color:var(--ink-2)}
+  .donesum b{color:var(--ink)}
+  .foot{margin:26px 0 0;font-size:11.5px;color:var(--muted)}
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:92vw;padding:10px 16px;border-radius:9px;background:var(--ink);color:var(--bg);font-size:13px;box-shadow:0 4px 18px rgba(0,0,0,.18);display:none;z-index:20}
+  .toast.on{display:block}
+  .toast.err{background:var(--dn)}
+  @media(max-width:900px){
+    .hd{display:none}
+    .r{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"pt when" "c1 c1" "c2 c2" "acts acts";gap:4px 10px}
+    .r .when{grid-area:when;justify-content:flex-end}
+    .r .pt{grid-area:pt}
+    .r .c-surg,.r .c-bal,.r .c-labs,.r .c-last{display:none}
+    .r .c-mob{display:block;grid-area:c1}
+    .r .acts{grid-area:acts;justify-content:flex-start}
+    .det{grid-template-columns:minmax(0,1fr)}
+    .dg{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  .c-mob{display:none;font-size:12px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <h1>My Day</h1>
+    <span class="who" id="who"></span>
+    <select class="sw" id="sw" aria-label="Open someone else's day" hidden></select>
+    <a class="sw" id="floorlink" href="/my-day/coordinators" hidden title="Every coordinator side by side">Coordinators</a>
+  </div>
+  <div id="banners"></div>
+  <div id="body"><p class="empty">Loading your day…</p></div>
+  <p class="foot" id="foot"></p>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+var BOOT = {{ boot | tojson }};
+(function () {
+  var REP = BOOT.rep || {}, V = BOOT.viewer || {};
+  var P = null, OPEN = null, FLOW = null, SAVED = {}, TILE = null, CLOSED = {later: false, done: true};
+  try { CLOSED = Object.assign(CLOSED, JSON.parse(localStorage.getItem('cdClosed') || '{}')); } catch (e) {}
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]; }); }
+  function toast(msg, bad) { var t = $('toast'); t.textContent = msg; t.className = 'toast on' + (bad ? ' err' : ''); clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = 'toast'; }, bad ? 7000 : 4000); }
+  function q(url) { return url + (url.indexOf('?') < 0 ? '?' : '&') + 'rep=' + encodeURIComponent(REP.id || ''); }
+
+  // the name switch (managers)
+  if (BOOT.floor && BOOT.floor.length) {
+    var sw = $('sw');
+    sw.innerHTML = BOOT.floor.map(function (u) { return '<option value="' + esc(u.id) + '"' + (u.id === REP.id ? ' selected' : '') + '>' + esc(u.name) + (u.role === 'coordinator' ? ' · coordinator' : '') + '</option>'; }).join('');
+    sw.hidden = false;
+    sw.onchange = function () { location.href = '/my-day/' + encodeURIComponent(sw.value); };
+  }
+  if (V.manager || V.word_only) $('floorlink').hidden = false;
+
+  function load(fresh) {
+    return fetch(q('/my-day/api/coord/data') + (fresh ? '&fresh=1' : ''), {credentials: 'same-origin'})
+      .then(function (r) { return r.json().then(function (j) { return [r.status, j]; }); })
+      .then(function (x) {
+        if (x[0] !== 200) { $('body').innerHTML = '<p class="empty">Could not load the day: ' + esc(x[1].detail || x[1].error || x[0]) + '</p>'; return; }
+        P = x[1]; render();
+      }).catch(function () { $('body').innerHTML = '<p class="empty">Could not reach the call tracker. Check the connection and reload.</p>'; });
+  }
+
+  function tile(id, label, s, sub) {
+    var v = s.pct == null ? '–' : s.pct + '%';
+    var cls = s.pct == null ? '' : (s.goal != null ? (s.pct >= s.goal ? 'ok' : 'bad') : '');
+    return '<button class="pt2 ' + cls + (TILE === id ? ' on' : '') + '" data-tile="' + id + '"><span>' + esc(label) + '</span><b>' + v +
+      ' <small>' + (s.of ? s.n + ' of ' + s.of : 'none') + '</small></b><em>' + esc(sub) + '</em></button>';
+  }
+
+  function tileList() {
+    var s = P.score, h = '';
+    if (TILE === 'contact') {
+      var qs = s.contact.quiet || [];
+      h = '<h4>Quiet too long (' + s.contact.quiet_n + '): longest past the limit first, nothing booked first</h4>' + (qs.length ? qs.map(function (x) {
+        return '<div><b>' + esc(x.short) + '</b><span>surgery ' + esc(x.days_out_label) + ' · limit ' + x.limit + ' d · ' + (x.last ? 'last talk ' + esc(x.last) : 'no talk in 30 d') + (x.booked ? ' · call booked' : ' · <b>nothing booked</b>') + '</span><a class="x" href="' + esc(x.zoho) + '" target="_blank" rel="noopener">Zoho</a></div>';
+      }).join('') : '<div>Everyone is inside the limit.</div>');
+    } else if (TILE === 'deadlines') {
+      var m = s.deadlines.missing || [];
+      h = '<h4>Deadlines in the next ' + s.deadlines.days + ' days with no talk this week and no call booked</h4>' + (m.length ? m.map(function (x) {
+        return '<div><b>' + esc(x.short) + '</b><span>due ' + esc(x.deadline) + ' · owes ' + esc(x.balance) + '</span><a class="x" href="' + esc(x.zoho) + '" target="_blank" rel="noopener">Zoho</a></div>';
+      }).join('') : '<div>Every deadline is covered.</div>');
+    } else if (TILE === 'welcomes') {
+      var l = s.welcomes.late || [];
+      h = '<h4>Welcome not reached by the next working day (' + s.welcomes.open + ' still inside the window)</h4>' + (l.length ? l.map(function (x) {
+        return '<div><b>' + esc(x.short) + '</b><span>booked ' + esc(x.created) + '</span><a class="x" href="' + esc(x.zoho) + '" target="_blank" rel="noopener">Zoho</a></div>';
+      }).join('') : '<div>None late.</div>');
+    } else if (TILE === 'reach') {
+      h = '<h4>Reach rate</h4><div><span>Of your Journey calls with a result in the last ' + s.reach.days + ' days, how many reached the patient (Reached, Wants a call back, Rescheduling).</span></div>';
+    }
+    return h ? '<div class="plist">' + h + '</div>' : '';
+  }
+
+  function cells(r) {
+    var dl = r.balance > 0 && r.deadline ? '<span class="' + (r.deadline_days != null && r.deadline_days <= 3 ? 'dn' : '') + '">due ' + esc(r.deadline) + ' · ' + esc(r.deadline_label) + '</span>' : (r.balance > 0 ? 'no deadline set' : '');
+    var labsOk = /approved/i.test(r.labs), mcOk = /approved/i.test(r.clearance);
+    return '<div class="cell c-surg"><b>' + esc(r.surgery) + '</b>' + esc(r.days_out_label) + '</div>' +
+      '<div class="cell c-bal"><b>' + (r.balance > 0 ? esc(r.balance_label) + ' owed' : '<span class="ok">paid</span>') + '</b>' + dl + '</div>' +
+      '<div class="cell c-labs"><b class="' + (labsOk ? 'ok' : '') + '">Labs: ' + esc(r.labs) + '</b><span class="' + (mcOk ? 'ok' : '') + '">Clearance: ' + esc(r.clearance) + '</span></div>' +
+      '<div class="cell c-last"><b>' + esc(r.last_label) + '</b>' + esc(r.tries_label) + '</div>' +
+      '<div class="c-mob">Surg ' + esc(r.surgery) + ' (' + esc(r.days_out_label) + ') · ' + (r.balance > 0 ? esc(r.balance_label) + ' owed' + (r.deadline ? ', due ' + esc(r.deadline) : '') : 'paid') +
+        ' · Labs ' + esc(r.labs) + ' · MC ' + esc(r.clearance) + ' · Last talk ' + esc(r.last_label) + (r.tries_label ? ' · ' + esc(r.tries_label) : '') + '</div>';
+  }
+
+  function rowHtml(r, kind) {
+    var saved = SAVED[r.call_id];
+    var res = saved || r.result;
+    var when = '<span class="prio p' + r.prio + '">P' + r.prio + '</span><span>' + esc(r.when) + (r.sub ? '<small class="' + (r.sub_kind === 'soon' ? 'soon' : '') + '">' + esc(r.sub) + '</small>' : '') + '</span>';
+    var tags = (r.attempt ? '<span class="tag">try ' + esc(r.attempt) + '</span>' : '') + (r.retry ? '<span class="tag">retry</span>' : '') +
+      (res ? '<span class="tag ' + (/reach|callback|resched/i.test(res) ? 'res' : 'miss') + '">' + esc(res) + '</span>' : (kind === 'done' ? '<span class="tag miss">no result</span>' : ''));
+    var call = r.phone ? '<a class="btn sm" href="tel:+1' + esc(r.phone) + '" data-stop="1">Call</a>' : '';
+    var h = '<div class="r' + (OPEN === r.key ? ' open' : '') + (saved ? ' saved' : '') + '" data-key="' + esc(r.key) + '">' +
+      '<div class="when">' + when + '</div>' +
+      '<div class="pt"><b>' + esc(r.short) + tags + '</b><span class="meta">' + esc(r.purpose) + '</span></div>' + cells(r) +
+      '<div class="acts">' + call + '</div></div>';
+    if (OPEN === r.key) h += detHtml(r, kind);
+    return h;
+  }
+
+  function resultsHtml(r) {
+    if (!V.can_write) return '<p class="empty">' + (V.word_only ? 'Read only with the floor password. Sign in with Google to write results.' : 'Sign in to write results.') + '</p>';
+    var cur = SAVED[r.call_id] || r.result, groups = {talked: 'Talked to her', missed: 'Did not reach her'};
+    var h = '';
+    ['talked', 'missed'].forEach(function (g) {
+      h += '<div class="res-g"><span class="gl">' + groups[g] + '</span>' + P.results.filter(function (x) { return x.group === g; }).map(function (x) {
+        return '<button class="btn res-b' + (cur === x.value ? ' on' : '') + '" data-res="' + x.key + '">' + esc(x.label) + '<small>' + esc(x.hint) + '</small></button>';
+      }).join('') + '</div>';
+    });
+    if (FLOW && FLOW.key === r.key) h += '<div class="flow" id="flow"><b>When does ' + esc(r.first || 'she') + ' want the call?</b><div id="slotbox"><p class="empty">Finding open times on your calendar…</p></div>' +
+      '<label class="dayl" for="at-other">Or another time</label><input type="datetime-local" id="at-other">' +
+      '<div class="frow"><button class="btn go" id="cb-save" disabled>Save and book the call back</button><button class="btn" id="cb-cancel">Cancel</button></div></div>';
+    return h;
+  }
+
+  function detHtml(r, kind) {
+    var facts = [['Surgery', (r.surgery_long || r.surgery) + (r.days_out_label ? ' (' + r.days_out_label + ')' : '')],
+      ['Stage', r.stage], ['Owes', r.balance > 0 ? r.balance_label : 'paid in full'],
+      ['Next deadline', r.deadline ? r.deadline + ' (' + r.deadline_label + ')' : 'none set'],
+      ['Labs', r.labs], ['Clearance', r.clearance], ['Last real contact', r.last_label],
+      ['Tries since', String(r.tries)], ['Phone', r.phone_label || 'not on file']];
+    var h = '<div class="det"><div>' +
+      '<div class="full">' + esc(r.name) + '</div><div class="meta">' + esc(r.purpose) + (r.attempt ? ' · try ' + esc(r.attempt) : '') + '</div>' +
+      '<div class="lbl">Facts</div><div class="dg">' + facts.map(function (f) { return '<div><em>' + esc(f[0]) + '</em><b>' + esc(f[1]) + '</b></div>'; }).join('') + '</div>' +
+      (r.briefing ? '<div class="lbl">Briefing</div><p class="note">' + esc(r.briefing) + '</p>' : '') +
+      (r.note ? '<div class="lbl">Planner note</div><p class="note">' + esc(r.note) + '</p>' : '') +
+      '<div class="frow">' + (r.phone ? '<a class="btn" href="tel:+1' + esc(r.phone) + '">Call ' + esc(r.phone_label) + '</a>' : '') +
+      (r.zoho ? '<a class="btn" href="' + esc(r.zoho) + '" target="_blank" rel="noopener">Open the Journey</a>' : '') + '</div>' +
+      '</div><div>' +
+      '<div class="lbl">Result</div>' + resultsHtml(r) +
+      '<div class="lbl">Text drafts</div>' +
+      '<div class="draft-h">For this call<button class="btn sm" data-copy="draft">Copy</button></div><div class="draft">' + esc(r.draft) + '</div>' +
+      '<div class="draft-h">After a missed call<button class="btn sm" data-copy="draft_missed">Copy</button></div><div class="draft">' + esc(r.draft_missed) + '</div>' +
+      '<div class="dnote">' + esc(P.draft_note) + '</div>' +
+      '</div></div>';
+    return h;
+  }
+
+  function section(id, title, rows, kind, hint, red) {
+    var closed = !!CLOSED[id];
+    var h = '<div class="sec' + (closed ? ' closed' : '') + '" id="' + id + '"><div class="sh" data-sec="' + id + '"><h2' + (red ? ' class="dn"' : '') + '>' + esc(title) + '</h2><span class="c">' + rows.length + '</span><span class="h">' + esc(hint) + '</span><span class="chev">▾</span></div>';
+    if (!rows.length) return h + '<p class="empty">' + (kind === 'now' ? 'Nothing due right now.' : kind === 'later' ? 'Nothing else booked today.' : 'No calls done yet today.') + '</p></div>';
+    h += '<div class="hd"><span>When</span><span>Patient · purpose</span><span>Surgery</span><span>Balance</span><span>Labs · clearance</span><span>Last real contact</span><span></span></div>';
+    h += rows.map(function (r) { return rowHtml(r, kind); }).join('');
+    return h + '</div>';
+  }
+
+  function render() {
+    var n = P.nums, s = P.score;
+    $('who').innerHTML = '<b>' + esc(P.coord.name || REP.name) + '</b> · Coordinator' + (P.shift ? ' · ' + esc(P.shift) : '') + ' · ' + esc(P.date_label) + ' · updated ' + esc(P.now_label);
+    var b = '';
+    if (P.fake) b += '<div class="banner">Sample data: made-up patients, 555 numbers.</div>';
+    if (P.stale) b += '<div class="banner err">' + esc(P.error || 'Showing the last good copy.') + '</div>';
+    if (!V.can_write) b += '<div class="banner">Read only. Results need a Google sign-in.</div>';
+    $('banners').innerHTML = b;
+    var h = '<div class="nums"><div><b' + (n.late ? ' class="dn"' : '') + '>' + n.right_now + '</b>right now' + (n.late ? ', ' + n.late + ' late' : '') + '</div>' +
+      '<div><b>' + n.p1 + '</b>P1 due</div><div><b>' + n.later + '</b>later today</div>' +
+      '<div><b>' + n.done + '</b>done today, ' + n.reached + ' reached</div>' +
+      '<div><b' + (n.no_result ? ' class="dn"' : '') + '>' + n.no_result + '</b>with no result</div></div>';
+    h += '<div class="ptiles">' +
+      tile('contact', 'Within contact limit', s.contact, s.live + ' live patients · 30/14/7 day rule') +
+      tile('reach', 'Reach rate', s.reach, 'last ' + s.reach.days + ' days') +
+      tile('deadlines', 'Payment deadlines covered', s.deadlines, 'due in the next ' + s.deadlines.days + ' days') +
+      tile('welcomes', 'Welcomes in 1 working day', s.welcomes, 'booked in the last ' + s.welcomes.days + ' days') + '</div>';
+    h += tileList();
+    h += section('upnext', 'Up next', P.up_next, 'up', 'P1 first, then P2, P3', false);
+    h += section('now', 'Right now', P.right_now, 'now', 'due or late, P1 first', n.late > 0);
+    h += section('later', 'Later today', P.later, 'later', 'in time order', false);
+    var ds = P.done_summary.map(function (x) { return '<span><b>' + x.n + '</b> ' + esc(x.label) + '</span>'; }).join('');
+    h += section('done', 'Done today', P.done, 'done', '', false).replace('<div class="hd">', (ds ? '<div class="donesum">' + ds + '</div>' : '') + '<div class="hd">');
+    $('body').innerHTML = h;
+    $('foot').textContent = 'No Answer and Left Voicemail: the back office books one retry by itself. Wants a call back books the call at the time you pick. Nothing here sends a text.';
+    if (FLOW) loadSlots();
+  }
+
+  function findRow(key) {
+    var all = [].concat(P.up_next, P.right_now, P.later, P.done);
+    for (var i = 0; i < all.length; i++) if (all[i].key === key) return all[i];
+    return null;
+  }
+
+  function save(r, res, at) {
+    var body = {rep: REP.id, callId: r.call_id, result: res};
+    if (at) body.at = at;
+    return fetch('/my-day/api/coord/result', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(function (x) { return x.json().then(function (j) { return [x.status, j]; }); })
+      .then(function (x) {
+        var j = x[1];
+        if (!j.ok) { toast(j.message || j.error || 'Not saved.', true); return; }
+        SAVED[r.call_id] = j.saved; FLOW = null;
+        toast(j.warning ? j.warning : ('Saved: ' + j.saved + (j.callback ? '. Call back booked for ' + j.callback.when + '.' : (/No Answer|Voicemail/.test(j.saved) ? '. The retry books itself.' : '.'))), !!j.warning);
+        OPEN = null; render(); setTimeout(function () { load(); }, 800);
+      }).catch(function () { toast('Not saved: the call tracker could not be reached.', true); });
+  }
+
+  var PICK = null;
+  function loadSlots() {
+    fetch(q('/my-day/api/coord/slots'), {credentials: 'same-origin'}).then(function (x) { return x.json(); }).then(function (j) {
+      var box = $('slotbox'); if (!box) return;
+      var by = {};
+      (j.slots || []).forEach(function (s) { (by[s.day] = by[s.day] || []).push(s); });
+      var h = Object.keys(by).map(function (d) { return '<span class="dayl">' + esc(d) + '</span><div class="slots">' + by[d].map(function (s) { return '<button data-at="' + esc(s.at) + '"' + (PICK === s.at ? ' class="on"' : '') + '>' + esc(s.label) + '</button>'; }).join('') + '</div>'; }).join('');
+      box.innerHTML = h || '<p class="empty">No open slots found; type a time below.</p>';
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-stop]'); if (t) return;
+    t = e.target.closest('[data-tile]');
+    if (t) { TILE = TILE === t.dataset.tile ? null : t.dataset.tile; render(); return; }
+    t = e.target.closest('[data-sec]');
+    if (t) { var id = t.dataset.sec; CLOSED[id] = !CLOSED[id]; try { localStorage.setItem('cdClosed', JSON.stringify(CLOSED)); } catch (e2) {} render(); return; }
+    t = e.target.closest('[data-copy]');
+    if (t) {
+      var r0 = findRow(OPEN); if (!r0) return;
+      var txt = r0[t.dataset.copy];
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { toast('Copied. Paste it into your texting line.'); }, function () { toast('Copy did not work; select the text instead.', true); });
+      return;
+    }
+    t = e.target.closest('[data-res]');
+    if (t) {
+      var r = findRow(OPEN); if (!r) return;
+      if (t.dataset.res === 'call_back') { FLOW = {key: r.key}; PICK = null; render(); return; }
+      t.disabled = true; save(r, t.dataset.res); return;
+    }
+    t = e.target.closest('[data-at]');
+    if (t) { PICK = t.dataset.at; document.querySelectorAll('.slots button').forEach(function (b) { b.classList.toggle('on', b === t); }); $('cb-save').disabled = false; return; }
+    if (e.target.id === 'cb-cancel') { FLOW = null; render(); return; }
+    if (e.target.id === 'cb-save') {
+      var rr = findRow(OPEN); if (!rr) return;
+      var other = $('at-other').value;
+      var at = PICK || (other ? new Date(other).toISOString() : '');
+      if (!at) { toast('Pick a time first.', true); return; }
+      e.target.disabled = true; save(rr, 'call_back', at); return;
+    }
+    t = e.target.closest('.r');
+    if (t && !e.target.closest('a,button')) { OPEN = OPEN === t.dataset.key ? null : t.dataset.key; FLOW = null; render(); }
+  });
+  document.addEventListener('input', function (e) { if (e.target.id === 'at-other' && $('cb-save')) { PICK = null; $('cb-save').disabled = !e.target.value; } });
+
+  load();
+  setInterval(function () { if (!OPEN && !FLOW && document.visibilityState === 'visible') load(); }, 60000);
+})();
+</script>
+</body>
+</html>
