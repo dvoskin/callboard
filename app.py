@@ -7318,12 +7318,52 @@ def _cd_is_coord(rep_id) -> bool:
     return any(s["id"] == str(rep_id) for s in _cd_schedules())
 
 
+# Calls on the patients' Contacts and Linked Deals (the contact-limit measure
+# only, hub decision 10-31): about 70 COQL batches and 10 s, so they are read
+# on their own slower clock (_CD_WIDE_TTL) in the background and attached to
+# every floor read. Until the first one lands, the measure counts Journey calls
+# only and the tile says so.
+_CD_WIDE_TTL = 900.0
+_cd_wide = {"at": 0.0, "data": None, "busy": False}
+
+
+def _cd_wide_refresh(journeys):
+    try:
+        now_utc = datetime.now(timezone.utc)
+        data = _zoho.coord_wide_calls(journeys, now_utc - timedelta(days=_cd.CALLS_DAYS),
+                                      now_utc + timedelta(days=_cd.AHEAD_DAYS))
+        with _cd_lock:
+            _cd_wide.update(at=time.time(), data=data)
+        log.info("coord-day: contact and deal calls read: %d + %d", len(data["contact_calls"]), len(data["deal_calls"]))
+    except Exception as e:  # noqa: BLE001
+        log.warning("coord-day: contact and deal calls read failed: %s", _redact(e)[:200])
+    finally:
+        with _cd_lock:
+            _cd_wide["busy"] = False
+
+
+def _cd_attach_wide(world):
+    with _cd_lock:
+        data, age, busy = _cd_wide["data"], time.time() - _cd_wide["at"], _cd_wide["busy"]
+        start = (data is None or age >= _CD_WIDE_TTL) and not busy
+        if start:
+            _cd_wide["busy"] = True
+    if data is not None:
+        world.update(data)
+        world["_wide_at"] = _cd_wide["at"]
+    if start:
+        threading.Thread(target=_cd_wide_refresh, args=(list(world.get("journeys") or []),),
+                         name="coord-day-wide", daemon=True).start()
+    return world
+
+
 def _cd_read_world():
     now_utc = datetime.now(timezone.utc)
     if MY_DAY_FAKE:
         return _cd.fake_world(now_utc, MY_DAY_TZ)
     ids = [s["id"] for s in _cd_schedules()]
-    return _zoho.coord_world(ids, now_utc - timedelta(days=_cd.CALLS_DAYS), now_utc + timedelta(days=_cd.AHEAD_DAYS))
+    world = _zoho.coord_world(ids, now_utc - timedelta(days=_cd.CALLS_DAYS), now_utc + timedelta(days=_cd.AHEAD_DAYS))
+    return _cd_attach_wide(world)
 
 
 def _cd_refresh():
@@ -7340,9 +7380,24 @@ def _cd_refresh():
             _cd_state["refreshing"] = False
 
 
+def _cd_join_wide(world):
+    """Attach the latest contact and deal calls to a floor read that predates them."""
+    with _cd_lock:
+        data, at = _cd_wide["data"], _cd_wide["at"]
+        if data is not None and world is not None and world.get("_wide_at") != at:
+            world.update(data)
+            world["_wide_at"] = at
+    return world
+
+
 def _cd_world(fresh=False):
     """(world, stale message). The first read waits; after that the last copy
     is served and a refresh runs in the background once it is _CD_TTL old."""
+    w0, e0 = _cd_world_raw(fresh)
+    return _cd_join_wide(w0), e0
+
+
+def _cd_world_raw(fresh=False):
     with _cd_lock:
         world, age = _cd_state["world"], time.time() - _cd_state["at"]
         busy = _cd_state["refreshing"]

@@ -39,15 +39,25 @@ The rules, in one place:
   Last real contact
              the later of the Journey's Last Real Contact field
              (Next_Follow_Up_Date1) and the latest talk on any call on the
-             Journey: inbound, a reached result, or 2+ minutes with no result
-             (the back office's isTalk).
+             Journey. A talk (is_talk): never No Answer / Left Voicemail;
+             otherwise a completed (or inbound) call with a reached result
+             (Reached, Callback Requested, Rescheduled Call, Transferred), or
+             with no result (blank, Pending, Other) and 2+ minutes.
   Attempts   completed tries on the Journey since that contact that did not
              reach the patient.
 
 Scorecard (per coordinator, live Journeys = Surgery Preparation, Ready for
 Surgery, Post-Op Care):
-  Within contact limit   last real contact within 30 days when surgery is 90+
-                         days out, 14 at 31 to 90, 7 at 30 or less (and after).
+  Within contact limit   Journeys in Surgery Preparation or Ready for Surgery
+                         with surgery today or later (Post-Op is left out):
+                         last real contact within 30 days when surgery is 90+
+                         days out, 14 at 31 to 90, 7 at 30 or less. The gap is
+                         counted in calendar days, Eastern (today minus the
+                         day of the last talk). Talks here also count calls on
+                         the patient's Contact and on the Journey's Linked
+                         Deal (sales, billing on the deal), not only calls on
+                         the Journey (hub decision 10-31, so this matches the
+                         evidence numbers).
   Reach rate             of the coordinator's Journey calls with a result in
                          the last REACH_DAYS days, the share that reached her.
   Payment deadlines covered
@@ -68,7 +78,7 @@ LATE_MINUTES = 15
 LATE_DAYS = 7
 DUE_SOON_MINUTES = 5
 UP_NEXT_SHOW = 3
-CALLS_DAYS = 30
+CALLS_DAYS = 31        # the 30-day contact limit needs the 31st day back too
 AHEAD_DAYS = 8
 REACH_DAYS = 7
 DEADLINE_DAYS = 7
@@ -78,6 +88,7 @@ QUIET_SHOW = 12
 
 ZOHO_JOURNEY_URL = "https://crm.zoho.com/crm/org771460636/tab/CustomModule13/%s"
 LIVE_STAGES = ("Surgery Preparation", "Ready for Surgery", "Post-Op Care")
+PRE_SURGERY_STAGES = ("Surgery Preparation", "Ready for Surgery")
 JOURNEY_MODULES = ("CustomModule13", "Journeys")      # v6 and v8 names for $se_module
 
 # Who is a coordinator when Team_Schedules cannot be read (same six as the back
@@ -197,17 +208,20 @@ def secs_of(c) -> int:
 
 
 def is_journey_call(c) -> bool:
-    m = c.get("$se_module")
-    return m is None or m in JOURNEY_MODULES
+    return c.get("$se_module") in JOURNEY_MODULES
 
 
 def is_talk(c) -> bool:
-    """A real conversation (the back office's isTalk)."""
-    if status_of(c) != "completed":
-        return False
-    if re.search(r"inbound|incoming", c.get("Call_Type") or "", re.I):
-        return True
+    """A real conversation. No Answer / Left Voicemail never is. Otherwise
+    the call is completed (or inbound) and has a reached result, or no result
+    (blank, Pending, Other) and lasted TALK_SECONDS or more. An inbound call is
+    not a talk just for being inbound."""
     r = result_of(c).lower()
+    if r in NOT_REACHED:
+        return False
+    inbound = bool(re.search(r"inbound|incoming", c.get("Call_Type") or "", re.I))
+    if status_of(c) != "completed" and not inbound:
+        return False
     if r in REACH:
         return True
     return r in ("", "other") and secs_of(c) >= TALK_SECONDS
@@ -493,12 +507,35 @@ class Index:
                 self.by_j.setdefault(jid, []).append(c)
         for v in self.by_j.values():
             v.sort(key=lambda c: ts(c.get("Call_Start_Time")) or now_utc)
+        # For the contact-limit measure only: the Journey's calls plus calls
+        # on the patient's Contact (Who_Id) and on the Journey's Linked Deal
+        # (What_Id), one copy per call id. Booked-call checks, tries, rows,
+        # deadlines and welcomes stay on the Journey's own calls.
+        by_contact, by_deal = {}, {}
+        for jid, j in self.journeys.items():
+            if ref_id(j.get("Contact")):
+                by_contact.setdefault(ref_id(j.get("Contact")), []).append(jid)
+            if ref_id(j.get("Deal")):
+                by_deal.setdefault(ref_id(j.get("Deal")), []).append(jid)
+        self.wide_by_j = {jid: list(v) for jid, v in self.by_j.items()}
+        seen = {jid: {str(c.get("id")) for c in v} for jid, v in self.by_j.items()}
+        for key, table, field in (("contact_calls", by_contact, "Who_Id"), ("deal_calls", by_deal, "What_Id")):
+            for c in world.get(key) or []:
+                cid = str(c.get("id") or "")
+                for jid in table.get(ref_id(c.get(field)), ()):
+                    got = seen.setdefault(jid, set())
+                    if cid and cid in got:
+                        continue
+                    got.add(cid)
+                    self.wide_by_j.setdefault(jid, []).append(c)
+        self.wide = world.get("contact_calls") is not None or world.get("deal_calls") is not None
 
-    def last_talk(self, jid):
-        """(when, by owner id) of the latest real contact, or (None, '')."""
+    def last_talk(self, jid, wide=False):
+        """(when, by owner id) of the latest real contact, or (None, '').
+        wide: also the calls on the patient's Contact and Linked Deal."""
         j = self.journeys.get(jid) or {}
         best, by = ts(j.get("Next_Follow_Up_Date1")), ""
-        for c in self.by_j.get(jid, ()):
+        for c in (self.wide_by_j if wide else self.by_j).get(jid, ()):
             t = ts(c.get("Call_Start_Time"))
             if t and t <= self.now and is_talk(c) and (best is None or t > best):
                 best, by = t, ref_id(c.get("Owner"))
@@ -690,15 +727,19 @@ def scorecard(ix, cid, sched=None):
 
     live = [j for j in ix.journeys.values()
             if ref_id(j.get("Owner")) == cid and (j.get("Journey_Stage") or "") in LIVE_STAGES]
+    # The contact limit counts patients still before surgery (hub decision
+    # 10-31): Surgery Preparation or Ready for Surgery, surgery today or later.
+    pre = [j for j in live if (j.get("Journey_Stage") or "") in PRE_SURGERY_STAGES
+           and ix.days_out(j) is not None and ix.days_out(j) >= 0]
 
     # 1. within the contact limit
     within, quiet = 0, []
-    for j in live:
+    for j in pre:
         jid = str(j.get("id"))
         do = ix.days_out(j)
         lim = contact_limit(do)
-        last, _ = ix.last_talk(jid)
-        gap = (now - last).days if last else None
+        last, _ = ix.last_talk(jid, wide=True)
+        gap = (today - last.astimezone(tz).date()).days if last else None
         if gap is not None and gap <= lim:
             within += 1
         else:
@@ -785,8 +826,8 @@ def scorecard(ix, cid, sched=None):
 
     return {
         "live": len(live),
-        "contact": {"n": within, "of": len(live), "pct": pct(within, len(live)), "goal": 100,
-                    "quiet": quiet[:QUIET_SHOW], "quiet_n": len(quiet)},
+        "contact": {"n": within, "of": len(pre), "pct": pct(within, len(pre)), "goal": 100,
+                    "quiet": quiet[:QUIET_SHOW], "quiet_n": len(quiet), "wide": ix.wide},
         "reach": {"n": reached, "of": with_result, "pct": pct(reached, with_result), "days": REACH_DAYS},
         "deadlines": {"n": covered, "of": due, "pct": pct(covered, due), "goal": 100, "days": DEADLINE_DAYS,
                       "missing": missing[:QUIET_SHOW]},
