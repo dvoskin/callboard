@@ -3925,6 +3925,84 @@ class ZohoClient:
                 "deals_queue": deals_queue, "deals": deals, "deal_calls": deal_calls,
                 "contacts": contacts}
 
+    # ------------------------------------------------------- Coordinator My Day
+    # coord_day.py builds the page. One floor-wide read (every Active Journey a
+    # coordinator owns, and every call on a Journey from 30 days back to 8 days
+    # ahead, any owner) serves every coordinator's page and the floor view.
+    # COQL here is v6: a Journey call's $se_module reads 'CustomModule13'
+    # (v8 says 'Journeys'). Writes go to v8, the same path the back office
+    # uses for its Journey calls, with trigger [] so no workflow fires.
+
+    _CD_JOURNEY_FIELDS = ("id, Name, Surgery_Date, Journey_Stage, Case_Status, Journey_Balance_Due, "
+                          "Fourth_Attempt_Date_15D, Lab_Result_Status, Clearance_Status, Next_Follow_Up_Date1, "
+                          "Owner, Created_Time, Contact, Contact.First_Name, Contact.Last_Name, "
+                          "Contact.Mobile, Contact.Phone")
+    _CD_CALL_FIELDS = ("id, Subject, Call_Type, Outgoing_Call_Status, Call_Start_Time, Call_Duration_in_seconds, "
+                       "Call_Result, Call_Agenda, Description, What_Id, Owner, $se_module")
+
+    def coord_schedules(self) -> list:
+        """Zoho Team_Schedules rows for Team = 'Coordinator'. Raises on failure."""
+        return self._coql_all(
+            "select id, Name, Staff_User, Team, Active, Start_Hour, End_Hour, Days_Off, Saturday_Hours, "
+            "Sunday_Hours, Out_From, Out_To from Team_Schedules where Team = 'Coordinator'", cap=200)
+
+    def coord_world(self, owner_ids, calls_from, calls_to) -> dict:
+        """{"journeys", "calls"} for coord_day. Raises on an HTTP failure: an
+        empty page reads as a coordinator with nothing to do."""
+        ids = ",".join("'%s'" % str(x).replace("'", "") for x in owner_ids if str(x).strip())
+        iso = self._md_iso
+        journeys = self._coql_all(
+            f"select {self._CD_JOURNEY_FIELDS} from Journeys where (Owner.id in ({ids}) and Case_Status = 'Active')",
+            page=2000, cap=8000)
+        calls = self._coql_all(
+            f"select {self._CD_CALL_FIELDS} from Calls where ($se_module = 'CustomModule13' and "
+            f"Call_Start_Time between '{iso(calls_from)}' and '{iso(calls_to)}')", page=2000, cap=30000)
+        return {"journeys": journeys, "calls": calls}
+
+    def coord_get_call(self, call_id: str) -> dict:
+        """One call's owner, status, result and parent, for the write checks."""
+        resp = requests.get(f"{self.base_url}/crm/v8/Calls/{call_id}", headers=self._headers(),
+                            params={"fields": "Owner,Outgoing_Call_Status,Call_Result,What_Id,$se_module,"
+                                              "Call_Duration,Subject,Call_Start_Time"}, timeout=15)
+        if resp.status_code == 204:
+            return {}
+        resp.raise_for_status()
+        rows = resp.json().get("data") or []
+        return rows[0] if rows else {}
+
+    def coord_write_result(self, call_id: str, result: str, complete: bool) -> dict:
+        """Write Call_Result on a call, completing it when it is still open.
+        trigger [] (no workflow). Zoho refuses a Completed call without a
+        duration and refuses 00:00, so an open call is closed with 00:01, as
+        the back office does. Reads the call back and returns what Zoho kept:
+        a SUCCESS that keeps nothing has happened here before."""
+        data = {"id": call_id, "Call_Result": result}
+        if complete:
+            data.update(Outgoing_Call_Status="Completed", Call_Duration="00:01")
+        resp = requests.put(f"{self.base_url}/crm/v8/Calls", headers={**self._headers(), "Content-Type": "application/json"},
+                            json={"data": [data], "trigger": []}, timeout=20)
+        body = resp.json() if resp.content else {}
+        row = (body.get("data") or [{}])[0]
+        if not resp.ok or row.get("status") != "success":
+            raise RuntimeError("Zoho refused the result: %s" % (row.get("message") or row.get("code") or resp.status_code))
+        kept = self.coord_get_call(call_id)
+        if (kept.get("Call_Result") or "") != result or (complete and kept.get("Outgoing_Call_Status") != "Completed"):
+            raise RuntimeError("Zoho answered success but did not keep the result.")
+        return kept
+
+    def coord_create_call(self, journey_id: str, owner_id: str, subject: str, at_iso: str, description: str) -> str:
+        """A scheduled call on a Journey for the coordinator. Returns its id."""
+        data = {"Subject": subject[:250], "Call_Type": "Outbound", "Outgoing_Call_Status": "Scheduled",
+                "Call_Start_Time": at_iso, "Owner": {"id": owner_id}, "What_Id": {"id": journey_id},
+                "$se_module": "Journeys", "Description": description[:2000]}
+        resp = requests.post(f"{self.base_url}/crm/v8/Calls", headers={**self._headers(), "Content-Type": "application/json"},
+                             json={"data": [data], "trigger": []}, timeout=20)
+        body = resp.json() if resp.content else {}
+        row = (body.get("data") or [{}])[0]
+        if not resp.ok or row.get("status") != "success":
+            raise RuntimeError("Zoho refused the call back: %s" % (row.get("message") or row.get("code") or resp.status_code))
+        return str((row.get("details") or {}).get("id") or "")
+
     def my_day_busy(self, owner_id: str, start, end) -> list:
         """The rep's booked calls and meetings in [start, end], for the time
         picker. The automated follow-up ladder is left out: Zoho books it on

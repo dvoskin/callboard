@@ -6832,6 +6832,9 @@ def my_day_page(rep_id=None):
         return redirect("/my-day")
     users = _md_users_list()
     floor = _md_floor(users) if (viewer["manager"] or viewer["word_only"] or not rep) else []
+    if rep and _cd_is_coord(rep["id"]):
+        # A surgical coordinator gets the coordinator My Day (coord_day.py). The reps' page below is unchanged.
+        return render_template("my_day_coord.html", boot=_cd_boot(rep, viewer, floor))
     if floor and rep and not any(u["id"] == rep["id"] for u in floor):
         floor.insert(0, {"id": rep["id"], "name": rep.get("name") or "", "role": _md_role(rep.get("name") or "")})
     return render_template("my_day.html", current_user=session.get("user") or {},
@@ -7234,6 +7237,304 @@ def my_day_api_claim():
     log.info("my-day: %s holds unclaimed deal %s", rep.get("name"), deal_id)
     return jsonify({"go": True, "held": True,
                     "message": "Calling. Talk for a minute or more and the lead becomes yours."})
+
+
+# ── Coordinator My Day (Danny, 2026-10-31) ───────────────────────────────
+# "daily actions for agents should be extremely ergonomic ... provide a seamless
+# way to provide a consistent experience." Surgical coordinators (Zoho
+# Team_Schedules, Team = 'Coordinator') get their own My Day: the Journey calls
+# due now in priority order, one-tap results that complete the Zoho call, text
+# drafts to copy, and their scorecard. coord_day.py has the rules. The reps' My
+# Day above is not touched. MY_DAY_COORD=0 turns it off (coordinators then get
+# the reps' page again, as before).
+#
+# One floor-wide read serves every coordinator's page and the floor view:
+# about 1,750 Journeys and 8,400 Journey calls, 8 s, kept _CD_TTL seconds and
+# refreshed in the background while the last copy is served. A result written
+# here is patched into that copy at once.
+import coord_day as _cd  # noqa: E402
+
+MY_DAY_COORD = os.environ.get("MY_DAY_COORD", "1") != "0"
+_CD_TTL = 90.0
+_CD_SCHED_TTL = 600.0
+_cd_lock = threading.Lock()
+_cd_state = {"at": 0.0, "world": None, "refreshing": False, "error": ""}
+_cd_sched = {"at": 0.0, "rows": None}
+# Writes made here in the last 10 minutes, re-applied to every fresh read: a
+# refresh that started before a result was saved must not bring the call back.
+_cd_recent = {}                      # call id -> {"at", "fields", "row" (a call this app created)}
+
+
+def _cd_remember(call_id, fields=None, row=None):
+    with _cd_lock:
+        now = time.time()
+        for k in [k for k, v in _cd_recent.items() if now - v["at"] > 600]:
+            _cd_recent.pop(k, None)
+        _cd_recent[str(call_id)] = {"at": now, "fields": fields or {}, "row": row}
+
+
+def _cd_reapply(world):
+    now = time.time()
+    with _cd_lock:
+        recent = {k: v for k, v in _cd_recent.items() if now - v["at"] <= 600}
+    have = {str(c.get("id")) for c in world.get("calls") or []}
+    for cid, v in recent.items():
+        if v.get("row") and cid not in have:
+            world.setdefault("calls", []).append(dict(v["row"]))
+        elif v.get("fields"):
+            _cd.patch_call(world, cid, v["fields"])
+    return world
+
+
+def _cd_schedules():
+    """Coordinators from Zoho Team_Schedules, cached 10 minutes. A failed read
+    keeps the last list, then the fallback six."""
+    if MY_DAY_FAKE:
+        return [dict(s) for s in _cd.FAKE_SCHEDULE]
+    now = time.time()
+    with _cd_lock:
+        if _cd_sched["rows"] is not None and now - _cd_sched["at"] < _CD_SCHED_TTL:
+            return list(_cd_sched["rows"])
+    try:
+        rows = _cd.schedules_from_rows(_zoho.coord_schedules())
+    except Exception as e:  # noqa: BLE001
+        log.warning("coord-day: schedules read failed: %s", _redact(e)[:160])
+        rows = None
+    with _cd_lock:
+        if rows:
+            _cd_sched.update(at=now, rows=rows)
+        return list(_cd_sched["rows"] or _cd.schedules_from_rows(None))
+
+
+def _cd_is_coord(rep_id) -> bool:
+    if not MY_DAY_COORD or not rep_id:
+        return False
+    return any(s["id"] == str(rep_id) for s in _cd_schedules())
+
+
+def _cd_read_world():
+    now_utc = datetime.now(timezone.utc)
+    if MY_DAY_FAKE:
+        return _cd.fake_world(now_utc, MY_DAY_TZ)
+    ids = [s["id"] for s in _cd_schedules()]
+    return _zoho.coord_world(ids, now_utc - timedelta(days=_cd.CALLS_DAYS), now_utc + timedelta(days=_cd.AHEAD_DAYS))
+
+
+def _cd_refresh():
+    try:
+        world = _cd_reapply(_cd_read_world())
+        with _cd_lock:
+            _cd_state.update(at=time.time(), world=world, error="")
+    except Exception as e:  # noqa: BLE001
+        log.warning("coord-day: floor read failed: %s", _redact(e)[:200])
+        with _cd_lock:
+            _cd_state["error"] = "Zoho could not be read just now; this is the last good copy."
+    finally:
+        with _cd_lock:
+            _cd_state["refreshing"] = False
+
+
+def _cd_world(fresh=False):
+    """(world, stale message). The first read waits; after that the last copy
+    is served and a refresh runs in the background once it is _CD_TTL old."""
+    with _cd_lock:
+        world, age = _cd_state["world"], time.time() - _cd_state["at"]
+        busy = _cd_state["refreshing"]
+        if world is not None and not fresh and (age < _CD_TTL or busy):
+            return world, _cd_state["error"]
+        if world is not None and not busy:
+            _cd_state["refreshing"] = True
+    if world is not None:
+        threading.Thread(target=_cd_refresh, name="coord-day-refresh", daemon=True).start()
+        return world, _cd_state["error"]
+    world = _cd_reapply(_cd_read_world())    # first read: raises to the caller on failure
+    with _cd_lock:
+        _cd_state.update(at=time.time(), world=world, error="")
+    return world, ""
+
+
+def _cd_boot(rep, viewer, floor):
+    """The page's boot data. A manager's name switch lists the coordinators
+    first, then everyone the reps' switch lists."""
+    sw = []
+    if floor or viewer["manager"]:
+        sw = [{"id": s["id"], "name": s["name"], "role": "coordinator"} for s in _cd_schedules()]
+        have = {u["id"] for u in sw}
+        sw += [u for u in (floor or []) if u["id"] not in have]
+    return {"rep": {"id": rep["id"], "name": rep.get("name") or ""}, "floor": sw,
+            "viewer": {"name": viewer["name"], "manager": viewer["manager"],
+                       "can_write": viewer["can_write"] and not viewer["word_only"], "word_only": viewer["word_only"]}}
+
+
+def _cd_rep(asked):
+    """(viewer, rep, error response) for the coordinator APIs."""
+    if not _md_allowed():
+        return None, None, (jsonify({"error": "unauthorized"}), 401)
+    viewer = _md_viewer()
+    rep, err = _md_resolve_rep(viewer, asked or None)
+    if err:
+        return viewer, None, (jsonify({"error": err}), 403 if err == "forbidden" else 400)
+    if not _cd_is_coord(rep["id"]):
+        return viewer, None, (jsonify({"error": "not_a_coordinator"}), 400)
+    return viewer, rep, None
+
+
+@app.route("/my-day/api/coord/data")
+def my_day_coord_data():
+    viewer, rep, bad = _cd_rep(request.args.get("rep"))
+    if bad:
+        return bad
+    try:
+        world, stale = _cd_world(fresh=request.args.get("fresh") == "1")
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": "zoho_failed", "detail": _redact(e)[:200]}), 502
+    now_utc = datetime.now(timezone.utc)
+    page = _cd.build(world, now_utc, MY_DAY_TZ, rep, _cd_schedules())
+    page["stale"] = bool(stale)
+    page["error"] = stale
+    page["fake"] = MY_DAY_FAKE
+    return jsonify(page)
+
+
+@app.route("/my-day/api/coord/slots")
+def my_day_coord_slots():
+    """Open 10-minute slots in the coordinator's shift for the call-back picker."""
+    viewer, rep, bad = _cd_rep(request.args.get("rep"))
+    if bad:
+        return bad
+    now_utc = datetime.now(timezone.utc)
+    sched = next((s for s in _cd_schedules() if s["id"] == rep["id"]), None)
+    busy = []
+    try:
+        world, _ = _cd_world()
+        for c in world.get("calls") or []:
+            t = _cd.ts(c.get("Call_Start_Time"))
+            if t and t > now_utc and _cd.ref_id(c.get("Owner")) == rep["id"] and _cd.status_of(c) in _cd.OPEN:
+                busy.append(t)
+    except Exception:  # noqa: BLE001
+        pass
+    return jsonify({"slots": _cd.free_slots(sched, busy, now_utc, MY_DAY_TZ)})
+
+
+@app.route("/my-day/api/coord/result", methods=["POST"])
+def my_day_coord_result():
+    """One tap: write Call_Result on the coordinator's Journey call and
+    complete it (trigger [], no workflow). Wants a call back also books the
+    new call at the picked time. Only the coordinator's own Journey calls; a
+    cancelled call is refused. Nothing is moved or cancelled, and no text is
+    sent: the back office's journey-retry books the retry after a No answer."""
+    gated = _md_write_gate()
+    if gated is not None:
+        return gated
+    body = request.get_json(silent=True) or {}
+    viewer, rep, bad = _cd_rep(str(body.get("rep") or ""))
+    if bad:
+        return bad
+    if viewer["word_only"]:
+        return jsonify({"error": "forbidden"}), 403
+    key = str(body.get("result") or "")
+    if key not in _cd.RESULT_KEYS:
+        return jsonify({"error": "bad_result"}), 400
+    call_id = str(body.get("callId") or "").strip()
+    if not (call_id.isdigit() or (MY_DAY_FAKE and call_id)):
+        return jsonify({"error": "call_required"}), 400
+    value = _cd.RESULT_VALUE[key]
+    now_utc = datetime.now(timezone.utc)
+    at = None
+    if key == "call_back":
+        try:
+            at = datetime.fromisoformat(str(body.get("at") or "").replace("Z", "+00:00"))
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=MY_DAY_TZ)
+            at = at.astimezone(timezone.utc)
+        except ValueError:
+            return jsonify({"error": "time_required", "message": "Pick the time she asked for."}), 400
+        if at < now_utc + timedelta(minutes=5) or at > now_utc + timedelta(days=21):
+            return jsonify({"error": "bad_time", "message": "Pick a time from 5 minutes to 3 weeks from now."}), 400
+    world, _ = _cd_world()
+    cached = next((c for c in world.get("calls") or [] if str(c.get("id")) == call_id), None)
+    if MY_DAY_FAKE:
+        info = dict(cached or {})
+    else:
+        try:
+            info = _zoho.coord_get_call(call_id)
+        except Exception as e:  # noqa: BLE001
+            log.warning("coord-day: call %s read failed: %s", call_id, _redact(e)[:160])
+            return jsonify({"ok": False, "message": "Zoho could not be read. Try again."}), 502
+    if _cd.ref_id(info.get("Owner")) != rep["id"]:
+        return jsonify({"ok": False, "message": "That call is not on this coordinator's calendar."}), 403
+    if info.get("$se_module") not in _cd.JOURNEY_MODULES:
+        return jsonify({"ok": False, "message": "That call is not on a Journey."}), 400
+    status = (info.get("Outgoing_Call_Status") or "").strip()
+    if status == "Cancelled":
+        return jsonify({"ok": False, "message": "That call was cancelled in Zoho."}), 409
+    complete = status in ("Scheduled", "Overdue")
+    try:
+        if not MY_DAY_FAKE:
+            _zoho.coord_write_result(call_id, value, complete)
+    except Exception as e:  # noqa: BLE001
+        log.warning("coord-day: result on call %s failed: %s", call_id, _redact(e)[:200])
+        return jsonify({"ok": False, "message": str(_redact(e))[:200]}), 502
+    fields = {"Call_Result": value}
+    if complete:
+        fields.update(Outgoing_Call_Status="Completed", Call_Duration_in_seconds=1)
+    with _cd_lock:
+        _cd.patch_call(world, call_id, fields)
+    _cd_remember(call_id, fields=fields)
+    log.info("coord-day: %s wrote %s on call %s for %s", viewer["email"] or "?", key, call_id, rep["id"])
+    out = {"ok": True, "saved": value, "completed": complete}
+    if key == "call_back":
+        jid = _cd.ref_id(info.get("What_Id"))
+        j = next((x for x in world.get("journeys") or [] if str(x.get("id")) == jid), {})
+        name = _cd.journey_name(j) if j else (info.get("Subject") or "Patient").split("·")[0].strip()
+        surg = _cd.day_of(j.get("Surgery_Date")) if j else None
+        subject = "%s · Call back · Surg %s · P1" % (name, surg.strftime("%b %-d") if surg else "not set")
+        when_local = at.astimezone(MY_DAY_TZ)
+        desc = ("CALL BACK: the patient asked for a call at this time. Booked on My Day by %s after the call on %s ET.\n\n"
+                "DONE WHEN: you spoke with the patient and logged the result."
+                % (viewer["name"] or rep.get("name") or "the coordinator", now_utc.astimezone(MY_DAY_TZ).strftime("%b %-d %-I:%M %p")))
+        try:
+            new_id = "fake-cb-%d" % int(time.time()) if MY_DAY_FAKE else _zoho.coord_create_call(
+                jid, rep["id"], subject, at.strftime("%Y-%m-%dT%H:%M:%S+00:00"), desc)
+        except Exception as e:  # noqa: BLE001
+            log.warning("coord-day: call back on journey %s failed: %s", jid, _redact(e)[:200])
+            out.update(ok=True, warning="The result is saved, but the call back could not be booked: %s" % str(_redact(e))[:160])
+            return jsonify(out)
+        new_row = {"id": new_id, "Subject": subject, "Call_Type": "Outbound", "Outgoing_Call_Status": "Scheduled",
+                   "Call_Start_Time": at.isoformat(), "What_Id": {"id": jid}, "Owner": {"id": rep["id"]},
+                   "$se_module": "CustomModule13", "Description": desc}
+        with _cd_lock:
+            world.setdefault("calls", []).append(dict(new_row))
+        _cd_remember(new_id, row=new_row)
+        out["callback"] = {"id": new_id, "when": "%s %s" % (when_local.strftime("%a %b %-d"), _cd.clock(when_local))}
+        log.info("coord-day: call back %s booked on journey %s for %s", new_id, jid, rep["id"])
+    return jsonify(out)
+
+
+@app.route("/my-day/coordinators", methods=["GET", "POST"])
+def my_day_coord_floor_page():
+    """Every coordinator's day and scorecard side by side, for managers (and
+    the floor word, read only)."""
+    door = _md_manager_door("Coordinators")
+    if door is not None:
+        return door
+    return render_template("my_day_coord_floor.html")
+
+
+@app.route("/my-day/api/coord/floor")
+def my_day_coord_floor_data():
+    if not _md_allowed():
+        return jsonify({"error": "unauthorized"}), 401
+    viewer = _md_viewer()
+    if not (viewer["manager"] or viewer["word_only"]):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        world, stale = _cd_world(fresh=request.args.get("fresh") == "1")
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": "zoho_failed", "detail": _redact(e)[:200]}), 502
+    out = _cd.floor(world, datetime.now(timezone.utc), MY_DAY_TZ, _cd_schedules())
+    out["stale"], out["error"] = bool(stale), stale
+    return jsonify(out)
 
 
 @app.route("/v6/board")
