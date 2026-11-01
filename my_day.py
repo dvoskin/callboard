@@ -27,7 +27,7 @@ The rules, in one place:
              with no Call Result (blank or "Pending") is "no result yet" and
              raises the red bar.
   Talked, nothing booked
-             completed today, at least TALK_MIN_SECONDS long, a Call Result
+             completed today, longer than TALK_MIN_SECONDS (45 s), a Call Result
              that says a person was reached, and no open call on the same
              deal after it.
 
@@ -74,7 +74,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 LATE_MINUTES = 15
-TALK_MIN_SECONDS = 60
+TALK_MIN_SECONDS = 45   # a call OVER 45 s is a conversation (Danny 11-01, the one rule with the coordinators; was 60)
 NEW_LEAD_HOURS = 24
 LATE_SHOW = 25          # rows in Late before "+ N more"
 TODAY_SHOW = 30
@@ -610,7 +610,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
                 continue
             res = result_of(c)
             what = res or ("talked " + dur_label(c.get("Call_Duration_in_seconds"))
-                           if int(float(c.get("Call_Duration_in_seconds") or 0)) >= TALK_MIN_SECONDS
+                           if int(float(c.get("Call_Duration_in_seconds") or 0)) > TALK_MIN_SECONDS
                            else "no result written")
             return {"date": day_label(t.astimezone(tz), today), "what": what.lower() if res else what}
         return None
@@ -867,7 +867,7 @@ def build(world, now_utc, tz, role="sales", rep=None, queue_enabled=False, queue
             secs = int(float(c.get("Call_Duration_in_seconds") or 0))
         except (TypeError, ValueError):
             secs = 0
-        if secs >= TALK_MIN_SECONDS and conv_reached(c):
+        if secs > TALK_MIN_SECONDS and conv_reached(c):
             talked += 1
             if not has_next(c, t):
                 talked_none.append(c)
