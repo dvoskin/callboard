@@ -83,7 +83,7 @@ AHEAD_DAYS = 8
 REACH_DAYS = 7
 DEADLINE_DAYS = 7
 WELCOME_DAYS = 14
-TALK_SECONDS = 120
+TALK_SECONDS = 45   # Danny 11-01: "technically anything over 45 seconds should be a real call" (was 120 with no result)
 QUIET_SHOW = 12
 
 ZOHO_JOURNEY_URL = "https://crm.zoho.com/crm/org771460636/tab/CustomModule13/%s"
@@ -212,10 +212,14 @@ def is_journey_call(c) -> bool:
 
 
 def is_talk(c) -> bool:
-    """A real conversation. No Answer / Left Voicemail never is. Otherwise
-    the call is completed (or inbound) and has a reached result, or no result
-    (blank, Pending, Other) and lasted TALK_SECONDS or more. An inbound call is
-    not a talk just for being inbound."""
+    """A real conversation (Danny 11-01, one rule for coordinators and sales;
+    the same as the back office's lib/journey-retry isTalk and
+    daily-kpis/evidence_daily.py real_talk). No Answer / Left Voicemail never
+    is. Otherwise the call is completed (or inbound) and has a reached result
+    (Reached / Callback Requested / Rescheduled Call / Transferred), or lasted
+    longer than TALK_SECONDS (45) whatever else its result says. Before 11-01
+    the bar was 120 s with no result. An inbound call is not a talk just for
+    being inbound."""
     r = result_of(c).lower()
     if r in NOT_REACHED:
         return False
@@ -224,7 +228,7 @@ def is_talk(c) -> bool:
         return False
     if r in REACH:
         return True
-    return r in ("", "other") and secs_of(c) >= TALK_SECONDS
+    return secs_of(c) > TALK_SECONDS
 
 
 def is_try(c) -> bool:
